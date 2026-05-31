@@ -1,0 +1,35 @@
+# Original project (reference only)
+Retrieval-based-Voice-Conversion-WebUI/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# Model files (too large for git)
+assets/weights/*.pth
+assets/pretrained_v2/*.pth
+assets/rmvpe/*.pt
+assets/rmvpe/*.onnx
+assets/hubert/*.pt
+assets/hubert/*.bin
+assets/indices/*.index
+assets/hubert_inputs.pth
+assets/rmvpe_inputs.pth
+
+# Runtime configs
+configs/inuse/
+
+# Temp
+TEMP/
+*.tmp
+
+# OS
+Thumbs.db
+.DS_Store
