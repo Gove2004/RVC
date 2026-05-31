@@ -1,6 +1,7 @@
 """HuBERT 模型加载 — 使用 fairseq 加载原始 HuBERT"""
 import os
 import logging
+import warnings
 
 import torch
 
@@ -55,23 +56,36 @@ def load_hubert(config):
         else:
             raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
 
-    logger.info("使用 fairseq 加载 HuBERT: %s", hubert_path)
+    logger.info("加载 HuBERT 模型...")
 
-    # fairseq 的 torch.load 需要 weights_only=False
+    # fairseq 的 torch.load 需要 weights_only=False, 同时抑制 fairseq 的详细日志
     _original_load = torch.load
     def _patched_load(*args, **kwargs):
         kwargs.setdefault('weights_only', False)
         return _original_load(*args, **kwargs)
     torch.load = _patched_load
 
+    # 临时提高 fairseq 相关 logger 的级别, 避免刷屏
+    _quiet_loggers = ["fairseq.tasks.hubert_pretraining", "fairseq.models.hubert.hubert",
+                      "fairseq.models.hubert", "fairseq"]
+    _saved_levels = {}
+    for name in _quiet_loggers:
+        l = logging.getLogger(name)
+        _saved_levels[name] = l.level
+        l.setLevel(logging.WARNING)
+
     try:
-        from fairseq import checkpoint_utils
-        models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
-            [hubert_path], suffix=""
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*weight_norm.*deprecated.*")
+            from fairseq import checkpoint_utils
+            models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
+                [hubert_path], suffix=""
+            )
         hubert_model = models[0]
     finally:
         torch.load = _original_load
+        for name, level in _saved_levels.items():
+            logging.getLogger(name).setLevel(level)
 
     hubert_model = HubertWrapper(hubert_model)
     hubert_model = hubert_model.to(config.device)
@@ -79,5 +93,6 @@ def load_hubert(config):
         hubert_model = hubert_model.half()
     else:
         hubert_model = hubert_model.float()
-    logger.info("HuBERT 模型加载完成 (fairseq)")
+    logger.info("HuBERT 模型已就绪")
     return hubert_model.eval()
+

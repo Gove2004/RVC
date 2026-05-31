@@ -16,7 +16,16 @@ from torchaudio.transforms import Resample as TatResample
 import torchaudio
 import torchaudio.functional as TAF
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+# 修复 Windows 终端中文乱码: 强制 UTF-8 输出
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[logging.StreamHandler(stream=sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
 now_dir = os.getcwd()

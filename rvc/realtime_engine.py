@@ -56,6 +56,13 @@ class RealtimeVC:
         # Synthesizer
         self._load_synthesizer()
 
+        # 移除 weight_norm: 推理时不需要, 每次前向传播省掉 g*v/||v|| 重计算
+        try:
+            self.net_g.remove_weight_norm()
+            logger.info("已移除合成器 weight_norm")
+        except Exception:
+            pass
+
         # FAISS Index
         if self.index_rate > 0 and self.index_path and os.path.exists(self.index_path):
             self.index = faiss.read_index(self.index_path)
@@ -124,7 +131,14 @@ class RealtimeVC:
         if self.model_fcpe is None:
             from torchfcpe import spawn_bundled_infer_model
             logger.info("加载 FCPE 模型...")
-            self.model_fcpe = spawn_bundled_infer_model(self.device)
+            # 抑制 torchfcpe 内部的 INFO/WARN 日志
+            fcpe_logger = logging.getLogger("torchfcpe")
+            saved_level = fcpe_logger.level
+            fcpe_logger.setLevel(logging.ERROR)
+            try:
+                self.model_fcpe = spawn_bundled_infer_model(self.device)
+            finally:
+                fcpe_logger.setLevel(saved_level)
         f0 = self.model_fcpe.infer(
             x.to(self.device).unsqueeze(0).float(),
             sr=16000,
