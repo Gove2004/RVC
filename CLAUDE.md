@@ -18,65 +18,47 @@ RVC 实时语音转换工具 — 基于深度学习的实时变声器。PySide6 
 
 ## Architecture
 
-**实时推理流程**: `app.py` (PySide6 GUI) → `RealtimeEngine` (sounddevice 音频回调) → `RealtimeVC.infer()` (滚动缓冲区 + HuBERT + FAISS + 合成器) → SOLA 交叉淡化 → 扬声器输出
+**实时推理流程**: 用户选择模型 → 点击"开始" → `LoadThread` 加载模型 → `RealtimeEngine.setup()` 打开音频流 → `sounddevice` 回调 `_cb()` → `RealtimeVC.infer()` → SOLA 交叉淡化 → 扬声器输出
+
+### GUI 结构 (`app.py`)
+
+三个 Tab + 底部控制栏，统一 Grid 布局（间距 6px、边距 10px、标签最小宽度 35px）：
+
+- **设置** (`_build_settings_tab`) — 音频设备路由 + 引擎参数（阈值、采样长度、淡入淡出、额外上下文、F0 算法）
+- **模型** (`_build_models_tab`) — 可滚动的 `ModelCard` 列表，单选选中，展开显示参数（音调/性别/索引/响度），删除按钮在展开底部
+- **声学** (`_build_audio_tab`) — 降噪 + 音效（EQ/饱和/压限/混响 + 预设系统）
+
+底部控制栏：`开始`（成功后显示"运行中"）| `停止` | `当前: 模型名` | `延迟: X` | `推理: X`
 
 ### 核心组件
 
-- **`app.py`** — PySide6 紧凑 GUI，三个标签页（音频设置/变声引擎/声学母带）。`RealtimeEngine` 管理实时 mic→VC→speaker 管道。
+- **`RealtimeEngine`** — 管理 `sounddevice.Stream`、缓冲区、重采样器、SOLA。`_cb()` 是音频回调（实时线程），读取全局 `p` Params 对象获取参数。
+- **`RealtimeVC`** — 推理引擎。加载 HuBERT + 合成器 + 可选 FAISS 索引。`infer()` 接收 16kHz 滚动缓冲区，返回模型采样率音频。
+- **`ModelCard`** — 可折叠的模型配置卡片。`load_requested` 信号通知 MainWindow 选中模型。
+- **`ModelListData`** — `configs/models.json` 的读写。
+- **`Params`** — 全局运行时参数单例（`p = Params()`），回调线程读、主线程写（依赖 GIL 保证原子性）。
 
-- **`rvc/realtime_engine.py`** — `RealtimeVC` 类。实时推理引擎，滚动缓冲区 + skip_head/return_length 模式。加载 HuBERT、合成器、可选 FAISS 索引。
+### 模型缓存
 
-- **`rvc/hubert.py`** — `HuBERT` 模型架构（独立实现，无需 fairseq/transformers）。从 `assets/hubert/hubert_base.pt` 加载 fairseq 权重。
+模块级缓存，跨 `RealtimeVC` 实例复用：
+- `rvc/hubert.py` → `_hubert_cache` — HuBERT 模型（设备级缓存）
+- `rvc/realtime_engine.py` → `_rmvpe_cache` / `_fcpe_cache` — F0 提取器（设备级缓存）
 
-- **`rvc/synthesizer.py`** — `SynthesizerTrnMsNSFsid` (带F0) / `SynthesizerTrnMsNSFsid_nono` (无F0)。VAE + Normalizing Flow + HiFi-GAN 解码器。
+合成器不缓存（每个 .pth 文件权重不同，每次重新加载）。
 
-- **`rvc/rmvpe.py`** — RMVPE 音高提取器。CNN 从梅尔频谱图预测 F0。
+### 配置持久化
 
-- **`rvc/nn/`** — 神经网络组件：attentions.py (多头注意力)、modules.py (WaveNet, ResBlock)、commons.py (工具函数)、transforms.py (标准化流)。
-
-- **`rvc/denoise/`** — TorchGate 频谱门控降噪。
+- `configs/inuse/gui_config.json` — 全局配置（设备、引擎参数、EQ、选中的模型路径）
+- `configs/models.json` — 模型列表（每个模型的 name/pth/idx/pitch/index_rate/rms_mix/gender）
 
 ### 关键模式
 
 - **滚动缓冲区**: 音频以 ~250ms 块流入，维护 2.5s 上下文窗口。HuBERT 在整个缓冲区上运行，但只解码最新块。
-- **SOLA 交叉淡化**: 使用互相关找到最佳拼接点，正弦平方窗口淡入淡出，消除块边界咔嗒声。
-- **声学母带**: EQ (低/中/高频) + 电子管饱和 + 动态压限 + 空间混响，带预设系统。
-- **F0 方法**: 仅支持 `fcpe`（快速）和 `rmvpe`（精确）。
-- **HuBERT layer 12**: 始终使用第12层编码器输出（768维）。
-- **配置持久化**: 设置自动保存到 `configs/inuse/gui_config.json`。
-
-## 目录结构
-
-```
-app.py                    # PySide6 桌面 GUI 入口
-requirements.txt          # 依赖
-.env                      # 路径配置
-
-configs/
-  config.py               # Config 单例 (CUDA-only)
-  v2/32k.json, v2/48k.json
-
-rvc/
-  realtime_engine.py      # RealtimeVC 实时推理引擎
-  hubert.py               # HuBERT 模型架构 + 加载器
-  rmvpe.py                # RMVPE 音高提取
-  synthesizer.py          # 合成器模型定义
-  nn/                     # 神经网络组件
-    attentions.py         # 多头注意力
-    commons.py            # 工具函数
-    modules.py            # WaveNet, ResBlock, Flow
-    transforms.py         # 标准化流变换
-  denoise/                # 降噪
-    torchgate.py          # TorchGate 频谱门控
-    utils.py              # 辅助函数
-
-assets/
-  weights/                # 用户训练的 .pth 模型
-  pretrained_v2/          # 预训练 v2 模型
-  hubert/                 # HuBERT 权重 (hubert_base.pt)
-  rmvpe/                  # RMVPE 权重 (rmvpe.pt)
-  indices/                # FAISS .index 文件
-```
+- **SOLA 交叉淡化**: 使用互相关找到最佳拼接点，正弦平方窗口淡入淡出。
+- **F0 方法**: `fcpe`（快速）和 `rmvpe`（精确），全局选择，不绑定单个模型。
+- **索引**: `index_rate > 0` 时才加载 FAISS 索引（惰性加载）。
+- **声学效果**: EQ (低/中/高频 biquad) + tanh 饱和 + 动态压限 + 4-tap 延迟混响。5 个内置预设。
+- **日志**: 统一中文格式，每个组件一行（`加载 HuBERT` / `加载 Synthesizer` / `加载完成`）。
 
 ## Environment
 

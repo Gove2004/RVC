@@ -7,6 +7,8 @@ import torch
 
 logger = logging.getLogger(__name__)
 
+_hubert_cache = {}  # {device: model}
+
 
 class HubertWrapper:
     """包装 fairseq HuBERT，提供与 pipeline 兼容的 extract_features 接口"""
@@ -43,7 +45,11 @@ class HubertWrapper:
 
 
 def load_hubert(config):
-    """使用 fairseq 加载 HuBERT 模型。"""
+    """使用 fairseq 加载 HuBERT 模型（带缓存）。"""
+    if config.device in _hubert_cache:
+        logger.info("加载 HuBERT（缓存）")
+        return _hubert_cache[config.device]
+
     hubert_path = "assets/hubert/hubert_base.pt"
 
     if not os.path.exists(hubert_path):
@@ -56,7 +62,7 @@ def load_hubert(config):
         else:
             raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
 
-    logger.info("加载 HuBERT 模型...")
+    logger.info("加载 HuBERT")
 
     # fairseq 的 torch.load 需要 weights_only=False, 同时抑制 fairseq 的详细日志
     _original_load = torch.load
@@ -93,6 +99,7 @@ def load_hubert(config):
         hubert_model = hubert_model.half()
     else:
         hubert_model = hubert_model.float()
-    logger.info("HuBERT 模型已就绪")
-    return hubert_model.eval()
+    model = hubert_model.eval()
+    _hubert_cache[config.device] = model
+    return model
 

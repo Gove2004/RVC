@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QComboBox, QSlider, QCheckBox,
     QFileDialog, QMessageBox, QGroupBox, QLineEdit, QRadioButton,
-    QButtonGroup, QTabWidget,
+    QButtonGroup, QTabWidget, QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QPalette, QColor
@@ -46,6 +46,134 @@ from rvc.denoise import TorchGate
 config = Config()
 
 CONFIG_PATH = "configs/inuse/gui_config.json"
+MODELS_PATH = "configs/models.json"
+
+
+# ─────────────────── 模型列表数据 ───────────────────
+
+class ModelListData:
+    """管理模型列表的持久化"""
+
+    @staticmethod
+    def load():
+        if not os.path.exists(MODELS_PATH): return []
+        try:
+            with open(MODELS_PATH, "r", encoding="utf-8") as f: return json.load(f).get("models", [])
+        except: return []
+
+    @staticmethod
+    def save(models):
+        os.makedirs(os.path.dirname(MODELS_PATH), exist_ok=True)
+        with open(MODELS_PATH, "w", encoding="utf-8") as f:
+            json.dump({"models": models}, f, indent=2, ensure_ascii=False)
+
+
+# ─────────────────── 模型卡片 ───────────────────
+
+class ModelCard(QFrame):
+    """模型卡片: 点击名称选中, 箭头展开参数"""
+
+    load_requested = Signal(str, str, str, float, float, float, float)
+
+    def __init__(self, name="", pth="", idx="", pitch=0, f0method="fcpe",
+                 index_rate=0.0, rms_mix=0.0, gender=50, parent=None):
+        super().__init__(parent)
+        self._expanded = False
+        self._build(name, pth, idx, pitch, f0method, index_rate, rms_mix, gender)
+        self._body.setVisible(False)
+
+    def _build(self, name, pth, idx, pitch, f0method, index_rate, rms_mix, gender):
+        root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+
+        # 头部: 单选圆圈 + 名称 + 展开箭头
+        hdr = QWidget(); hdr.setCursor(Qt.PointingHandCursor)
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(4,3,4,3)
+        self._radio = QRadioButton()
+        self._radio.setAutoExclusive(False)
+        self._radio.clicked.connect(self._on_load)
+        self._name = QLabel(name or os.path.splitext(os.path.basename(pth))[0])
+        self._name.setStyleSheet("font-weight:bold")
+        self._arrow = QLabel("▶"); self._arrow.setStyleSheet("color:#666;font-size:9px")
+        hl.addWidget(self._radio); hl.addWidget(self._name, 1)
+        hl.addWidget(self._arrow)
+        root.addWidget(hdr)
+        self._name.mousePressEvent = lambda e: self._on_load()
+        self._arrow.mousePressEvent = lambda e: self._toggle()
+
+        # 内容 (展开后显示)
+        self._body = QWidget()
+        bl = QGridLayout(self._body); bl.setContentsMargins(24,2,6,4); bl.setSpacing(2)
+        r = 0
+        bl.addWidget(QLabel("模型"), r, 0)
+        self.pth_edit = QLineEdit(pth); bl.addWidget(self.pth_edit, r, 1)
+        b = QPushButton("…"); b.setFixedSize(22,20)
+        b.clicked.connect(lambda: self._browse(self.pth_edit, "模型 (*.pth)")); bl.addWidget(b, r, 2); r+=1
+        bl.addWidget(QLabel("索引"), r, 0)
+        self.idx_edit = QLineEdit(idx); bl.addWidget(self.idx_edit, r, 1)
+        b = QPushButton("…"); b.setFixedSize(22,20)
+        b.clicked.connect(lambda: self._browse(self.idx_edit, "索引 (*.index)")); bl.addWidget(b, r, 2); r+=1
+
+        def add_s(label, sl, lbl, row):
+            bl.addWidget(QLabel(label), row, 0); bl.addWidget(sl, row, 1); bl.addWidget(lbl, row, 2)
+
+        self.pit_sl = self._sl(-16,16,1,pitch); self.pit_lbl = QLabel(str(pitch))
+        self.pit_sl.valueChanged.connect(lambda v: self.pit_lbl.setText(str(v)))
+        add_s("音调", self.pit_sl, self.pit_lbl, r); r+=1
+        self.gen_sl = self._sl(0,100,1,gender); self.gen_lbl = QLabel(f"{gender/100:.2f}")
+        self.gen_sl.valueChanged.connect(lambda v: self.gen_lbl.setText(f"{v/100:.2f}"))
+        add_s("性别", self.gen_sl, self.gen_lbl, r); r+=1
+        self.ir_sl = self._sl(0,100,1,int(index_rate*100)); self.ir_lbl = QLabel(f"{index_rate:.2f}")
+        self.ir_sl.valueChanged.connect(lambda v: self.ir_lbl.setText(f"{v/100:.2f}"))
+        add_s("索引", self.ir_sl, self.ir_lbl, r); r+=1
+        self.rms_sl = self._sl(0,100,1,int(rms_mix*100)); self.rms_lbl = QLabel(f"{rms_mix:.2f}")
+        self.rms_sl.valueChanged.connect(lambda v: self.rms_lbl.setText(f"{v/100:.2f}"))
+        add_s("响度", self.rms_sl, self.rms_lbl, r); r+=1
+
+        self._del = QPushButton("删除此模型")
+        self._del.setStyleSheet("QPushButton{background:#c0392b;color:white;border:none;padding:3px;border-radius:2px;font-size:11px}QPushButton:hover{background:#e74c3c}")
+        bl.addWidget(self._del, r, 0, 1, 3)
+        root.addWidget(self._body)
+        self.setStyleSheet("ModelCard{border:1px solid #444;border-radius:3px;margin:1px}")
+
+    def _sl(self, mn, mx, st, dv):
+        s = QSlider(Qt.Orientation.Horizontal); s.setRange(mn, mx); s.setSingleStep(st); s.setValue(dv); return s
+
+    def _toggle(self):
+        self._expanded = not self._expanded
+        self._body.setVisible(self._expanded)
+        self._arrow.setText("▼" if self._expanded else "▶")
+
+    def _browse(self, tgt, filt):
+        path, _ = QFileDialog.getOpenFileName(self, "选择文件", "", filt)
+        if path: tgt.setText(path)
+
+    def _on_load(self):
+        self._radio.setChecked(True)
+        self.load_requested.emit(
+            self._name.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
+            self.pit_sl.value(), self.ir_sl.value()/100, self.rms_sl.value()/100,
+            self.gen_sl.value()/100,
+        )
+
+    def get_data(self):
+        return {
+            "name": self._name.text(), "pth": self.pth_edit.text().strip(),
+            "idx": self.idx_edit.text().strip(), "pitch": self.pit_sl.value(),
+            "index_rate": self.ir_sl.value()/100,
+            "rms_mix": self.rms_sl.value()/100, "gender": self.gen_sl.value()/100,
+        }
+
+    def set_active(self, active):
+        self._radio.blockSignals(True); self._radio.setChecked(active); self._radio.blockSignals(False)
+        if active:
+            self.setStyleSheet("ModelCard{border:1px solid #28a745;border-radius:3px;margin:1px;background:rgba(40,167,69,0.06)}")
+            self._name.setStyleSheet("font-weight:bold;color:#28a745")
+        else:
+            self.setStyleSheet("ModelCard{border:1px solid #444;border-radius:3px;margin:1px}")
+            self._name.setStyleSheet("font-weight:bold")
+
+
+# ─────────────────── 预设 ───────────────────
 
 PRESETS = {
     "原声纯净": {"eq_low": 0, "eq_mid": 0, "eq_high": 0, "warmth": 0, "compress": 0, "reverb": 0},
@@ -129,30 +257,26 @@ class RealtimeEngine:
         self.loaded_pth = pth; self.loaded_idx = idx
         return self.vc_engine.tgt_sr
 
-    def setup(self, sr_type, in_dev, out_dev, wasapi, block_t, cf_t, extra_t, p):
+    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, p):
         sd.default.device = [in_dev, out_dev]
-        # 设备采样率和模型采样率分离
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.sr_model = self.vc_engine.tgt_sr  # 40000 or 48000
-        self.sr = self.sr_dev  # 音频 I/O 用设备采样率
+        self.sr_model = self.vc_engine.tgt_sr
+        self.sr = self.sr_dev
 
         in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
         self.channels = min(int(in_info["max_input_channels"]), int(out_info["max_output_channels"]), 2)
 
-        # 帧数计算基于设备采样率
-        zc = self.sr_dev // 100  # 每10ms的采样数
+        zc = self.sr_dev // 100
         self.block_frame = int(np.round(block_t * self.sr_dev / zc)) * zc
         self.crossfade_frame = int(np.round(cf_t * self.sr_dev / zc)) * zc
         self.sola_buffer_frame = min(self.crossfade_frame, 4 * zc)
         self.sola_search_frame = zc
         self.extra_frame = int(np.round(extra_t * self.sr_dev / zc)) * zc
 
-        # 16kHz 帧数
         self.block_frame_16k = 160 * self.block_frame // zc
         self.skip_head = self.extra_frame // zc
         self.return_length = (self.block_frame + self.sola_buffer_frame + self.sola_search_frame) // zc
 
-        # 缓冲区 (设备采样率)
         n = self.extra_frame + self.crossfade_frame + self.sola_search_frame + self.block_frame
         self.input_wav = torch.zeros(n, device=config.device)
         self.input_wav_denoise = self.input_wav.clone()
@@ -160,7 +284,6 @@ class RealtimeEngine:
         self.rms_buffer = np.zeros(4 * zc, dtype="float32")
         self.zc = zc
 
-        # SOLA 缓冲区 (设备采样率，保证交叉淡化正确)
         self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
         self.nr_buffer = self.sola_buffer.clone()
         self.output_buffer = self.input_wav.clone()
@@ -170,7 +293,6 @@ class RealtimeEngine:
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
         self.fade_out = 1 - self.fade_in
 
-        # 重采样器
         self.resampler = TatResample(self.sr_dev, 16000, dtype=torch.float32).to(config.device)
         if self.sr_model != self.sr_dev:
             self.resampler_model2dev = TatResample(self.sr_model, self.sr_dev, dtype=torch.float32).to(config.device)
@@ -179,8 +301,7 @@ class RealtimeEngine:
 
         self.tg = TorchGate(sr=self.sr_dev, n_fft=4 * zc, prop_decrease=0.9).to(config.device)
 
-        ext = sd.WasapiSettings(exclusive=True) if "WASAPI" in sd.query_hostapis()[sd.query_devices(in_dev)["hostapi"]]["name"] and wasapi else None
-        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr_dev, channels=self.channels, dtype="float32", extra_settings=ext)
+        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr_dev, channels=self.channels, dtype="float32")
         self.stream.start()
         self.running = True
 
@@ -213,7 +334,6 @@ class RealtimeEngine:
         t0 = time.perf_counter()
         with torch.no_grad():
             mono = librosa.to_mono(indata.T) if indata.ndim > 1 else indata[:, 0]
-            # 阈值降噪
             if p.threshold > -60:
                 tmp = np.append(self.rms_buffer, mono)
                 rms = librosa.feature.rms(y=tmp, frame_length=4*self.zc, hop_length=self.zc)[:, 2:]
@@ -224,7 +344,6 @@ class RealtimeEngine:
                     if db[i]: tmp[i*self.zc:(i+1)*self.zc] = 0
                 mono = tmp[self.zc//2:]
 
-            # 缓冲
             self.input_wav = torch.roll(self.input_wav, -self.block_frame)
             self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono.copy()).to(config.device)
             self.input_wav_res = torch.roll(self.input_wav_res, -self.block_frame_16k)
@@ -241,13 +360,10 @@ class RealtimeEngine:
             else:
                 self.input_wav_res[-160*(mono.shape[0]//self.zc+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.zc:])[160:]
 
-            # 推理 (输出在模型采样率 sr_model 上)
             if self.function == "vc" and self.vc_engine:
                 self.vc_engine.change_key(p.pitch)
-                self.vc_engine.f0_method = p.f0method
                 self.vc_engine.change_index_rate(p.index_rate)
                 infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, p.f0method)
-                # 重采样: 模型采样率 → 设备采样率
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
             elif p.I_nr:
@@ -255,13 +371,11 @@ class RealtimeEngine:
             else:
                 infer = self.input_wav[self.extra_frame:].clone()
 
-            # 输出降噪
             if p.O_nr and self.function == "vc":
                 self.output_buffer = torch.roll(self.output_buffer, -self.block_frame)
                 self.output_buffer[-self.block_frame:] = infer[-self.block_frame:]
                 infer = self.tg(infer.unsqueeze(0), self.output_buffer.unsqueeze(0)).squeeze(0)
 
-            # 响度因子
             if p.rms_mix < 1 and self.function == "vc":
                 ref = self.input_wav_denoise[self.extra_frame:] if p.I_nr else self.input_wav[self.extra_frame:]
                 r1 = self._fast_rms(ref[:infer.shape[0]], 4*self.zc, self.zc)
@@ -271,7 +385,6 @@ class RealtimeEngine:
                 r2 = torch.max(r2, torch.ones_like(r2)*1e-3)
                 infer *= torch.pow(r1 / r2, 1 - p.rms_mix)
 
-            # 前置EQ + 饱和
             if p.enable_eq:
                 sr = self.sr
                 if p.eq_low: infer = TAF.bass_biquad(infer.unsqueeze(0), sr, gain=p.eq_low).squeeze(0)
@@ -281,7 +394,6 @@ class RealtimeEngine:
                     d = 1 + p.warmth * 3; m = 1 + p.warmth * 0.5
                     infer = torch.tanh(infer * d) / d * m
 
-            # SOLA
             ci = infer[None, None, :self.sola_buffer_frame + self.sola_search_frame]
             cn = F.conv1d(ci, self.sola_buffer[None, None, :])
             cd = torch.sqrt(F.conv1d(ci**2, torch.ones(1,1,self.sola_buffer_frame, device=config.device)) + 1e-8)
@@ -295,7 +407,6 @@ class RealtimeEngine:
             self.sola_buffer[:] = infer[self.block_frame:self.block_frame+self.sola_buffer_frame]
             chunk = infer[:self.block_frame]
 
-            # 后置: 混响 + 压缩
             if p.enable_eq:
                 if p.reverb > 0:
                     ri = torch.cat([self.reverb_buffer, chunk])
@@ -313,7 +424,6 @@ class RealtimeEngine:
                     ab = torch.abs(chunk)
                     chunk = torch.where(ab > th, torch.sign(chunk)*(th+(1-th)*torch.tanh((ab-th)/(1-th))), chunk)
 
-            # BGM
             if p.bgm_enable and self.bgm_audio is not None and p.bgm_vol > 0:
                 bl = self.bgm_audio.shape[0]; need = self.block_frame; ci2 = 0
                 bc = torch.zeros(self.block_frame)
@@ -336,7 +446,7 @@ class RealtimeEngine:
 # ─────────────────── 运行时参数 ───────────────────
 
 class Params:
-    threshold = -60; pitch = 0; formant = 0.0; index_rate = 0.0; rms_mix = 0.0
+    threshold = -60; pitch = 0; index_rate = 0.0; rms_mix = 0.0
     f0method = "fcpe"; I_nr = False; O_nr = False; use_pv = False
     enable_eq = False; eq_low = 0; eq_mid = 0; eq_high = 0
     warmth = 0; compress = 0; reverb = 0
@@ -361,7 +471,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self._timer = QTimer(); self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(engine.infer_ms)} ms"))
+        self._active_card = None
+        self._loading = False
+        self._timer = QTimer(); self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(engine.infer_ms)}"))
         self._build_ui()
         self._load_cfg()
 
@@ -370,153 +482,177 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         cw = QWidget(); self.setCentralWidget(cw)
-        ml = QVBoxLayout(cw); ml.setSpacing(3); ml.setContentsMargins(4,4,4,4)
+        root = QVBoxLayout(cw); root.setSpacing(4); root.setContentsMargins(6,6,6,6)
 
         tabs = QTabWidget()
-        tabs.addTab(self._tab_audio(), "音频设置")
-        tabs.addTab(self._tab_engine(), "变声引擎")
-        tabs.addTab(self._tab_master(), "声学母带")
-        ml.addWidget(tabs)
+        tabs.addTab(self._build_settings_tab(), "设置")
+        tabs.addTab(self._build_models_tab(), "模型")
+        tabs.addTab(self._build_audio_tab(), "声学")
+        root.addWidget(tabs)
 
-        # 控制面板
-        ctrl = QHBoxLayout()
-        self.btn_start = QPushButton("▶ 开始转换")
-        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:4px 10px}")
+        # 底部控制栏
+        ctrl = QHBoxLayout(); ctrl.setSpacing(8)
+        self.btn_start = QPushButton("开始")
+        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
         self.btn_start.clicked.connect(self._start)
-        self.btn_stop = QPushButton("⏹ 停止")
-        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:4px 10px}")
+        self.btn_stop = QPushButton("停止")
+        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}")
         self.btn_stop.clicked.connect(self._stop)
         ctrl.addWidget(self.btn_start); ctrl.addWidget(self.btn_stop)
-        self.func_grp = QButtonGroup()
-        rb_m = QRadioButton("监听原声"); rb_v = QRadioButton("输出变声"); rb_v.setChecked(True)
-        self.func_grp.addButton(rb_m, 0); self.func_grp.addButton(rb_v, 1)
-        self.func_grp.idToggled.connect(lambda i, c: setattr(engine, 'function', 'im' if i==0 and c else 'vc') if c else None)
-        ctrl.addWidget(rb_m); ctrl.addWidget(rb_v)
-        self.delay_lbl = QLabel("延迟: - ms"); self.stat_lbl = QLabel("推理: - ms")
+        self.model_lbl = QLabel("当前: -"); self.model_lbl.setMinimumWidth(140)
+        self.delay_lbl = QLabel("延迟: -"); self.delay_lbl.setMinimumWidth(70)
+        self.stat_lbl = QLabel("推理: -"); self.stat_lbl.setMinimumWidth(80)
+        ctrl.addWidget(self.model_lbl); ctrl.addStretch()
         ctrl.addWidget(self.delay_lbl); ctrl.addWidget(self.stat_lbl)
-        ml.addLayout(ctrl)
+        root.addLayout(ctrl)
 
-    def _tab_audio(self):
-        w = QWidget(); l = QVBoxLayout(w); l.setSpacing(3); l.setContentsMargins(4,4,4,4)
+    def _build_settings_tab(self):
+        w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(10,10,10,10)
+        g.setColumnStretch(1, 1)
+        r = 0
 
-        g1 = QGroupBox("模型与索引"); gl = QGridLayout(g1); gl.setSpacing(2); gl.setContentsMargins(4,8,4,4)
-        gl.addWidget(QLabel("模型文件"), 0, 0)
-        self.pth_edit = QLineEdit(); gl.addWidget(self.pth_edit, 0, 1)
-        b = QPushButton("选择"); b.clicked.connect(lambda: self._browse(self.pth_edit, "*.pth")); gl.addWidget(b, 0, 2)
-        gl.addWidget(QLabel("特征索引"), 1, 0)
-        self.idx_edit = QLineEdit(); gl.addWidget(self.idx_edit, 1, 1)
-        b = QPushButton("选择"); b.clicked.connect(lambda: self._browse(self.idx_edit, "*.index")); gl.addWidget(b, 1, 2)
-        l.addWidget(g1)
+        # 设备
+        g.addWidget(QLabel("音频驱动"), r, 0)
+        self.ha_combo = QComboBox(); self.ha_combo.currentTextChanged.connect(self._ha_changed)
+        g.addWidget(self.ha_combo, r, 1, 1, 2); r+=1
+        g.addWidget(QLabel("麦克风"), r, 0)
+        self.in_combo = QComboBox(); g.addWidget(self.in_combo, r, 1, 1, 2); r+=1
+        g.addWidget(QLabel("主输出"), r, 0)
+        self.out_combo = QComboBox(); g.addWidget(self.out_combo, r, 1, 1, 2); r+=1
+        g.addWidget(QLabel("副输出"), r, 0)
+        self.out2_combo = QComboBox(); g.addWidget(self.out2_combo, r, 1)
+        br = QPushButton("刷新"); br.setFixedWidth(45); br.clicked.connect(self._reload_dev)
+        g.addWidget(br, r, 2); r+=1
+        self.sr_r1 = QRadioButton(); self.sr_r1.setChecked(True)
+        self.sr_r2 = QRadioButton()
+        self.sr_r1_lbl = QLabel("模型采样率: -")
+        self.sr_r2_lbl = QLabel("设备采样率: -")
+        sr = QHBoxLayout(); sr.setSpacing(4)
+        sr.addWidget(self.sr_r1); sr.addWidget(self.sr_r1_lbl)
+        sr.addSpacing(12); sr.addWidget(self.sr_r2); sr.addWidget(self.sr_r2_lbl); sr.addStretch()
+        g.addLayout(sr, r, 0, 1, 3); r+=1
 
-        g2 = QGroupBox("设备路由"); gl = QGridLayout(g2); gl.setSpacing(2); gl.setContentsMargins(4,8,4,4)
-        gl.addWidget(QLabel("音频驱动"), 0, 0)
-        self.ha_combo = QComboBox(); self.ha_combo.currentTextChanged.connect(self._ha_changed); gl.addWidget(self.ha_combo, 0, 1)
-        self.wasapi_chk = QCheckBox("独占设备"); gl.addWidget(self.wasapi_chk, 0, 2)
-        gl.addWidget(QLabel("麦克风"), 1, 0)
-        self.in_combo = QComboBox(); gl.addWidget(self.in_combo, 1, 1, 1, 2)
-        gl.addWidget(QLabel("主输出"), 2, 0)
-        self.out_combo = QComboBox(); gl.addWidget(self.out_combo, 2, 1, 1, 2)
-        gl.addWidget(QLabel("副输出"), 3, 0)
-        self.out2_chk = QCheckBox("启用"); gl.addWidget(self.out2_chk, 3, 1)
-        self.out2_combo = QComboBox(); gl.addWidget(self.out2_combo, 3, 2)
-        br = QPushButton("刷新列表"); br.clicked.connect(self._reload_dev); gl.addWidget(br, 4, 0)
-        self.sr_r1 = QRadioButton("模型采样率"); self.sr_r1.setChecked(True)
-        self.sr_r2 = QRadioButton("设备采样率")
-        gl.addWidget(self.sr_r1, 4, 1); gl.addWidget(self.sr_r2, 4, 2)
-        self.sr_lbl = QLabel("频率: -"); gl.addWidget(self.sr_lbl, 4, 3)
-        l.addWidget(g2)
-        return w
+        # 分隔
+        g.addWidget(self._sep(), r, 0, 1, 3); r+=1
 
-    def _tab_engine(self):
-        w = QWidget(); row = QHBoxLayout(w); row.setSpacing(4)
+        # 引擎参数
+        def add_sl(label, sl, lbl, row):
+            g.addWidget(QLabel(label), row, 0); g.addWidget(sl, row, 1); g.addWidget(lbl, row, 2)
 
-        # 左列：常规
-        left = QGroupBox("常规设置"); lg = QGridLayout(left); lg.setSpacing(2); lg.setContentsMargins(4,8,4,4)
-        def add_slider(label, sl, lbl, r):
-            lg.addWidget(QLabel(label), r, 0); lg.addWidget(sl, r, 1); lg.addWidget(lbl, r, 2)
-        self.th_sl = self._sl(-60,0,1,-60); self.th_lbl = QLabel("-60")
+        self.th_sl = self._sl(-60,0,1,-60); self.th_lbl = QLabel("-60"); self.th_lbl.setMinimumWidth(35)
         self.th_sl.valueChanged.connect(lambda v: (self.th_lbl.setText(str(v)), setattr(p,'threshold',v)))
-        add_slider("响应阈值", self.th_sl, self.th_lbl, 0)
-        self.pit_sl = self._sl(-16,16,1,0); self.pit_lbl = QLabel("0")
-        self.pit_sl.valueChanged.connect(lambda v: self.pit_lbl.setText(str(v)))
-        add_slider("音调调整", self.pit_sl, self.pit_lbl, 1)
-        self.fmt_sl = self._sl(-200,200,5,0); self.fmt_lbl = QLabel("0.00")
-        self.fmt_sl.valueChanged.connect(lambda v: self.fmt_lbl.setText(f"{v/100:.2f}"))
-        add_slider("声线粗细", self.fmt_sl, self.fmt_lbl, 2)
-        self.ir_sl = self._sl(0,100,1,0); self.ir_lbl = QLabel("0.00")
-        self.ir_sl.valueChanged.connect(lambda v: self.ir_lbl.setText(f"{v/100:.2f}"))
-        add_slider("特征占比", self.ir_sl, self.ir_lbl, 3)
-        self.rms_sl = self._sl(0,100,1,0); self.rms_lbl = QLabel("0.00")
-        self.rms_sl.valueChanged.connect(lambda v: self.rms_lbl.setText(f"{v/100:.2f}"))
-        add_slider("响度因子", self.rms_sl, self.rms_lbl, 4)
-        lg.addWidget(QLabel("音高算法"), 5, 0)
-        self.f0_grp = QButtonGroup(); fr = QHBoxLayout()
-        for i, n in enumerate(["fcpe","rmvpe"]):
-            rb = QRadioButton(n)
-            if i==0: rb.setChecked(True)
-            self.f0_grp.addButton(rb, i); fr.addWidget(rb)
-        lg.addLayout(fr, 5, 1, 1, 2)
-        row.addWidget(left)
-
-        # 右列：性能
-        right = QGroupBox("性能设置"); rg = QGridLayout(right); rg.setSpacing(2); rg.setContentsMargins(4,8,4,4)
-        def add_s2(label, sl, lbl, r):
-            rg.addWidget(QLabel(label), r, 0); rg.addWidget(sl, r, 1); rg.addWidget(lbl, r, 2)
-        self.bl_sl = self._sl(2,150,1,25); self.bl_lbl = QLabel("0.25")
+        add_sl("响应阈值", self.th_sl, self.th_lbl, r); r+=1
+        self.bl_sl = self._sl(2,150,1,25); self.bl_lbl = QLabel("0.25"); self.bl_lbl.setMinimumWidth(35)
         self.bl_sl.valueChanged.connect(lambda v: self.bl_lbl.setText(f"{v/100:.2f}"))
-        add_s2("采样长度", self.bl_sl, self.bl_lbl, 0)
-        self.cf_sl = self._sl(1,15,1,5); self.cf_lbl = QLabel("0.05")
+        add_sl("采样长度", self.bl_sl, self.bl_lbl, r); r+=1
+        self.cf_sl = self._sl(1,15,1,5); self.cf_lbl = QLabel("0.05"); self.cf_lbl.setMinimumWidth(35)
         self.cf_sl.valueChanged.connect(lambda v: self.cf_lbl.setText(f"{v/100:.2f}"))
-        add_s2("淡入淡出", self.cf_sl, self.cf_lbl, 1)
-        self.ex_sl = self._sl(5,500,1,250); self.ex_lbl = QLabel("2.50")
+        add_sl("淡入淡出", self.cf_sl, self.cf_lbl, r); r+=1
+        self.ex_sl = self._sl(5,500,1,250); self.ex_lbl = QLabel("2.50"); self.ex_lbl.setMinimumWidth(35)
         self.ex_sl.valueChanged.connect(lambda v: self.ex_lbl.setText(f"{v/100:.2f}"))
-        add_s2("额外时长", self.ex_sl, self.ex_lbl, 2)
-        self.inr = QCheckBox("输入降噪"); self.ounr = QCheckBox("输出降噪"); self.pv = QCheckBox("相位声码")
-        rg.addWidget(self.inr, 3, 0); rg.addWidget(self.ounr, 3, 1); rg.addWidget(self.pv, 3, 2)
-        row.addWidget(right)
+        add_sl("额外上下文", self.ex_sl, self.ex_lbl, r); r+=1
+
+        g.addWidget(QLabel("音高算法"), r, 0)
+        self.f0_combo = QComboBox(); self.f0_combo.addItems(["fcpe", "rmvpe"]); self.f0_combo.setFixedWidth(80)
+        g.addWidget(self.f0_combo, r, 1)
         return w
 
-    def _tab_master(self):
-        w = QWidget(); l = QVBoxLayout(w); l.setSpacing(3); l.setContentsMargins(4,4,4,4)
+    def _build_models_tab(self):
+        w = QWidget(); l = QVBoxLayout(w); l.setSpacing(4); l.setContentsMargins(10,10,10,10)
+        bar = QHBoxLayout()
+        bar.addWidget(QLabel("模型列表")); bar.addStretch()
+        btn_add = QPushButton("+ 添加模型")
+        btn_add.setStyleSheet("QPushButton{background:#007acc;color:white;padding:3px 10px;border-radius:2px;font-weight:bold}QPushButton:hover{background:#005f9e}")
+        btn_add.clicked.connect(self._add_model)
+        bar.addWidget(btn_add)
+        l.addLayout(bar)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame)
+        container = QWidget()
+        self._models_layout = QVBoxLayout(container); self._models_layout.addStretch()
+        scroll.setWidget(container)
+        l.addWidget(scroll, 1)
+        self._model_cards = []
+        return w
 
-        g = QGroupBox("母带级音效处理"); gl = QGridLayout(g); gl.setSpacing(2); gl.setContentsMargins(4,8,4,4)
-        self.eq_en = QCheckBox("开启后期模块"); self.eq_en.setStyleSheet("font-weight:bold;color:#bb86fc")
-        gl.addWidget(self.eq_en, 0, 0)
-        gl.addWidget(QLabel("预设:"), 0, 1)
-        self.preset_combo = QComboBox(); self.preset_combo.addItems(PRESETS.keys())
+    def _build_audio_tab(self):
+        w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(10,10,10,10)
+        g.setColumnStretch(1, 1)
+        r = 0
+
+        # 降噪
+        self.inr = QCheckBox("输入降噪"); self.ounr = QCheckBox("输出降噪")
+        nr = QHBoxLayout(); nr.addWidget(self.inr); nr.addWidget(self.ounr); nr.addStretch()
+        g.addLayout(nr, r, 0, 1, 3); r+=1
+        g.addWidget(self._sep(), r, 0, 1, 3); r+=1
+
+        # 音效
+        self.eq_en = QCheckBox("开启音效")
+        self.preset_combo = QComboBox(); self.preset_combo.addItems(PRESETS.keys()); self.preset_combo.setFixedWidth(90)
         self.preset_combo.currentTextChanged.connect(self._apply_preset)
-        gl.addWidget(self.preset_combo, 0, 2)
+        row0 = QHBoxLayout(); row0.addWidget(self.eq_en); row0.addWidget(self.preset_combo); row0.addStretch()
+        g.addLayout(row0, r, 0, 1, 3); r+=1
 
-        self.eq_lo = self._sl(-3000,2000,500,0); self.eq_lo_lbl = QLabel("0.0")
+        def add_eq(label, sl, lbl, row):
+            g.addWidget(QLabel(label), row, 0); g.addWidget(sl, row, 1); g.addWidget(lbl, row, 2)
+
+        self.eq_lo = self._sl(-3000,2000,500,0); self.eq_lo_lbl = QLabel("0.0"); self.eq_lo_lbl.setMinimumWidth(35)
         self.eq_lo.valueChanged.connect(lambda v: self.eq_lo_lbl.setText(f"{v/100:.1f}"))
-        gl.addWidget(QLabel("低频增益"), 1, 0); gl.addWidget(self.eq_lo, 1, 1); gl.addWidget(self.eq_lo_lbl, 1, 2)
-        self.eq_mi = self._sl(-2000,2000,500,0); self.eq_mi_lbl = QLabel("0.0")
+        add_eq("低频增益", self.eq_lo, self.eq_lo_lbl, r); r+=1
+        self.eq_mi = self._sl(-2000,2000,500,0); self.eq_mi_lbl = QLabel("0.0"); self.eq_mi_lbl.setMinimumWidth(35)
         self.eq_mi.valueChanged.connect(lambda v: self.eq_mi_lbl.setText(f"{v/100:.1f}"))
-        gl.addWidget(QLabel("中频增益"), 2, 0); gl.addWidget(self.eq_mi, 2, 1); gl.addWidget(self.eq_mi_lbl, 2, 2)
-        self.eq_hi = self._sl(-3000,3000,500,0); self.eq_hi_lbl = QLabel("0.0")
+        add_eq("中频增益", self.eq_mi, self.eq_mi_lbl, r); r+=1
+        self.eq_hi = self._sl(-3000,3000,500,0); self.eq_hi_lbl = QLabel("0.0"); self.eq_hi_lbl.setMinimumWidth(35)
         self.eq_hi.valueChanged.connect(lambda v: self.eq_hi_lbl.setText(f"{v/100:.1f}"))
-        gl.addWidget(QLabel("高频增益"), 3, 0); gl.addWidget(self.eq_hi, 3, 1); gl.addWidget(self.eq_hi_lbl, 3, 2)
-        self.warm_sl = self._sl(0,100,1,0); self.warm_lbl = QLabel("0.00")
+        add_eq("高频增益", self.eq_hi, self.eq_hi_lbl, r); r+=1
+        self.warm_sl = self._sl(0,100,1,0); self.warm_lbl = QLabel("0.00"); self.warm_lbl.setMinimumWidth(35)
         self.warm_sl.valueChanged.connect(lambda v: self.warm_lbl.setText(f"{v/100:.2f}"))
-        gl.addWidget(QLabel("电子管饱和"), 4, 0); gl.addWidget(self.warm_sl, 4, 1); gl.addWidget(self.warm_lbl, 4, 2)
-        self.comp_sl = self._sl(0,100,5,0); self.comp_lbl = QLabel("0.00")
+        add_eq("电子管饱和", self.warm_sl, self.warm_lbl, r); r+=1
+        self.comp_sl = self._sl(0,100,5,0); self.comp_lbl = QLabel("0.00"); self.comp_lbl.setMinimumWidth(35)
         self.comp_sl.valueChanged.connect(lambda v: self.comp_lbl.setText(f"{v/100:.2f}"))
-        gl.addWidget(QLabel("动态压限"), 5, 0); gl.addWidget(self.comp_sl, 5, 1); gl.addWidget(self.comp_lbl, 5, 2)
-        self.rev_sl = self._sl(0,50,1,0); self.rev_lbl = QLabel("0.00")
+        add_eq("动态压限", self.comp_sl, self.comp_lbl, r); r+=1
+        self.rev_sl = self._sl(0,50,1,0); self.rev_lbl = QLabel("0.00"); self.rev_lbl.setMinimumWidth(35)
         self.rev_sl.valueChanged.connect(lambda v: self.rev_lbl.setText(f"{v/100:.2f}"))
-        gl.addWidget(QLabel("空间混响"), 6, 0); gl.addWidget(self.rev_sl, 6, 1); gl.addWidget(self.rev_lbl, 6, 2)
-        l.addWidget(g)
-
-        g2 = QGroupBox("离线背景音"); g2l = QGridLayout(g2); g2l.setSpacing(2); g2l.setContentsMargins(4,8,4,4)
-        self.bgm_en = QCheckBox("开启BGM"); g2l.addWidget(self.bgm_en, 0, 0)
-        self.bgm_edit = QLineEdit(); g2l.addWidget(self.bgm_edit, 0, 1)
-        bb = QPushButton("选择"); bb.clicked.connect(lambda: self._browse(self.bgm_edit, "音频 (*.wav *.mp3 *.flac)")); g2l.addWidget(bb, 0, 2)
-        g2l.addWidget(QLabel("音量"), 1, 0)
-        self.bgm_sl = self._sl(0,200,1,50); self.bgm_lbl = QLabel("0.50")
-        self.bgm_sl.valueChanged.connect(lambda v: self.bgm_lbl.setText(f"{v/100:.2f}"))
-        g2l.addWidget(self.bgm_sl, 1, 1); g2l.addWidget(self.bgm_lbl, 1, 2)
-        l.addWidget(g2)
+        add_eq("空间混响", self.rev_sl, self.rev_lbl, r)
         return w
+
+    @staticmethod
+    def _sep():
+        f = QFrame(); f.setFrameShape(QFrame.Shape.HLine); f.setStyleSheet("color:#444"); return f
+
+    def _add_model(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择模型", "assets/weights", "模型 (*.pth)")
+        if not path: return
+        name = os.path.splitext(os.path.basename(path))[0]
+        self._add_card(name=name, pth=path)
+
+    def _add_card(self, name="", pth="", idx="", pitch=0, f0method="fcpe",
+                  index_rate=0.0, rms_mix=0.0, gender=50):
+        card = ModelCard(name, pth, idx, pitch, f0method, index_rate, rms_mix, gender)
+        card.load_requested.connect(self._on_card_load)
+        card._del.clicked.connect(lambda: self._remove_card(card))
+        self._models_layout.insertWidget(self._models_layout.count()-1, card)
+        self._model_cards.append(card)
+        return card
+
+    def _remove_card(self, card):
+        if self._active_card == card: self._active_card = None
+        self._model_cards.remove(card)
+        self._models_layout.removeWidget(card)
+        card.deleteLater()
+        self._save_models()
+
+    def _on_card_load(self, name, pth, idx, pitch, ir, rms, gender):
+        if not pth: return
+        # 只选中, 不加载. 点击"开始"时才加载
+        if self._active_card: self._active_card.set_active(False)
+        for c in self._model_cards:
+            if c.pth_edit.text().strip() == pth:
+                self._active_card = c; c.set_active(True); break
+        self.model_lbl.setText(f"当前: {name}")
+
+    def _save_models(self):
+        models = [c.get_data() for c in self._model_cards]
+        ModelListData.save(models)
 
     def _apply_preset(self, name):
         if name not in PRESETS: return
@@ -524,53 +660,85 @@ class MainWindow(QMainWindow):
         self.eq_lo.setValue(int(pr["eq_low"]*100)); self.eq_mi.setValue(int(pr["eq_mid"]*100)); self.eq_hi.setValue(int(pr["eq_high"]*100))
         self.warm_sl.setValue(int(pr["warmth"]*100)); self.comp_sl.setValue(int(pr["compress"]*100)); self.rev_sl.setValue(int(pr["reverb"]*100))
 
-    def _browse(self, tgt, filt):
-        path, _ = QFileDialog.getOpenFileName(self, "选择文件", "", filt)
-        if path: tgt.setText(path)
+    # ── 配置持久化 ──
 
     def _load_cfg(self):
-        self._reload_dev()
+        # 加载模型列表
+        for m in ModelListData.load():
+            self._add_card(m.get("name",""), m.get("pth",""), m.get("idx",""),
+                           m.get("pitch",0), m.get("f0method","fcpe"),
+                           m.get("index_rate",0), m.get("rms_mix",0),
+                           int(m.get("gender",0.5)*100))
+        # 加载全局配置
+        d = {}
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f: d = json.load(f)
-                self.pth_edit.setText(d.get("pth","")); self.idx_edit.setText(d.get("idx",""))
-                self.pit_sl.setValue(d.get("pitch",0)); self.fmt_sl.setValue(int(d.get("formant",0)*100))
-                self.ir_sl.setValue(int(d.get("ir",0)*100)); self.rms_sl.setValue(int(d.get("rms",0)*100))
-                self.th_sl.setValue(d.get("th",-60)); self.bl_sl.setValue(int(d.get("bl",0.25)*100))
-                self.cf_sl.setValue(int(d.get("cf",0.05)*100)); self.ex_sl.setValue(int(d.get("ex",2.5)*100))
-                self.inr.setChecked(d.get("inr",False)); self.ounr.setChecked(d.get("ounr",False))
-                self.pv.setChecked(d.get("pv",False))
-                self.eq_en.setChecked(d.get("eq_en",False))
-                self.eq_lo.setValue(int(d.get("eq_lo",0)*100)); self.eq_mi.setValue(int(d.get("eq_mi",0)*100))
-                self.eq_hi.setValue(int(d.get("eq_hi",0)*100)); self.warm_sl.setValue(int(d.get("warm",0)*100))
-                self.comp_sl.setValue(int(d.get("comp",0)*100)); self.rev_sl.setValue(int(d.get("rev",0)*100))
-                self.bgm_en.setChecked(d.get("bgm_en",False)); self.bgm_edit.setText(d.get("bgm",""))
-                self.bgm_sl.setValue(int(d.get("bgm_v",0.5)*100)); self.out2_chk.setChecked(d.get("out2",False))
-                for btn in self.f0_grp.buttons():
-                    if btn.text() == d.get("f0","fcpe"): btn.setChecked(True)
-                pr = d.get("preset","原声纯净")
-                if pr in PRESETS: self.preset_combo.setCurrentText(pr)
             except: pass
+        # 恢复设备路由（需要先填充设备列表）
+        self._reload_dev()
+        ha = d.get("ha", "")
+        if ha:
+            idx = self.ha_combo.findText(ha)
+            if idx >= 0: self.ha_combo.setCurrentIndex(idx)
+        for dev_key, combo in [("in_dev", self.in_combo), ("out_dev", self.out_combo)]:
+            dev = d.get(dev_key, "")
+            if dev:
+                idx = combo.findText(dev)
+                if idx >= 0: combo.setCurrentIndex(idx)
+        # 副输出 (索引0="不启用", 所以+1偏移)
+        out2_dev = d.get("out2_dev", "")
+        if out2_dev:
+            idx = self.out2_combo.findText(out2_dev)
+            if idx >= 0: self.out2_combo.setCurrentIndex(idx)
+        if d.get("sr_mode", "model") == "device": self.sr_r2.setChecked(True)
+        # F0 算法
+        f0 = d.get("f0", "fcpe")
+        idx = self.f0_combo.findText(f0)
+        if idx >= 0: self.f0_combo.setCurrentIndex(idx)
+        self.th_sl.setValue(d.get("th", -60))
+        self.bl_sl.setValue(int(d.get("bl", 0.25)*100))
+        self.cf_sl.setValue(int(d.get("cf", 0.05)*100))
+        self.ex_sl.setValue(int(d.get("ex", 2.5)*100))
+        self.inr.setChecked(d.get("inr", False)); self.ounr.setChecked(d.get("ounr", False))
+        self.eq_en.setChecked(d.get("eq_en", False))
+        self.eq_lo.setValue(int(d.get("eq_lo", 0)*100)); self.eq_mi.setValue(int(d.get("eq_mi", 0)*100))
+        self.eq_hi.setValue(int(d.get("eq_hi", 0)*100)); self.warm_sl.setValue(int(d.get("warm", 0)*100))
+        self.comp_sl.setValue(int(d.get("comp", 0)*100)); self.rev_sl.setValue(int(d.get("rev", 0)*100))
+        pr = d.get("preset", "原声纯净")
+        if pr in PRESETS: self.preset_combo.setCurrentText(pr)
+        # 恢复选中的模型
+        selected = d.get("selected", "")
+        if selected:
+            for c in self._model_cards:
+                if c.pth_edit.text().strip() == selected:
+                    self._active_card = c; c.set_active(True)
+                    self.model_lbl.setText(f"当前: {c._name.text()}")
+                    break
 
     def _save_cfg(self):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-        f0 = next((b.text() for b in self.f0_grp.buttons() if b.isChecked()), "fcpe")
+        self._save_models()
         d = {
-            "pth": self.pth_edit.text(), "idx": self.idx_edit.text(),
-            "pitch": self.pit_sl.value(), "formant": self.fmt_sl.value()/100,
-            "ir": self.ir_sl.value()/100, "rms": self.rms_sl.value()/100,
-            "th": self.th_sl.value(), "bl": self.bl_sl.value()/100,
+            "version": 2, "th": self.th_sl.value(), "bl": self.bl_sl.value()/100,
             "cf": self.cf_sl.value()/100, "ex": self.ex_sl.value()/100,
-            "f0": f0, "inr": self.inr.isChecked(), "ounr": self.ounr.isChecked(),
-            "pv": self.pv.isChecked(), "eq_en": self.eq_en.isChecked(),
+            "inr": self.inr.isChecked(), "ounr": self.ounr.isChecked(),
+            "f0": self.f0_combo.currentText(),
+            "eq_en": self.eq_en.isChecked(),
             "eq_lo": self.eq_lo.value()/100, "eq_mi": self.eq_mi.value()/100,
             "eq_hi": self.eq_hi.value()/100, "warm": self.warm_sl.value()/100,
             "comp": self.comp_sl.value()/100, "rev": self.rev_sl.value()/100,
-            "bgm_en": self.bgm_en.isChecked(), "bgm": self.bgm_edit.text(),
-            "bgm_v": self.bgm_sl.value()/100, "out2": self.out2_chk.isChecked(),
             "preset": self.preset_combo.currentText(),
+            "ha": self.ha_combo.currentText(),
+            "in_dev": self.in_combo.currentText(),
+            "out_dev": self.out_combo.currentText(),
+            "out2_dev": self.out2_combo.currentText(),
+            "sr_mode": "model" if self.sr_r1.isChecked() else "device",
+            "selected": self._active_card.pth_edit.text().strip() if self._active_card else "",
         }
         with open(CONFIG_PATH, "w", encoding="utf-8") as f: json.dump(d, f, indent=2, ensure_ascii=False)
+
+    # ── 设备管理 ──
 
     def _reload_dev(self):
         self.ha_combo.blockSignals(True); self.ha_combo.clear()
@@ -582,59 +750,78 @@ class MainWindow(QMainWindow):
         _, ins, outs, _, _ = get_audio_devices(name)
         self.in_combo.clear(); self.in_combo.addItems(ins)
         self.out_combo.clear(); self.out_combo.addItems(outs)
-        self.out2_combo.clear(); self.out2_combo.addItems(outs)
+        self.out2_combo.clear()
+        self.out2_combo.addItem("不启用")
+        self.out2_combo.addItems(outs)
+
+    # ── 启动/停止 ──
 
     def _start(self):
-        pth = self.pth_edit.text().strip()
-        if not pth: QMessageBox.warning(self, "提示", "请选择 .pth 文件"); return
+        if not self._active_card:
+            QMessageBox.warning(self, "提示", "请先在模型列表中选择一个模型")
+            return
+        pth = self._active_card.pth_edit.text().strip()
+        if not pth: QMessageBox.warning(self, "提示", "模型文件路径为空"); return
+        idx = self._active_card.idx_edit.text().strip()
+        ir = self._active_card.ir_sl.value()/100
+        p.pitch = self._active_card.pit_sl.value()
+        p.index_rate = ir; p.rms_mix = self._active_card.rms_sl.value()/100
+        p.f0method = self.f0_combo.currentText()
+        name = self._active_card._name.text()
+        # logger.info("选择: %s (pitch=%d, f0=%s, ir=%.2f)", name, p.pitch, p.f0method, ir)
+        self._start_engine(pth, idx, ir)
+
+    def _start_engine(self, pth, idx, idx_rate):
+        if self._loading: return
+        self._loading = True
         self.btn_start.setEnabled(False); self.btn_start.setText("加载中...")
-        self._lt = LoadThread(pth, self.idx_edit.text().strip(), self.ir_sl.value()/100)
-        self._lt.ok.connect(self._on_loaded); self._lt.err.connect(self._on_err)
+        self._lt = LoadThread(pth, idx, idx_rate)
+        self._lt.ok.connect(self._on_loaded)
+        self._lt.err.connect(self._on_err)
+        self._lt.finished.connect(self._on_load_done)
         self._lt.start()
+
+    def _on_load_done(self):
+        self._loading = False
+        if hasattr(self, '_lt') and self._lt:
+            self._lt.deleteLater(); self._lt = None
 
     def _on_loaded(self, sr):
         try:
             _, _, _, in_idx, out_idx = get_audio_devices(self.ha_combo.currentText())
-            # 写入运行时参数
-            p.threshold = self.th_sl.value(); p.pitch = self.pit_sl.value()
-            p.formant = self.fmt_sl.value()/100; p.index_rate = self.ir_sl.value()/100
-            p.rms_mix = self.rms_sl.value()/100; p.f0method = next((b.text() for b in self.f0_grp.buttons() if b.isChecked()), "fcpe")
-            p.I_nr = self.inr.isChecked(); p.O_nr = self.ounr.isChecked(); p.use_pv = self.pv.isChecked()
+            p.threshold = self.th_sl.value()
+            p.I_nr = self.inr.isChecked(); p.O_nr = self.ounr.isChecked(); p.use_pv = False
             p.enable_eq = self.eq_en.isChecked(); p.eq_low = self.eq_lo.value()/100
             p.eq_mid = self.eq_mi.value()/100; p.eq_hi = self.eq_hi.value()/100
             p.warmth = self.warm_sl.value()/100; p.compress = self.comp_sl.value()/100
-            p.reverb = self.rev_sl.value()/100; p.bgm_enable = self.bgm_en.isChecked()
-            p.bgm_vol = self.bgm_sl.value()/100; p.enable_out2 = self.out2_chk.isChecked()
+            p.reverb = self.rev_sl.value()/100
+            p.bgm_enable = False; p.enable_out2 = self.out2_combo.currentIndex() > 0
             sr_type = "sr_model" if self.sr_r1.isChecked() else "sr_device"
             engine.setup(sr_type, in_idx[self.in_combo.currentIndex()], out_idx[self.out_combo.currentIndex()],
-                         self.wasapi_chk.isChecked(), self.bl_sl.value()/100, self.cf_sl.value()/100, self.ex_sl.value()/100, p)
-            # BGM
+                         self.bl_sl.value()/100, self.cf_sl.value()/100, self.ex_sl.value()/100, p)
             engine.bgm_audio = None; engine.bgm_ptr = 0
-            if p.bgm_enable and self.bgm_edit.text() and os.path.exists(self.bgm_edit.text()):
-                try:
-                    w, sr2 = torchaudio.load(self.bgm_edit.text())
-                    if w.shape[0]>1: w = torch.mean(w, 0, keepdim=True)
-                    if sr2 != engine.sr: w = TatResample(sr2, engine.sr)(w)
-                    engine.bgm_audio = w.squeeze(0)
-                except Exception as e: logger.warning("BGM加载失败: %s", e)
-            # 副输出
-            if p.enable_out2 and self.out2_combo.currentIndex() >= 0:
+            if p.enable_out2:
                 _, _, _, _, o2i = get_audio_devices(self.ha_combo.currentText())
-                engine.setup_out2(o2i[self.out2_combo.currentIndex()])
-            self.sr_lbl.setText(f"设备:{engine.sr_dev} 模型:{engine.sr_model}")
+                engine.setup_out2(o2i[self.out2_combo.currentIndex() - 1])
+            self.sr_r1_lbl.setText(f"模型采样率: {engine.sr_model}")
+            self.sr_r2_lbl.setText(f"设备采样率: {engine.sr_dev}")
             dl = (engine.stream.latency[-1] if engine.stream else 0) + self.bl_sl.value()/100 + self.cf_sl.value()/100 + 0.01
             if p.I_nr: dl += min(self.cf_sl.value()/100, 0.04)
-            self.delay_lbl.setText(f"延迟: {int(dl*1000)} ms")
-            self.btn_start.setEnabled(False); self._timer.start(200); self._save_cfg()
+            self.delay_lbl.setText(f"延迟: {int(dl*1000)}")
+            self.btn_start.setEnabled(False); self.btn_start.setText("运行中")
+            self._timer.start(200); self._save_cfg()
+            # logger.info("启动完成 (设备:%d 模型:%d)", engine.sr_dev, engine.sr_model)
         except Exception as e: self._on_err(str(e))
 
     def _on_err(self, e):
-        self.btn_start.setEnabled(True); self.btn_start.setText("▶ 开始转换")
+        self.btn_start.setEnabled(True); self.btn_start.setText("开始")
         QMessageBox.critical(self, "错误", str(e))
 
     def _stop(self):
-        self._timer.stop(); engine.stop(); self.btn_start.setEnabled(True)
-        self.delay_lbl.setText("延迟: - ms"); self.stat_lbl.setText("推理: - ms")
+        self._timer.stop(); engine.stop()
+        self.btn_start.setEnabled(True); self.btn_start.setText("开始")
+        self.delay_lbl.setText("延迟: -"); self.stat_lbl.setText("推理: -")
+        logger.info("停止")
 
     def closeEvent(self, e):
         self._save_cfg(); engine.stop(); e.accept()

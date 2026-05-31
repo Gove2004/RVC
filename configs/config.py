@@ -53,7 +53,7 @@ class Config:
 
         i_device = int(self.device.split(":")[-1])
         self.gpu_name = torch.cuda.get_device_name(i_device)
-        logger.info("Found GPU: %s", self.gpu_name)
+        logger.info("GPU: %s", self.gpu_name)
 
         self.gpu_mem = int(
             torch.cuda.get_device_properties(i_device).total_memory
@@ -74,10 +74,10 @@ class Config:
             x_center = 30
             x_max = 32
 
-        logger.info(
-            "Half-precision: %s, device: %s, GPU memory: %sGB",
-            self.is_half,
-            self.device,
-            self.gpu_mem,
-        )
+        # logger.info(
+        #     "设备: %s, 半精度: %s, 显存: %sGB",
+        #     self.device,
+        #     self.is_half,
+        #     self.gpu_mem,
+        # )
         return x_pad, x_query, x_center, x_max

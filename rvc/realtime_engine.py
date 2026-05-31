@@ -1,5 +1,6 @@
 """实时语音转换引擎 — 基于滚动缓冲区 + skip_head/return_length"""
 import logging
+import os
 import traceback
 
 import faiss
@@ -9,6 +10,10 @@ import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 logger = logging.getLogger(__name__)
+
+# F0 提取器模块级缓存（跨 RealtimeVC 实例复用）
+_rmvpe_cache = {}
+_fcpe_cache = {}
 
 
 class RealtimeVC:
@@ -48,18 +53,18 @@ class RealtimeVC:
 
     def load(self):
         """加载所有模型（HuBERT + Synthesizer + 可选Index）"""
+        logger.info("加载 %s", os.path.basename(self.pth_path))
+
         # HuBERT
         from rvc.hubert import load_hubert
         self.model = load_hubert(self.config)
-        logger.info("HuBERT 模型已加载")
 
         # Synthesizer
         self._load_synthesizer()
 
-        # 移除 weight_norm: 推理时不需要, 每次前向传播省掉 g*v/||v|| 重计算
+        # 移除 weight_norm
         try:
             self.net_g.remove_weight_norm()
-            logger.info("已移除合成器 weight_norm")
         except Exception:
             pass
 
@@ -67,9 +72,13 @@ class RealtimeVC:
         if self.index_rate > 0 and self.index_path and os.path.exists(self.index_path):
             self.index = faiss.read_index(self.index_path)
             self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
-            logger.info("FAISS 索引已加载: %s", self.index_path)
+            logger.info("加载 %s", os.path.basename(self.index_path))
+
+        # logger.info("加载完成 (sr=%d, f0=%d, spk=%d)", self.tgt_sr, self.if_f0,
+        #              self.net_g.emb_g.weight.shape[0] if hasattr(self.net_g, 'emb_g') else 0)
 
     def _load_synthesizer(self):
+        logger.info("加载 Synthesizer")
         ckpt = torch.load(self.pth_path, map_location="cpu", weights_only=False)
         self.tgt_sr = ckpt["config"][-1]
         self.if_f0 = ckpt.get("f0", 1)
@@ -92,13 +101,12 @@ class RealtimeVC:
         self.net_g.eval().to(self.device)
         if self.is_half:
             self.net_g.half()
-        logger.info("合成器已加载 (sr=%d, f0=%d, spk=%d)", self.tgt_sr, self.if_f0, n_spk)
 
     def change_key(self, key):
         self.f0_up_key = key
 
     def change_index_rate(self, rate):
-        if rate > 0 and self.index is None and self.index_path:
+        if rate > 0 and self.index is None and self.index_path and os.path.exists(self.index_path):
             self.index = faiss.read_index(self.index_path)
             self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
         self.index_rate = rate
@@ -117,28 +125,31 @@ class RealtimeVC:
         return f0_coarse, f0
 
     def _get_f0_rmvpe(self, x, f0_up_key):
-        if self.model_rmvpe is None:
+        cache_key = (self.device, self.is_half)
+        if cache_key not in _rmvpe_cache:
             from rvc.rmvpe import RMVPE
-            logger.info("加载 RMVPE 模型...")
-            self.model_rmvpe = RMVPE(
+            logger.info("加载 RMVPE（一次性）")
+            _rmvpe_cache[cache_key] = RMVPE(
                 "assets/rmvpe/rmvpe.pt", is_half=self.is_half, device=self.device
             )
+        self.model_rmvpe = _rmvpe_cache[cache_key]
         f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         f0 *= pow(2, f0_up_key / 12)
         return self._get_f0_post(f0)
 
     def _get_f0_fcpe(self, x, f0_up_key):
-        if self.model_fcpe is None:
+        cache_key = self.device
+        if cache_key not in _fcpe_cache:
             from torchfcpe import spawn_bundled_infer_model
-            logger.info("加载 FCPE 模型...")
-            # 抑制 torchfcpe 内部的 INFO/WARN 日志
+            logger.info("加载 FCPE...")
             fcpe_logger = logging.getLogger("torchfcpe")
             saved_level = fcpe_logger.level
             fcpe_logger.setLevel(logging.ERROR)
             try:
-                self.model_fcpe = spawn_bundled_infer_model(self.device)
+                _fcpe_cache[cache_key] = spawn_bundled_infer_model(self.device)
             finally:
                 fcpe_logger.setLevel(saved_level)
+        self.model_fcpe = _fcpe_cache[cache_key]
         f0 = self.model_fcpe.infer(
             x.to(self.device).unsqueeze(0).float(),
             sr=16000,
