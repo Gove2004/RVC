@@ -33,3 +33,6 @@ TEMP/
 # OS
 Thumbs.db
 .DS_Store
+
+# ffmpeg
+ffmpeg
