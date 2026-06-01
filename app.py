@@ -6,6 +6,7 @@ import logging
 import time
 import threading
 import queue
+import traceback
 
 import numpy as np
 import sounddevice as sd
@@ -35,11 +36,12 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QComboBox, QSlider, QCheckBox,
     QFileDialog, QMessageBox, QGroupBox, QLineEdit, QRadioButton,
-    QButtonGroup, QTabWidget, QScrollArea, QFrame,
+    QButtonGroup, QTabWidget, QScrollArea, QFrame, QProgressBar,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QPalette, QColor
 
+import soundfile as sf
 from configs.config import Config
 from rvc.denoise import TorchGate
 
@@ -465,6 +467,165 @@ class LoadThread(QThread):
         except Exception as e: self.err.emit(str(e))
 
 
+# ─────────────────── 离线推理 ───────────────────
+
+_FFMPEG = os.path.join(os.getcwd(), "ffmpeg.exe")
+_X_PAD = 3  # 与 Config 中 x_pad 一致
+
+
+class OfflineWorker(QThread):
+    progress = Signal(int, int)
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, input_path, output_path, pth, idx, idx_rate, pitch, f0method, rms_mix):
+        super().__init__()
+        self.input_path = input_path
+        self.output_path = output_path
+        self.pth = pth; self.idx = idx; self.idx_rate = idx_rate
+        self.pitch = pitch; self.f0method = f0method; self.rms_mix = rms_mix
+
+    def run(self):
+        try:
+            self._do_run()
+        except Exception:
+            self.error.emit(traceback.format_exc().strip().splitlines()[-1])
+
+    def _do_run(self):
+        # 加载音频
+        self.progress.emit(0, 100)
+        wav, sr = self._load_audio(self.input_path)
+
+        # 重采样到 16kHz（HuBERT 要求）
+        if sr != 16000:
+            wav = librosa.resample(wav, orig_sr=sr, target_sr=16000)
+        self.progress.emit(10, 100)
+
+        # 推理引擎
+        from rvc.realtime_engine import RealtimeVC
+        vc = RealtimeVC(config, self.pth, self.idx, self.idx_rate)
+        vc.load()
+        vc.change_key(self.pitch)
+        self.progress.emit(20, 100)
+
+        tgt_sr = vc.tgt_sr
+        t_pad = 16000 * _X_PAD  # 48000 样本 (16kHz 下 3s)
+        t_pad_tgt = tgt_sr * _X_PAD  # 模型采样率下的 padding
+
+        # Pad 音频（反射填充）
+        audio_pad = np.pad(wav, (t_pad, t_pad), mode="reflect")
+        p_len = audio_pad.shape[0] // 160  # 帧数
+
+        # F0 提取
+        pitch_coarse, pitchf = None, None
+        if vc.if_f0 == 1:
+            pitch_coarse, pitchf = vc._get_f0(
+                torch.from_numpy(audio_pad).float(), self.pitch, self.f0method
+            )
+            pitch_coarse = pitch_coarse[:p_len].unsqueeze(0)
+            pitchf = pitchf[:p_len].unsqueeze(0)
+        self.progress.emit(40, 100)
+
+        # HuBERT 特征提取
+        feats = torch.from_numpy(audio_pad).float()
+        if vc.is_half:
+            feats = feats.half()
+        feats = feats.view(1, -1).to(config.device)
+        padding_mask = torch.zeros(feats.shape, dtype=torch.bool, device=config.device)
+        with torch.no_grad():
+            logits = vc.model.extract_features(
+                source=feats, padding_mask=padding_mask, output_layer=12
+            )
+            feats = logits[0]
+        feats = torch.cat((feats, feats[:, -1:, :]), 1)
+        self.progress.emit(55, 100)
+
+        # FAISS 索引匹配
+        if vc.index is not None and vc.index_rate > 0:
+            try:
+                npy = feats[0].cpu().numpy().astype("float32")
+                score, ix = vc.index.search(npy, k=min(8, vc.index.ntotal))
+                if (ix >= 0).all():
+                    weight = np.square(1 / score)
+                    weight /= weight.sum(axis=1, keepdims=True)
+                    npy = np.sum(vc.big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
+                    if vc.is_half:
+                        npy = npy.astype("float16")
+                    feats = (
+                        torch.from_numpy(npy).unsqueeze(0).to(config.device) * vc.index_rate
+                        + (1 - vc.index_rate) * feats
+                    )
+            except Exception:
+                logger.debug("索引匹配失败: %s", traceback.format_exc())
+        self.progress.emit(65, 100)
+
+        # 上采样特征
+        feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+        feats = feats[:, :p_len, :]
+
+        # 合成器推理（不传 skip_head / return_length）
+        p_len_t = torch.LongTensor([p_len]).to(config.device)
+        sid = torch.LongTensor([0]).to(config.device)
+        with torch.no_grad():
+            if vc.if_f0 == 1:
+                result = vc.net_g.infer(feats, p_len_t, pitch_coarse, pitchf, sid)
+            else:
+                result = vc.net_g.infer(feats, p_len_t, sid)
+        audio1 = result[0][0, 0].data.cpu().float().numpy()
+        self.progress.emit(85, 100)
+
+        # Trim padding
+        audio1 = audio1[t_pad_tgt : -t_pad_tgt] if t_pad_tgt > 0 else audio1
+
+        # RMS 响度匹配
+        if self.rms_mix != 1:
+            audio1 = self._change_rms(wav, 16000, audio1, tgt_sr, self.rms_mix)
+
+        # 归一化 + 保存
+        audio_max = np.abs(audio1).max() / 0.99
+        if audio_max > 1:
+            audio1 = audio1 / audio_max
+        sf.write(self.output_path, audio1, tgt_sr, subtype="FLOAT")
+        self.progress.emit(100, 100)
+        self.finished.emit(self.output_path)
+
+    @staticmethod
+    def _change_rms(data1, sr1, data2, sr2, rate):
+        """参照 pipeline.py 的 change_rms — data1 是输入, data2 是输出, rate 是输出占比"""
+        rms1 = librosa.feature.rms(y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2)
+        rms2 = librosa.feature.rms(y=data2, frame_length=sr2 // 2 * 2, hop_length=sr2 // 2)
+        rms1 = torch.from_numpy(rms1)
+        rms1 = F.interpolate(rms1.unsqueeze(0), size=data2.shape[0], mode="linear").squeeze()
+        rms2 = torch.from_numpy(rms2)
+        rms2 = F.interpolate(rms2.unsqueeze(0), size=data2.shape[0], mode="linear").squeeze()
+        rms2 = torch.max(rms2, torch.zeros_like(rms2) + 1e-6)
+        data2 *= (torch.pow(rms1, torch.tensor(1 - rate)) * torch.pow(rms2, torch.tensor(rate - 1))).numpy()
+        return data2
+
+    def _load_audio(self, path):
+        """加载任意格式音频 → (mono_float32, sample_rate)"""
+        path = os.path.abspath(path)
+        try:
+            return librosa.load(path, sr=None, mono=True)
+        except Exception:
+            pass
+        if not os.path.exists(_FFMPEG):
+            raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}\n也无法用 librosa 加载: {path}")
+        import subprocess, re
+        info = subprocess.run([_FFMPEG, "-i", path], capture_output=True, text=True)
+        sr = 48000
+        for line in info.stderr.split('\n'):
+            if 'Hz' in line and 'Audio' in line:
+                m = re.search(r'(\d+) Hz', line)
+                if m: sr = int(m.group(1)); break
+        cmd = [_FFMPEG, "-i", path, "-vn", "-acodec", "pcm_f32le", "-f", "wav", "-ac", "1", "-"]
+        proc = subprocess.run(cmd, capture_output=True, timeout=300)
+        if proc.returncode:
+            raise RuntimeError("ffmpeg 解码失败")
+        raw = np.frombuffer(proc.stdout, dtype=np.float32)
+        return raw.astype(np.float32), sr
+
+
 # ─────────────────── 主窗口 ───────────────────
 
 class MainWindow(QMainWindow):
@@ -473,6 +634,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("RVC 实时变声")
         self._active_card = None
         self._loading = False
+        self._off_worker = None
         self._timer = QTimer(); self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(engine.infer_ms)}"))
         self._build_ui()
         self._load_cfg()
@@ -488,6 +650,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_settings_tab(), "设置")
         tabs.addTab(self._build_models_tab(), "模型")
         tabs.addTab(self._build_audio_tab(), "声学")
+        tabs.addTab(self._build_offline_tab(), "离线")
         root.addWidget(tabs)
 
         # 底部控制栏
@@ -613,6 +776,37 @@ class MainWindow(QMainWindow):
         self.rev_sl = self._sl(0,50,1,0); self.rev_lbl = QLabel("0.00"); self.rev_lbl.setMinimumWidth(35)
         self.rev_sl.valueChanged.connect(lambda v: self.rev_lbl.setText(f"{v/100:.2f}"))
         add_eq("空间混响", self.rev_sl, self.rev_lbl, r)
+        return w
+
+    def _build_offline_tab(self):
+        w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(10,10,10,10)
+        g.setColumnStretch(1, 1); r = 0
+
+        g.addWidget(QLabel("输入文件"), r, 0)
+        self.off_in = QLineEdit(); g.addWidget(self.off_in, r, 1)
+        b = QPushButton("…"); b.setFixedWidth(30)
+        b.clicked.connect(lambda: self._off_browse(self.off_in, "in"))
+        g.addWidget(b, r, 2); r += 1
+
+        g.addWidget(QLabel("输出文件"), r, 0)
+        self.off_out = QLineEdit(); g.addWidget(self.off_out, r, 1)
+        b = QPushButton("…"); b.setFixedWidth(30)
+        b.clicked.connect(lambda: self._off_browse(self.off_out, "out"))
+        g.addWidget(b, r, 2); r += 1
+
+        g.addWidget(self._sep(), r, 0, 1, 3); r += 1
+
+        row = QHBoxLayout()
+        self.off_btn = QPushButton("开始转换")
+        self.off_btn.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:5px 16px;border-radius:3px}QPushButton:hover{background:#005f9e}QPushButton:disabled{background:#555}")
+        self.off_btn.clicked.connect(self._off_start)
+        row.addWidget(self.off_btn); row.addStretch()
+        g.addLayout(row, r, 0, 1, 3); r += 1
+
+        self.off_progress = QProgressBar(); self.off_progress.setValue(0)
+        g.addWidget(self.off_progress, r, 0, 1, 3); r += 1
+        self.off_status = QLabel("")
+        g.addWidget(self.off_status, r, 0, 1, 3)
         return w
 
     @staticmethod
@@ -823,7 +1017,73 @@ class MainWindow(QMainWindow):
         self.delay_lbl.setText("延迟: -"); self.stat_lbl.setText("推理: -")
         logger.info("停止")
 
+    # ── 离线推理 ──
+
+    def _off_browse(self, tgt, kind):
+        if kind == "in":
+            path, _ = QFileDialog.getOpenFileName(self, "选择音频", "", "音频 (*.wav *.mp3 *.flac *.ogg *.m4a *.wma *.aac *.opus);;所有 (*)")
+        else:
+            path, _ = QFileDialog.getSaveFileName(self, "保存音频", "", "WAV (*.wav)")
+        if path:
+            tgt.setText(path)
+            if kind == "in" and not self.off_out.text():
+                base, _ = os.path.splitext(path)
+                self.off_out.setText(base + "_converted.wav")
+
+    def _off_start(self):
+        inp = self.off_in.text().strip()
+        out = self.off_out.text().strip()
+        if not inp:
+            QMessageBox.warning(self, "提示", "请选择输入文件"); return
+        if not os.path.exists(inp):
+            QMessageBox.warning(self, "提示", f"文件不存在: {inp}"); return
+        if not out:
+            base, _ = os.path.splitext(inp); out = base + "_converted.wav"
+            self.off_out.setText(out)
+        if not self._active_card:
+            QMessageBox.warning(self, "提示", "请先在「模型」中选择一个模型"); return
+        pth = self._active_card.pth_edit.text().strip()
+        if not pth:
+            QMessageBox.warning(self, "提示", "模型路径为空"); return
+        if engine.running:
+            QMessageBox.warning(self, "提示", "请先停止实时变声"); return
+
+        idx = self._active_card.idx_edit.text().strip()
+        ir = self._active_card.ir_sl.value() / 100
+        pitch = self._active_card.pit_sl.value()
+        f0m = self.f0_combo.currentText()
+        rms = self._active_card.rms_sl.value() / 100
+
+        self._off_worker = OfflineWorker(inp, out, pth, idx, ir, pitch, f0m, rms)
+        self._off_worker.progress.connect(self._off_progress)
+        self._off_worker.finished.connect(self._off_done)
+        self._off_worker.error.connect(self._off_err)
+        self.off_btn.setEnabled(False); self.off_btn.setText("转换中...")
+        self.off_progress.setValue(0)
+        self._off_worker.start()
+
+    def _off_progress(self, cur, total):
+        self.off_progress.setMaximum(total)
+        self.off_progress.setValue(cur)
+        self.off_status.setText(f"{cur}/{total}")
+
+    def _off_done(self, path):
+        self.off_btn.setEnabled(True); self.off_btn.setText("开始转换")
+        self.off_status.setText("完成")
+        if self._off_worker:
+            self._off_worker.wait(); self._off_worker = None
+        QMessageBox.information(self, "完成", f"已保存: {path}")
+
+    def _off_err(self, msg):
+        self.off_btn.setEnabled(True); self.off_btn.setText("开始转换")
+        self.off_status.setText("错误")
+        if self._off_worker:
+            self._off_worker.wait(); self._off_worker = None
+        QMessageBox.critical(self, "离线推理错误", msg)
+
     def closeEvent(self, e):
+        if self._off_worker and self._off_worker.isRunning():
+            self._off_worker.quit(); self._off_worker.wait()
         self._save_cfg(); engine.stop(); e.accept()
 
 
