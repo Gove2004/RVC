@@ -75,9 +75,6 @@ class RealtimeVC:
             self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
             logger.info("加载 %s", os.path.basename(self.index_path))
 
-        # logger.info("加载完成 (sr=%d, f0=%d, spk=%d)", self.tgt_sr, self.if_f0,
-        #              self.net_g.emb_g.weight.shape[0] if hasattr(self.net_g, 'emb_g') else 0)
-
     def _load_synthesizer(self):
         logger.info("加载 Synthesizer")
         ckpt = torch.load(self.pth_path, map_location="cpu", weights_only=False)

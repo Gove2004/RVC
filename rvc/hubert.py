@@ -53,14 +53,7 @@ def load_hubert(config):
     hubert_path = "assets/hubert/hubert_base.pt"
 
     if not os.path.exists(hubert_path):
-        old_path = "D:/RVC20240604Nvidia50x0/assets/hubert/hubert_base.pt"
-        if os.path.exists(old_path):
-            import shutil
-            os.makedirs(os.path.dirname(hubert_path), exist_ok=True)
-            shutil.copy2(old_path, hubert_path)
-            logger.info("已从 %s 复制 HuBERT 模型", old_path)
-        else:
-            raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
+        raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
 
     logger.info("加载 HuBERT")
 

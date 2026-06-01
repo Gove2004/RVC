@@ -74,10 +74,4 @@ class Config:
             x_center = 30
             x_max = 32
 
-        # logger.info(
-        #     "设备: %s, 半精度: %s, 显存: %sGB",
-        #     self.device,
-        #     self.is_half,
-        #     self.gpu_mem,
-        # )
         return x_pad, x_query, x_center, x_max
