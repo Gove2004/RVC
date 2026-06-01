@@ -19,13 +19,15 @@ import torchaudio.functional as TAF
 
 # 修复 Windows 终端中文乱码: 强制 UTF-8 输出
 import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+if sys.stdout is not None:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
+_log_handlers = [logging.StreamHandler(stream=sys.stdout)] if sys.stdout else []
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler(stream=sys.stdout)],
+    handlers=_log_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -121,8 +123,8 @@ class ModelCard(QFrame):
         self.pit_sl = self._sl(-16,16,1,pitch); self.pit_lbl = QLabel(str(pitch))
         self.pit_sl.valueChanged.connect(lambda v: self.pit_lbl.setText(str(v)))
         add_s("音调", self.pit_sl, self.pit_lbl, r); r+=1
-        self.gen_sl = self._sl(0,100,1,gender); self.gen_lbl = QLabel(f"{gender/100:.2f}")
-        self.gen_sl.valueChanged.connect(lambda v: self.gen_lbl.setText(f"{v/100:.2f}"))
+        self.gen_sl = self._sl(0,100,1,gender); self.gen_lbl = QLabel(f"{(gender/100-0.5)*4:+.2f}")
+        self.gen_sl.valueChanged.connect(lambda v: self.gen_lbl.setText(f"{(v/100-0.5)*4:+.2f}"))
         add_s("性别", self.gen_sl, self.gen_lbl, r); r+=1
         self.ir_sl = self._sl(0,100,1,int(index_rate*100)); self.ir_lbl = QLabel(f"{index_rate:.2f}")
         self.ir_sl.valueChanged.connect(lambda v: self.ir_lbl.setText(f"{v/100:.2f}"))
@@ -308,6 +310,8 @@ class RealtimeEngine:
         self.running = True
 
     def setup_out2(self, dev_idx):
+        dev_info = sd.query_devices(dev_idx)
+        logger.info("副输出: %s (idx=%d, sr=%d)", dev_info["name"], dev_idx, int(dev_info["default_samplerate"]))
         self.stream2 = sd.OutputStream(device=dev_idx, samplerate=self.sr, channels=self.channels, dtype="float32", latency='low')
         self.stream2.start()
         while not self.out2_q.empty(): self.out2_q.get()
@@ -319,11 +323,16 @@ class RealtimeEngine:
                 d = self.out2_q.get(timeout=0.01)
                 if self.stream2 and self.stream2.active: self.stream2.write(d)
             except queue.Empty: pass
+            except Exception as e: logger.warning("副输出写入失败: %s", e)
 
     def stop(self):
         self.running = False
-        for s in (self.stream, self.stream2):
-            if s: s.abort(); s.close()
+        for s in (self.stream2, self.stream):
+            if s:
+                try: s.abort()
+                except: pass
+                try: s.close()
+                except: pass
         self.stream = self.stream2 = None
 
     @staticmethod
@@ -365,6 +374,7 @@ class RealtimeEngine:
             if self.function == "vc" and self.vc_engine:
                 self.vc_engine.change_key(p.pitch)
                 self.vc_engine.change_index_rate(p.index_rate)
+                self.vc_engine.change_formant(p.gender)
                 infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, p.f0method)
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
@@ -437,10 +447,12 @@ class RealtimeEngine:
 
             outdata[:] = chunk.repeat(self.channels, 1).t().cpu().numpy()
             if self.stream2 and p.enable_out2:
-                if self.out2_q.full():
-                    try: self.out2_q.get_nowait()
-                    except: pass
-                self.out2_q.put_nowait(outdata.copy())
+                try:
+                    if self.out2_q.full():
+                        try: self.out2_q.get_nowait()
+                        except: pass
+                    self.out2_q.put_nowait(outdata.copy())
+                except Exception as e: logger.warning("副输出队列写入失败: %s", e)
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
@@ -448,7 +460,7 @@ class RealtimeEngine:
 # ─────────────────── 运行时参数 ───────────────────
 
 class Params:
-    threshold = -60; pitch = 0; index_rate = 0.0; rms_mix = 0.0
+    threshold = -60; pitch = 0; index_rate = 0.0; rms_mix = 0.0; gender = 0.0
     f0method = "fcpe"; I_nr = False; O_nr = False; use_pv = False
     enable_eq = False; eq_low = 0; eq_mid = 0; eq_high = 0
     warmth = 0; compress = 0; reverb = 0
@@ -604,9 +616,13 @@ class OfflineWorker(QThread):
 
     def _load_audio(self, path):
         """加载任意格式音频 → (mono_float32, sample_rate)"""
+        import warnings
         path = os.path.abspath(path)
         try:
-            return librosa.load(path, sr=None, mono=True)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*PySoundFile.*")
+                warnings.filterwarnings("ignore", message=".*audioread.*", category=FutureWarning)
+                return librosa.load(path, sr=None, mono=True)
         except Exception:
             pass
         if not os.path.exists(_FFMPEG):
@@ -659,7 +675,8 @@ class MainWindow(QMainWindow):
         self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
         self.btn_start.clicked.connect(self._start)
         self.btn_stop = QPushButton("停止")
-        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}")
+        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
+        self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._stop)
         ctrl.addWidget(self.btn_start); ctrl.addWidget(self.btn_stop)
         self.model_lbl = QLabel("当前: -"); self.model_lbl.setMinimumWidth(140)
@@ -794,19 +811,18 @@ class MainWindow(QMainWindow):
         b.clicked.connect(lambda: self._off_browse(self.off_out, "out"))
         g.addWidget(b, r, 2); r += 1
 
-        g.addWidget(self._sep(), r, 0, 1, 3); r += 1
-
         row = QHBoxLayout()
         self.off_btn = QPushButton("开始转换")
         self.off_btn.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:5px 16px;border-radius:3px}QPushButton:hover{background:#005f9e}QPushButton:disabled{background:#555}")
         self.off_btn.clicked.connect(self._off_start)
-        row.addWidget(self.off_btn); row.addStretch()
+        row.addWidget(self.off_btn)
+        self.off_status = QLabel("")
+        row.addWidget(self.off_status)
+        row.addStretch()
         g.addLayout(row, r, 0, 1, 3); r += 1
 
         self.off_progress = QProgressBar(); self.off_progress.setValue(0)
-        g.addWidget(self.off_progress, r, 0, 1, 3); r += 1
-        self.off_status = QLabel("")
-        g.addWidget(self.off_status, r, 0, 1, 3)
+        g.addWidget(self.off_progress, r, 0, 1, 3)
         return w
 
     @staticmethod
@@ -960,6 +976,7 @@ class MainWindow(QMainWindow):
         ir = self._active_card.ir_sl.value()/100
         p.pitch = self._active_card.pit_sl.value()
         p.index_rate = ir; p.rms_mix = self._active_card.rms_sl.value()/100
+        p.gender = (self._active_card.gen_sl.value()/100 - 0.5) * 4  # 0~100 → -2~+2 半音
         p.f0method = self.f0_combo.currentText()
         name = self._active_card._name.text()
         # logger.info("选择: %s (pitch=%d, f0=%s, ir=%.2f)", name, p.pitch, p.f0method, ir)
@@ -995,25 +1012,28 @@ class MainWindow(QMainWindow):
                          self.bl_sl.value()/100, self.cf_sl.value()/100, self.ex_sl.value()/100, p)
             engine.bgm_audio = None; engine.bgm_ptr = 0
             if p.enable_out2:
-                _, _, _, _, o2i = get_audio_devices(self.ha_combo.currentText())
-                engine.setup_out2(o2i[self.out2_combo.currentIndex() - 1])
+                engine.setup_out2(out_idx[self.out2_combo.currentIndex() - 1])
             self.sr_r1_lbl.setText(f"模型采样率: {engine.sr_model}")
             self.sr_r2_lbl.setText(f"设备采样率: {engine.sr_dev}")
             dl = (engine.stream.latency[-1] if engine.stream else 0) + self.bl_sl.value()/100 + self.cf_sl.value()/100 + 0.01
             if p.I_nr: dl += min(self.cf_sl.value()/100, 0.04)
             self.delay_lbl.setText(f"延迟: {int(dl*1000)}")
             self.btn_start.setEnabled(False); self.btn_start.setText("运行中")
+            self.btn_stop.setEnabled(True)
             self._timer.start(200); self._save_cfg()
             # logger.info("启动完成 (设备:%d 模型:%d)", engine.sr_dev, engine.sr_model)
         except Exception as e: self._on_err(str(e))
 
     def _on_err(self, e):
         self.btn_start.setEnabled(True); self.btn_start.setText("开始")
+        self.btn_stop.setEnabled(False)
         QMessageBox.critical(self, "错误", str(e))
 
     def _stop(self):
+        if not engine.running: return
         self._timer.stop(); engine.stop()
         self.btn_start.setEnabled(True); self.btn_start.setText("开始")
+        self.btn_stop.setEnabled(False)
         self.delay_lbl.setText("延迟: -"); self.stat_lbl.setText("推理: -")
         logger.info("停止")
 
@@ -1069,10 +1089,9 @@ class MainWindow(QMainWindow):
 
     def _off_done(self, path):
         self.off_btn.setEnabled(True); self.off_btn.setText("开始转换")
-        self.off_status.setText("完成")
+        self.off_status.setText(f"完成: {path}")
         if self._off_worker:
             self._off_worker.wait(); self._off_worker = None
-        QMessageBox.information(self, "完成", f"已保存: {path}")
 
     def _off_err(self, msg):
         self.off_btn.setEnabled(True); self.off_btn.setText("开始转换")

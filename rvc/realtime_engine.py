@@ -34,6 +34,7 @@ class RealtimeVC:
         self.index_rate = index_rate
 
         self.f0_up_key = 0
+        self.formant_shift = 0.0
         self.f0_min = 50
         self.f0_max = 1100
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
@@ -104,6 +105,9 @@ class RealtimeVC:
 
     def change_key(self, key):
         self.f0_up_key = key
+
+    def change_formant(self, shift):
+        self.formant_shift = shift
 
     def change_index_rate(self, rate):
         if rate > 0 and self.index is None and self.index_path and os.path.exists(self.index_path):
@@ -212,12 +216,14 @@ class RealtimeVC:
 
         # F0 提取
         p_len = input_wav.shape[0] // 160
+        factor = pow(2, self.formant_shift / 12)
+        return_length2_val = int(np.ceil(return_length * factor))
         if self.if_f0 == 1:
             f0_extractor_frame = block_frame_16k + 800
             if f0method == "rmvpe":
                 f0_extractor_frame = 5120 * ((f0_extractor_frame - 1) // 5120 + 1) - 160
             pitch, pitchf = self._get_f0(
-                input_wav[-f0_extractor_frame:], self.f0_up_key, f0method
+                input_wav[-f0_extractor_frame:], self.f0_up_key - self.formant_shift, f0method
             )
             shift = block_frame_16k // 160
             self.cache_pitch[:-shift] = self.cache_pitch[shift:].clone()
@@ -225,7 +231,7 @@ class RealtimeVC:
             self.cache_pitch[4 - pitch.shape[0] :] = pitch[3:-1]
             self.cache_pitchf[4 - pitch.shape[0] :] = pitchf[3:-1]
             cache_pitch = self.cache_pitch[None, -p_len:]
-            cache_pitchf = self.cache_pitchf[None, -p_len:]
+            cache_pitchf = self.cache_pitchf[None, -p_len:] * return_length2_val / return_length
 
         # 上采样特征
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
@@ -234,7 +240,7 @@ class RealtimeVC:
         sid = torch.LongTensor([0]).to(self.device)
         skip_head_t = torch.LongTensor([skip_head])
         return_length_t = torch.LongTensor([return_length])
-        return_length2 = torch.LongTensor([return_length])
+        return_length2 = torch.LongTensor([return_length2_val])
 
         # 合成
         if self.if_f0 == 1:

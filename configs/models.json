@@ -4,10 +4,10 @@
       "name": "songyue",
       "pth": "E:/Projects/Python/RVC/assets/weights/songyue.pth",
       "idx": "E:/Projects/Python/RVC/assets/indices/kikiV2.index",
-      "pitch": 12,
+      "pitch": 10,
       "index_rate": 0.0,
       "rms_mix": 0.5,
-      "gender": 0.0
+      "gender": 0.5
     },
     {
       "name": "MYZpeipeipromax48k",
@@ -16,7 +16,7 @@
       "pitch": 12,
       "index_rate": 0.0,
       "rms_mix": 0.5,
-      "gender": 0.5
+      "gender": 1.0
     }
   ]
 }
