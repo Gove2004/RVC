@@ -310,8 +310,6 @@ class RealtimeEngine:
         self.running = True
 
     def setup_out2(self, dev_idx):
-        dev_info = sd.query_devices(dev_idx)
-        logger.info("副输出: %s (idx=%d, sr=%d)", dev_info["name"], dev_idx, int(dev_info["default_samplerate"]))
         self.stream2 = sd.OutputStream(device=dev_idx, samplerate=self.sr, channels=self.channels, dtype="float32", latency='low')
         self.stream2.start()
         while not self.out2_q.empty(): self.out2_q.get()
@@ -447,12 +445,10 @@ class RealtimeEngine:
 
             outdata[:] = chunk.repeat(self.channels, 1).t().cpu().numpy()
             if self.stream2 and p.enable_out2:
-                try:
-                    if self.out2_q.full():
-                        try: self.out2_q.get_nowait()
-                        except: pass
-                    self.out2_q.put_nowait(outdata.copy())
-                except Exception as e: logger.warning("副输出队列写入失败: %s", e)
+                if self.out2_q.full():
+                    try: self.out2_q.get_nowait()
+                    except: pass
+                self.out2_q.put_nowait(outdata.copy())
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
