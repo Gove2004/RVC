@@ -237,7 +237,7 @@ class RealtimeVC:
         sid = torch.LongTensor([0]).to(self.device)
         skip_head_t = torch.LongTensor([skip_head])
         return_length_t = torch.LongTensor([return_length])
-        return_length2 = torch.LongTensor([return_length2_val])
+        return_length2 = torch.LongTensor([return_length])
 
         # 合成
         if self.if_f0 == 1:
@@ -250,4 +250,5 @@ class RealtimeVC:
                 feats, p_len_t, sid, skip_head_t, return_length_t, return_length2
             )
 
-        return infered_audio.squeeze(1).float().squeeze()
+        infered_audio = infered_audio.squeeze(1).float().squeeze()
+        return infered_audio

@@ -175,7 +175,7 @@ class OfflineWorker(QThread):
             if 'Hz' in line and 'Audio' in line:
                 m = re.search(r'(\d+) Hz', line)
                 if m: sr = int(m.group(1)); break
-        cmd = [_FFMPEG, "-i", path, "-vn", "-acodec", "pcm_f32le", "-f", "wav", "-ac", "1", "-"]
+        cmd = [_FFMPEG, "-i", path, "-vn", "-acodec", "pcm_f32le", "-f", "f32le", "-ac", "1", "-"]
         proc = subprocess.run(cmd, capture_output=True, timeout=300)
         if proc.returncode:
             raise RuntimeError("ffmpeg 解码失败")

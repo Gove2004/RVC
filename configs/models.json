@@ -4,7 +4,7 @@
       "name": "songyue",
       "pth": "E:/Projects/Python/RVC/assets/weights/songyue.pth",
       "idx": "E:/Projects/Python/RVC/assets/indices/kikiV2.index",
-      "pitch": 10,
+      "pitch": 12,
       "index_rate": 0.0,
       "rms_mix": 0.5,
       "gender": 0.5
