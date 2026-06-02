@@ -459,7 +459,7 @@ class MelSpectrogram(torch.nn.Module):
                 magnitude = F.pad(magnitude, (0, 0, 0, size - resize))
             magnitude = magnitude[:, :size, :] * self.win_length / win_length_new
         mel_output = torch.matmul(self.mel_basis, magnitude)
-        if self.is_half == True:
+        if self.is_half:
             mel_output = mel_output.half()
         log_mel_spec = torch.log(torch.clamp(mel_output, min=self.clamp))
         return log_mel_spec
@@ -537,7 +537,7 @@ class RMVPE:
         todo_cents_mapping = np.array(todo_cents_mapping)
         product_sum = np.sum(todo_salience * todo_cents_mapping, 1)
         weight_sum = np.sum(todo_salience, 1)
-        devided = product_sum / weight_sum
+        divided = product_sum / weight_sum
         maxx = np.max(salience, axis=1)
-        devided[maxx <= thred] = 0
-        return devided
+        divided[maxx <= thred] = 0
+        return divided

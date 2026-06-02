@@ -11,6 +11,33 @@ from torchaudio.transforms import Resample as TatResample
 
 logger = logging.getLogger(__name__)
 
+
+def faiss_blend(feats_npy, index, big_npy, index_rate, is_half):
+    """FAISS k=8 加权混合 — 提取为共享函数供实时/离线推理复用。
+
+    Args:
+        feats_npy: np.ndarray, shape (T, D), float32
+        index: faiss.Index
+        big_npy: np.ndarray, index 全量特征
+        index_rate: float, 混合比例
+        is_half: bool
+
+    Returns:
+        np.ndarray: 混合后的特征 (float16 if is_half else float32)
+    """
+    k = min(8, index.ntotal)
+    score, ix = index.search(feats_npy, k=k)
+    valid = (ix >= 0).all()
+    if not valid:
+        return feats_npy
+    weight = np.square(1 / score)
+    weight /= weight.sum(axis=1, keepdims=True)
+    blended = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
+    result = blended * index_rate + feats_npy * (1 - index_rate)
+    if is_half:
+        result = result.astype("float16")
+    return result
+
 # F0 提取器模块级缓存（跨 RealtimeVC 实例复用）
 _rmvpe_cache = {}
 _fcpe_cache = {}
@@ -49,6 +76,7 @@ class RealtimeVC:
         self.if_f0 = 1
         self.index = None
         self.big_npy = None
+        self.resample_kernel = {}
         self.model_rmvpe = None
         self.model_fcpe = None
 
@@ -197,17 +225,8 @@ class RealtimeVC:
         if self.index is not None and self.index_rate > 0:
             try:
                 npy = feats[0][skip_head // 2 :].cpu().numpy().astype("float32")
-                score, ix = self.index.search(npy, k=min(8, self.index.ntotal))
-                if (ix >= 0).all():
-                    weight = np.square(1 / score)
-                    weight /= weight.sum(axis=1, keepdims=True)
-                    npy = np.sum(self.big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
-                    if self.is_half:
-                        npy = npy.astype("float16")
-                    feats[0][skip_head // 2 :] = (
-                        torch.from_numpy(npy).to(self.device) * self.index_rate
-                        + (1 - self.index_rate) * feats[0][skip_head // 2 :]
-                    )
+                blended = faiss_blend(npy, self.index, self.big_npy, self.index_rate, self.is_half)
+                feats[0][skip_head // 2 :] = torch.from_numpy(blended).to(self.device)
             except Exception:
                 logger.debug("索引匹配失败: %s", traceback.format_exc())
 
@@ -237,7 +256,7 @@ class RealtimeVC:
         sid = torch.LongTensor([0]).to(self.device)
         skip_head_t = torch.LongTensor([skip_head])
         return_length_t = torch.LongTensor([return_length])
-        return_length2 = torch.LongTensor([return_length])
+        return_length2 = torch.LongTensor([return_length2_val])
 
         # 合成
         if self.if_f0 == 1:
@@ -250,5 +269,19 @@ class RealtimeVC:
                 feats, p_len_t, sid, skip_head_t, return_length_t, return_length2
             )
 
-        infered_audio = infered_audio.squeeze(1).float().squeeze()
-        return infered_audio
+        infered_audio = infered_audio.squeeze(1).float()
+
+        # 性别因子: 重采样回目标采样率
+        upp_res = int(np.floor(factor * self.tgt_sr // 100))
+        if upp_res != self.tgt_sr // 100:
+            if upp_res not in self.resample_kernel:
+                self.resample_kernel[upp_res] = TatResample(
+                    orig_freq=upp_res,
+                    new_freq=self.tgt_sr // 100,
+                    dtype=torch.float32,
+                ).to(self.device)
+            infered_audio = self.resample_kernel[upp_res](
+                infered_audio[:, : return_length * upp_res]
+            )
+
+        return infered_audio.squeeze()

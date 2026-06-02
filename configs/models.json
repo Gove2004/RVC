@@ -6,8 +6,8 @@
       "idx": "E:/Projects/Python/RVC/assets/indices/kikiV2.index",
       "pitch": 12,
       "index_rate": 0.0,
-      "rms_mix": 0.5,
-      "gender": 0.5
+      "rms_mix": 0.7,
+      "gender": 0.25
     },
     {
       "name": "MYZpeipeipromax48k",
@@ -16,7 +16,7 @@
       "pitch": 12,
       "index_rate": 0.0,
       "rms_mix": 0.5,
-      "gender": 1.0
+      "gender": 0.5
     }
   ]
 }

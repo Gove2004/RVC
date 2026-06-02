@@ -122,9 +122,9 @@ class RealtimeEngine:
         for s in (self.stream2, self.stream):
             if s:
                 try: s.abort()
-                except: pass
+                except Exception: pass
                 try: s.close()
-                except: pass
+                except Exception: pass
         self.stream = self.stream2 = None
 
     @staticmethod
@@ -241,7 +241,7 @@ class RealtimeEngine:
             if self.stream2 and p.enable_out2:
                 if self.out2_q.full():
                     try: self.out2_q.get_nowait()
-                    except: pass
+                    except Exception: pass
                 self.out2_q.put_nowait(outdata.copy())
 
         self.infer_ms = (time.perf_counter() - t0) * 1000

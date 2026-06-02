@@ -96,18 +96,10 @@ class OfflineWorker(QThread):
         # FAISS 索引匹配
         if vc.index is not None and vc.index_rate > 0:
             try:
+                from rvc.realtime_engine import faiss_blend
                 npy = feats[0].cpu().numpy().astype("float32")
-                score, ix = vc.index.search(npy, k=min(8, vc.index.ntotal))
-                if (ix >= 0).all():
-                    weight = np.square(1 / score)
-                    weight /= weight.sum(axis=1, keepdims=True)
-                    npy = np.sum(vc.big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
-                    if vc.is_half:
-                        npy = npy.astype("float16")
-                    feats = (
-                        torch.from_numpy(npy).unsqueeze(0).to(config.device) * vc.index_rate
-                        + (1 - vc.index_rate) * feats
-                    )
+                blended = faiss_blend(npy, vc.index, vc.big_npy, vc.index_rate, vc.is_half)
+                feats = torch.from_numpy(blended).unsqueeze(0).to(config.device)
             except Exception:
                 logger.debug("索引匹配失败: %s", traceback.format_exc())
         self.progress.emit(65, 100)
