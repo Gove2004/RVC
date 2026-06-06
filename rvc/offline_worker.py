@@ -14,7 +14,8 @@ from configs.config import Config
 logger = logging.getLogger(__name__)
 config = Config()
 
-_FFMPEG = os.path.join(os.getcwd(), "ffmpeg", "ffmpeg.exe")
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FFMPEG = os.path.join(_PROJECT_ROOT, "ffmpeg", "ffmpeg.exe")
 _X_PAD = 3  # 与 Config 中 x_pad 一致
 
 
@@ -34,7 +35,9 @@ class OfflineWorker(QThread):
         try:
             self._do_run()
         except Exception:
-            self.error.emit(traceback.format_exc().strip().splitlines()[-1])
+            tb = traceback.format_exc()
+            logger.error("离线推理失败:\n%s", tb)
+            self.error.emit(tb.strip().splitlines()[-1])
 
     def _do_run(self):
         import soundfile as sf

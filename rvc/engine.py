@@ -41,6 +41,7 @@ class RealtimeEngine:
         self.rms_buffer = None; self.fade_in = None; self.fade_out = None
         self.resampler = None; self.resampler2 = None; self.tg = None
         self.reverb_buffer = None
+        self.bgm_audio = None; self.bgm_ptr = 0
 
         self.loaded_pth = ""; self.loaded_idx = ""
         self.infer_ms = 0.0

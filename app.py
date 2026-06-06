@@ -73,14 +73,14 @@ class ModelCard(QFrame):
 
     load_requested = Signal(str, str, str, float, float, float, float)
 
-    def __init__(self, name="", pth="", idx="", pitch=0, f0method="fcpe",
+    def __init__(self, name="", pth="", idx="", pitch=0,
                  index_rate=0.0, rms_mix=0.0, gender=50, parent=None):
         super().__init__(parent)
         self._expanded = False
-        self._build(name, pth, idx, pitch, f0method, index_rate, rms_mix, gender)
+        self._build(name, pth, idx, pitch, index_rate, rms_mix, gender)
         self._body.setVisible(False)
 
-    def _build(self, name, pth, idx, pitch, f0method, index_rate, rms_mix, gender):
+    def _build(self, name, pth, idx, pitch, index_rate, rms_mix, gender):
         root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
 
         # 头部: 单选圆圈 + 名称 + 展开箭头
@@ -373,9 +373,9 @@ class MainWindow(QMainWindow):
         name = os.path.splitext(os.path.basename(path))[0]
         self._add_card(name=name, pth=path)
 
-    def _add_card(self, name="", pth="", idx="", pitch=0, f0method="fcpe",
+    def _add_card(self, name="", pth="", idx="", pitch=0,
                   index_rate=0.0, rms_mix=0.0, gender=50):
-        card = ModelCard(name, pth, idx, pitch, f0method, index_rate, rms_mix, gender)
+        card = ModelCard(name, pth, idx, pitch, index_rate=index_rate, rms_mix=rms_mix, gender=gender)
         card.load_requested.connect(self._on_card_load)
         card._del.clicked.connect(lambda: self._remove_card(card))
         self._models_layout.insertWidget(self._models_layout.count()-1, card)
@@ -414,7 +414,7 @@ class MainWindow(QMainWindow):
         # 加载模型列表
         for m in ModelListData.load():
             self._add_card(m.get("name",""), m.get("pth",""), m.get("idx",""),
-                           m.get("pitch",0), m.get("f0method","fcpe"),
+                           m.get("pitch",0),
                            m.get("index_rate",0), m.get("rms_mix",0),
                            int(m.get("gender",0.5)*100))
         # 加载全局配置
@@ -484,7 +484,10 @@ class MainWindow(QMainWindow):
             "sr_mode": "model" if self.sr_r1.isChecked() else "device",
             "selected": self._active_card.pth_edit.text().strip() if self._active_card else "",
         }
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f: json.dump(d, f, indent=2, ensure_ascii=False)
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f: json.dump(d, f, indent=2, ensure_ascii=False)
+        except Exception:
+            logger.warning("保存配置失败", exc_info=True)
 
     # ── 设备管理 ──
 
@@ -516,7 +519,6 @@ class MainWindow(QMainWindow):
         p.index_rate = ir; p.rms_mix = self._active_card.rms_sl.value()/100
         p.gender = (self._active_card.gen_sl.value()/100 - 0.5) * 4  # 0~100 → -2~+2 半音
         p.f0method = self.f0_combo.currentText()
-        name = self._active_card._name.text()
         self._start_engine(pth, idx, ir)
 
     def _start_engine(self, pth, idx, idx_rate):
@@ -637,9 +639,14 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "离线推理错误", msg)
 
     def closeEvent(self, e):
+        self._timer.stop()
+        if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
+            self._lt.quit(); self._lt.wait(2000)
         if self._off_worker and self._off_worker.isRunning():
-            self._off_worker.quit(); self._off_worker.wait()
-        self._save_cfg(); engine.stop(); e.accept()
+            self._off_worker.quit(); self._off_worker.wait(2000)
+        try: self._save_cfg()
+        except Exception: logger.warning("保存配置失败", exc_info=True)
+        engine.stop(); e.accept()
 
 
 def set_dark(app):

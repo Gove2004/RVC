@@ -254,8 +254,8 @@ class RealtimeVC:
         feats = feats[:, :p_len, :]
         p_len_t = torch.LongTensor([p_len]).to(self.device)
         sid = torch.LongTensor([0]).to(self.device)
-        skip_head_t = torch.LongTensor([skip_head])
-        return_length_t = torch.LongTensor([return_length])
+        skip_head_t = torch.LongTensor([skip_head]).to(self.device)
+        return_length_t = torch.LongTensor([return_length]).to(self.device)
         return_length2 = torch.LongTensor([return_length2_val])
 
         # 合成
@@ -275,6 +275,8 @@ class RealtimeVC:
         upp_res = int(np.floor(factor * self.tgt_sr // 100))
         if upp_res != self.tgt_sr // 100:
             if upp_res not in self.resample_kernel:
+                if len(self.resample_kernel) >= 16:
+                    self.resample_kernel.clear()
                 self.resample_kernel[upp_res] = TatResample(
                     orig_freq=upp_res,
                     new_freq=self.tgt_sr // 100,
