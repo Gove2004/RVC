@@ -600,6 +600,25 @@ class _SynthesizerTrnMsBase(nn.Module):
         if hasattr(self, "enc_q"):
             self.enc_q.remove_weight_norm()
 
+    def forward(
+        self,
+        phone: torch.Tensor,
+        phone_lengths: torch.Tensor,
+        pitch: torch.Tensor,
+        pitchf: torch.Tensor,
+        y: torch.Tensor,
+        y_lengths: torch.Tensor,
+        ds: torch.Tensor,
+    ):
+        g = self.emb_g(ds).unsqueeze(-1)
+        m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
+        z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
+        z_p = self.flow(z, y_mask, g=g)
+        z_slice, ids_slice = commons.rand_slice_segments(z, y_lengths, self.segment_size)
+        pitchf = commons.slice_segments2(pitchf, ids_slice, self.segment_size)
+        o = self.dec(z_slice, pitchf, g=g)
+        return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+
     def infer(
         self,
         phone: torch.Tensor,
