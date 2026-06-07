@@ -51,7 +51,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
 
 
 def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
-    key = f"{fmax}_{spec.dtype}_{spec.device}"
+    key = f"{sampling_rate}_{fmax}_{spec.dtype}_{spec.device}"
     if key not in mel_basis:
         mel = librosa_mel_fn(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels, fmin=fmin, fmax=fmax)
         mel_basis[key] = torch.from_numpy(mel).to(dtype=spec.dtype, device=spec.device)

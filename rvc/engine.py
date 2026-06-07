@@ -57,6 +57,8 @@ class RealtimeEngine:
         return self.vc_engine.tgt_sr
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, p):
+        if self.running:
+            self.stop()
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
         self.sr_model = self.vc_engine.tgt_sr
@@ -135,6 +137,13 @@ class RealtimeEngine:
         return torch.sqrt(torch.clamp(F.avg_pool1d(sq, fl, hop).squeeze(), min=1e-8))
 
     def _cb(self, indata, outdata, frames, times, status):
+        try:
+            self._cb_impl(indata, outdata, frames, times, status)
+        except Exception as e:
+            logger.error("音频回调异常: %s", e, exc_info=True)
+            outdata[:] = 0
+
+    def _cb_impl(self, indata, outdata, frames, times, status):
         t0 = time.perf_counter()
         with torch.no_grad():
             mono = librosa.to_mono(indata.T) if indata.ndim > 1 else indata[:, 0]

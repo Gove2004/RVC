@@ -69,7 +69,7 @@ class ModelListData:
 # ─────────────────── 模型卡片 ───────────────────
 
 class ModelCard(QFrame):
-    """模型卡片: 点击名称选中, 箭头展开参数"""
+    """模型卡片: 使用按钮选中, 展开按钮显示参数"""
 
     load_requested = Signal(str, str, str, float, float, float, float)
 
@@ -83,20 +83,21 @@ class ModelCard(QFrame):
     def _build(self, name, pth, idx, pitch, index_rate, rms_mix, gender):
         root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
 
-        # 头部: 单选圆圈 + 名称 + 展开箭头
-        hdr = QWidget(); hdr.setCursor(Qt.PointingHandCursor)
-        hl = QHBoxLayout(hdr); hl.setContentsMargins(4,3,4,3)
-        self._radio = QRadioButton()
-        self._radio.setAutoExclusive(False)
-        self._radio.clicked.connect(self._on_load)
+        # 头部: 名称 + 使用按钮 + 展开按钮
+        hdr = QWidget()
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(6,5,6,5)
         self._name = QLabel(name or os.path.splitext(os.path.basename(pth))[0])
         self._name.setStyleSheet("font-weight:bold")
-        self._arrow = QLabel("▶"); self._arrow.setStyleSheet("color:#666;font-size:9px")
-        hl.addWidget(self._radio); hl.addWidget(self._name, 1)
-        hl.addWidget(self._arrow)
+        self._btn_use = QPushButton("使用")
+        self._btn_use.setFixedWidth(55)
+        self._btn_use.clicked.connect(self._on_load)
+        self._btn_expand = QPushButton("展开")
+        self._btn_expand.setFixedWidth(50)
+        self._btn_expand.clicked.connect(self._toggle)
+        hl.addWidget(self._name, 1)
+        hl.addWidget(self._btn_use)
+        hl.addWidget(self._btn_expand)
         root.addWidget(hdr)
-        self._name.mousePressEvent = lambda e: self._on_load()
-        self._arrow.mousePressEvent = lambda e: self._toggle()
 
         # 内容 (展开后显示)
         self._body = QWidget()
@@ -136,14 +137,13 @@ class ModelCard(QFrame):
     def _toggle(self):
         self._expanded = not self._expanded
         self._body.setVisible(self._expanded)
-        self._arrow.setText("▼" if self._expanded else "▶")
+        self._btn_expand.setText("折叠" if self._expanded else "展开")
 
     def _browse(self, tgt, filt):
         path, _ = QFileDialog.getOpenFileName(self, "选择文件", "", filt)
         if path: tgt.setText(path)
 
     def _on_load(self):
-        self._radio.setChecked(True)
         self.load_requested.emit(
             self._name.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
             self.pit_sl.value(), self.ir_sl.value()/100, self.rms_sl.value()/100,
@@ -159,13 +159,26 @@ class ModelCard(QFrame):
         }
 
     def set_active(self, active):
-        self._radio.blockSignals(True); self._radio.setChecked(active); self._radio.blockSignals(False)
         if active:
+            self._btn_use.setText("使用中")
+            self._btn_use.setEnabled(False)
+            self._btn_use.setStyleSheet("QPushButton{background:#28a745;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}")
             self.setStyleSheet("ModelCard{border:1px solid #28a745;border-radius:3px;margin:1px;background:rgba(40,167,69,0.06)}")
             self._name.setStyleSheet("font-weight:bold;color:#28a745")
         else:
+            self._btn_use.setText("使用")
+            self._btn_use.setEnabled(True)
+            self._btn_use.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}QPushButton:hover{background:#2563eb}")
             self.setStyleSheet("ModelCard{border:1px solid #444;border-radius:3px;margin:1px}")
             self._name.setStyleSheet("font-weight:bold")
+
+    def set_loading(self, loading):
+        if loading:
+            self._btn_use.setText("加载中")
+            self._btn_use.setEnabled(False)
+            self._btn_use.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}")
+            self.setStyleSheet("ModelCard{border:1px solid #3b82f6;border-radius:3px;margin:1px;background:rgba(59,130,246,0.06)}")
+            self._name.setStyleSheet("font-weight:bold;color:#3b82f6")
 
 
 
@@ -524,7 +537,9 @@ class MainWindow(QMainWindow):
     def _start_engine(self, pth, idx, idx_rate):
         if self._loading: return
         self._loading = True
+        if self._active_card: self._active_card.set_loading(True)
         self.btn_start.setEnabled(False); self.btn_start.setText("加载中...")
+        self.btn_start.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:4px 8px;border-radius:3px}")
         self._lt = LoadThread(pth, idx, idx_rate)
         self._lt.ok.connect(self._on_loaded)
         self._lt.err.connect(self._on_err)
@@ -537,6 +552,7 @@ class MainWindow(QMainWindow):
             self._lt.deleteLater(); self._lt = None
 
     def _on_loaded(self, sr):
+        if self._active_card: self._active_card.set_active(True)
         try:
             _, _, _, in_idx, out_idx = get_audio_devices(self.ha_combo.currentText())
             p.threshold = self.th_sl.value()
@@ -558,20 +574,26 @@ class MainWindow(QMainWindow):
             if p.I_nr: dl += min(self.cf_sl.value()/100, 0.04)
             self.delay_lbl.setText(f"延迟: {int(dl*1000)}")
             self.btn_start.setEnabled(False); self.btn_start.setText("运行中")
+            self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;border:none;padding:4px 8px;border-radius:3px}")
             self.btn_stop.setEnabled(True)
+            self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:3px}QPushButton:hover{background:#c82333}")
             self._timer.start(200); self._save_cfg()
         except Exception as e: self._on_err(str(e))
 
     def _on_err(self, e):
+        if self._active_card: self._active_card.set_active(False)
+        self._active_card = None
         self.btn_start.setEnabled(True); self.btn_start.setText("开始")
-        self.btn_stop.setEnabled(False)
+        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
+        self.btn_stop.setEnabled(False); self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
         QMessageBox.critical(self, "错误", str(e))
 
     def _stop(self):
         if not engine.running: return
         self._timer.stop(); engine.stop()
         self.btn_start.setEnabled(True); self.btn_start.setText("开始")
-        self.btn_stop.setEnabled(False)
+        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
+        self.btn_stop.setEnabled(False); self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
         self.delay_lbl.setText("延迟: -"); self.stat_lbl.setText("推理: -")
         logger.info("停止")
 

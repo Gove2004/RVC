@@ -50,6 +50,7 @@ class OfflineWorker(QThread):
         duration = len(wav) / sr
         if duration > 60:
             self.error.emit(f"音频时长 {duration:.0f}s 超过限制（最长 60 秒）")
+            self.finished.emit("")
             return
 
         # 重采样到 16kHz（HuBERT 要求）
@@ -137,6 +138,10 @@ class OfflineWorker(QThread):
         self.progress.emit(100, 100)
         self.finished.emit(self.output_path)
 
+        # 释放 GPU 显存
+        del vc
+        torch.cuda.empty_cache()
+
     @staticmethod
     def _change_rms(data1, sr1, data2, sr2, rate):
         """参照 pipeline.py 的 change_rms — data1 是输入, data2 是输出, rate 是输出占比"""
@@ -159,7 +164,7 @@ class OfflineWorker(QThread):
                 warnings.filterwarnings("ignore", message=".*PySoundFile.*")
                 warnings.filterwarnings("ignore", message=".*audioread.*", category=FutureWarning)
                 return librosa.load(path, sr=None, mono=True)
-        except Exception:
+        except (RuntimeError, IOError, FileNotFoundError, ValueError, EOFError):
             pass
         if not os.path.exists(_FFMPEG):
             raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}\n也无法用 librosa 加载: {path}")

@@ -64,7 +64,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         if sr != self.sampling_rate:
             raise ValueError(f"采样率不匹配: {sr} != {self.sampling_rate}")
         wav = torch.FloatTensor(wav).unsqueeze(0)
-        spec_path = f"{filename}.spec.pt"
+        spec_path = f"{filename}.sr{self.sampling_rate}.spec.pt"
         if Path(spec_path).exists():
             spec = torch.load(spec_path, map_location="cpu", weights_only=False)
         else:

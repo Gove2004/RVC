@@ -1,6 +1,7 @@
 """HuBERT 模型加载 — 使用 fairseq 加载原始 HuBERT"""
 import os
 import logging
+import threading
 import warnings
 
 import torch
@@ -8,6 +9,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 _hubert_cache = {}  # {device: model}
+_hubert_lock = threading.Lock()
 
 
 class HubertWrapper:
@@ -50,19 +52,24 @@ def load_hubert(config):
         logger.info("加载 HuBERT（缓存）")
         return _hubert_cache[config.device]
 
-    hubert_path = "assets/hubert/hubert_base.pt"
+    with _hubert_lock:
+        # double-check after acquiring lock
+        if config.device in _hubert_cache:
+            return _hubert_cache[config.device]
 
-    if not os.path.exists(hubert_path):
-        raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
+        hubert_path = "assets/hubert/hubert_base.pt"
 
-    logger.info("加载 HuBERT")
+        if not os.path.exists(hubert_path):
+            raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
 
-    # fairseq 的 torch.load 需要 weights_only=False, 同时抑制 fairseq 的详细日志
-    _original_load = torch.load
-    def _patched_load(*args, **kwargs):
-        kwargs.setdefault('weights_only', False)
-        return _original_load(*args, **kwargs)
-    torch.load = _patched_load
+        logger.info("加载 HuBERT")
+
+        # fairseq 的 torch.load 需要 weights_only=False, 同时抑制 fairseq 的详细日志
+        _original_load = torch.load
+        def _patched_load(*args, **kwargs):
+            kwargs.setdefault('weights_only', False)
+            return _original_load(*args, **kwargs)
+        torch.load = _patched_load
 
     # 临时提高 fairseq 相关 logger 的级别, 避免刷屏
     _quiet_loggers = ["fairseq.tasks.hubert_pretraining", "fairseq.models.hubert.hubert",

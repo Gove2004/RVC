@@ -132,7 +132,7 @@ class Trainer:
             self.optim_d.zero_grad(set_to_none=True)
             self.scaler.scale(loss_disc).backward()
             self.scaler.unscale_(self.optim_d)
-            commons.clip_grad_value_(self.net_d.parameters(), None)
+            commons.clip_grad_value_(self.net_d.parameters(), 1.0)
             self.scaler.step(self.optim_d)
 
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
@@ -146,7 +146,7 @@ class Trainer:
             self.optim_g.zero_grad(set_to_none=True)
             self.scaler.scale(loss_gen_all).backward()
             self.scaler.unscale_(self.optim_g)
-            commons.clip_grad_value_(self.net_g.parameters(), None)
+            commons.clip_grad_value_(self.net_g.parameters(), 1.0)
             self.scaler.step(self.optim_g)
             self.scaler.update()
 

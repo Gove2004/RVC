@@ -73,6 +73,54 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
     torch.save(ckpt, output_path)
 
 
+def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
+    """合并两个 .pth 推理模型，按比例加权平均权重。ratio 为模型 A 的占比。"""
+    ckpt_a = torch.load(path_a, map_location="cpu", weights_only=False)
+    ckpt_b = torch.load(path_b, map_location="cpu", weights_only=False)
+    if ckpt_a["config"] != ckpt_b["config"]:
+        raise ValueError("两个模型架构不一致（config 不同），无法合并")
+    merged = OrderedDict()
+    for key in ckpt_a["weight"]:
+        if key in ckpt_b["weight"]:
+            merged[key] = (ckpt_a["weight"][key].float() * ratio
+                           + ckpt_b["weight"][key].float() * (1 - ratio)).half()
+        else:
+            merged[key] = ckpt_a["weight"][key]
+    for key in ckpt_b["weight"]:
+        if key not in merged:
+            merged[key] = ckpt_b["weight"][key]
+    ckpt = {
+        "weight": merged,
+        "config": ckpt_a["config"],
+        "info": f"merged A*{ratio:.2f}",
+        "sr": ckpt_a["sr"],
+        "f0": ckpt_a.get("f0", 1),
+        "version": ckpt_a.get("version", "v2"),
+    }
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    torch.save(ckpt, output_path)
+
+
+
+def inspect_model(path: str) -> str:
+    """加载 .pth 模型，返回基本信息文本。"""
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    lines = []
+    info = ckpt.get("info", "")
+    sr = ckpt.get("sr", "unknown")
+    version = ckpt.get("version", "unknown")
+    f0 = ckpt.get("f0", 1)
+    file_size_mb = Path(path).stat().st_size / (1024 * 1024)
+    if info:
+        lines.append(f"模型信息: {info}")
+    lines.append(f"文件: {Path(path).name}")
+    lines.append(f"文件大小: {file_size_mb:.1f} MB")
+    lines.append(f"采样率: {sr}")
+    lines.append(f"版本: {version}")
+    lines.append(f"F0 支持: {'是' if f0 == 1 else '否'}")
+    return "\n".join(lines)
+
+
 def build_model_config(sr: int, config: dict):
     data = config["data"]
     model = config["model"]
