@@ -164,7 +164,7 @@ class OfflineWorker(QThread):
                 warnings.filterwarnings("ignore", message=".*PySoundFile.*")
                 warnings.filterwarnings("ignore", message=".*audioread.*", category=FutureWarning)
                 return librosa.load(path, sr=None, mono=True)
-        except (RuntimeError, IOError, FileNotFoundError, ValueError, EOFError):
+        except Exception:
             pass
         if not os.path.exists(_FFMPEG):
             raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}\n也无法用 librosa 加载: {path}")

@@ -8,15 +8,6 @@
       "index_rate": 0.0,
       "rms_mix": 0.6,
       "gender": 0.25
-    },
-    {
-      "name": "rvc_20260606_221006",
-      "pth": "E:/Projects/Python/RVC/assets/weights/rvc_20260606_221006.pth",
-      "idx": "",
-      "pitch": 0,
-      "index_rate": 0.0,
-      "rms_mix": 0.0,
-      "gender": 0.5
     }
   ]
 }
