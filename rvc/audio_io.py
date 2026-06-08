@@ -50,8 +50,8 @@ class RealtimeEngine:
         if not force and self.vc_engine and self.loaded_pth == pth and self.loaded_idx == idx:
             self.vc_engine.change_index_rate(idx_rate)
             return self.vc_engine.tgt_sr
-        from rvc.realtime_engine import RealtimeVC
-        self.vc_engine = RealtimeVC(config, pth, idx, idx_rate)
+        from rvc.vc_pipeline import VCPipeline
+        self.vc_engine = VCPipeline(config, pth, idx, idx_rate)
         self.vc_engine.load()
         self.loaded_pth = pth; self.loaded_idx = idx
         return self.vc_engine.tgt_sr

@@ -1,4 +1,4 @@
-"""实时语音转换引擎 — 基于滚动缓冲区 + skip_head/return_length"""
+"""实时语音转换管线 — HuBERT + 合成器 + FAISS + F0 提取"""
 import logging
 import os
 import traceback
@@ -38,18 +38,18 @@ def faiss_blend(feats_npy, index, big_npy, index_rate, is_half):
         result = result.astype("float16")
     return result
 
-# F0 提取器模块级缓存（跨 RealtimeVC 实例复用）
+# F0 提取器模块级缓存（跨 VCPipeline 实例复用）
 _rmvpe_cache = {}
 _fcpe_cache = {}
 
 
-class RealtimeVC:
-    """实时语音转换核心类。
+class VCPipeline:
+    """实时语音转换管线。
 
     用法:
-        engine = RealtimeVC(config, pth_path, index_path, index_rate)
-        engine.load()  # 加载所有模型
-        output = engine.infer(input_wav_tensor, block_frame_16k, skip_head, return_length, "fcpe")
+        pipeline = VCPipeline(config, pth_path, index_path, index_rate)
+        pipeline.load()  # 加载所有模型
+        output = pipeline.infer(input_wav_tensor, block_frame_16k, skip_head, return_length, "fcpe")
     """
 
     def __init__(self, config, pth_path, index_path="", index_rate=0.0):

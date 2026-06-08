@@ -1,3 +1,3 @@
 Set ws = CreateObject("WScript.Shell")
 ws.CurrentDirectory = ws.CurrentDirectory
-ws.Run """" & ws.CurrentDirectory & "\.venv\Scripts\pythonw.exe"" train_app.py", 0, False
+ws.Run """" & ws.CurrentDirectory & "\.venv\Scripts\pythonw.exe"" app.py --train", 0, False

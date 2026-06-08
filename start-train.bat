@@ -1,3 +1,3 @@
 @echo off
-.venv\Scripts\python.exe train_app.py
+.venv\Scripts\python.exe app.py --train
 pause

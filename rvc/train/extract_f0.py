@@ -1,9 +1,8 @@
 from pathlib import Path
 
-import librosa
 import numpy as np
-import torch
 
+from rvc.audio_loader import load_audio
 from rvc.rmvpe import RMVPE
 
 F0_MIN = 50
@@ -30,7 +29,7 @@ class F0Extractor:
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
-                wav, _ = librosa.load(path, sr=16000, mono=True)
+                wav, _ = load_audio(path, 16000)
                 f0 = self.model.infer_from_audio(wav, thred=0.03)
                 np.save(out_cont, f0.astype(np.float32), allow_pickle=False)
                 np.save(out_coarse, coarse_f0(f0), allow_pickle=False)

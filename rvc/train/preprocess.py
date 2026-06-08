@@ -8,6 +8,8 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 
+from rvc.audio_loader import load_audio as _load_audio_lib
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _FFMPEG = _PROJECT_ROOT / "ffmpeg" / "ffmpeg.exe"
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
@@ -71,7 +73,7 @@ class PreProcessor:
         return len(files)
 
     def _process_file(self, path: Path, file_index: int):
-        wav, _ = load_audio(path, self.sr)
+        wav, _ = _load_audio_lib(path, self.sr)
         if wav.size == 0:
             return
         wav = signal.lfilter(self.bh, self.ah, wav).astype(np.float32)
@@ -107,28 +109,8 @@ def normalize_audio(wav: np.ndarray):
 
 
 def load_audio(path: str | Path, sr: int):
-    path = Path(path)
-    try:
-        return librosa.load(str(path), sr=sr, mono=True)
-    except Exception:
-        if not _FFMPEG.exists():
-            raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}")
-        info = subprocess.run([str(_FFMPEG), "-i", str(path)], capture_output=True, text=True)
-        source_sr = sr
-        for line in info.stderr.split("\n"):
-            if "Hz" in line and "Audio" in line:
-                m = re.search(r"(\d+) Hz", line)
-                if m:
-                    source_sr = int(m.group(1))
-                    break
-        cmd = [str(_FFMPEG), "-i", str(path), "-vn", "-acodec", "pcm_f32le", "-f", "f32le", "-ac", "1", "-"]
-        proc = subprocess.run(cmd, capture_output=True, timeout=300)
-        if proc.returncode:
-            raise RuntimeError("ffmpeg 解码失败")
-        wav = np.frombuffer(proc.stdout, dtype=np.float32)
-        if source_sr != sr:
-            wav = librosa.resample(wav, orig_sr=source_sr, target_sr=sr)
-        return wav.astype(np.float32), sr
+    """兼容旧接口，委托给 rvc.audio_loader。"""
+    return _load_audio_lib(path, sr)
 
 
 def generate_filelist(exp_dir: str):

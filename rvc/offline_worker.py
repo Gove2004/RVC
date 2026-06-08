@@ -10,12 +10,11 @@ import torch.nn.functional as F
 from PySide6.QtCore import QThread, Signal
 
 from configs.config import Config
+from rvc.audio_loader import load_audio_native
 
 logger = logging.getLogger(__name__)
 config = Config()
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_FFMPEG = os.path.join(_PROJECT_ROOT, "ffmpeg", "ffmpeg.exe")
 _X_PAD = 3  # 与 Config 中 x_pad 一致
 
 
@@ -44,7 +43,7 @@ class OfflineWorker(QThread):
 
         # 加载音频
         self.progress.emit(0, 100)
-        wav, sr = self._load_audio(self.input_path)
+        wav, sr = load_audio_native(self.input_path)
 
         # 时长限制
         duration = len(wav) / sr
@@ -59,8 +58,8 @@ class OfflineWorker(QThread):
         self.progress.emit(10, 100)
 
         # 推理引擎
-        from rvc.realtime_engine import RealtimeVC
-        vc = RealtimeVC(config, self.pth, self.idx, self.idx_rate)
+        from rvc.vc_pipeline import VCPipeline
+        vc = VCPipeline(config, self.pth, self.idx, self.idx_rate)
         vc.load()
         vc.change_key(self.pitch)
         self.progress.emit(20, 100)
@@ -100,7 +99,7 @@ class OfflineWorker(QThread):
         # FAISS 索引匹配
         if vc.index is not None and vc.index_rate > 0:
             try:
-                from rvc.realtime_engine import faiss_blend
+                from rvc.vc_pipeline import faiss_blend
                 npy = feats[0].cpu().numpy().astype("float32")
                 blended = faiss_blend(npy, vc.index, vc.big_npy, vc.index_rate, vc.is_half)
                 feats = torch.from_numpy(blended).unsqueeze(0).to(config.device)
@@ -154,30 +153,3 @@ class OfflineWorker(QThread):
         rms2 = torch.max(rms2, torch.zeros_like(rms2) + 1e-6)
         data2 *= (torch.pow(rms1, torch.tensor(1 - rate)) * torch.pow(rms2, torch.tensor(rate - 1))).numpy()
         return data2
-
-    def _load_audio(self, path):
-        """加载任意格式音频 → (mono_float32, sample_rate)"""
-        import warnings
-        path = os.path.abspath(path)
-        try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message=".*PySoundFile.*")
-                warnings.filterwarnings("ignore", message=".*audioread.*", category=FutureWarning)
-                return librosa.load(path, sr=None, mono=True)
-        except Exception:
-            pass
-        if not os.path.exists(_FFMPEG):
-            raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}\n也无法用 librosa 加载: {path}")
-        import subprocess, re
-        info = subprocess.run([_FFMPEG, "-i", path], capture_output=True, text=True)
-        sr = 48000
-        for line in info.stderr.split('\n'):
-            if 'Hz' in line and 'Audio' in line:
-                m = re.search(r'(\d+) Hz', line)
-                if m: sr = int(m.group(1)); break
-        cmd = [_FFMPEG, "-i", path, "-vn", "-acodec", "pcm_f32le", "-f", "f32le", "-ac", "1", "-"]
-        proc = subprocess.run(cmd, capture_output=True, timeout=300)
-        if proc.returncode:
-            raise RuntimeError("ffmpeg 解码失败")
-        raw = np.frombuffer(proc.stdout, dtype=np.float32)
-        return raw.astype(np.float32), sr

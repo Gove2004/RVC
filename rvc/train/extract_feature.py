@@ -1,10 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import librosa
 import numpy as np
 import torch
 
+from rvc.audio_loader import load_audio
 from rvc.hubert import load_hubert
 
 
@@ -30,7 +30,7 @@ class HuBERTExtractor:
         return len(files)
 
     def extract(self, path: Path):
-        wav, _ = librosa.load(path, sr=16000, mono=True)
+        wav, _ = load_audio(path, 16000)
         feats = torch.from_numpy(wav).to(self.device)
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)

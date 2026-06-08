@@ -46,21 +46,18 @@ python -m venv .venv
 
 ## 使用
 
-### 启动推理 GUI
-
 ```bash
-.venv\Scripts\python.exe app.py
+# 启动推理 GUI
+.venv\Scripts\python.exe app.py --infer
+
+# 启动训练 GUI
+.venv\Scripts\python.exe app.py --train
 ```
 
-或双击 `start.bat`（有黑窗）/ `start.vbs`（静默启动）
+或双击启动脚本：
 
-### 启动训练 GUI
-
-```bash
-.venv\Scripts\python.exe train_app.py
-```
-
-或双击 `start-train.bat` / `start-train.vbs`
+- `start-infer.bat` / `start-infer.vbs` — 推理（bat 有控制台，vbs 静默）
+- `start-train.bat` / `start-train.vbs` — 训练
 
 ### 推理流程
 
@@ -88,28 +85,36 @@ python -m venv .venv
 ## 项目结构
 
 ```
-app.py                  推理 GUI
-train_app.py            训练 GUI
-configs/
-  config.py             设备配置
-  models.json           推理模型列表
-  v2/48k.json           48k 训练超参数
-  v2/32k.json           32k 训练超参数
-  inuse/                运行时配置（自动生成）
+app.py                  统一入口 (--infer / --train)
+app/
+  infer/
+    window.py           推理主窗口 (MainWindow)
+    widgets.py          ModelCard, ModelListData, LoadThread
+    tabs/               推理 GUI Tab 构建器
+  train/
+    window.py           训练主窗口 (TrainWindow)
+    widgets.py          ToolThread, browse helpers
+    tabs/               训练 GUI Tab 构建器
 rvc/
-  realtime_engine.py    实时推理引擎 (RealtimeVC)
-  engine.py             音频 I/O 管理 (RealtimeEngine)
-  synthesizer.py        神经网络模型（Generator）
+  audio_io.py           音频 I/O 管理 (RealtimeEngine)
+  vc_pipeline.py        实时推理管线 (VCPipeline)
+  audio_loader.py       统一音频加载（librosa + ffmpeg fallback）
+  offline_worker.py     离线推理线程
   hubert.py             HuBERT 特征提取器
   rmvpe.py              RMVPE F0 提取器
   params.py             运行时参数单例
-  audio_utils.py        音频工具（相位声码器）
-  offline_worker.py     离线推理线程
+  audio_utils.py        音频工具（相位声码器、设备枚举）
+  denoise/              TorchGate 降噪
   nn/
     attentions.py       Transformer 编码器
     modules.py          WaveNet / ResBlock
     commons.py          工具函数
     discriminator.py    判别器（训练用）
+  synthesizer/
+    encoder.py          TextEncoder + PosteriorEncoder
+    decoder.py          Generator + GeneratorNSF
+    flow.py             ResidualCouplingBlock
+    model.py            Synthesizer 模型变体
   train/
     trainer.py          GAN 训练循环
     train_worker.py     训练后台线程
@@ -119,7 +124,12 @@ rvc/
     data_utils.py       数据加载器
     losses.py           损失函数
     mel_processing.py   频谱处理
-    ckpt_utils.py       checkpoint 工具
+    ckpt_utils.py       checkpoint 工具（保存/恢复/导出/合并/查看）
+configs/
+  config.py             设备配置 (Config 单例)
+  models.json           推理模型列表
+  v2/                   训练超参数
+  inuse/                运行时配置（自动生成）
 assets/
   hubert/               HuBERT 模型
   rmvpe/                RMVPE 模型

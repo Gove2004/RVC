@@ -1,10 +1,10 @@
-import os
-import sys
 import json
+import os
 import shutil
+import sys
+import logging
 
 import torch
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -14,28 +14,25 @@ version_config_list = [
 ]
 
 
-def singleton_variable(func):
-    def wrapper(*args, **kwargs):
-        if not wrapper.instance:
-            wrapper.instance = func(*args, **kwargs)
-        return wrapper.instance
-
-    wrapper.instance = None
-    return wrapper
-
-
-@singleton_variable
 class Config:
-    def __init__(self):
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._init()
+        return cls._instance
+
+    def _init(self):
         self.device = "cuda:0"
         self.is_half = True
         self.gpu_name = None
-        self.json_config = self.load_config_json()
+        self.json_config = self._load_config_json()
         self.gpu_mem = None
-        self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
+        self.x_pad, self.x_query, self.x_center, self.x_max = self._device_config()
 
     @staticmethod
-    def load_config_json() -> dict:
+    def _load_config_json() -> dict:
         d = {}
         for config_file in version_config_list:
             p = f"configs/inuse/{config_file}"
@@ -46,7 +43,7 @@ class Config:
                 d[config_file] = json.load(f)
         return d
 
-    def device_config(self) -> tuple:
+    def _device_config(self) -> tuple:
         if not torch.cuda.is_available():
             logger.error("CUDA is not available. This project requires an NVIDIA GPU.")
             sys.exit(1)
