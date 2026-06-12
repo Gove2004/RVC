@@ -126,13 +126,12 @@ class MainWindow(QMainWindow):
         if name not in PRESETS:
             return
         pr = PRESETS[name]
-        # 应用完整预设
+        # 应用 EQ 预设（不含混响）
         self.eq_sub.setValue(int(pr.get("eq_sub", 0) * 100))
         self.eq_lo.setValue(int(pr.get("eq_low", 0) * 100))
         self.eq_mi.setValue(int(pr.get("eq_mid", 0) * 100))
         self.eq_hi_mid.setValue(int(pr.get("eq_hi_mid", 0) * 100))
         self.eq_hi.setValue(int(pr.get("eq_high", 0) * 100))
-        self.rev_sl.setValue(int(pr.get("reverb", 0) * 100))
 
     # ── 配置持久化 ──
 
@@ -176,7 +175,7 @@ class MainWindow(QMainWindow):
         self.eq_hi_mid.setValue(int(d.get("eq_hi_mid", 0) * 100))
         self.eq_hi.setValue(int(d.get("eq_hi", 0) * 100))
         self.rev_sl.setValue(int(d.get("rev", 0) * 100))
-        pr = d.get("preset", "原声纯净")
+        pr = d.get("preset", "原声")
         if pr in PRESETS:
             self.preset_combo.setCurrentText(pr)
         selected = d.get("selected", "")

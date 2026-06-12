@@ -4,12 +4,12 @@ import sounddevice as sd
 import torch
 
 PRESETS = {
-    "原声纯净": {"eq_sub": 0, "eq_low": 0, "eq_mid": 0, "eq_hi_mid": 0, "eq_high": 0, "reverb": 0},
-    "人声增强": {"eq_sub": -2, "eq_low": 0, "eq_mid": 3, "eq_hi_mid": 2, "eq_high": 1, "reverb": 0},
-    "温暖厚实": {"eq_sub": 2, "eq_low": 3, "eq_mid": 1, "eq_hi_mid": 0, "eq_high": -1, "reverb": 0.02},
-    "明亮清脆": {"eq_sub": -2, "eq_low": -1, "eq_mid": 1, "eq_hi_mid": 3, "eq_high": 4, "reverb": 0.05},
-    "唱歌混响": {"eq_sub": 0, "eq_low": 2, "eq_mid": 1, "eq_hi_mid": 2, "eq_high": 3, "reverb": 0.25},
-    "电台播音": {"eq_sub": -3, "eq_low": 2, "eq_mid": 2, "eq_hi_mid": 1, "eq_high": 0, "reverb": 0.05},
+    "原声": {"eq_sub": 0, "eq_low": 0, "eq_mid": 0, "eq_hi_mid": 0, "eq_high": 0},
+    "明亮": {"eq_sub": -2, "eq_low": -1, "eq_mid": 0, "eq_hi_mid": 3, "eq_high": 4},
+    "温暖": {"eq_sub": 2, "eq_low": 3, "eq_mid": 1, "eq_hi_mid": -1, "eq_high": -2},
+    "清脆": {"eq_sub": -3, "eq_low": -1, "eq_mid": 2, "eq_hi_mid": 3, "eq_high": 2},
+    "浑厚": {"eq_sub": 3, "eq_low": 2, "eq_mid": 0, "eq_hi_mid": -2, "eq_high": -1},
+    "人声增强": {"eq_sub": -2, "eq_low": 0, "eq_mid": 3, "eq_hi_mid": 2, "eq_high": 0},
 }
 
 
