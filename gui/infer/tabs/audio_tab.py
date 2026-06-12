@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
 )
 from PySide6.QtCore import Qt
-from rvc.audio_utils import PRESETS
+from rvc.audio import PRESETS
 from gui.infer.widgets import _sl
 from gui.infer.tabs.settings_tab import sep
 

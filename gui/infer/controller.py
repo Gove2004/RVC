@@ -1,10 +1,9 @@
 """推理控制器 — 管理运行时参数、引擎启动和设备绑定。"""
 from dataclasses import dataclass
 
-from rvc.audio_io import RealtimeEngine
-from rvc.audio_utils import get_audio_devices
-from rvc.inference_cache import default_inference_cache
-from rvc.params import Params
+from rvc.audio import RealtimeEngine, get_audio_devices
+from rvc.models import default_inference_cache
+from rvc.inference import Params
 
 
 @dataclass

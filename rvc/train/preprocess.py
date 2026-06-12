@@ -11,10 +11,10 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 
-from rvc.audio_loader import load_audio as _load_audio_lib
+from rvc.audio.loader import load_audio as _load_audio_lib
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_FFMPEG = _PROJECT_ROOT / "ffmpeg" / "ffmpeg.exe"
+_FFMPEG = _PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"
 _RUNTIME_DIRS = [

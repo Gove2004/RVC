@@ -5,7 +5,7 @@ import warnings
 
 import torch
 
-from rvc.inference_cache import default_inference_cache
+from rvc.models.cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
 

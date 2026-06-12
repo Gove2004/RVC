@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer
 
-from rvc.params import Params
-from rvc.audio_utils import get_audio_devices, PRESETS
-from rvc.offline_worker import OfflineWorker
+from rvc.inference import Params
+from rvc.audio import get_audio_devices, PRESETS
+from rvc.inference import OfflineWorker
 from configs.config import load_state_json, save_state_json
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
 from gui.infer.widgets import ModelCard, ModelListData, LoadThread

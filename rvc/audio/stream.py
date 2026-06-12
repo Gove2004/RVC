@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from PySide6.QtCore import QObject, Signal
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.audio_utils import phase_vocoder
+from rvc.audio.utils import phase_vocoder
 from rvc.denoise import TorchGate
 from configs.config import Config
 

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from rvc.audio_loader import load_audio
-from rvc.hubert import load_hubert
+from rvc.audio.loader import load_audio
+from rvc.models.hubert import load_hubert
 
 
 class HuBERTExtractor:

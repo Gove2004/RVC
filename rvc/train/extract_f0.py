@@ -2,8 +2,8 @@ from pathlib import Path
 
 import numpy as np
 
-from rvc.audio_loader import load_audio
-from rvc.rmvpe import RMVPE
+from rvc.audio.loader import load_audio
+from rvc.models.rmvpe import RMVPE
 
 F0_MIN = 50
 F0_MAX = 1100

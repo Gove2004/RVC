@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.inference_cache import default_inference_cache
+from rvc.models.cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class VCPipeline:
         logger.info("加载 %s", os.path.basename(self.pth_path))
 
         # HuBERT
-        from rvc.hubert import load_hubert
+        from rvc.models.hubert import load_hubert
         self.model = load_hubert(self.config, self.inference_cache)
 
         # Synthesizer

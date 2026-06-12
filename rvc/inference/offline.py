@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from PySide6.QtCore import QThread, Signal
 
 from configs.config import Config
-from rvc.audio_loader import load_audio_native
+from rvc.audio.loader import load_audio_native
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -58,7 +58,7 @@ class OfflineWorker(QThread):
         self.progress.emit(10, 100)
 
         # 推理引擎
-        from rvc.vc_pipeline import VCPipeline
+        from rvc.inference.pipeline import VCPipeline
         vc = VCPipeline(config, self.pth, self.idx, self.idx_rate)
         vc.load()
         vc.change_key(self.pitch)
