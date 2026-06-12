@@ -5,11 +5,11 @@ import torch
 
 PRESETS = {
     "原声": {"eq_sub": 0, "eq_low": 0, "eq_mid": 0, "eq_hi_mid": 0, "eq_high": 0},
-    "萝莉": {"eq_sub": -5, "eq_low": -3, "eq_mid": 0, "eq_hi_mid": 4, "eq_high": 6},
-    "少女": {"eq_sub": -3, "eq_low": -1, "eq_mid": 1, "eq_hi_mid": 3, "eq_high": 4},
-    "少御": {"eq_sub": -1, "eq_low": 1, "eq_mid": 2, "eq_hi_mid": 1, "eq_high": 0},
-    "御姐": {"eq_sub": 2, "eq_low": 3, "eq_mid": 2, "eq_hi_mid": 0, "eq_high": -2},
-    "辣条": {"eq_sub": -4, "eq_low": 0, "eq_mid": 3, "eq_hi_mid": 5, "eq_high": 3},
+    "萝莉": {"eq_sub": -8, "eq_low": -5, "eq_mid": 0, "eq_hi_mid": 6, "eq_high": 9},
+    "少女": {"eq_sub": -5, "eq_low": -2, "eq_mid": 2, "eq_hi_mid": 5, "eq_high": 7},
+    "少御": {"eq_sub": -2, "eq_low": 2, "eq_mid": 3, "eq_hi_mid": 2, "eq_high": 0},
+    "御姐": {"eq_sub": 4, "eq_low": 6, "eq_mid": 3, "eq_hi_mid": -1, "eq_high": -4},
+    "辣条": {"eq_sub": -6, "eq_low": -1, "eq_mid": 5, "eq_hi_mid": 8, "eq_high": 6},
 }
 
 
