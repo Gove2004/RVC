@@ -20,6 +20,7 @@ from gui.infer.tabs.settings_tab import build_settings_tab
 from gui.infer.tabs.models_tab import build_models_tab
 from gui.infer.tabs.audio_tab import build_audio_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
+from gui.styles import ButtonStyles, Layout
 
 logger = logging.getLogger(__name__)
 
@@ -59,24 +60,26 @@ class MainWindow(QMainWindow):
 
         # 底部控制栏
         ctrl = QHBoxLayout()
-        ctrl.setSpacing(8)
+        ctrl.setSpacing(Layout.SPACING_NORMAL)
+
         self.btn_start = QPushButton("开始")
-        self.btn_start.setFixedSize(60, 21)  # 增加宽度以容纳"加载中"和"运行中"
-        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
+        self.btn_start.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
+        self.btn_start.setStyleSheet(ButtonStyles.primary())
         self.btn_start.clicked.connect(self._start)
+
         self.btn_stop = QPushButton("停止")
-        self.btn_stop.setFixedSize(60, 21)  # 保持一致
-        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
+        self.btn_stop.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
+        self.btn_stop.setStyleSheet(ButtonStyles.danger())
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._stop)
         ctrl.addWidget(self.btn_start)
         ctrl.addWidget(self.btn_stop)
         self.model_lbl = QLabel("当前: -")
-        self.model_lbl.setMinimumWidth(93)  # 140/1.5≈93
+        self.model_lbl.setMinimumWidth(100)
         self.delay_lbl = QLabel("延迟: -")
-        self.delay_lbl.setMinimumWidth(47)  # 70/1.5≈47
+        self.delay_lbl.setMinimumWidth(60)
         self.stat_lbl = QLabel("推理: -")
-        self.stat_lbl.setMinimumWidth(53)  # 80/1.5≈53
+        self.stat_lbl.setMinimumWidth(60)
         ctrl.addWidget(self.model_lbl)
         ctrl.addStretch()
         ctrl.addWidget(self.delay_lbl)
@@ -267,11 +270,21 @@ class MainWindow(QMainWindow):
     def _set_start_button(self, text, enabled, style):
         self.btn_start.setEnabled(enabled)
         self.btn_start.setText(text)
-        self.btn_start.setStyleSheet(style)
+        if "28a745" in style or "3b82f6" in style:
+            # 保留颜色语义，但使用统一样式
+            if "28a745" in style:
+                self.btn_start.setStyleSheet(ButtonStyles.primary())
+            else:
+                self.btn_start.setStyleSheet(ButtonStyles.secondary())
+        else:
+            self.btn_start.setStyleSheet(style)
 
     def _set_stop_button(self, enabled, style):
         self.btn_stop.setEnabled(enabled)
-        self.btn_stop.setStyleSheet(style)
+        if enabled:
+            self.btn_stop.setStyleSheet(ButtonStyles.danger())
+        else:
+            self.btn_stop.setStyleSheet(ButtonStyles.muted())
 
     def _reset_runtime_ui(self):
         self._timer.stop()
@@ -290,22 +303,11 @@ class MainWindow(QMainWindow):
     def _mark_loading(self):
         if self._active_card:
             self._active_card.set_loading(True)
-        self._set_start_button(
-            "加载中",
-            False,
-            "QPushButton{background:#3b82f6;color:white;border:none;padding:4px 8px;border-radius:3px}",
-        )
+        self._set_start_button("加载中", False, ButtonStyles.secondary())
 
     def _mark_running(self):
-        self._set_start_button(
-            "运行中",
-            False,
-            "QPushButton{background:#28a745;color:white;border:none;padding:4px 8px;border-radius:3px}",
-        )
-        self._set_stop_button(
-            True,
-            "QPushButton{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:3px}QPushButton:hover{background:#c82333}",
-        )
+        self._set_start_button("运行中", False, ButtonStyles.primary())
+        self._set_stop_button(True, ButtonStyles.danger())
 
     def _start(self):
         if not self._active_card:

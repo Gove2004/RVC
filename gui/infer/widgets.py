@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 
 from configs.config import load_state_json, save_state_json
+from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout
 
 
 def _sl(mn, mx, st, dv):
@@ -48,12 +49,13 @@ class ModelCard(QFrame):
         hdr = QWidget()
         hl = QHBoxLayout(hdr); hl.setContentsMargins(6,5,6,5)
         self._name = QLabel(name or os.path.splitext(os.path.basename(pth))[0])
-        self._name.setStyleSheet("font-weight:bold")
+        self._name.setStyleSheet(LabelStyles.bold())
         self._btn_use = QPushButton("使用")
-        self._btn_use.setFixedWidth(37)  # 55/1.5≈37
+        self._btn_use.setFixedWidth(40)
+        self._btn_use.setStyleSheet(ButtonStyles.small("secondary"))
         self._btn_use.clicked.connect(self._on_load)
         self._btn_expand = QPushButton("展开")
-        self._btn_expand.setFixedWidth(33)  # 50/1.5≈33
+        self._btn_expand.setFixedWidth(36)
         self._btn_expand.clicked.connect(self._toggle)
         hl.addWidget(self._name, 1)
         hl.addWidget(self._btn_use)
@@ -66,11 +68,13 @@ class ModelCard(QFrame):
         r = 0
         bl.addWidget(QLabel("模型"), r, 0)
         self.pth_edit = QLineEdit(pth); bl.addWidget(self.pth_edit, r, 1)
-        b = QPushButton("…"); b.setFixedSize(15, 13)  # 22/1.5≈15, 20/1.5≈13
+        b = QPushButton("…"); b.setFixedSize(Layout.BTN_WIDTH_ICON, Layout.BTN_HEIGHT_SMALL)
+        b.setStyleSheet(ButtonStyles.small())
         b.clicked.connect(lambda: self._browse(self.pth_edit, "模型 (*.pth)")); bl.addWidget(b, r, 2); r+=1
         bl.addWidget(QLabel("索引"), r, 0)
         self.idx_edit = QLineEdit(idx); bl.addWidget(self.idx_edit, r, 1)
-        b = QPushButton("…"); b.setFixedSize(15, 13)  # 22/1.5≈15, 20/1.5≈13
+        b = QPushButton("…"); b.setFixedSize(Layout.BTN_WIDTH_ICON, Layout.BTN_HEIGHT_SMALL)
+        b.setStyleSheet(ButtonStyles.small())
         b.clicked.connect(lambda: self._browse(self.idx_edit, "索引 (*.index)")); bl.addWidget(b, r, 2); r+=1
 
         def add_s(label, sl, lbl, row):
