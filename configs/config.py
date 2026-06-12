@@ -1,5 +1,4 @@
 import json
-import shutil
 import sys
 import logging
 from pathlib import Path
@@ -11,7 +10,6 @@ logger = logging.getLogger(__name__)
 _CONFIG_ROOT = Path("configs")
 _TRAIN_CONFIG_DIR = _CONFIG_ROOT / "train"
 _STATE_DIR = _CONFIG_ROOT / "state"
-_LEGACY_TRAIN_DIRS = [_CONFIG_ROOT / "v2", _CONFIG_ROOT / "inuse" / "v2"]
 _LEGACY_STATE_FILES = {
     "gui": _CONFIG_ROOT / "inuse" / "gui_config.json",
     "train": _CONFIG_ROOT / "inuse" / "train_config.json",
@@ -27,15 +25,9 @@ _STATE_FILES = {
 def train_config_path(sr: int | str) -> Path:
     sr_name = sr if isinstance(sr, str) else ("48k" if sr == 48000 else "32k")
     path = _TRAIN_CONFIG_DIR / f"{sr_name}.json"
-    if path.exists():
-        return path
-    for legacy_dir in _LEGACY_TRAIN_DIRS:
-        legacy = legacy_dir / f"{sr_name}.json"
-        if legacy.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(legacy, path)
-            return path
-    raise FileNotFoundError(f"找不到训练配置: {sr_name}.json")
+    if not path.exists():
+        raise FileNotFoundError(f"找不到训练配置: {path}")
+    return path
 
 
 def state_path(name: str) -> Path:

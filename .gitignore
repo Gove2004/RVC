@@ -23,8 +23,10 @@ assets/indices/*.index
 assets/hubert_inputs.pth
 assets/rmvpe_inputs.pth
 
-# Runtime configs
+# Runtime configs (legacy - now migrated to configs/state/)
 configs/inuse/
+configs/config.json
+configs/models.json
 
 # Temp
 TEMP/
