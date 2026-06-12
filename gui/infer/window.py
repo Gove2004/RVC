@@ -291,7 +291,7 @@ class MainWindow(QMainWindow):
         if self._active_card:
             self._active_card.set_loading(True)
         self._set_start_button(
-            "加载中...",
+            "加载中",
             False,
             "QPushButton{background:#3b82f6;color:white;border:none;padding:4px 8px;border-radius:3px}",
         )
