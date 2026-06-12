@@ -17,7 +17,7 @@ class TrainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 训练")
-        self.resize(540, 380)
+        self.resize(360, 253)  # 540/1.5=360, 380/1.5≈253
         self.worker = None
         self._tool_thread = None
         self._build_ui()

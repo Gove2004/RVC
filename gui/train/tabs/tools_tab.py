@@ -31,7 +31,7 @@ def _build_merge_group(win) -> QGroupBox:
         row = QHBoxLayout()
         row.setSpacing(4)
         btn = QPushButton("浏览")
-        btn.setFixedWidth(50)
+        btn.setFixedWidth(33)  # 50/1.5≈33
         btn.clicked.connect(lambda: browse_file(parent, line_edit))
         row.addWidget(line_edit)
         row.addWidget(btn)
@@ -57,7 +57,7 @@ def _build_merge_group(win) -> QGroupBox:
 
     win.merge_name = QLineEdit("merged")
     win.btn_merge = QPushButton("合并")
-    win.btn_merge.setFixedWidth(50)
+    win.btn_merge.setFixedWidth(33)  # 50/1.5≈33
     win.btn_merge.clicked.connect(lambda: _run_merge(win))
     name_row = QHBoxLayout()
     name_row.setSpacing(4)
@@ -77,14 +77,14 @@ def _build_inspect_group(win) -> QGroupBox:
 
     win.inspect_path = QLineEdit()
     btn_browse = QPushButton("浏览")
-    btn_browse.setFixedWidth(50)
+    btn_browse.setFixedWidth(33)  # 50/1.5≈33
     btn_browse.clicked.connect(lambda: browse_file(win, win.inspect_path))
     grid.addWidget(QLabel("模型文件"), 0, 0)
     grid.addWidget(win.inspect_path, 0, 1)
     grid.addWidget(btn_browse, 0, 2)
 
     btn_inspect = QPushButton("查看")
-    btn_inspect.setFixedWidth(50)
+    btn_inspect.setFixedWidth(33)  # 50/1.5≈33
     btn_inspect.clicked.connect(lambda: _run_inspect(win))
     grid.addWidget(btn_inspect, 0, 3)
 
