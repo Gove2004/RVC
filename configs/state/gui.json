@@ -1,4 +1,22 @@
 {
-  "test": "value",
-  "number": 42
+  "version": 2,
+  "th": -60,
+  "bl": 0.25,
+  "cf": 0.05,
+  "ex": 2.5,
+  "f0": "fcpe",
+  "eq_en": false,
+  "eq_sub": 0.0,
+  "eq_lo": 0.0,
+  "eq_mi": 0.0,
+  "eq_hi_mid": 0.0,
+  "eq_hi": 0.0,
+  "rev": 0.0,
+  "preset": "原声纯净",
+  "ha": "MME",
+  "in_dev": "麦克风 (NVIDIA Broadcast)",
+  "out_dev": "CABLE Input (VB-Audio Virtual C",
+  "out2_dev": "不启用",
+  "sr_mode": "model",
+  "selected": ""
 }
