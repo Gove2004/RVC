@@ -98,7 +98,7 @@ class ButtonStyles:
                 background: {Colors.PRIMARY};
                 color: {Colors.TEXT_WHITE};
                 font-weight: bold;
-                padding: 4px 12px;
+                padding: 5px 12px;
                 border: none;
                 border-radius: {Layout.RADIUS_NORMAL}px;
             }}
@@ -122,7 +122,7 @@ class ButtonStyles:
                 background: {Colors.SECONDARY};
                 color: {Colors.TEXT_WHITE};
                 font-weight: bold;
-                padding: 4px 12px;
+                padding: 5px 12px;
                 border: none;
                 border-radius: {Layout.RADIUS_NORMAL}px;
             }}
@@ -146,7 +146,7 @@ class ButtonStyles:
                 background: {Colors.DANGER};
                 color: {Colors.TEXT_WHITE};
                 font-weight: bold;
-                padding: 4px 12px;
+                padding: 5px 12px;
                 border: none;
                 border-radius: {Layout.RADIUS_NORMAL}px;
             }}
@@ -170,7 +170,7 @@ class ButtonStyles:
                 background: {Colors.MUTED_BG};
                 color: {Colors.MUTED_TEXT};
                 font-weight: bold;
-                padding: 4px 12px;
+                padding: 5px 12px;
                 border: none;
                 border-radius: {Layout.RADIUS_NORMAL}px;
             }}
@@ -191,7 +191,7 @@ class ButtonStyles:
                 background: {bg};
                 color: {Colors.TEXT_WHITE};
                 font-weight: bold;
-                padding: 3px 8px;
+                padding: 4px 8px;
                 border: none;
                 border-radius: {Layout.RADIUS_NORMAL}px;
             }}
