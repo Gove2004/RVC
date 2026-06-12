@@ -10,6 +10,7 @@ class Params:
     index_rate = 0.0
     rms_mix = 0.0
     gender = 0.0
+    protect = 0.5
     f0method = "fcpe"
 
     # 降噪
@@ -19,11 +20,11 @@ class Params:
 
     # 声学效果
     enable_eq = False
-    eq_low = 0
-    eq_mid = 0
-    eq_high = 0
-    warmth = 0
-    compress = 0
+    eq_sub = 0       # 超低频 60Hz
+    eq_low = 0       # 低频 200Hz
+    eq_mid = 0       # 中频 1kHz
+    eq_hi_mid = 0    # 中高频 3kHz
+    eq_high = 0      # 高频 8kHz
     reverb = 0
 
     # 背景音乐

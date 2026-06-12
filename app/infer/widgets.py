@@ -43,16 +43,16 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片: 使用按钮选中, 展开按钮显示参数"""
 
-    load_requested = Signal(str, str, str, float, float, float, float)
+    load_requested = Signal(str, str, str, float, float, float, float, float)
 
     def __init__(self, name="", pth="", idx="", pitch=0,
-                 index_rate=0.0, rms_mix=0.0, gender=50, parent=None):
+                 index_rate=0.0, rms_mix=0.0, gender=50, protect=50, parent=None):
         super().__init__(parent)
         self._expanded = False
-        self._build(name, pth, idx, pitch, index_rate, rms_mix, gender)
+        self._build(name, pth, idx, pitch, index_rate, rms_mix, gender, protect)
         self._body.setVisible(False)
 
-    def _build(self, name, pth, idx, pitch, index_rate, rms_mix, gender):
+    def _build(self, name, pth, idx, pitch, index_rate, rms_mix, gender, protect):
         root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
 
         # 头部: 名称 + 使用按钮 + 展开按钮
@@ -99,6 +99,9 @@ class ModelCard(QFrame):
         self.rms_sl = _sl(0,100,1,int(rms_mix*100)); self.rms_lbl = QLabel(f"{rms_mix:.2f}")
         self.rms_sl.valueChanged.connect(lambda v: self.rms_lbl.setText(f"{v/100:.2f}"))
         add_s("响度", self.rms_sl, self.rms_lbl, r); r+=1
+        self.protect_sl = _sl(0,100,1,protect); self.protect_lbl = QLabel(f"{protect/100:.2f}")
+        self.protect_sl.valueChanged.connect(lambda v: self.protect_lbl.setText(f"{v/100:.2f}"))
+        add_s("辅音保护", self.protect_sl, self.protect_lbl, r); r+=1
 
         self._del = QPushButton("删除此模型")
         self._del.setStyleSheet("QPushButton{background:#c0392b;color:white;border:none;padding:3px;border-radius:2px;font-size:11px}QPushButton:hover{background:#e74c3c}")
@@ -119,7 +122,7 @@ class ModelCard(QFrame):
         self.load_requested.emit(
             self._name.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
             self.pit_sl.value(), self.ir_sl.value()/100, self.rms_sl.value()/100,
-            self.gen_sl.value()/100,
+            self.gen_sl.value()/100, self.protect_sl.value()/100,
         )
 
     def get_data(self):
@@ -128,6 +131,7 @@ class ModelCard(QFrame):
             "idx": self.idx_edit.text().strip(), "pitch": self.pit_sl.value(),
             "index_rate": self.ir_sl.value()/100,
             "rms_mix": self.rms_sl.value()/100, "gender": self.gen_sl.value()/100,
+            "protect": self.protect_sl.value()/100,
         }
 
     def set_active(self, active):

@@ -1,4 +1,4 @@
-"""声学 Tab — 降噪 + 音效（EQ/饱和/压限/混响 + 预设系统）"""
+"""声学 Tab — 降噪 + 音效（5段EQ + 混响 + 预设系统）"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox, QComboBox,
     QHBoxLayout,
@@ -31,21 +31,28 @@ def build_audio_tab(win):
     def add_eq(label, sl, lbl, row):
         g.addWidget(QLabel(label), row, 0); g.addWidget(sl, row, 1); g.addWidget(lbl, row, 2)
 
+    # 5段EQ：超低频、低频、中频、中高频、高频
+    win.eq_sub = _sl(-2000,2000,500,0); win.eq_sub_lbl = QLabel("0.0"); win.eq_sub_lbl.setMinimumWidth(35)
+    win.eq_sub.valueChanged.connect(lambda v: win.eq_sub_lbl.setText(f"{v/100:.1f}"))
+    add_eq("超低频 (60Hz)", win.eq_sub, win.eq_sub_lbl, r); r+=1
+
     win.eq_lo = _sl(-3000,2000,500,0); win.eq_lo_lbl = QLabel("0.0"); win.eq_lo_lbl.setMinimumWidth(35)
     win.eq_lo.valueChanged.connect(lambda v: win.eq_lo_lbl.setText(f"{v/100:.1f}"))
-    add_eq("低频增益", win.eq_lo, win.eq_lo_lbl, r); r+=1
+    add_eq("低频 (200Hz)", win.eq_lo, win.eq_lo_lbl, r); r+=1
+
     win.eq_mi = _sl(-2000,2000,500,0); win.eq_mi_lbl = QLabel("0.0"); win.eq_mi_lbl.setMinimumWidth(35)
     win.eq_mi.valueChanged.connect(lambda v: win.eq_mi_lbl.setText(f"{v/100:.1f}"))
-    add_eq("中频增益", win.eq_mi, win.eq_mi_lbl, r); r+=1
+    add_eq("中频 (1kHz)", win.eq_mi, win.eq_mi_lbl, r); r+=1
+
+    win.eq_hi_mid = _sl(-2000,2000,500,0); win.eq_hi_mid_lbl = QLabel("0.0"); win.eq_hi_mid_lbl.setMinimumWidth(35)
+    win.eq_hi_mid.valueChanged.connect(lambda v: win.eq_hi_mid_lbl.setText(f"{v/100:.1f}"))
+    add_eq("中高频 (3kHz)", win.eq_hi_mid, win.eq_hi_mid_lbl, r); r+=1
+
     win.eq_hi = _sl(-3000,3000,500,0); win.eq_hi_lbl = QLabel("0.0"); win.eq_hi_lbl.setMinimumWidth(35)
     win.eq_hi.valueChanged.connect(lambda v: win.eq_hi_lbl.setText(f"{v/100:.1f}"))
-    add_eq("高频增益", win.eq_hi, win.eq_hi_lbl, r); r+=1
-    win.warm_sl = _sl(0,100,1,0); win.warm_lbl = QLabel("0.00"); win.warm_lbl.setMinimumWidth(35)
-    win.warm_sl.valueChanged.connect(lambda v: win.warm_lbl.setText(f"{v/100:.2f}"))
-    add_eq("电子管饱和", win.warm_sl, win.warm_lbl, r); r+=1
-    win.comp_sl = _sl(0,100,5,0); win.comp_lbl = QLabel("0.00"); win.comp_lbl.setMinimumWidth(35)
-    win.comp_sl.valueChanged.connect(lambda v: win.comp_lbl.setText(f"{v/100:.2f}"))
-    add_eq("动态压限", win.comp_sl, win.comp_lbl, r); r+=1
+    add_eq("高频 (8kHz)", win.eq_hi, win.eq_hi_lbl, r); r+=1
+
+    # 混响
     win.rev_sl = _sl(0,50,1,0); win.rev_lbl = QLabel("0.00"); win.rev_lbl.setMinimumWidth(35)
     win.rev_sl.valueChanged.connect(lambda v: win.rev_lbl.setText(f"{v/100:.2f}"))
     add_eq("空间混响", win.rev_sl, win.rev_lbl, r)

@@ -87,8 +87,8 @@ class MainWindow(QMainWindow):
         self._add_card(name=name, pth=path)
 
     def _add_card(self, name="", pth="", idx="", pitch=0,
-                  index_rate=0.0, rms_mix=0.0, gender=50):
-        card = ModelCard(name, pth, idx, pitch, index_rate=index_rate, rms_mix=rms_mix, gender=gender)
+                  index_rate=0.0, rms_mix=0.0, gender=50, protect=50):
+        card = ModelCard(name, pth, idx, pitch, index_rate=index_rate, rms_mix=rms_mix, gender=gender, protect=protect)
         card.load_requested.connect(self._on_card_load)
         card._del.clicked.connect(lambda: self._remove_card(card))
         self._models_layout.insertWidget(self._models_layout.count() - 1, card)
@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         card.deleteLater()
         self._save_models()
 
-    def _on_card_load(self, name, pth, idx, pitch, ir, rms, gender):
+    def _on_card_load(self, name, pth, idx, pitch, ir, rms, gender, protect):
         if not pth:
             return
         if self._active_card:
@@ -123,12 +123,13 @@ class MainWindow(QMainWindow):
         if name not in PRESETS:
             return
         pr = PRESETS[name]
-        self.eq_lo.setValue(int(pr["eq_low"] * 100))
-        self.eq_mi.setValue(int(pr["eq_mid"] * 100))
-        self.eq_hi.setValue(int(pr["eq_high"] * 100))
-        self.warm_sl.setValue(int(pr["warmth"] * 100))
-        self.comp_sl.setValue(int(pr["compress"] * 100))
-        self.rev_sl.setValue(int(pr["reverb"] * 100))
+        # 应用完整预设
+        self.eq_sub.setValue(int(pr.get("eq_sub", 0) * 100))
+        self.eq_lo.setValue(int(pr.get("eq_low", 0) * 100))
+        self.eq_mi.setValue(int(pr.get("eq_mid", 0) * 100))
+        self.eq_hi_mid.setValue(int(pr.get("eq_hi_mid", 0) * 100))
+        self.eq_hi.setValue(int(pr.get("eq_high", 0) * 100))
+        self.rev_sl.setValue(int(pr.get("reverb", 0) * 100))
 
     # ── 配置持久化 ──
 
@@ -137,7 +138,7 @@ class MainWindow(QMainWindow):
             self._add_card(m.get("name", ""), m.get("pth", ""), m.get("idx", ""),
                            m.get("pitch", 0),
                            m.get("index_rate", 0), m.get("rms_mix", 0),
-                           int(m.get("gender", 0.5) * 100))
+                           int(m.get("gender", 0.5) * 100), int(m.get("protect", 0.5) * 100))
         d = {}
         if os.path.exists(CONFIG_PATH):
             try:
@@ -175,11 +176,11 @@ class MainWindow(QMainWindow):
         self.inr.setChecked(d.get("inr", False))
         self.ounr.setChecked(d.get("ounr", False))
         self.eq_en.setChecked(d.get("eq_en", False))
+        self.eq_sub.setValue(int(d.get("eq_sub", 0) * 100))
         self.eq_lo.setValue(int(d.get("eq_lo", 0) * 100))
         self.eq_mi.setValue(int(d.get("eq_mi", 0) * 100))
+        self.eq_hi_mid.setValue(int(d.get("eq_hi_mid", 0) * 100))
         self.eq_hi.setValue(int(d.get("eq_hi", 0) * 100))
-        self.warm_sl.setValue(int(d.get("warm", 0) * 100))
-        self.comp_sl.setValue(int(d.get("comp", 0) * 100))
         self.rev_sl.setValue(int(d.get("rev", 0) * 100))
         pr = d.get("preset", "原声纯净")
         if pr in PRESETS:
@@ -202,9 +203,10 @@ class MainWindow(QMainWindow):
             "inr": self.inr.isChecked(), "ounr": self.ounr.isChecked(),
             "f0": self.f0_combo.currentText(),
             "eq_en": self.eq_en.isChecked(),
-            "eq_lo": self.eq_lo.value() / 100, "eq_mi": self.eq_mi.value() / 100,
-            "eq_hi": self.eq_hi.value() / 100, "warm": self.warm_sl.value() / 100,
-            "comp": self.comp_sl.value() / 100, "rev": self.rev_sl.value() / 100,
+            "eq_sub": self.eq_sub.value() / 100, "eq_lo": self.eq_lo.value() / 100,
+            "eq_mi": self.eq_mi.value() / 100, "eq_hi_mid": self.eq_hi_mid.value() / 100,
+            "eq_hi": self.eq_hi.value() / 100,
+            "rev": self.rev_sl.value() / 100,
             "preset": self.preset_combo.currentText(),
             "ha": self.ha_combo.currentText(),
             "in_dev": self.in_combo.currentText(),
@@ -257,12 +259,18 @@ class MainWindow(QMainWindow):
         p.index_rate = ir
         p.rms_mix = self._active_card.rms_sl.value() / 100
         p.gender = (self._active_card.gen_sl.value() / 100 - 0.5) * 4
+        p.protect = self._active_card.protect_sl.value() / 100
         p.f0method = self.f0_combo.currentText()
         self._start_engine(pth, idx, ir)
 
     def _start_engine(self, pth, idx, idx_rate):
+        # 如果正在加载，取消旧的加载任务
         if self._loading:
-            return
+            if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
+                self._lt.terminate()
+                self._lt.wait()
+            self._loading = False
+
         self._loading = True
         if self._active_card:
             self._active_card.set_loading(True)
@@ -291,11 +299,11 @@ class MainWindow(QMainWindow):
             p.O_nr = self.ounr.isChecked()
             p.use_pv = False
             p.enable_eq = self.eq_en.isChecked()
+            p.eq_sub = self.eq_sub.value() / 100
             p.eq_low = self.eq_lo.value() / 100
             p.eq_mid = self.eq_mi.value() / 100
-            p.eq_hi = self.eq_hi.value() / 100
-            p.warmth = self.warm_sl.value() / 100
-            p.compress = self.comp_sl.value() / 100
+            p.eq_hi_mid = self.eq_hi_mid.value() / 100
+            p.eq_high = self.eq_hi.value() / 100
             p.reverb = self.rev_sl.value() / 100
             p.bgm_enable = False
             p.enable_out2 = self.out2_combo.currentIndex() > 0
@@ -341,6 +349,21 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "错误", str(e))
 
     def _stop(self):
+        # 如果正在加载，取消加载线程
+        if self._loading:
+            if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
+                self._lt.terminate()
+                self._lt.wait()
+            self._loading = False
+            self.btn_start.setEnabled(True)
+            self.btn_start.setText("开始")
+            self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
+            self.btn_stop.setEnabled(False)
+            self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
+            if self._active_card:
+                self._active_card.set_active(False)
+            return
+
         if not engine.running:
             return
         self._timer.stop()
@@ -398,8 +421,9 @@ class MainWindow(QMainWindow):
         pitch = self._active_card.pit_sl.value()
         f0m = self.f0_combo.currentText()
         rms = self._active_card.rms_sl.value() / 100
+        protect = self._active_card.protect_sl.value() / 100
 
-        self._off_worker = OfflineWorker(inp, out, pth, idx, ir, pitch, f0m, rms)
+        self._off_worker = OfflineWorker(inp, out, pth, idx, ir, pitch, f0m, rms, protect)
         self._off_worker.progress.connect(self._off_progress)
         self._off_worker.finished.connect(self._off_done)
         self._off_worker.error.connect(self._off_err)

@@ -21,6 +21,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(stream=sys.stdout)] if sys.stdout else [],
 )
 
+# 屏蔽第三方库的调试日志
+logging.getLogger("torchfcpe").setLevel(logging.ERROR)
+
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 

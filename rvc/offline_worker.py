@@ -23,12 +23,13 @@ class OfflineWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, input_path, output_path, pth, idx, idx_rate, pitch, f0method, rms_mix):
+    def __init__(self, input_path, output_path, pth, idx, idx_rate, pitch, f0method, rms_mix, protect):
         super().__init__()
         self.input_path = input_path
         self.output_path = output_path
         self.pth = pth; self.idx = idx; self.idx_rate = idx_rate
         self.pitch = pitch; self.f0method = f0method; self.rms_mix = rms_mix
+        self.protect = protect
 
     def run(self):
         try:
@@ -47,8 +48,8 @@ class OfflineWorker(QThread):
 
         # 时长限制
         duration = len(wav) / sr
-        if duration > 60:
-            self.error.emit(f"音频时长 {duration:.0f}s 超过限制（最长 60 秒）")
+        if duration > 300:
+            self.error.emit(f"音频时长 {duration:.0f}s 超过限制（最长 5 分钟）")
             self.finished.emit("")
             return
 
@@ -96,6 +97,11 @@ class OfflineWorker(QThread):
         feats = torch.cat((feats, feats[:, -1:, :]), 1)
         self.progress.emit(55, 100)
 
+        # 保护：克隆原始特征（在 FAISS 混合前）
+        feats0 = None
+        if vc.if_f0 == 1 and self.protect > 0:
+            feats0 = feats.clone()
+
         # FAISS 索引匹配
         if vc.index is not None and vc.index_rate > 0:
             try:
@@ -111,11 +117,28 @@ class OfflineWorker(QThread):
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         feats = feats[:, :p_len, :]
 
+        # 保护：上采样原始特征并混合
+        if feats0 is not None:
+            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+            feats0 = feats0[:, :p_len, :]
+            from rvc.vc_pipeline import protect_blend
+            feats = protect_blend(feats, feats0, pitchf, self.protect)
+            # 保护混合后，确保 feats 保持模型精度
+            if vc.is_half:
+                feats = feats.half()
+
         # 合成器推理（不传 skip_head / return_length）
         p_len_t = torch.LongTensor([p_len]).to(config.device)
         sid = torch.LongTensor([0]).to(config.device)
         with torch.no_grad():
             if vc.if_f0 == 1:
+                # 确保 pitch 类型正确
+                if vc.is_half:
+                    pitch_coarse = pitch_coarse.long()
+                    pitchf = pitchf.half()
+                else:
+                    pitch_coarse = pitch_coarse.long()
+                    pitchf = pitchf.float()
                 result = vc.net_g.infer(feats, p_len_t, pitch_coarse, pitchf, sid)
             else:
                 result = vc.net_g.infer(feats, p_len_t, sid)

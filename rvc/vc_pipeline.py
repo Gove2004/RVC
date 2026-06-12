@@ -38,6 +38,26 @@ def faiss_blend(feats_npy, index, big_npy, index_rate, is_half):
         result = result.astype("float16")
     return result
 
+
+def protect_blend(feats_converted, feats_original, pitchf, protect):
+    """辅音保护混合 — 按 pitchf 掩码将清音/辅音区域混回原始特征。
+
+    Args:
+        feats_converted: torch.Tensor, 转换后特征 (B, T, D)
+        feats_original: torch.Tensor, 原始特征 (B, T, D)
+        pitchf: torch.Tensor, F0 contour (B, T)
+        protect: float, 保护强度 [0, 1.0]，值越大保护越强
+
+    Returns:
+        torch.Tensor: 保护后的特征 (B, T, D)
+    """
+    pitchff = pitchf.clone()
+    pitchff[pitchf > 0] = 1
+    pitchff[pitchf < 1] = 1 - protect  # 清音区域用 (1-protect) 比例的转换特征
+    pitchff = pitchff.unsqueeze(-1)
+    return feats_converted * pitchff + feats_original * (1 - pitchff)
+
+
 # F0 提取器模块级缓存（跨 VCPipeline 实例复用）
 _rmvpe_cache = {}
 _fcpe_cache = {}
@@ -193,7 +213,7 @@ class VCPipeline:
             return self._get_f0_rmvpe(x, f0_up_key)
         return self._get_f0_fcpe(x, f0_up_key)
 
-    def infer(self, input_wav, block_frame_16k, skip_head, return_length, f0method="fcpe"):
+    def infer(self, input_wav, block_frame_16k, skip_head, return_length, f0method="fcpe", protect=0.0):
         """实时推理一个音频块。
 
         Args:
@@ -202,14 +222,15 @@ class VCPipeline:
             skip_head: int, 跳过的10ms帧数（上下文）
             return_length: int, 需要返回的10ms帧数
             f0method: str, "rmvpe" 或 "fcpe"
+            protect: float, 辅音保护强度 [0, 1.0]，值越大保护越强
 
         Returns:
             torch.Tensor: 合成音频 (tgt_sr 采样率)
         """
         with torch.no_grad():
-            return self._infer_impl(input_wav, block_frame_16k, skip_head, return_length, f0method)
+            return self._infer_impl(input_wav, block_frame_16k, skip_head, return_length, f0method, protect)
 
-    def _infer_impl(self, input_wav, block_frame_16k, skip_head, return_length, f0method):
+    def _infer_impl(self, input_wav, block_frame_16k, skip_head, return_length, f0method, protect):
         # HuBERT 特征提取
         if self.is_half:
             feats = input_wav.half().view(1, -1)
@@ -220,6 +241,11 @@ class VCPipeline:
         logits = self.model.extract_features(**inputs)
         feats = logits[0]
         feats = torch.cat((feats, feats[:, -1:, :]), 1)
+
+        # 保护：克隆原始特征（在 FAISS 混合前）
+        feats0 = None
+        if self.if_f0 == 1 and protect > 0:
+            feats0 = feats.clone()
 
         # FAISS 索引匹配
         if self.index is not None and self.index_rate > 0:
@@ -252,6 +278,17 @@ class VCPipeline:
         # 上采样特征
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         feats = feats[:, :p_len, :]
+
+        # 保护：上采样原始特征并混合
+        if feats0 is not None:
+            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+            feats0 = feats0[:, :p_len, :]
+            # 注意：不能直接用 cache_pitchf，会污染 dtype；需要克隆一份用于掩码计算
+            feats = protect_blend(feats, feats0, cache_pitchf.clone(), protect)
+            # 保护混合后，确保 feats 保持模型精度
+            if self.is_half:
+                feats = feats.half()
+
         p_len_t = torch.LongTensor([p_len]).to(self.device)
         sid = torch.LongTensor([0]).to(self.device)
         skip_head_t = torch.LongTensor([skip_head]).to(self.device)
@@ -260,6 +297,13 @@ class VCPipeline:
 
         # 合成
         if self.if_f0 == 1:
+            # 确保 pitch 类型正确：cache_pitch 必须是 long，cache_pitchf 必须匹配模型精度
+            if self.is_half:
+                cache_pitch = cache_pitch.long()
+                cache_pitchf = cache_pitchf.half()
+            else:
+                cache_pitch = cache_pitch.long()
+                cache_pitchf = cache_pitchf.float()
             infered_audio, _, _ = self.net_g.infer(
                 feats, p_len_t, cache_pitch, cache_pitchf, sid,
                 skip_head_t, return_length_t, return_length2,

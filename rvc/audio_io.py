@@ -62,17 +62,17 @@ class RealtimeEngine:
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
         self.sr_model = self.vc_engine.tgt_sr
-        self.sr = self.sr_dev
+        self.sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
 
         in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
         self.channels = min(int(in_info["max_input_channels"]), int(out_info["max_output_channels"]), 2)
 
-        zc = self.sr_dev // 100
-        self.block_frame = int(np.round(block_t * self.sr_dev / zc)) * zc
-        self.crossfade_frame = int(np.round(cf_t * self.sr_dev / zc)) * zc
+        zc = self.sr // 100
+        self.block_frame = int(np.round(block_t * self.sr / zc)) * zc
+        self.crossfade_frame = int(np.round(cf_t * self.sr / zc)) * zc
         self.sola_buffer_frame = min(self.crossfade_frame, 4 * zc)
         self.sola_search_frame = zc
-        self.extra_frame = int(np.round(extra_t * self.sr_dev / zc)) * zc
+        self.extra_frame = int(np.round(extra_t * self.sr / zc)) * zc
 
         self.block_frame_16k = 160 * self.block_frame // zc
         self.skip_head = self.extra_frame // zc
@@ -88,37 +88,43 @@ class RealtimeEngine:
         self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
         self.nr_buffer = self.sola_buffer.clone()
         self.output_buffer = self.input_wav.clone()
-        self.reverb_buffer = torch.zeros(int(0.15 * self.sr_dev), device=config.device)
+        self.reverb_buffer = torch.zeros(int(0.15 * self.sr), device=config.device)
 
         ls = torch.linspace(0, 1, steps=self.sola_buffer_frame, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
         self.fade_out = 1 - self.fade_in
 
-        self.resampler = TatResample(self.sr_dev, 16000, dtype=torch.float32).to(config.device)
-        if self.sr_model != self.sr_dev:
-            self.resampler_model2dev = TatResample(self.sr_model, self.sr_dev, dtype=torch.float32).to(config.device)
+        self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(config.device)
+        if self.sr_model != self.sr:
+            self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(config.device)
         else:
             self.resampler_model2dev = None
 
-        self.tg = TorchGate(sr=self.sr_dev, n_fft=4 * zc, prop_decrease=0.9).to(config.device)
+        self.tg = TorchGate(sr=self.sr, n_fft=4 * zc, prop_decrease=0.9).to(config.device)
 
-        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr_dev, channels=self.channels, dtype="float32")
+        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
         self.running = True
 
     def setup_out2(self, dev_idx):
-        self.stream2 = sd.OutputStream(device=dev_idx, samplerate=self.sr, channels=self.channels, dtype="float32", latency='low')
-        self.stream2.start()
-        while not self.out2_q.empty(): self.out2_q.get()
-        threading.Thread(target=self._out2_worker, daemon=True).start()
-
-    def _out2_worker(self):
-        while self.running:
+        def out2_callback(outdata, frames, time_info, status):
             try:
-                d = self.out2_q.get(timeout=0.01)
-                if self.stream2 and self.stream2.active: self.stream2.write(d)
-            except queue.Empty: pass
-            except Exception as e: logger.warning("副输出写入失败: %s", e)
+                if not self.out2_q.empty():
+                    data = self.out2_q.get_nowait()
+                    outdata[:] = data[:frames]
+                else:
+                    outdata[:] = 0
+            except Exception:
+                outdata[:] = 0
+        self.stream2 = sd.OutputStream(
+            device=dev_idx, samplerate=self.sr, channels=self.channels,
+            dtype="float32", blocksize=self.block_frame, callback=out2_callback
+        )
+        self.stream2.start()
+        while not self.out2_q.empty():
+            try: self.out2_q.get_nowait()
+            except: pass
+
 
     def stop(self):
         self.running = False
@@ -177,7 +183,7 @@ class RealtimeEngine:
                 self.vc_engine.change_key(p.pitch)
                 self.vc_engine.change_index_rate(p.index_rate)
                 self.vc_engine.change_formant(p.gender)
-                infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, p.f0method)
+                infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, p.f0method, p.protect)
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
             elif p.I_nr:
@@ -200,13 +206,26 @@ class RealtimeEngine:
                 infer *= torch.pow(r1 / r2, 1 - p.rms_mix)
 
             if p.enable_eq:
-                sr = self.sr
-                if p.eq_low: infer = TAF.bass_biquad(infer.unsqueeze(0), sr, gain=p.eq_low).squeeze(0)
-                if p.eq_mid: infer = TAF.equalizer_biquad(infer.unsqueeze(0), sr, 1000.0, 0.707, p.eq_mid).squeeze(0)
-                if p.eq_high: infer = TAF.treble_biquad(infer.unsqueeze(0), sr, gain=p.eq_high).squeeze(0)
-                if p.warmth > 0:
-                    d = 1 + p.warmth * 3; m = 1 + p.warmth * 0.5
-                    infer = torch.tanh(infer * d) / d * m
+                # 频域 EQ：避免 IIR 滤波器的 block 边界跳变
+                spec = torch.fft.rfft(infer)
+                freqs = torch.fft.rfftfreq(infer.shape[0], 1/self.sr, device=config.device)
+
+                # 5段均衡器，高斯窗口平滑
+                def apply_band(spec, freqs, center, width, gain_db):
+                    if gain_db == 0:
+                        return spec
+                    gain_linear = 10 ** (gain_db / 20)
+                    mask = torch.exp(-0.5 * ((freqs - center) / width) ** 2)
+                    gain_curve = 1 + (gain_linear - 1) * mask
+                    return spec * gain_curve
+
+                if p.eq_sub: spec = apply_band(spec, freqs, 60, 40, max(-12, min(12, p.eq_sub)))
+                if p.eq_low: spec = apply_band(spec, freqs, 200, 100, max(-12, min(12, p.eq_low)))
+                if p.eq_mid: spec = apply_band(spec, freqs, 1000, 300, max(-12, min(12, p.eq_mid)))
+                if p.eq_hi_mid: spec = apply_band(spec, freqs, 3000, 600, max(-12, min(12, p.eq_hi_mid)))
+                if p.eq_high: spec = apply_band(spec, freqs, 8000, 2000, max(-12, min(12, p.eq_high)))
+
+                infer = torch.fft.irfft(spec, n=infer.shape[0])
 
             ci = infer[None, None, :self.sola_buffer_frame + self.sola_search_frame]
             cn = F.conv1d(ci, self.sola_buffer[None, None, :])
@@ -222,6 +241,7 @@ class RealtimeEngine:
             chunk = infer[:self.block_frame]
 
             if p.enable_eq:
+                # 混响
                 if p.reverb > 0:
                     ri = torch.cat([self.reverb_buffer, chunk])
                     d1 = int(0.017*self.sr); d2 = int(0.031*self.sr); d3 = int(0.047*self.sr); d4 = int(0.073*self.sr)
@@ -233,10 +253,6 @@ class RealtimeEngine:
                     rv = F.avg_pool1d(rv[None,None], 5, 1, 2).squeeze()
                     chunk = chunk*(1-p.reverb*0.5) + rv*p.reverb
                     self.reverb_buffer = ri[-self.reverb_buffer.shape[0]:]
-                if p.compress > 0:
-                    th = 1 - p.compress * 0.6
-                    ab = torch.abs(chunk)
-                    chunk = torch.where(ab > th, torch.sign(chunk)*(th+(1-th)*torch.tanh((ab-th)/(1-th))), chunk)
 
             if p.bgm_enable and self.bgm_audio is not None and p.bgm_vol > 0:
                 bl = self.bgm_audio.shape[0]; need = self.block_frame; ci2 = 0
