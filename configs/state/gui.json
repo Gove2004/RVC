@@ -11,7 +11,7 @@
   "eq_hi_mid": 2.0,
   "eq_hi": 1.0,
   "rev": 0.0,
-  "preset": "人声增强",
+  "preset": "原声",
   "ha": "MME",
   "in_dev": "麦克风 (NVIDIA Broadcast)",
   "out_dev": "CABLE Input (VB-Audio Virtual C",
