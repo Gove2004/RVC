@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.train.widgets import browse_directory, browse_file
+from gui.styles import ButtonStyles, Layout
 
 
 def build_settings_tab(win) -> QWidget:
