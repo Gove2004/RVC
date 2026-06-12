@@ -18,7 +18,6 @@ class ModelConfig:
 
 @dataclass
 class RuntimeConfig:
-    threshold: int
     eq_en: bool
     eq_sub: float
     eq_low: float
@@ -66,7 +65,6 @@ class InferController:
 
     def apply_runtime_config(self, config: RuntimeConfig):
         self.runtime_params.update(
-            threshold=config.threshold,
             use_pv=False,
             enable_eq=config.eq_en,
             eq_sub=config.eq_sub,

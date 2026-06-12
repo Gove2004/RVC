@@ -1,8 +1,8 @@
 {
   "version": 2,
   "th": -60,
-  "bl": 0.25,
-  "cf": 0.05,
+  "bl": 0.2,
+  "cf": 0.08,
   "ex": 2.5,
   "f0": "fcpe",
   "eq_en": false,
@@ -18,5 +18,5 @@
   "out_dev": "CABLE Input (VB-Audio Virtual C",
   "out2_dev": "不启用",
   "sr_mode": "model",
-  "selected": ""
+  "selected": "E:/Projects/Python/RVC/assets/weights/songyue.pth"
 }

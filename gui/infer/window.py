@@ -166,7 +166,6 @@ class MainWindow(QMainWindow):
         idx = self.f0_combo.findText(f0)
         if idx >= 0:
             self.f0_combo.setCurrentIndex(idx)
-        self.th_sl.setValue(d.get("th", -60))
         self.bl_sl.setValue(int(d.get("bl", 0.25) * 100))
         self.cf_sl.setValue(int(d.get("cf", 0.05) * 100))
         self.ex_sl.setValue(int(d.get("ex", 2.5) * 100))
@@ -192,7 +191,7 @@ class MainWindow(QMainWindow):
     def _save_cfg(self):
         self._save_models()
         d = {
-            "version": 2, "th": self.th_sl.value(), "bl": self.bl_sl.value() / 100,
+            "version": 2, "bl": self.bl_sl.value() / 100,
             "cf": self.cf_sl.value() / 100, "ex": self.ex_sl.value() / 100,
             "f0": self.f0_combo.currentText(),
             "eq_en": self.eq_en.isChecked(),
@@ -252,7 +251,6 @@ class MainWindow(QMainWindow):
     def _apply_runtime_params(self):
         self.controller.apply_runtime_config(
             RuntimeConfig(
-                threshold=self.th_sl.value(),
                 eq_en=self.eq_en.isChecked(),
                 eq_sub=self.eq_sub.value() / 100,
                 eq_low=self.eq_lo.value() / 100,

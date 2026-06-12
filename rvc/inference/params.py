@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 @dataclass
 class Params:
-    threshold: int = -60
     pitch: int = 0
     index_rate: float = 0.0
     rms_mix: float = 0.0

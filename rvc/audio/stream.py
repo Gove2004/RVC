@@ -43,7 +43,7 @@ class RealtimeEngine:
 
         self.input_wav = None; self.input_wav_res = None
         self.sola_buffer = None; self.output_buffer = None
-        self.rms_buffer = None; self.fade_in = None; self.fade_out = None
+        self.fade_in = None; self.fade_out = None
         self.resampler = None; self.resampler2 = None
         self.reverb_buffer = None
         self.bgm_audio = None; self.bgm_ptr = 0
@@ -98,7 +98,6 @@ class RealtimeEngine:
         n = self.extra_frame + self.crossfade_frame + self.sola_search_frame + self.block_frame
         self.input_wav = torch.zeros(n, device=config.device)
         self.input_wav_res = torch.zeros(160 * n // zc, device=config.device)
-        self.rms_buffer = np.zeros(4 * zc, dtype="float32")
         self.zc = zc
 
         self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
@@ -179,15 +178,6 @@ class RealtimeEngine:
         params = self.runtime_params
         with torch.no_grad():
             mono = librosa.to_mono(indata.T) if indata.ndim > 1 else indata[:, 0]
-            if params.threshold > -60:
-                tmp = np.append(self.rms_buffer, mono)
-                rms = librosa.feature.rms(y=tmp, frame_length=4*self.zc, hop_length=self.zc)[:, 2:]
-                self.rms_buffer[:] = tmp[-4*self.zc:]
-                tmp = tmp[2*self.zc - self.zc//2:]
-                db = librosa.amplitude_to_db(rms, ref=1.0)[0] < params.threshold
-                for i in range(db.shape[0]):
-                    if db[i]: tmp[i*self.zc:(i+1)*self.zc] = 0
-                mono = tmp[self.zc//2:]
 
             self.input_wav = torch.roll(self.input_wav, -self.block_frame)
             self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono.copy()).to(config.device)

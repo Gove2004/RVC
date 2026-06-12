@@ -43,9 +43,6 @@ def build_settings_tab(win):
     def add_sl(label, sl, lbl, row):
         g.addWidget(QLabel(label), row, 0); g.addWidget(sl, row, 1); g.addWidget(lbl, row, 2)
 
-    win.th_sl = _sl(-60,0,1,-60); win.th_lbl = QLabel("-60"); win.th_lbl.setMinimumWidth(35)
-    win.th_sl.valueChanged.connect(lambda v: win.th_lbl.setText(str(v)))
-    add_sl("响应阈值", win.th_sl, win.th_lbl, r); r+=1
     win.bl_sl = _sl(2,150,1,25); win.bl_lbl = QLabel("0.25"); win.bl_lbl.setMinimumWidth(35)
     win.bl_sl.valueChanged.connect(lambda v: win.bl_lbl.setText(f"{v/100:.2f}"))
     add_sl("采样长度", win.bl_sl, win.bl_lbl, r); r+=1
