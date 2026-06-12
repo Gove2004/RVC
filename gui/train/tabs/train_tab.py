@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
 def build_train_tab(win) -> QWidget:
     widget = QWidget()
     layout = QVBoxLayout(widget)
-    layout.setContentsMargins(10, 10, 10, 10)
-    layout.setSpacing(8)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(6)
 
     # 按钮行
     btn_layout = QHBoxLayout()

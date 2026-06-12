@@ -14,7 +14,7 @@ def sep():
 
 def build_settings_tab(win):
     """构建「设置」Tab，返回 QWidget。控件属性设置到 win 上。"""
-    w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(10,10,10,10)
+    w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(8,8,8,8)
     g.setColumnStretch(1, 1)
     r = 0
 

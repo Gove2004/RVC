@@ -13,8 +13,8 @@ from gui.train.widgets import browse_directory, browse_file
 def build_settings_tab(win) -> QWidget:
     widget = QWidget()
     layout = QVBoxLayout(widget)
-    layout.setContentsMargins(10, 10, 10, 10)
-    layout.setSpacing(8)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(6)
     layout.addWidget(_build_data_group(win))
     layout.addWidget(_build_train_group(win))
     layout.addStretch(1)

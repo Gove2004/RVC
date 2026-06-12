@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 
 def build_offline_tab(win):
     """构建「离线」Tab，返回 QWidget。控件属性设置到 win 上。"""
-    w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(10,10,10,10)
+    w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(8,8,8,8)
     g.setColumnStretch(1, 1); r = 0
 
     g.addWidget(QLabel("输入文件"), r, 0)

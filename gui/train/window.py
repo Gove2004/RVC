@@ -26,8 +26,8 @@ class TrainWindow(QMainWindow):
     def _build_ui(self):
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         tabs = QTabWidget()
         tabs.addTab(build_settings_tab(self), "设置")

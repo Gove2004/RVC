@@ -13,7 +13,7 @@ from gui.train.widgets import ToolThread, browse_file
 def build_tools_tab(win) -> QWidget:
     widget = QWidget()
     layout = QVBoxLayout(widget)
-    layout.setContentsMargins(6, 6, 6, 6)
+    layout.setContentsMargins(8, 8, 8, 8)
     layout.setSpacing(6)
     layout.addWidget(_build_merge_group(win))
     layout.addWidget(_build_inspect_group(win))

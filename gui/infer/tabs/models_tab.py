@@ -8,11 +8,11 @@ import os
 
 def build_models_tab(win):
     """构建「模型」Tab，返回 QWidget。控件属性设置到 win 上。"""
-    w = QWidget(); l = QVBoxLayout(w); l.setSpacing(4); l.setContentsMargins(10,10,10,10)
+    w = QWidget(); l = QVBoxLayout(w); l.setSpacing(6); l.setContentsMargins(8,8,8,8)
     bar = QHBoxLayout()
     bar.addWidget(QLabel("模型列表")); bar.addStretch()
     btn_add = QPushButton("+ 添加模型")
-    btn_add.setStyleSheet("QPushButton{background:#007acc;color:white;padding:3px 10px;border-radius:2px;font-weight:bold}QPushButton:hover{background:#005f9e}")
+    btn_add.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:3px 8px;border-radius:3px}QPushButton:hover{background:#005f9e}")
     btn_add.clicked.connect(win._add_model)
     bar.addWidget(btn_add)
     l.addLayout(bar)
