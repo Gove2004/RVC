@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.train.widgets import ToolThread, browse_file
+from gui.styles import ButtonStyles, Layout
 
 
 def build_tools_tab(win) -> QWidget:
@@ -31,7 +32,8 @@ def _build_merge_group(win) -> QGroupBox:
         row = QHBoxLayout()
         row.setSpacing(4)
         btn = QPushButton("浏览")
-        btn.setFixedWidth(33)  # 50/1.5≈33
+        btn.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+        btn.setStyleSheet(ButtonStyles.small())
         btn.clicked.connect(lambda: browse_file(parent, line_edit))
         row.addWidget(line_edit)
         row.addWidget(btn)
@@ -120,7 +122,7 @@ def _run_merge(win):
     out = str(Path("assets/weights") / f"{name}.pth")
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
-    win.btn_merge.setStyleSheet("QPushButton{background:#3b82f6;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}")
+    win.btn_merge.setStyleSheet(ButtonStyles.secondary())
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
     win._tool_thread = ToolThread(merge_models, a, b, ratio, out)

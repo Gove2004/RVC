@@ -97,7 +97,7 @@ class ModelCard(QFrame):
         add_s("辅音保护", self.protect_sl, self.protect_lbl, r); r+=1
 
         self._del = QPushButton("删除此模型")
-        self._del.setStyleSheet("QPushButton{background:#c0392b;color:white;border:none;padding:3px;border-radius:2px;font-size:11px}QPushButton:hover{background:#e74c3c}")
+        self._del.setStyleSheet(ButtonStyles.danger())
         bl.addWidget(self._del, r, 0, 1, 3)
         root.addWidget(self._body)
         self.setStyleSheet("ModelCard{border:1px solid #444;border-radius:3px;margin:1px}")
