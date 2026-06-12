@@ -5,11 +5,11 @@ import torch
 
 PRESETS = {
     "原声": {"eq_sub": 0, "eq_low": 0, "eq_mid": 0, "eq_hi_mid": 0, "eq_high": 0},
-    "低沉磁性": {"eq_sub": 5, "eq_low": 4, "eq_mid": -1, "eq_hi_mid": -3, "eq_high": -2},
-    "清亮少年": {"eq_sub": -4, "eq_low": -2, "eq_mid": 1, "eq_hi_mid": 4, "eq_high": 5},
-    "成熟男声": {"eq_sub": 3, "eq_low": 2, "eq_mid": 1, "eq_hi_mid": -1, "eq_high": 0},
-    "甜美女声": {"eq_sub": -3, "eq_low": 0, "eq_mid": 2, "eq_hi_mid": 3, "eq_high": 2},
-    "播音腔": {"eq_sub": -2, "eq_low": 1, "eq_mid": 4, "eq_hi_mid": 2, "eq_high": -1},
+    "御姐音": {"eq_sub": 2, "eq_low": 1, "eq_mid": 2, "eq_hi_mid": 0, "eq_high": -1},
+    "少女音": {"eq_sub": -3, "eq_low": -1, "eq_mid": 1, "eq_hi_mid": 3, "eq_high": 4},
+    "大叔音": {"eq_sub": 5, "eq_low": 4, "eq_mid": 0, "eq_hi_mid": -2, "eq_high": -3},
+    "少年音": {"eq_sub": -2, "eq_low": 0, "eq_mid": 2, "eq_hi_mid": 3, "eq_high": 2},
+    "浑厚低音": {"eq_sub": 6, "eq_low": 5, "eq_mid": -1, "eq_hi_mid": -3, "eq_high": -4},
 }
 
 
