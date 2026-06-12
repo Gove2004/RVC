@@ -30,7 +30,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self.resize(371, 367)  # 设置初始窗口大小 (556/1.5 x 550/1.5)
+        self.resize(357, 333)  # 设置初始窗口大小 (535/1.5 x 500/1.5)
         self.controller = InferController()
         self.runtime_params = self.controller.runtime_params
         self.engine = self.controller.engine
