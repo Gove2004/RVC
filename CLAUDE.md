@@ -22,6 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 RVC/
 ├── gui/                    # GUI 模块（推理 + 训练）
+│   ├── styles.py          # ⭐ 统一 UI 设计系统（2026-06-13 新增）
 │   ├── infer/             # 推理 GUI
 │   │   ├── controller.py  # 推理控制器（依赖注入）
 │   │   ├── window.py      # 主窗口
@@ -228,7 +229,106 @@ from rvc.inference import VCPipeline, OfflineWorker, Params
 
 # Config
 from configs.config import load_state_json, save_state_json, train_config_path
+
+# UI Styles (⭐ 2026-06-13 新增)
+from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
 ```
+
+## UI Design System (统一样式系统) ⭐ NEW
+
+**Added: 2026-06-13** - Complete UI unification system in `gui/styles.py`
+
+### Design Principles
+
+1. **Semantic Colors** - 4 primary color roles:
+   - `PRIMARY` (#28a745, green) - Main actions, success states
+   - `SECONDARY` (#3b82f6, blue) - Secondary actions, info states
+   - `DANGER` (#dc3545, red) - Destructive actions, errors
+   - `MUTED` (#555/#888) - Disabled states
+
+2. **Consistent Spacing** - All layout uses `Layout` constants:
+   - Window/Tab margins: 8px
+   - Standard spacing: 6px
+   - Border radius: 3px
+
+3. **Standard Button Sizes**:
+   - Main buttons: 60x28 (开始/停止)
+   - Small buttons: 48px width (浏览/查看/合并)
+   - Icon buttons: 28x24
+
+4. **Uniform Padding**:
+   - Standard buttons: `5px 12px`
+   - Small buttons: `4px 8px`
+
+### Usage Patterns
+
+**ALWAYS use the unified style system for GUI components:**
+
+```python
+# ✅ Correct - Use ButtonStyles
+from gui.styles import ButtonStyles, Layout
+
+btn = QPushButton("确认")
+btn.setStyleSheet(ButtonStyles.primary())
+
+btn_small = QPushButton("浏览")
+btn_small.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+btn_small.setStyleSheet(ButtonStyles.small())
+
+# ❌ Wrong - Never use inline styles
+btn.setStyleSheet("QPushButton{background:#28a745;...}")  # 不要这样做！
+```
+
+**Status labels:**
+
+```python
+from gui.styles import LabelStyles
+
+# Success state
+label.setStyleSheet(LabelStyles.status("success"))
+
+# Error state
+label.setStyleSheet(LabelStyles.status("error"))
+
+# Info/in-progress
+label.setStyleSheet(LabelStyles.status("info"))
+```
+
+**Model cards:**
+
+```python
+from gui.styles import CardStyles
+
+# Default state
+self.setStyleSheet(CardStyles.default())
+
+# Active state
+self.setStyleSheet(CardStyles.active("success"))
+
+# Loading state
+self.setStyleSheet(CardStyles.active("info"))
+```
+
+### Critical Rules
+
+1. **NO inline styles** - All styles must use `gui/styles.py` classes
+2. **NO hardcoded colors** - Use `Colors` constants
+3. **NO hardcoded sizes** - Use `Layout` constants
+4. **Import styles module** - Every GUI file must import from `gui.styles`
+
+### ScrollArea Configuration
+
+For model lists and scrollable content, always configure scrollbars explicitly:
+
+```python
+from PySide6.QtCore import Qt
+
+scroll = QScrollArea()
+scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+```
+
+This prevents width changes when content expands/collapses.
 
 ## File Conventions
 
