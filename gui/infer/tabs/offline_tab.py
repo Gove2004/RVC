@@ -24,6 +24,7 @@ def build_offline_tab(win):
 
     row = QHBoxLayout()
     win.off_btn = QPushButton("开始转换")
+    win.off_btn.setFixedWidth(100)
     win.off_btn.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:5px 16px;border-radius:3px}QPushButton:hover{background:#005f9e}QPushButton:disabled{background:#555}")
     win.off_btn.clicked.connect(win._off_start)
     row.addWidget(win.off_btn)
