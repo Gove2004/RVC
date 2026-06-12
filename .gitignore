@@ -36,8 +36,8 @@ TEMP/
 Thumbs.db
 .DS_Store
 
-# ffmpeg
-ffmpeg
+# ffmpeg binaries
+assets/ffmpeg/
 
 # logs
 logs
