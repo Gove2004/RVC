@@ -1,4 +1,4 @@
-"""声学 Tab — 降噪 + 音效（5段EQ + 混响 + 预设系统）"""
+"""声学 Tab — 音效（5段EQ + 混响 + 预设系统）"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox, QComboBox,
     QHBoxLayout,
@@ -14,12 +14,6 @@ def build_audio_tab(win):
     w = QWidget(); g = QGridLayout(w); g.setSpacing(6); g.setContentsMargins(10,10,10,10)
     g.setColumnStretch(1, 1)
     r = 0
-
-    # 降噪
-    win.inr = QCheckBox("输入降噪"); win.ounr = QCheckBox("输出降噪")
-    nr = QHBoxLayout(); nr.addWidget(win.inr); nr.addWidget(win.ounr); nr.addStretch()
-    g.addLayout(nr, r, 0, 1, 3); r+=1
-    g.addWidget(sep(), r, 0, 1, 3); r+=1
 
     # 音效
     win.eq_en = QCheckBox("开启音效")

@@ -170,8 +170,6 @@ class MainWindow(QMainWindow):
         self.bl_sl.setValue(int(d.get("bl", 0.25) * 100))
         self.cf_sl.setValue(int(d.get("cf", 0.05) * 100))
         self.ex_sl.setValue(int(d.get("ex", 2.5) * 100))
-        self.inr.setChecked(d.get("inr", False))
-        self.ounr.setChecked(d.get("ounr", False))
         self.eq_en.setChecked(d.get("eq_en", False))
         self.eq_sub.setValue(int(d.get("eq_sub", 0) * 100))
         self.eq_lo.setValue(int(d.get("eq_lo", 0) * 100))
@@ -196,7 +194,6 @@ class MainWindow(QMainWindow):
         d = {
             "version": 2, "th": self.th_sl.value(), "bl": self.bl_sl.value() / 100,
             "cf": self.cf_sl.value() / 100, "ex": self.ex_sl.value() / 100,
-            "inr": self.inr.isChecked(), "ounr": self.ounr.isChecked(),
             "f0": self.f0_combo.currentText(),
             "eq_en": self.eq_en.isChecked(),
             "eq_sub": self.eq_sub.value() / 100, "eq_lo": self.eq_lo.value() / 100,
@@ -256,8 +253,6 @@ class MainWindow(QMainWindow):
         self.controller.apply_runtime_config(
             RuntimeConfig(
                 threshold=self.th_sl.value(),
-                inr=self.inr.isChecked(),
-                ounr=self.ounr.isChecked(),
                 eq_en=self.eq_en.isChecked(),
                 eq_sub=self.eq_sub.value() / 100,
                 eq_low=self.eq_lo.value() / 100,

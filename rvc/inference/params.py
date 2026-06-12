@@ -11,8 +11,6 @@ class Params:
     gender: float = 0.0
     protect: float = 0.5
     f0method: str = "fcpe"
-    I_nr: bool = False
-    O_nr: bool = False
     use_pv: bool = False
     enable_eq: bool = False
     eq_sub: float = 0

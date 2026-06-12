@@ -13,7 +13,6 @@ from PySide6.QtCore import QObject, Signal
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.utils import phase_vocoder
-from rvc.denoise import TorchGate
 from configs.config import Config
 
 logger = logging.getLogger(__name__)
@@ -42,10 +41,10 @@ class RealtimeEngine:
         self.sola_search_frame = 0; self.extra_frame = 0
         self.skip_head = 0; self.return_length = 0
 
-        self.input_wav = None; self.input_wav_res = None; self.input_wav_denoise = None
-        self.sola_buffer = None; self.nr_buffer = None; self.output_buffer = None
+        self.input_wav = None; self.input_wav_res = None
+        self.sola_buffer = None; self.output_buffer = None
         self.rms_buffer = None; self.fade_in = None; self.fade_out = None
-        self.resampler = None; self.resampler2 = None; self.tg = None
+        self.resampler = None; self.resampler2 = None
         self.reverb_buffer = None
         self.bgm_audio = None; self.bgm_ptr = 0
 
@@ -93,13 +92,11 @@ class RealtimeEngine:
 
         n = self.extra_frame + self.crossfade_frame + self.sola_search_frame + self.block_frame
         self.input_wav = torch.zeros(n, device=config.device)
-        self.input_wav_denoise = self.input_wav.clone()
         self.input_wav_res = torch.zeros(160 * n // zc, device=config.device)
         self.rms_buffer = np.zeros(4 * zc, dtype="float32")
         self.zc = zc
 
         self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
-        self.nr_buffer = self.sola_buffer.clone()
         self.output_buffer = self.input_wav.clone()
         self.reverb_buffer = torch.zeros(int(0.15 * self.sr), device=config.device)
 
@@ -112,8 +109,6 @@ class RealtimeEngine:
             self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(config.device)
         else:
             self.resampler_model2dev = None
-
-        self.tg = TorchGate(sr=self.sr, n_fft=4 * zc, prop_decrease=0.9).to(config.device)
 
         self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
@@ -192,18 +187,7 @@ class RealtimeEngine:
             self.input_wav = torch.roll(self.input_wav, -self.block_frame)
             self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono.copy()).to(config.device)
             self.input_wav_res = torch.roll(self.input_wav_res, -self.block_frame_16k)
-
-            if params.I_nr:
-                self.input_wav_denoise = torch.roll(self.input_wav_denoise, -self.block_frame)
-                iw = self.input_wav[-self.sola_buffer_frame - self.block_frame:]
-                iw = self.tg(iw.unsqueeze(0), self.input_wav.unsqueeze(0)).squeeze(0)
-                iw[:self.sola_buffer_frame] *= self.fade_in
-                iw[:self.sola_buffer_frame] += self.nr_buffer * self.fade_out
-                self.input_wav_denoise[-self.block_frame:] = iw[:self.block_frame]
-                self.nr_buffer[:] = iw[self.block_frame:]
-                self.input_wav_res[-self.block_frame_16k-160:] = self.resampler(self.input_wav_denoise[-self.block_frame-2*self.zc:])[160:]
-            else:
-                self.input_wav_res[-160*(mono.shape[0]//self.zc+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.zc:])[160:]
+            self.input_wav_res[-160*(mono.shape[0]//self.zc+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.zc:])[160:]
 
             if self.function == "vc" and self.vc_engine:
                 self.vc_engine.change_key(params.pitch)
@@ -212,18 +196,11 @@ class RealtimeEngine:
                 infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, params.f0method, params.protect)
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
-            elif params.I_nr:
-                infer = self.input_wav_denoise[self.extra_frame:].clone()
             else:
                 infer = self.input_wav[self.extra_frame:].clone()
 
-            if params.O_nr and self.function == "vc":
-                self.output_buffer = torch.roll(self.output_buffer, -self.block_frame)
-                self.output_buffer[-self.block_frame:] = infer[-self.block_frame:]
-                infer = self.tg(infer.unsqueeze(0), self.output_buffer.unsqueeze(0)).squeeze(0)
-
             if params.rms_mix < 1 and self.function == "vc":
-                ref = self.input_wav_denoise[self.extra_frame:] if params.I_nr else self.input_wav[self.extra_frame:]
+                ref = self.input_wav[self.extra_frame:]
                 r1 = self._fast_rms(ref[:infer.shape[0]], 4*self.zc, self.zc)
                 r1 = F.interpolate(r1[None,None], size=infer.shape[0]+1, mode='linear', align_corners=True)[0,0,:-1]
                 r2 = self._fast_rms(infer, 4*self.zc, self.zc)

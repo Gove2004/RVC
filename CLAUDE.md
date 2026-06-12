@@ -43,7 +43,6 @@ RVC/
 │   │   └── params.py      # Params（运行时参数单例）
 │   ├── synthesizer/       # 合成器（已模块化）
 │   ├── nn/                # 神经网络基础层
-│   ├── denoise/           # 降噪（TorchGate）
 │   └── train/             # 训练管线
 ├── configs/               # 配置管理
 │   ├── state/             # 可变状态（gui.json, models.json, train.json）
@@ -64,7 +63,7 @@ RVC/
 
 1. **Audio I/O Layer** (`rvc/audio/stream.py` - `RealtimeEngine`)
    - Manages sounddevice streams, buffers, SOLA crossfade
-   - Critical: `self.sr` determines all frame calculations (block, crossfade, gate, reverb)
+   - Critical: `self.sr` determines all frame calculations (block, crossfade, reverb)
    - Two sampling rate modes: `sr_model` (model's native rate) or `sr_dev` (device rate)
    - SOLA algorithm handles pitch-shift without glitches at block boundaries
 
@@ -100,7 +99,6 @@ Located in `rvc/audio/stream.py` callback, applied **after** VC inference:
   - Implementation: `torch.fft.rfft` → apply Gaussian band gains → `torch.fft.irfft`
 - **Reverb**: Simple multi-tap delay with decay
 - **RMS Mix**: Envelope-based loudness matching
-- **TorchGate**: Noise gate for input/output
 
 ### GUI Architecture
 
