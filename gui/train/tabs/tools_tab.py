@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QSlider, QTextEdit, QMessageBox,
 )
 
-from app.train.widgets import ToolThread, browse_file
+from gui.train.widgets import ToolThread, browse_file
 
 
 def build_tools_tab(win) -> QWidget:

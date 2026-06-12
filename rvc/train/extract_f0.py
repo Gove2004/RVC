@@ -16,6 +16,10 @@ class F0Extractor:
         self.device = device
         self.is_half = is_half
         self.model = RMVPE("assets/rmvpe/rmvpe.pt", is_half=is_half, device=device)
+        self.stop_requested = False
+
+    def request_stop(self):
+        self.stop_requested = True
 
     def run(self, exp_dir: str, progress_callback=None):
         exp = Path(exp_dir)
@@ -26,6 +30,8 @@ class F0Extractor:
         continuous_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
         for i, path in enumerate(files, 1):
+            if self.stop_requested:
+                break
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():

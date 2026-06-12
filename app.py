@@ -10,7 +10,6 @@ import logging
 import os
 import sys
 
-# Windows 中文终端修复
 if sys.stdout is not None:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -21,7 +20,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(stream=sys.stdout)] if sys.stdout else [],
 )
 
-# 屏蔽第三方库的调试日志
 logging.getLogger("torchfcpe").setLevel(logging.ERROR)
 
 now_dir = os.getcwd()
@@ -65,10 +63,10 @@ def main():
     _set_dark(app)
 
     if args.infer:
-        from app.infer.window import MainWindow
+        from gui.infer.window import MainWindow
         win = MainWindow()
     else:
-        from app.train.window import TrainWindow
+        from gui.train.window import TrainWindow
         win = TrainWindow()
 
     win.show()

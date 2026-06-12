@@ -13,6 +13,10 @@ class HuBERTExtractor:
         self.device = device
         self.is_half = is_half
         self.model = load_hubert(SimpleNamespace(device=device, is_half=is_half))
+        self.stop_requested = False
+
+    def request_stop(self):
+        self.stop_requested = True
 
     def run(self, exp_dir: str, progress_callback=None):
         exp = Path(exp_dir)
@@ -21,6 +25,8 @@ class HuBERTExtractor:
         feat_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
         for i, path in enumerate(files, 1):
+            if self.stop_requested:
+                break
             out_path = feat_dir / f"{path.stem}.npy"
             if not out_path.exists():
                 feats = self.extract(path)

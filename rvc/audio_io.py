@@ -9,10 +9,9 @@ import numpy as np
 import sounddevice as sd
 import torch
 import torch.nn.functional as F
+from PySide6.QtCore import QObject, Signal
 from torchaudio.transforms import Resample as TatResample
-import torchaudio.functional as TAF
 
-from rvc.params import p
 from rvc.audio_utils import phase_vocoder
 from rvc.denoise import TorchGate
 from configs.config import Config
@@ -21,14 +20,21 @@ logger = logging.getLogger(__name__)
 config = Config()
 
 
+class EngineSignals(QObject):
+    runtime_error = Signal(str)
+
+
 class RealtimeEngine:
-    def __init__(self):
+    def __init__(self, runtime_params, inference_cache=None):
+        self.runtime_params = runtime_params
+        self.inference_cache = inference_cache
         self.vc_engine = None
         self.stream = None
         self.stream2 = None
         self.running = False
         self.function = "vc"
         self.out2_q = queue.Queue(maxsize=10)
+        self.signals = EngineSignals()
 
         self.sr = 48000; self.zc = 480; self.channels = 1
         self.block_frame = 0; self.block_frame_16k = 0
@@ -45,20 +51,27 @@ class RealtimeEngine:
 
         self.loaded_pth = ""; self.loaded_idx = ""
         self.infer_ms = 0.0
+        self.error_count = 0
+        self.max_error_count = 3
+        self.last_error = ""
+        self.runtime_error_pending = False
 
     def load_model(self, pth, idx, idx_rate, force=False):
         if not force and self.vc_engine and self.loaded_pth == pth and self.loaded_idx == idx:
             self.vc_engine.change_index_rate(idx_rate)
             return self.vc_engine.tgt_sr
         from rvc.vc_pipeline import VCPipeline
-        self.vc_engine = VCPipeline(config, pth, idx, idx_rate)
+        self.vc_engine = VCPipeline(config, pth, idx, idx_rate, self.inference_cache)
         self.vc_engine.load()
         self.loaded_pth = pth; self.loaded_idx = idx
         return self.vc_engine.tgt_sr
 
-    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, p):
+    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
         if self.running:
             self.stop()
+        self.error_count = 0
+        self.last_error = ""
+        self.runtime_error_pending = False
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
         self.sr_model = self.vc_engine.tgt_sr
@@ -128,6 +141,8 @@ class RealtimeEngine:
 
     def stop(self):
         self.running = False
+        self.error_count = 0
+        self.runtime_error_pending = False
         for s in (self.stream2, self.stream):
             if s:
                 try: s.abort()
@@ -145,20 +160,31 @@ class RealtimeEngine:
     def _cb(self, indata, outdata, frames, times, status):
         try:
             self._cb_impl(indata, outdata, frames, times, status)
+            self.error_count = 0
         except Exception as e:
-            logger.error("音频回调异常: %s", e, exc_info=True)
+            self.error_count += 1
+            self.last_error = str(e)
+            logger.error("音频回调异常(%d/%d): %s", self.error_count, self.max_error_count, e, exc_info=True)
             outdata[:] = 0
+            if self.error_count >= self.max_error_count and not self.runtime_error_pending:
+                self.running = False
+                self.runtime_error_pending = True
+                try:
+                    self.signals.runtime_error.emit(self.last_error or "实时推理失败")
+                except Exception:
+                    logger.exception("发送实时错误信号失败")
 
     def _cb_impl(self, indata, outdata, frames, times, status):
         t0 = time.perf_counter()
+        params = self.runtime_params
         with torch.no_grad():
             mono = librosa.to_mono(indata.T) if indata.ndim > 1 else indata[:, 0]
-            if p.threshold > -60:
+            if params.threshold > -60:
                 tmp = np.append(self.rms_buffer, mono)
                 rms = librosa.feature.rms(y=tmp, frame_length=4*self.zc, hop_length=self.zc)[:, 2:]
                 self.rms_buffer[:] = tmp[-4*self.zc:]
                 tmp = tmp[2*self.zc - self.zc//2:]
-                db = librosa.amplitude_to_db(rms, ref=1.0)[0] < p.threshold
+                db = librosa.amplitude_to_db(rms, ref=1.0)[0] < params.threshold
                 for i in range(db.shape[0]):
                     if db[i]: tmp[i*self.zc:(i+1)*self.zc] = 0
                 mono = tmp[self.zc//2:]
@@ -167,7 +193,7 @@ class RealtimeEngine:
             self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono.copy()).to(config.device)
             self.input_wav_res = torch.roll(self.input_wav_res, -self.block_frame_16k)
 
-            if p.I_nr:
+            if params.I_nr:
                 self.input_wav_denoise = torch.roll(self.input_wav_denoise, -self.block_frame)
                 iw = self.input_wav[-self.sola_buffer_frame - self.block_frame:]
                 iw = self.tg(iw.unsqueeze(0), self.input_wav.unsqueeze(0)).squeeze(0)
@@ -180,32 +206,32 @@ class RealtimeEngine:
                 self.input_wav_res[-160*(mono.shape[0]//self.zc+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.zc:])[160:]
 
             if self.function == "vc" and self.vc_engine:
-                self.vc_engine.change_key(p.pitch)
-                self.vc_engine.change_index_rate(p.index_rate)
-                self.vc_engine.change_formant(p.gender)
-                infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, p.f0method, p.protect)
+                self.vc_engine.change_key(params.pitch)
+                self.vc_engine.change_index_rate(params.index_rate)
+                self.vc_engine.change_formant(params.gender)
+                infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, params.f0method, params.protect)
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
-            elif p.I_nr:
+            elif params.I_nr:
                 infer = self.input_wav_denoise[self.extra_frame:].clone()
             else:
                 infer = self.input_wav[self.extra_frame:].clone()
 
-            if p.O_nr and self.function == "vc":
+            if params.O_nr and self.function == "vc":
                 self.output_buffer = torch.roll(self.output_buffer, -self.block_frame)
                 self.output_buffer[-self.block_frame:] = infer[-self.block_frame:]
                 infer = self.tg(infer.unsqueeze(0), self.output_buffer.unsqueeze(0)).squeeze(0)
 
-            if p.rms_mix < 1 and self.function == "vc":
-                ref = self.input_wav_denoise[self.extra_frame:] if p.I_nr else self.input_wav[self.extra_frame:]
+            if params.rms_mix < 1 and self.function == "vc":
+                ref = self.input_wav_denoise[self.extra_frame:] if params.I_nr else self.input_wav[self.extra_frame:]
                 r1 = self._fast_rms(ref[:infer.shape[0]], 4*self.zc, self.zc)
                 r1 = F.interpolate(r1[None,None], size=infer.shape[0]+1, mode='linear', align_corners=True)[0,0,:-1]
                 r2 = self._fast_rms(infer, 4*self.zc, self.zc)
                 r2 = F.interpolate(r2[None,None], size=infer.shape[0]+1, mode='linear', align_corners=True)[0,0,:-1]
                 r2 = torch.max(r2, torch.ones_like(r2)*1e-3)
-                infer *= torch.pow(r1 / r2, 1 - p.rms_mix)
+                infer *= torch.pow(r1 / r2, 1 - params.rms_mix)
 
-            if p.enable_eq:
+            if params.enable_eq:
                 # 频域 EQ：避免 IIR 滤波器的 block 边界跳变
                 spec = torch.fft.rfft(infer)
                 freqs = torch.fft.rfftfreq(infer.shape[0], 1/self.sr, device=config.device)
@@ -219,11 +245,11 @@ class RealtimeEngine:
                     gain_curve = 1 + (gain_linear - 1) * mask
                     return spec * gain_curve
 
-                if p.eq_sub: spec = apply_band(spec, freqs, 60, 40, max(-12, min(12, p.eq_sub)))
-                if p.eq_low: spec = apply_band(spec, freqs, 200, 100, max(-12, min(12, p.eq_low)))
-                if p.eq_mid: spec = apply_band(spec, freqs, 1000, 300, max(-12, min(12, p.eq_mid)))
-                if p.eq_hi_mid: spec = apply_band(spec, freqs, 3000, 600, max(-12, min(12, p.eq_hi_mid)))
-                if p.eq_high: spec = apply_band(spec, freqs, 8000, 2000, max(-12, min(12, p.eq_high)))
+                if params.eq_sub: spec = apply_band(spec, freqs, 60, 40, max(-12, min(12, params.eq_sub)))
+                if params.eq_low: spec = apply_band(spec, freqs, 200, 100, max(-12, min(12, params.eq_low)))
+                if params.eq_mid: spec = apply_band(spec, freqs, 1000, 300, max(-12, min(12, params.eq_mid)))
+                if params.eq_hi_mid: spec = apply_band(spec, freqs, 3000, 600, max(-12, min(12, params.eq_hi_mid)))
+                if params.eq_high: spec = apply_band(spec, freqs, 8000, 2000, max(-12, min(12, params.eq_high)))
 
                 infer = torch.fft.irfft(spec, n=infer.shape[0])
 
@@ -232,7 +258,7 @@ class RealtimeEngine:
             cd = torch.sqrt(F.conv1d(ci**2, torch.ones(1,1,self.sola_buffer_frame, device=config.device)) + 1e-8)
             off = torch.argmax(cn[0,0] / cd[0,0])
             infer = infer[off:]
-            if not p.use_pv:
+            if not params.use_pv:
                 infer[:self.sola_buffer_frame] *= self.fade_in
                 infer[:self.sola_buffer_frame] += self.sola_buffer * self.fade_out
             else:
@@ -240,9 +266,8 @@ class RealtimeEngine:
             self.sola_buffer[:] = infer[self.block_frame:self.block_frame+self.sola_buffer_frame]
             chunk = infer[:self.block_frame]
 
-            if p.enable_eq:
-                # 混响
-                if p.reverb > 0:
+            if params.enable_eq:
+                if params.reverb > 0:
                     ri = torch.cat([self.reverb_buffer, chunk])
                     d1 = int(0.017*self.sr); d2 = int(0.031*self.sr); d3 = int(0.047*self.sr); d4 = int(0.073*self.sr)
                     t1 = ri[-self.block_frame-d1:-d1]*0.3
@@ -251,20 +276,20 @@ class RealtimeEngine:
                     t4 = -ri[-self.block_frame-d4:-d4]*0.08
                     rv = t1+t2+t3+t4
                     rv = F.avg_pool1d(rv[None,None], 5, 1, 2).squeeze()
-                    chunk = chunk*(1-p.reverb*0.5) + rv*p.reverb
+                    chunk = chunk*(1-params.reverb*0.5) + rv*params.reverb
                     self.reverb_buffer = ri[-self.reverb_buffer.shape[0]:]
 
-            if p.bgm_enable and self.bgm_audio is not None and p.bgm_vol > 0:
+            if params.bgm_enable and self.bgm_audio is not None and params.bgm_vol > 0:
                 bl = self.bgm_audio.shape[0]; need = self.block_frame; ci2 = 0
                 bc = torch.zeros(self.block_frame)
                 while need > 0:
                     take = min(need, bl - self.bgm_ptr)
                     bc[ci2:ci2+take] = self.bgm_audio[self.bgm_ptr:self.bgm_ptr+take]
                     self.bgm_ptr = (self.bgm_ptr + take) % bl; ci2 += take; need -= take
-                chunk += bc.to(config.device) * p.bgm_vol
+                chunk += bc.to(config.device) * params.bgm_vol
 
             outdata[:] = chunk.repeat(self.channels, 1).t().cpu().numpy()
-            if self.stream2 and p.enable_out2:
+            if self.stream2 and params.enable_out2:
                 if self.out2_q.full():
                     try: self.out2_q.get_nowait()
                     except Exception: pass

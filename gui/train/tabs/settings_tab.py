@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 
-from app.train.widgets import browse_directory, browse_file
+from gui.train.widgets import browse_directory, browse_file
 
 
 def build_settings_tab(win) -> QWidget:
@@ -27,7 +27,7 @@ def _build_data_group(win) -> QGroupBox:
     grid.setHorizontalSpacing(6)
     grid.setVerticalSpacing(6)
 
-    win.exp_name = QLineEdit("test")
+    win.exp_name = QLineEdit("exp01")
     win.input_dir = QLineEdit()
     browse = QPushButton("浏览")
     browse.setFixedWidth(50)
@@ -54,13 +54,13 @@ def _build_train_group(win) -> QGroupBox:
 
     win.epochs = QSpinBox()
     win.epochs.setRange(1, 100000)
-    win.epochs.setValue(20)
+    win.epochs.setValue(200)
     win.batch_size = QSpinBox()
     win.batch_size.setRange(1, 64)
-    win.batch_size.setValue(1)
+    win.batch_size.setValue(4)
     win.save_every = QSpinBox()
     win.save_every.setRange(1, 100000)
-    win.save_every.setValue(2)
+    win.save_every.setValue(20)
     win.learning_rate = QLineEdit("1e-4")
 
     win.pretrain_g = QLineEdit()

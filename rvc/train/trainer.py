@@ -42,11 +42,15 @@ class Trainer:
         self.data_cfg = self.json_config["data"]
         self.model_cfg = self.json_config["model"].copy()
         self.segment_size = self.train_cfg["segment_size"] // self.data_cfg["hop_length"]
+        self.log_file = Path(self.cfg.exp_dir) / "train.log"
 
     def stop(self):
         self.stop_requested = True
 
     def log(self, message: str):
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        with self.log_file.open("a", encoding="utf-8") as f:
+            f.write(message.rstrip() + "\n")
         if self.log_callback:
             self.log_callback(message)
 
@@ -97,18 +101,22 @@ class Trainer:
 
     def train(self):
         self.setup()
+        last_epoch = None
         for epoch in range(self.start_epoch, self.cfg.epochs + 1):
             if self.stop_requested:
                 break
             self._train_epoch(epoch)
+            last_epoch = epoch
             self.scheduler_g.step()
             self.scheduler_d.step()
             if epoch % self.cfg.save_every_epoch == 0 or epoch == self.cfg.epochs or self.stop_requested:
                 self._save(epoch)
             if self.progress_callback:
                 self.progress_callback(epoch, self.cfg.epochs)
+        if last_epoch is None:
+            raise RuntimeError("训练在首个 epoch 前已停止")
         output = Path("assets") / "weights" / f"{Path(self.cfg.exp_dir).name}.pth"
-        export_model(self.net_g.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
+        export_model(self.net_g.state_dict(), self.cfg.sr, self.json_config, last_epoch, str(output))
         self.log(f"导出模型: {output}")
         return str(output)
 

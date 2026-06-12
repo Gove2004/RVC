@@ -2,144 +2,175 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
-
-RVC 实时语音转换工具 — 基于深度学习的实时变声器。PySide6 桌面GUI，CUDA-only，Python 3.13 + RTX 5060。
-
-## Commands
+## Quick Start
 
 ```bash
-# 启动推理 GUI
-.venv/Scripts/python.exe app.py --infer
+# Launch inference GUI
+.venv\Scripts\python.exe app.py --infer
 
-# 启动训练 GUI
-.venv/Scripts/python.exe app.py --train
+# Launch training GUI
+.venv\Scripts\python.exe app.py --train
 
-# 安装依赖
-.venv/Scripts/pip.exe install -r requirements.txt
-
-# 语法检查
-.venv/Scripts/python.exe -m py_compile app.py
+# Syntax check (no pytest/unittest available)
+.venv\Scripts\python.exe -m py_compile <file.py>
 ```
 
-## Architecture
+## Architecture Overview
 
-项目统一入口 `app.py`，通过 `--infer` / `--train` 参数选择模式。GUI 模块在 `app/infer/` 和 `app/train/` 下。
+### Real-time Voice Conversion Pipeline
 
-共享核心模块在 `rvc/` 目录下。
+**Flow**: Microphone → Audio I/O → HuBERT → FAISS → Synthesizer → Audio Effects → Speaker
 
-### 推理流程
+1. **Audio I/O Layer** (`rvc/audio_io.py` - `RealtimeEngine`)
+   - Manages sounddevice streams, buffers, SOLA crossfade
+   - Critical: `self.sr` determines all frame calculations (block, crossfade, gate, reverb)
+   - Two sampling rate modes: `sr_model` (model's native rate) or `sr_dev` (device rate)
+   - SOLA algorithm handles pitch-shift without glitches at block boundaries
 
-用户选择模型 → 点击"开始" → `LoadThread` 加载模型 → `RealtimeEngine.setup()` 打开音频流 → `sounddevice` 回调 `_cb()` → `VCPipeline.infer()` → SOLA 交叉淡化 → 扬声器输出
+2. **VC Pipeline** (`rvc/vc_pipeline.py` - `VCPipeline`)
+   - Loads HuBERT (cached globally), Synthesizer (per-model), F0 extractor (FCPE/RMVPE)
+   - `infer()` method processes one audio block with overlap for context
+   - **Protect mechanism**: blends unvoiced consonants back from original features to prevent distortion
+   - FAISS index (optional): k=8 weighted blending for speaker similarity matching
 
-### 训练流程
+3. **Model Precision** (critical for stability)
+   - Models can be half or float precision
+   - After any tensor operation (protect_blend, FAISS blend), **must restore dtype**:
+     ```python
+     if self.is_half:
+         feats = feats.half()
+     ```
+   - `cache_pitch` must be `.long()`, `cache_pitchf` must match model precision
 
-用户选择音频目录 → 预处理（切片/归一化/重采样）→ 提取 F0（RMVPE）→ 提取 HuBERT 特征（768维）→ GAN 训练（Generator + Discriminator）→ 导出推理 `.pth` 模型
+### Offline Inference
 
-GUI 支持分步执行（预处理 / 提取F0 / 提取特征 / 训练）和一键全流程。配置自动保存到 `configs/inuse/train_config.json`。
+**Flow**: Audio File → Preprocessing → VC Pipeline → Post-processing → Output File
 
-### 目录结构
+- `rvc/offline_worker.py` (`OfflineWorker`) runs in background thread
+- Reuses `VCPipeline.infer()` but without SOLA (processes full audio at once)
+- Progress reported via signals
 
+### Audio Effects (声学效果)
+
+Located in `rvc/audio_io.py` callback, applied **after** VC inference:
+
+- **5-band EQ**: Uses **FFT-based** frequency domain processing (not IIR biquad filters)
+  - Why: IIR filters have state, causing discontinuities at block boundaries → periodic "beeping" artifacts
+  - Implementation: `torch.fft.rfft` → apply Gaussian band gains → `torch.fft.irfft`
+- **Reverb**: Simple multi-tap delay with decay
+- **RMS Mix**: Envelope-based loudness matching
+- **TorchGate**: Noise gate for input/output
+
+### GUI Architecture
+
+- **Entry**: `app.py` dispatches to `gui/infer/window.py` or `gui/train/window.py`
+- **Controller**: `gui/infer/controller.py` manages inference coordination (model config, runtime params, engine lifecycle)
+- **Threading**:
+  - Model loading: `LoadThread` (avoids blocking UI)
+  - Training: `ToolThread` for each pipeline stage
+  - Offline inference: `OfflineWorker`
+- **Model Management**: `widgets.py` contains `ModelCard` (expandable card with sliders) and `ModelListData` (JSON persistence via `configs/state/models.json`)
+
+### Training Pipeline
+
+Located in `rvc/train/`:
+
+1. **Preprocess** (`preprocess.py`): Slice audio → remove silence → normalize → resample
+2. **Extract F0** (`extract_f0.py`): RMVPE pitch extraction
+3. **Extract Features** (`extract_feature.py`): HuBERT 768-dim embeddings
+4. **Train** (`trainer.py`): GAN training loop (Generator + Discriminator)
+
+Checkpoints saved to `logs/<experiment>/`, exportable to `assets/weights/<name>.pth`.
+
+## Critical Implementation Details
+
+### Sampling Rate (`sr_type`) Bug Pattern
+
+When adding new audio processing, always use `self.sr` (not hardcoded):
+
+```python
+# ❌ Wrong
+self.block_frame = int(0.25 * 48000)  # breaks when sr != 48k
+
+# ✅ Correct
+self.block_frame = int(0.25 * self.sr)
 ```
-app.py                    # 统一入口 (--infer / --train)
-app/
-  infer/
-    window.py             # MainWindow — 推理主窗口
-    widgets.py            # ModelCard, ModelListData, LoadThread
-    tabs/
-      settings_tab.py     # 音频设备 + 引擎参数
-      models_tab.py       # 模型列表管理
-      audio_tab.py        # 降噪 + 音效
-      offline_tab.py      # 离线推理
-  train/
-    window.py             # TrainWindow — 训练主窗口
-    widgets.py            # ToolThread, browse helpers
-    tabs/
-      settings_tab.py     # 数据设置 + 训练参数
-      train_tab.py        # 训练步骤 + 进度 + 日志
-      tools_tab.py        # 模型合并/查看
-rvc/
-  audio_io.py             # RealtimeEngine — sounddevice 流 + 音频回调 + 效果链
-  vc_pipeline.py          # VCPipeline — HuBERT + 合成器 + FAISS + F0
-  audio_loader.py         # 统一音频加载（librosa + ffmpeg fallback）
-  offline_worker.py       # OfflineWorker — 离线推理
-  hubert.py               # HuBERT 模型加载（带缓存）
-  rmvpe.py                # RMVPE F0 提取器
-  params.py               # 全局运行时参数单例
-  denoise/                # TorchGate 降噪
-  nn/                     # 注意力/通用模块/判别器
-  synthesizer/            # 合成器模型
-    encoder.py            # TextEncoder + PosteriorEncoder
-    decoder.py            # Generator + GeneratorNSF + SineGen
-    flow.py               # ResidualCouplingBlock
-    model.py              # SynthesizerTrnMsNSFsid + _nono 变体
-  train/                  # 训练管线
-    trainer.py            # GAN 训练循环
-    preprocess.py         # 音频预处理（Slicer + 归一化）
-    extract_f0.py         # F0 提取
-    extract_feature.py    # HuBERT 特征提取
-    data_utils.py         # Dataset + BucketSampler
-    ckpt_utils.py         # checkpoint 保存/恢复/导出/合并/查看
-    losses.py             # GAN 损失函数
-    mel_processing.py     # STFT / mel 频谱
+
+### Protect (辅音保护) Mechanism
+
+- Range: 0.0 (full conversion) to 1.0 (preserve original consonants)
+- Implementation: `protect_blend()` uses `pitchf` as mask (pitchf < 1 = unvoiced)
+- User preference in this codebase: **protect = 0.9** (high preservation, index_rate = 0)
+
+### EQ Implementation Constraint
+
+**Never use IIR filters in real-time callback**. They cause block-boundary artifacts because state is not preserved between calls. Always use FFT-based processing:
+
+```python
+# ❌ Wrong - causes periodic beeping
+infer = TAF.equalizer_biquad(infer.unsqueeze(0), sr, 1000.0, 1.0, gain).squeeze(0)
+
+# ✅ Correct - stateless frequency domain
+spec = torch.fft.rfft(infer)
+# ... apply gain curve ...
+infer = torch.fft.irfft(spec, n=infer.shape[0])
 ```
 
-### 核心组件
+### Thread Safety for Model Loading
 
-- **`RealtimeEngine`** (`rvc/audio_io.py`) — 管理 `sounddevice.Stream`、缓冲区、重采样器、SOLA。`_cb()` 是音频回调（实时线程），读取全局 `p` Params 对象获取参数。
-- **`VCPipeline`** (`rvc/vc_pipeline.py`) — 推理管线。加载 HuBERT + 合成器 + 可选 FAISS 索引。`infer()` 接收 16kHz 滚动缓冲区，返回模型采样率音频。
-- **`audio_loader`** (`rvc/audio_loader.py`) — 统一音频加载，支持任意格式，自动 fallback 到 ffmpeg。
-- **`ModelCard`** (`app/infer/widgets.py`) — 可折叠的模型配置卡片。`load_requested` 信号通知 MainWindow 选中模型。
-- **`ModelListData`** (`app/infer/widgets.py`) — `configs/models.json` 的读写。
-- **`Params`** — 全局运行时参数单例（`p = Params()`），回调线程读、主线程写（依赖 GIL 保证原子性）。
+When switching models rapidly:
+1. **Terminate** old `LoadThread` before starting new one
+2. Stop button must also cancel loading (not just stop engine)
 
-### 判别器
+```python
+if self._loading and self._lt and self._lt.isRunning():
+    self._lt.terminate()
+    self._lt.wait()
+```
 
-`rvc/nn/discriminator.py` 中的 `MultiPeriodDiscriminatorV2`（periods `[2,3,5,7,11,17,23,37]`），仅训练时使用，不导出。
+### Config Persistence
 
-### 合成器 (`rvc/synthesizer/`)
+- **State files**: `configs/state/*.json` (GUI state, models list, training state)
+  - `gui.json` - Inference GUI state (devices, sliders, sr_mode)
+  - `models.json` - Model list and per-model settings
+  - `train.json` - Training GUI state (exp_name, paths, hyperparams)
+- **Train configs**: `configs/train/{32k,48k}.json` (model architecture configs)
+- **API**: Use `load_state_json(name, default)` and `save_state_json(name, data)` from `configs/config.py`
+- **Legacy migration**: Old `configs/inuse/*.json` files automatically migrated to `configs/state/` on first access
+- Missing keys use default values (backward compatible)
 
-- `encoder.py` — `TextEncoder`（文本/特征编码）+ `PosteriorEncoder`（频谱后验编码）
-- `decoder.py` — `Generator` + `GeneratorNSF`（声码器）+ `SineGen` + `SourceModuleHnNSF`
-- `flow.py` — `ResidualCouplingBlock`（可逆耦合流）
-- `model.py` — `_SynthesizerTrnMsBase` / `SynthesizerTrnMsNSFsid`（F0）+ `_nono` 变体
+## Common Pitfalls
 
-### 模型缓存
+1. **dtype mismatch**: Always check `is_half` and cast tensors before passing to model
+2. **Hardcoded 48000**: Use `self.sr` / `self.vc_engine.tgt_sr` instead
+3. **Blocking UI**: Long operations must run in `QThread` (see `LoadThread`, `OfflineWorker`)
+4. **副输出 (secondary output)**: Must use callback mode, not `stream.write()` (MME driver issue)
+5. **SOLA buffer**: Don't modify `sola_buffer` dtype/shape during inference
+6. **Global state**: Use dependency injection - pass `runtime_params` and `inference_cache` explicitly instead of importing module-level globals
 
-模块级缓存，跨实例复用：
-- `rvc/hubert.py` → `_hubert_cache` — HuBERT 模型（设备级缓存）
-- `rvc/vc_pipeline.py` → `_rmvpe_cache` / `_fcpe_cache` — F0 提取器（设备级缓存）
+## Architecture Patterns
 
-合成器不缓存（每个 .pth 文件权重不同，每次重新加载）。
+- **Dependency injection**: `RealtimeEngine` and `VCPipeline` accept `runtime_params` and `inference_cache` in constructors
+- **Controller pattern**: `gui/infer/controller.py` separates coordination logic from UI (see `InferController`)
+- **Explicit caching**: ML models cached in `rvc/inference_cache.py` (`InferenceCache` class) with thread-safe operations
+- **Dataclass configs**: Use `ModelConfig`, `RuntimeConfig`, `EngineConfig` for typed parameter groups
 
-### 预训练权重 (`assets/pretrained_v2/`)
+## User Preferences (from conversation)
 
-- `f0G48k.pth` / `f0D48k.pth` — 48k 带 F0 的 Generator/Discriminator 预训练权重
-- `f0G32k.pth` / `f0D32k.pth` — 32k 带 F0 版本
-- `G*.pth` / `D*.pth` — 无 F0 版本（本项目不用）
-- 训练时通过"预训练 G/D"路径加载，加速收敛
+- Index rate: **0** (never uses FAISS index)
+- Protect: **0.9** (preserves 90% of original consonants for clarity)
+- Dialect: 四川话 (z/zh, c/ch, s/sh merged), so high protect prevents over-correction
+- EQ: Rarely used, prefers original sound
 
-### 配置持久化
+## Dependencies
 
-- `configs/inuse/gui_config.json` — 推理 GUI 配置（设备、引擎参数、EQ、选中的模型路径）
-- `configs/inuse/train_config.json` — 训练 GUI 配置（实验名、音频目录、采样率、训练参数）
-- `configs/models.json` — 推理模型列表（name/pth/idx/pitch/index_rate/rms_mix/gender）
-- `configs/v2/48k.json` / `configs/v2/32k.json` — 训练超参数（模型结构、学习率、batch size 等）
+- **torchfcpe**: F0 extractor, logs [INFO]/[WARN] suppressed in `app.py`
+- **sounddevice**: Audio I/O, requires matching HostAPI for input/output devices
+- **faiss-cpu**: Optional, for FAISS index search (k-NN speaker matching)
+- **librosa**: Primary audio loader, ffmpeg fallback in `audio_loader.py`
 
-### 关键模式
+## File Conventions
 
-- **滚动缓冲区**: 音频以 ~250ms 块流入，维护 2.5s 上下文窗口。HuBERT 在整个缓冲区上运行，但只解码最新块。
-- **SOLA 交叉淡化**: 使用互相关找到最佳拼接点，正弦平方窗口淡入淡出。
-- **F0 方法**: `fcpe`（快速）和 `rmvpe`（精确），全局选择，不绑定单个模型。
-- **索引**: `index_rate > 0` 时才加载 FAISS 索引（惰性加载）。
-- **声学效果**: EQ (低/中/高频 biquad) + tanh 饱和 + 动态压限 + 4-tap 延迟混响。5 个内置预设。
-- **训练 checkpoint**: `G_*.pth` / `D_*.pth` 保存在 `logs/<exp>/`，支持中断恢复
-- **模型导出**: 从 Generator checkpoint 移除 `enc_q.*` 权重，转 half，打包为推理 `.pth`
-- **日志**: 统一中文格式，每个组件一行（`加载 HuBERT` / `加载 Synthesizer` / `加载完成`）。
-
-## Environment
-
-- **Python**: 3.13+
-- **GPU**: NVIDIA only (CUDA required). Target: RTX 5060
-- **fairseq-fixed**: 社区修复版 fairseq，用于加载 HuBERT 模型
-- **OS**: Windows 11
+- Model files: `.pth` (PyTorch checkpoint with `weight`, `config`, `info`, `sr`, `f0`, `version`)
+- Index files: `.index` (FAISS index, optional)
+- Logs use `logging` module, configured in `app.py`

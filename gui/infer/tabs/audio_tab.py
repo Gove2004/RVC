@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from rvc.audio_utils import PRESETS
-from app.infer.widgets import _sl
-from app.infer.tabs.settings_tab import sep
+from gui.infer.widgets import _sl
+from gui.infer.tabs.settings_tab import sep
 
 
 def build_audio_tab(win):

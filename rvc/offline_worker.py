@@ -1,6 +1,5 @@
 """离线推理 — 音频文件转换单次推理"""
 import logging
-import os
 import traceback
 
 import librosa
@@ -37,7 +36,7 @@ class OfflineWorker(QThread):
         except Exception:
             tb = traceback.format_exc()
             logger.error("离线推理失败:\n%s", tb)
-            self.error.emit(tb.strip().splitlines()[-1])
+            self.error.emit(tb.strip())
 
     def _do_run(self):
         import soundfile as sf
@@ -71,78 +70,9 @@ class OfflineWorker(QThread):
 
         # Pad 音频（反射填充）
         audio_pad = np.pad(wav, (t_pad, t_pad), mode="reflect")
-        p_len = audio_pad.shape[0] // 160  # 帧数
-
-        # F0 提取
-        pitch_coarse, pitchf = None, None
-        if vc.if_f0 == 1:
-            pitch_coarse, pitchf = vc._get_f0(
-                torch.from_numpy(audio_pad).float(), self.pitch, self.f0method
-            )
-            pitch_coarse = pitch_coarse[:p_len].unsqueeze(0).contiguous()
-            pitchf = pitchf[:p_len].unsqueeze(0).contiguous()
         self.progress.emit(40, 100)
 
-        # HuBERT 特征提取
-        feats = torch.from_numpy(audio_pad).float()
-        if vc.is_half:
-            feats = feats.half()
-        feats = feats.view(1, -1).to(config.device)
-        padding_mask = torch.zeros(feats.shape, dtype=torch.bool, device=config.device)
-        with torch.no_grad():
-            logits = vc.model.extract_features(
-                source=feats, padding_mask=padding_mask, output_layer=12
-            )
-            feats = logits[0]
-        feats = torch.cat((feats, feats[:, -1:, :]), 1)
-        self.progress.emit(55, 100)
-
-        # 保护：克隆原始特征（在 FAISS 混合前）
-        feats0 = None
-        if vc.if_f0 == 1 and self.protect > 0:
-            feats0 = feats.clone()
-
-        # FAISS 索引匹配
-        if vc.index is not None and vc.index_rate > 0:
-            try:
-                from rvc.vc_pipeline import faiss_blend
-                npy = feats[0].cpu().numpy().astype("float32")
-                blended = faiss_blend(npy, vc.index, vc.big_npy, vc.index_rate, vc.is_half)
-                feats = torch.from_numpy(blended).unsqueeze(0).to(config.device)
-            except Exception:
-                logger.debug("索引匹配失败: %s", traceback.format_exc())
-        self.progress.emit(65, 100)
-
-        # 上采样特征
-        feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-        feats = feats[:, :p_len, :]
-
-        # 保护：上采样原始特征并混合
-        if feats0 is not None:
-            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-            feats0 = feats0[:, :p_len, :]
-            from rvc.vc_pipeline import protect_blend
-            feats = protect_blend(feats, feats0, pitchf, self.protect)
-            # 保护混合后，确保 feats 保持模型精度
-            if vc.is_half:
-                feats = feats.half()
-
-        # 合成器推理（不传 skip_head / return_length）
-        p_len_t = torch.LongTensor([p_len]).to(config.device)
-        sid = torch.LongTensor([0]).to(config.device)
-        with torch.no_grad():
-            if vc.if_f0 == 1:
-                # 确保 pitch 类型正确
-                if vc.is_half:
-                    pitch_coarse = pitch_coarse.long()
-                    pitchf = pitchf.half()
-                else:
-                    pitch_coarse = pitch_coarse.long()
-                    pitchf = pitchf.float()
-                result = vc.net_g.infer(feats, p_len_t, pitch_coarse, pitchf, sid)
-            else:
-                result = vc.net_g.infer(feats, p_len_t, sid)
-        audio1 = result[0][0, 0].data.cpu().float().numpy()
+        audio1 = vc.infer_offline(audio_pad, self.f0method, self.protect)
         self.progress.emit(85, 100)
 
         # Trim padding

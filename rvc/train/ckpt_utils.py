@@ -7,6 +7,8 @@ from pathlib import Path
 
 import torch
 
+from configs.config import runtime_train_config_path
+
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -49,8 +51,7 @@ def latest_checkpoint_path(dir_path: str, prefix: str):
 
 
 def load_train_json(sr: int):
-    sr_name = "48k" if sr == 48000 else "32k"
-    path = Path("configs") / "v2" / f"{sr_name}.json"
+    path = runtime_train_config_path(sr)
     return json.loads(path.read_text(encoding="utf-8"))
 
 

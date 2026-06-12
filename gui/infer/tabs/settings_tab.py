@@ -4,8 +4,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QHBoxLayout, QPushButton, QFrame,
 )
 from PySide6.QtCore import Qt
-from rvc.params import p
-from app.infer.widgets import _sl
+from gui.infer.widgets import _sl
 
 
 def sep():
@@ -19,7 +18,6 @@ def build_settings_tab(win):
     g.setColumnStretch(1, 1)
     r = 0
 
-    # 设备
     g.addWidget(QLabel("音频驱动"), r, 0)
     win.ha_combo = QComboBox(); win.ha_combo.currentTextChanged.connect(win._ha_changed)
     g.addWidget(win.ha_combo, r, 1, 1, 2); r+=1
@@ -40,15 +38,13 @@ def build_settings_tab(win):
     sr.addSpacing(12); sr.addWidget(win.sr_r2); sr.addWidget(win.sr_r2_lbl); sr.addStretch()
     g.addLayout(sr, r, 0, 1, 3); r+=1
 
-    # 分隔
     g.addWidget(sep(), r, 0, 1, 3); r+=1
 
-    # 引擎参数
     def add_sl(label, sl, lbl, row):
         g.addWidget(QLabel(label), row, 0); g.addWidget(sl, row, 1); g.addWidget(lbl, row, 2)
 
     win.th_sl = _sl(-60,0,1,-60); win.th_lbl = QLabel("-60"); win.th_lbl.setMinimumWidth(35)
-    win.th_sl.valueChanged.connect(lambda v: (win.th_lbl.setText(str(v)), setattr(p,'threshold',v)))
+    win.th_sl.valueChanged.connect(lambda v: win.th_lbl.setText(str(v)))
     add_sl("响应阈值", win.th_sl, win.th_lbl, r); r+=1
     win.bl_sl = _sl(2,150,1,25); win.bl_lbl = QLabel("0.25"); win.bl_lbl.setMinimumWidth(35)
     win.bl_sl.valueChanged.connect(lambda v: win.bl_lbl.setText(f"{v/100:.2f}"))

@@ -1,16 +1,14 @@
 """训练 GUI 主窗口"""
-import json
-from pathlib import Path
-
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget
 
+from configs.config import load_state_json, save_state_json, state_path
 from rvc.train.train_worker import TrainWorker
-from app.train.widgets import ToolThread
-from app.train.tabs.settings_tab import build_settings_tab
-from app.train.tabs.train_tab import build_train_tab
-from app.train.tabs.tools_tab import build_tools_tab
+from gui.train.widgets import ToolThread
+from gui.train.tabs.settings_tab import build_settings_tab
+from gui.train.tabs.train_tab import build_train_tab
+from gui.train.tabs.tools_tab import build_tools_tab
 
-TRAIN_CONFIG_PATH = Path("configs/inuse/train_config.json")
+TRAIN_STATE_KEY = "train"
 
 
 class TrainWindow(QMainWindow):
@@ -72,6 +70,8 @@ class TrainWindow(QMainWindow):
         if self.worker:
             self.worker.request_stop()
             self.stop_btn.setEnabled(False)
+            self.stop_btn.setText("停止中...")
+            self.stage_label.setText("当前阶段: 正在请求停止")
 
     def _collect_options(self):
         exp_name = self.exp_name.text().strip()
@@ -101,6 +101,7 @@ class TrainWindow(QMainWindow):
             btn.setEnabled(not running)
             btn.setStyleSheet("QPushButton{color:#6c757d}" if running else "")
         self.stop_btn.setEnabled(running)
+        self.stop_btn.setText("停止训练" if running else "停止训练")
         self.stop_btn.setStyleSheet(
             "QPushButton{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:3px}QPushButton:hover{background:#c82333}"
             if running else ""
@@ -112,7 +113,6 @@ class TrainWindow(QMainWindow):
     # ── 配置持久化 ──────────────────────────────────────────
 
     def _save_cfg(self):
-        TRAIN_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         cfg = {
             "exp_name": self.exp_name.text().strip(),
             "input_dir": self.input_dir.text().strip(),
@@ -124,15 +124,10 @@ class TrainWindow(QMainWindow):
             "pretrain_g": self.pretrain_g.text().strip(),
             "pretrain_d": self.pretrain_d.text().strip(),
         }
-        TRAIN_CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        save_state_json(TRAIN_STATE_KEY, cfg)
 
     def _load_cfg(self):
-        if not TRAIN_CONFIG_PATH.exists():
-            return
-        try:
-            cfg = json.loads(TRAIN_CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            return
+        cfg = load_state_json(TRAIN_STATE_KEY, {})
         if cfg.get("exp_name"):
             self.exp_name.setText(cfg["exp_name"])
         if cfg.get("input_dir"):
@@ -181,6 +176,7 @@ class TrainWindow(QMainWindow):
 
     def on_finished(self, success: bool, message: str):
         self._set_running(False)
+        self.stop_btn.setText("停止训练")
         self.on_log(message)
         if success:
             self.stage_label.setStyleSheet("color:#28a745;font-weight:bold")

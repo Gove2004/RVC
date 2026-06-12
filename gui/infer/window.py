@@ -10,33 +10,36 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer
 
-from rvc.params import p
+from rvc.params import Params
 from rvc.audio_utils import get_audio_devices, PRESETS
-from rvc.audio_io import RealtimeEngine
 from rvc.offline_worker import OfflineWorker
-from app.infer.widgets import ModelCard, ModelListData, LoadThread
-from app.infer.tabs.settings_tab import build_settings_tab
-from app.infer.tabs.models_tab import build_models_tab
-from app.infer.tabs.audio_tab import build_audio_tab
-from app.infer.tabs.offline_tab import build_offline_tab
+from configs.config import load_state_json, save_state_json
+from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
+from gui.infer.widgets import ModelCard, ModelListData, LoadThread
+from gui.infer.tabs.settings_tab import build_settings_tab
+from gui.infer.tabs.models_tab import build_models_tab
+from gui.infer.tabs.audio_tab import build_audio_tab
+from gui.infer.tabs.offline_tab import build_offline_tab
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = "configs/inuse/gui_config.json"
-
-engine = RealtimeEngine()
+CONFIG_KEY = "gui"
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
+        self.controller = InferController()
+        self.runtime_params = self.controller.runtime_params
+        self.engine = self.controller.engine
         self._active_card = None
         self._loading = False
         self._off_worker = None
         self._timer = QTimer()
-        self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(engine.infer_ms)}"))
+        self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(self.engine.infer_ms)}"))
         self._build_ui()
+        self.engine.signals.runtime_error.connect(self._on_runtime_error)
         self._load_cfg()
 
     def _build_ui(self):
@@ -139,13 +142,7 @@ class MainWindow(QMainWindow):
                            m.get("pitch", 0),
                            m.get("index_rate", 0), m.get("rms_mix", 0),
                            int(m.get("gender", 0.5) * 100), int(m.get("protect", 0.5) * 100))
-        d = {}
-        if os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    d = json.load(f)
-            except Exception:
-                pass
+        d = load_state_json(CONFIG_KEY, {})
         self._reload_dev()
         ha = d.get("ha", "")
         if ha:
@@ -195,7 +192,6 @@ class MainWindow(QMainWindow):
                     break
 
     def _save_cfg(self):
-        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         self._save_models()
         d = {
             "version": 2, "th": self.th_sl.value(), "bl": self.bl_sl.value() / 100,
@@ -216,8 +212,7 @@ class MainWindow(QMainWindow):
             "selected": self._active_card.pth_edit.text().strip() if self._active_card else "",
         }
         try:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump(d, f, indent=2, ensure_ascii=False)
+            save_state_json(CONFIG_KEY, d)
         except Exception:
             logger.warning("保存配置失败", exc_info=True)
 
@@ -245,6 +240,78 @@ class MainWindow(QMainWindow):
 
     # ── 启动/停止 ──
 
+    def _apply_model_params(self):
+        self.controller.apply_model_config(
+            ModelConfig(
+                pitch=self._active_card.pit_sl.value(),
+                index_rate=self._active_card.ir_sl.value() / 100,
+                rms_mix=self._active_card.rms_sl.value() / 100,
+                gender=(self._active_card.gen_sl.value() / 100 - 0.5) * 4,
+                protect=self._active_card.protect_sl.value() / 100,
+                f0method=self.f0_combo.currentText(),
+            )
+        )
+
+    def _apply_runtime_params(self):
+        self.controller.apply_runtime_config(
+            RuntimeConfig(
+                threshold=self.th_sl.value(),
+                inr=self.inr.isChecked(),
+                ounr=self.ounr.isChecked(),
+                eq_en=self.eq_en.isChecked(),
+                eq_sub=self.eq_sub.value() / 100,
+                eq_low=self.eq_lo.value() / 100,
+                eq_mid=self.eq_mi.value() / 100,
+                eq_hi_mid=self.eq_hi_mid.value() / 100,
+                eq_high=self.eq_hi.value() / 100,
+                reverb=self.rev_sl.value() / 100,
+                out2_enabled=self.out2_combo.currentIndex() > 0,
+            )
+        )
+
+    def _set_start_button(self, text, enabled, style):
+        self.btn_start.setEnabled(enabled)
+        self.btn_start.setText(text)
+        self.btn_start.setStyleSheet(style)
+
+    def _set_stop_button(self, enabled, style):
+        self.btn_stop.setEnabled(enabled)
+        self.btn_stop.setStyleSheet(style)
+
+    def _reset_runtime_ui(self):
+        self._timer.stop()
+        self._set_start_button(
+            "开始",
+            True,
+            "QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}",
+        )
+        self._set_stop_button(
+            False,
+            "QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}",
+        )
+        self.delay_lbl.setText("延迟: -")
+        self.stat_lbl.setText("推理: -")
+
+    def _mark_loading(self):
+        if self._active_card:
+            self._active_card.set_loading(True)
+        self._set_start_button(
+            "加载中...",
+            False,
+            "QPushButton{background:#3b82f6;color:white;border:none;padding:4px 8px;border-radius:3px}",
+        )
+
+    def _mark_running(self):
+        self._set_start_button(
+            "运行中",
+            False,
+            "QPushButton{background:#28a745;color:white;border:none;padding:4px 8px;border-radius:3px}",
+        )
+        self._set_stop_button(
+            True,
+            "QPushButton{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:3px}QPushButton:hover{background:#c82333}",
+        )
+
     def _start(self):
         if not self._active_card:
             QMessageBox.warning(self, "提示", "请先在模型列表中选择一个模型")
@@ -255,16 +322,10 @@ class MainWindow(QMainWindow):
             return
         idx = self._active_card.idx_edit.text().strip()
         ir = self._active_card.ir_sl.value() / 100
-        p.pitch = self._active_card.pit_sl.value()
-        p.index_rate = ir
-        p.rms_mix = self._active_card.rms_sl.value() / 100
-        p.gender = (self._active_card.gen_sl.value() / 100 - 0.5) * 4
-        p.protect = self._active_card.protect_sl.value() / 100
-        p.f0method = self.f0_combo.currentText()
+        self._apply_model_params()
         self._start_engine(pth, idx, ir)
 
     def _start_engine(self, pth, idx, idx_rate):
-        # 如果正在加载，取消旧的加载任务
         if self._loading:
             if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
                 self._lt.terminate()
@@ -272,12 +333,8 @@ class MainWindow(QMainWindow):
             self._loading = False
 
         self._loading = True
-        if self._active_card:
-            self._active_card.set_loading(True)
-        self.btn_start.setEnabled(False)
-        self.btn_start.setText("加载中...")
-        self.btn_start.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:4px 8px;border-radius:3px}")
-        self._lt = LoadThread(engine, pth, idx, idx_rate)
+        self._mark_loading()
+        self._lt = LoadThread(self.engine, pth, idx, idx_rate)
         self._lt.ok.connect(self._on_loaded)
         self._lt.err.connect(self._on_err)
         self._lt.finished.connect(self._on_load_done)
@@ -293,45 +350,22 @@ class MainWindow(QMainWindow):
         if self._active_card:
             self._active_card.set_active(True)
         try:
-            _, _, _, in_idx, out_idx = get_audio_devices(self.ha_combo.currentText())
-            p.threshold = self.th_sl.value()
-            p.I_nr = self.inr.isChecked()
-            p.O_nr = self.ounr.isChecked()
-            p.use_pv = False
-            p.enable_eq = self.eq_en.isChecked()
-            p.eq_sub = self.eq_sub.value() / 100
-            p.eq_low = self.eq_lo.value() / 100
-            p.eq_mid = self.eq_mi.value() / 100
-            p.eq_hi_mid = self.eq_hi_mid.value() / 100
-            p.eq_high = self.eq_hi.value() / 100
-            p.reverb = self.rev_sl.value() / 100
-            p.bgm_enable = False
-            p.enable_out2 = self.out2_combo.currentIndex() > 0
-            sr_type = "sr_model" if self.sr_r1.isChecked() else "sr_device"
-            engine.setup(
-                sr_type,
-                in_idx[self.in_combo.currentIndex()],
-                out_idx[self.out_combo.currentIndex()],
-                self.bl_sl.value() / 100,
-                self.cf_sl.value() / 100,
-                self.ex_sl.value() / 100,
-                p,
+            stats = self.controller.setup_engine(
+                EngineConfig(
+                    hostapi_name=self.ha_combo.currentText(),
+                    input_device_pos=self.in_combo.currentIndex(),
+                    output_device_pos=self.out_combo.currentIndex(),
+                    output2_device_pos=self.out2_combo.currentIndex() - 1,
+                    sr_mode="model" if self.sr_r1.isChecked() else "device",
+                    block_time=self.bl_sl.value() / 100,
+                    crossfade_time=self.cf_sl.value() / 100,
+                    extra_time=self.ex_sl.value() / 100,
+                )
             )
-            engine.bgm_audio = None
-            engine.bgm_ptr = 0
-            if p.enable_out2:
-                engine.setup_out2(out_idx[self.out2_combo.currentIndex() - 1])
-            self.sr_r1_lbl.setText(f"模型采样率: {engine.sr_model}")
-            self.sr_r2_lbl.setText(f"设备采样率: {engine.sr_dev}")
-            dl = (engine.stream.latency[-1] if engine.stream else 0) + self.bl_sl.value() / 100 + self.cf_sl.value() / 100 + 0.01
-            if p.I_nr:
-                dl += min(self.cf_sl.value() / 100, 0.04)
-            self.delay_lbl.setText(f"延迟: {int(dl * 1000)}")
-            self.btn_start.setEnabled(False)
-            self.btn_start.setText("运行中")
-            self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;border:none;padding:4px 8px;border-radius:3px}")
-            self.btn_stop.setEnabled(True)
-            self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:3px}QPushButton:hover{background:#c82333}")
+            self.sr_r1_lbl.setText(f"模型采样率: {stats.sr_model}")
+            self.sr_r2_lbl.setText(f"设备采样率: {stats.sr_dev}")
+            self.delay_lbl.setText(f"延迟: {stats.delay_ms}")
+            self._mark_running()
             self._timer.start(200)
             self._save_cfg()
         except Exception as e:
@@ -341,40 +375,32 @@ class MainWindow(QMainWindow):
         if self._active_card:
             self._active_card.set_active(False)
         self._active_card = None
-        self.btn_start.setEnabled(True)
-        self.btn_start.setText("开始")
-        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
-        self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
+        self._reset_runtime_ui()
         QMessageBox.critical(self, "错误", str(e))
 
+    def _on_runtime_error(self, message):
+        if self.engine.running:
+            self.engine.stop()
+        else:
+            self.engine.runtime_error_pending = False
+        self._reset_runtime_ui()
+        QMessageBox.critical(self, "实时推理错误", str(message))
+
     def _stop(self):
-        # 如果正在加载，取消加载线程
         if self._loading:
             if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
                 self._lt.terminate()
                 self._lt.wait()
             self._loading = False
-            self.btn_start.setEnabled(True)
-            self.btn_start.setText("开始")
-            self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
-            self.btn_stop.setEnabled(False)
-            self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
+            self._reset_runtime_ui()
             if self._active_card:
                 self._active_card.set_active(False)
             return
 
-        if not engine.running:
+        if not self.engine.running:
             return
-        self._timer.stop()
-        engine.stop()
-        self.btn_start.setEnabled(True)
-        self.btn_start.setText("开始")
-        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
-        self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
-        self.delay_lbl.setText("延迟: -")
-        self.stat_lbl.setText("推理: -")
+        self.engine.stop()
+        self._reset_runtime_ui()
         logger.info("停止")
 
     # ── 离线推理 ──
@@ -412,7 +438,7 @@ class MainWindow(QMainWindow):
         if not pth:
             QMessageBox.warning(self, "提示", "模型路径为空")
             return
-        if engine.running:
+        if self.engine.running:
             QMessageBox.warning(self, "提示", "请先停止实时变声")
             return
 
@@ -452,7 +478,7 @@ class MainWindow(QMainWindow):
         if self._off_worker:
             self._off_worker.wait()
             self._off_worker = None
-        QMessageBox.critical(self, "离线推理错误", msg)
+        QMessageBox.critical(self, "离线推理错误", str(msg).strip().splitlines()[-1])
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -466,5 +492,5 @@ class MainWindow(QMainWindow):
             self._save_cfg()
         except Exception:
             logger.warning("保存配置失败", exc_info=True)
-        engine.stop()
+        self.engine.stop()
         e.accept()

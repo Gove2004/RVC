@@ -1,17 +1,74 @@
 import json
-import os
 import shutil
 import sys
 import logging
+from pathlib import Path
 
 import torch
 
 logger = logging.getLogger(__name__)
 
-version_config_list = [
-    "v2/48k.json",
-    "v2/32k.json",
-]
+_CONFIG_ROOT = Path("configs")
+_TRAIN_CONFIG_DIR = _CONFIG_ROOT / "train"
+_STATE_DIR = _CONFIG_ROOT / "state"
+_LEGACY_TRAIN_DIRS = [_CONFIG_ROOT / "v2", _CONFIG_ROOT / "inuse" / "v2"]
+_LEGACY_STATE_FILES = {
+    "gui": _CONFIG_ROOT / "inuse" / "gui_config.json",
+    "train": _CONFIG_ROOT / "inuse" / "train_config.json",
+    "models": _CONFIG_ROOT / "models.json",
+}
+_STATE_FILES = {
+    "gui": "gui.json",
+    "train": "train.json",
+    "models": "models.json",
+}
+
+
+def train_config_path(sr: int | str) -> Path:
+    sr_name = sr if isinstance(sr, str) else ("48k" if sr == 48000 else "32k")
+    path = _TRAIN_CONFIG_DIR / f"{sr_name}.json"
+    if path.exists():
+        return path
+    for legacy_dir in _LEGACY_TRAIN_DIRS:
+        legacy = legacy_dir / f"{sr_name}.json"
+        if legacy.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(legacy, path)
+            return path
+    raise FileNotFoundError(f"找不到训练配置: {sr_name}.json")
+
+
+def state_path(name: str) -> Path:
+    if name not in _STATE_FILES:
+        raise KeyError(f"未知状态文件: {name}")
+    path = _STATE_DIR / _STATE_FILES[name]
+    if path.exists():
+        return path
+    legacy = _LEGACY_STATE_FILES.get(name)
+    if legacy and legacy.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(legacy, path)
+    return path
+
+
+def load_state_json(name: str, default=None):
+    path = state_path(name)
+    if not path.exists():
+        return {} if default is None else default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {} if default is None else default
+
+
+def save_state_json(name: str, data: dict):
+    path = state_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def runtime_train_config_path(sr: int | str) -> Path:
+    return train_config_path(sr)
 
 
 class Config:
@@ -33,15 +90,10 @@ class Config:
 
     @staticmethod
     def _load_config_json() -> dict:
-        d = {}
-        for config_file in version_config_list:
-            p = f"configs/inuse/{config_file}"
-            if not os.path.exists(p):
-                os.makedirs(os.path.dirname(p), exist_ok=True)
-                shutil.copy(f"configs/{config_file}", p)
-            with open(f"configs/inuse/{config_file}", "r") as f:
-                d[config_file] = json.load(f)
-        return d
+        return {
+            "train/48k.json": json.loads(train_config_path("48k").read_text(encoding="utf-8")),
+            "train/32k.json": json.loads(train_config_path("32k").read_text(encoding="utf-8")),
+        }
 
     def _device_config(self) -> tuple:
         if not torch.cuda.is_available():

@@ -1,5 +1,8 @@
+import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -13,6 +16,16 @@ from rvc.audio_loader import load_audio as _load_audio_lib
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _FFMPEG = _PROJECT_ROOT / "ffmpeg" / "ffmpeg.exe"
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
+_MANIFEST_NAME = "manifest.json"
+_RUNTIME_DIRS = [
+    "0_gt_wavs",
+    "1_16k_wavs",
+    "2a_f0",
+    "2b-f0nsf",
+    "3_feature768",
+    "filelist.txt",
+]
+_CHECKPOINT_GLOBS = ["G_*.pth", "D_*.pth"]
 
 
 class Slicer:
@@ -63,6 +76,7 @@ class PreProcessor:
         self.bh, self.ah = signal.butter(5, 48, btype="high", fs=sr)
 
     def run(self, progress_callback=None):
+        self._prepare_exp_dir()
         self.gt_dir.mkdir(parents=True, exist_ok=True)
         self.wav16k_dir.mkdir(parents=True, exist_ok=True)
         files = [p for p in self.input_dir.rglob("*") if p.suffix.lower() in _AUDIO_EXTS]
@@ -71,6 +85,18 @@ class PreProcessor:
             if progress_callback:
                 progress_callback(i, len(files))
         return len(files)
+
+    def _prepare_exp_dir(self):
+        self.exp_dir.mkdir(parents=True, exist_ok=True)
+        current = build_exp_manifest(self.input_dir, self.sr, self.per)
+        manifest_path = self.exp_dir / _MANIFEST_NAME
+        if manifest_path.exists():
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            previous_key = {k: previous.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
+            current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
+            if previous_key != current_key:
+                clear_exp_runtime(self.exp_dir)
+        manifest_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _process_file(self, path: Path, file_index: int):
         wav, _ = _load_audio_lib(path, self.sr)
@@ -111,6 +137,46 @@ def normalize_audio(wav: np.ndarray):
 def load_audio(path: str | Path, sr: int):
     """兼容旧接口，委托给 rvc.audio_loader。"""
     return _load_audio_lib(path, sr)
+
+
+def build_exp_manifest(input_dir: str | Path, sr: int, per: float):
+    root = Path(input_dir).resolve()
+    files = sorted(
+        f"{str(p.relative_to(root)).replace('\\', '/')}|{p.stat().st_size}|{int(p.stat().st_mtime)}"
+        for p in root.rglob("*")
+        if p.is_file() and p.suffix.lower() in _AUDIO_EXTS
+    )
+    digest = hashlib.sha1("\n".join(files).encode("utf-8")).hexdigest()
+    return {
+        "input_dir": str(root),
+        "input_hash": digest,
+        "sr": sr,
+        "per": per,
+    }
+
+
+def clear_exp_runtime(exp_dir: str | Path):
+    exp = Path(exp_dir)
+    for name in _RUNTIME_DIRS:
+        path = exp / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+    for pattern in _CHECKPOINT_GLOBS:
+        for path in exp.glob(pattern):
+            path.unlink()
+
+
+def manifest_matches(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float):
+    manifest_path = Path(exp_dir) / _MANIFEST_NAME
+    if not manifest_path.exists():
+        return False
+    saved = json.loads(manifest_path.read_text(encoding="utf-8"))
+    current = build_exp_manifest(input_dir, sr, per)
+    saved_key = {k: saved.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
+    current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
+    return saved_key == current_key
 
 
 def generate_filelist(exp_dir: str):

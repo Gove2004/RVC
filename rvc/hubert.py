@@ -1,15 +1,13 @@
 """HuBERT 模型加载 — 使用 fairseq 加载原始 HuBERT"""
 import os
 import logging
-import threading
 import warnings
 
 import torch
 
-logger = logging.getLogger(__name__)
+from rvc.inference_cache import default_inference_cache
 
-_hubert_cache = {}  # {device: model}
-_hubert_lock = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 class HubertWrapper:
@@ -35,7 +33,6 @@ class HubertWrapper:
         return self
 
     def extract_features(self, source, padding_mask=None, output_layer=12):
-        """与 pipeline 兼容的接口。返回 tuple，[0] 是隐状态。"""
         with torch.no_grad():
             inputs = {
                 "source": source,
@@ -46,32 +43,26 @@ class HubertWrapper:
         return (logits[0],)
 
 
-def load_hubert(config):
-    """使用 fairseq 加载 HuBERT 模型（带缓存）。"""
-    if config.device in _hubert_cache:
+def load_hubert(config, inference_cache=None):
+    inference_cache = inference_cache or default_inference_cache
+    cache_key = (config.device, config.is_half)
+    cached = inference_cache.get_hubert(cache_key)
+    if cached is not None:
         logger.info("加载 HuBERT（缓存）")
-        return _hubert_cache[config.device]
+        return cached
 
-    with _hubert_lock:
-        # double-check after acquiring lock
-        if config.device in _hubert_cache:
-            return _hubert_cache[config.device]
+    hubert_path = "assets/hubert/hubert_base.pt"
+    if not os.path.exists(hubert_path):
+        raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
 
-        hubert_path = "assets/hubert/hubert_base.pt"
+    logger.info("加载 HuBERT")
+    _original_load = torch.load
 
-        if not os.path.exists(hubert_path):
-            raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
+    def _patched_load(*args, **kwargs):
+        kwargs.setdefault('weights_only', False)
+        return _original_load(*args, **kwargs)
 
-        logger.info("加载 HuBERT")
-
-        # fairseq 的 torch.load 需要 weights_only=False, 同时抑制 fairseq 的详细日志
-        _original_load = torch.load
-        def _patched_load(*args, **kwargs):
-            kwargs.setdefault('weights_only', False)
-            return _original_load(*args, **kwargs)
-        torch.load = _patched_load
-
-    # 临时提高 fairseq 相关 logger 的级别, 避免刷屏
+    torch.load = _patched_load
     _quiet_loggers = ["fairseq.tasks.hubert_pretraining", "fairseq.models.hubert.hubert",
                       "fairseq.models.hubert", "fairseq"]
     _saved_levels = {}
@@ -84,9 +75,7 @@ def load_hubert(config):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*weight_norm.*deprecated.*")
             from fairseq import checkpoint_utils
-            models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
-                [hubert_path], suffix=""
-            )
+            models, _, _ = checkpoint_utils.load_model_ensemble_and_task([hubert_path], suffix="")
         hubert_model = models[0]
     finally:
         torch.load = _original_load
@@ -95,11 +84,8 @@ def load_hubert(config):
 
     hubert_model = HubertWrapper(hubert_model)
     hubert_model = hubert_model.to(config.device)
-    if config.is_half:
-        hubert_model = hubert_model.half()
-    else:
-        hubert_model = hubert_model.float()
+    hubert_model = hubert_model.half() if config.is_half else hubert_model.float()
     model = hubert_model.eval()
-    _hubert_cache[config.device] = model
+    inference_cache.set_hubert(cache_key, model)
     return model
 

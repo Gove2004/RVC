@@ -1,5 +1,4 @@
 """推理 GUI 通用组件 — 模型卡片、模型列表数据、加载线程"""
-import json
 import os
 
 from PySide6.QtWidgets import (
@@ -8,8 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal
 
-
-MODELS_PATH = "configs/models.json"
+from configs.config import load_state_json, save_state_json
 
 
 def _sl(mn, mx, st, dv):
@@ -19,26 +17,17 @@ def _sl(mn, mx, st, dv):
     return s
 
 
-# ─────────────────── 模型列表数据 ───────────────────
-
 class ModelListData:
     """管理模型列表的持久化"""
 
     @staticmethod
     def load():
-        if not os.path.exists(MODELS_PATH): return []
-        try:
-            with open(MODELS_PATH, "r", encoding="utf-8") as f: return json.load(f).get("models", [])
-        except Exception: return []
+        return load_state_json("models", {"models": []}).get("models", [])
 
     @staticmethod
     def save(models):
-        os.makedirs(os.path.dirname(MODELS_PATH), exist_ok=True)
-        with open(MODELS_PATH, "w", encoding="utf-8") as f:
-            json.dump({"models": models}, f, indent=2, ensure_ascii=False)
+        save_state_json("models", {"models": models})
 
-
-# ─────────────────── 模型卡片 ───────────────────
 
 class ModelCard(QFrame):
     """模型卡片: 使用按钮选中, 展开按钮显示参数"""
