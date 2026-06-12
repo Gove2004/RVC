@@ -16,11 +16,17 @@ def build_train_tab(win) -> QWidget:
     btn_layout.setSpacing(6)
 
     win.btn_preprocess = QPushButton("1. 预处理")
+    win.btn_preprocess.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#005f9e}QPushButton:disabled{background:#555;color:#888}")
     win.btn_f0 = QPushButton("2. 提取F0")
+    win.btn_f0.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#005f9e}QPushButton:disabled{background:#555;color:#888}")
     win.btn_feature = QPushButton("3. 提取特征")
+    win.btn_feature.setStyleSheet("QPushButton{background:#007acc;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#005f9e}QPushButton:disabled{background:#555;color:#888}")
     win.btn_train = QPushButton("4. 训练")
+    win.btn_train.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555;color:#888}")
     win.btn_all = QPushButton("一键全流程")
+    win.btn_all.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555;color:#888}")
     win.stop_btn = QPushButton("停止训练")
+    win.stop_btn.setStyleSheet("QPushButton{background:#555;color:#888;font-weight:bold;padding:3px 5px;border-radius:3px}")
 
     win.btn_preprocess.clicked.connect(lambda: win._start_step("preprocess"))
     win.btn_f0.clicked.connect(lambda: win._start_step("f0"))

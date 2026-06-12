@@ -101,12 +101,12 @@ class TrainWindow(QMainWindow):
     def _set_running(self, running: bool):
         for btn in [self.btn_preprocess, self.btn_f0, self.btn_feature, self.btn_train, self.btn_all]:
             btn.setEnabled(not running)
-            btn.setStyleSheet("QPushButton{color:#6c757d}" if running else "")
+            btn.setStyleSheet("QPushButton{color:#888}" if running else "")
         self.stop_btn.setEnabled(running)
         self.stop_btn.setText("停止训练" if running else "停止训练")
         self.stop_btn.setStyleSheet(
-            "QPushButton{background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:3px}QPushButton:hover{background:#c82333}"
-            if running else ""
+            "QPushButton{background:#dc3545;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}"
+            if running else "QPushButton{background:#555;color:#888}"
         )
         self.stage_label.setStyleSheet("color:#3b82f6;font-weight:bold" if running else "")
         for widget in [self.exp_name, self.input_dir, self.sample_rate, self.epochs, self.batch_size, self.save_every, self.learning_rate, self.pretrain_g, self.pretrain_d]:

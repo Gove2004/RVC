@@ -120,7 +120,7 @@ def _run_merge(win):
     out = str(Path("assets/weights") / f"{name}.pth")
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
-    win.btn_merge.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}")
+    win.btn_merge.setStyleSheet("QPushButton{background:#3b82f6;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}")
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
     win._tool_thread = ToolThread(merge_models, a, b, ratio, out)
