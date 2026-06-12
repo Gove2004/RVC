@@ -95,8 +95,6 @@ class InferController:
         if self.runtime_params.enable_out2:
             self.engine.setup_out2(out_idx[config.output2_device_pos])
         delay = (self.engine.stream.latency[-1] if self.engine.stream else 0) + config.block_time + config.crossfade_time + 0.01
-        if self.runtime_params.I_nr:
-            delay += min(config.crossfade_time, 0.04)
         return EngineStats(self.engine.sr_model, self.engine.sr_dev, int(delay * 1000))
 
     def stop(self):

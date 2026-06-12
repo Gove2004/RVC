@@ -60,10 +60,15 @@ class RealtimeEngine:
             self.vc_engine.change_index_rate(idx_rate)
             return self.vc_engine.tgt_sr
         from rvc.inference.pipeline import VCPipeline
-        self.vc_engine = VCPipeline(config, pth, idx, idx_rate, self.inference_cache)
-        self.vc_engine.load()
-        self.loaded_pth = pth; self.loaded_idx = idx
-        return self.vc_engine.tgt_sr
+        try:
+            self.vc_engine = VCPipeline(config, pth, idx, idx_rate, self.inference_cache)
+            self.vc_engine.load()
+            self.loaded_pth = pth; self.loaded_idx = idx
+            return self.vc_engine.tgt_sr
+        except Exception as e:
+            logger.error(f"模型加载失败: {e}", exc_info=True)
+            self.vc_engine = None
+            raise
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
         if self.running:
