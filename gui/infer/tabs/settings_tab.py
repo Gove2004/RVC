@@ -27,7 +27,7 @@ def build_settings_tab(win):
     win.out_combo = QComboBox(); g.addWidget(win.out_combo, r, 1, 1, 2); r+=1
     g.addWidget(QLabel("副输出"), r, 0)
     win.out2_combo = QComboBox(); g.addWidget(win.out2_combo, r, 1)
-    br = QPushButton("刷新"); br.setFixedWidth(45); br.clicked.connect(win._reload_dev)
+    br = QPushButton("刷新"); br.setFixedWidth(30); br.clicked.connect(win._reload_dev)  # 45/1.5=30
     g.addWidget(br, r, 2); r+=1
     win.sr_r1 = QRadioButton(); win.sr_r1.setChecked(True)
     win.sr_r2 = QRadioButton()
@@ -54,6 +54,6 @@ def build_settings_tab(win):
     add_sl("额外上下文", win.ex_sl, win.ex_lbl, r); r+=1
 
     g.addWidget(QLabel("音高算法"), r, 0)
-    win.f0_combo = QComboBox(); win.f0_combo.addItems(["fcpe", "rmvpe"]); win.f0_combo.setFixedWidth(80)
+    win.f0_combo = QComboBox(); win.f0_combo.addItems(["fcpe", "rmvpe"]); win.f0_combo.setFixedWidth(53)  # 80/1.5≈53
     g.addWidget(win.f0_combo, r, 1)
     return w

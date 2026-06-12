@@ -30,7 +30,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self.resize(720, 680)  # 设置初始窗口大小
+        self.resize(371, 367)  # 设置初始窗口大小 (556/1.5 x 550/1.5)
         self.controller = InferController()
         self.runtime_params = self.controller.runtime_params
         self.engine = self.controller.engine
@@ -61,22 +61,22 @@ class MainWindow(QMainWindow):
         ctrl = QHBoxLayout()
         ctrl.setSpacing(8)
         self.btn_start = QPushButton("开始")
-        self.btn_start.setFixedSize(80, 32)
+        self.btn_start.setFixedSize(53, 21)  # 80/1.5≈53, 32/1.5≈21
         self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
         self.btn_start.clicked.connect(self._start)
         self.btn_stop = QPushButton("停止")
-        self.btn_stop.setFixedSize(80, 32)
+        self.btn_stop.setFixedSize(53, 21)  # 80/1.5≈53, 32/1.5≈21
         self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._stop)
         ctrl.addWidget(self.btn_start)
         ctrl.addWidget(self.btn_stop)
         self.model_lbl = QLabel("当前: -")
-        self.model_lbl.setMinimumWidth(140)
+        self.model_lbl.setMinimumWidth(93)  # 140/1.5≈93
         self.delay_lbl = QLabel("延迟: -")
-        self.delay_lbl.setMinimumWidth(70)
+        self.delay_lbl.setMinimumWidth(47)  # 70/1.5≈47
         self.stat_lbl = QLabel("推理: -")
-        self.stat_lbl.setMinimumWidth(80)
+        self.stat_lbl.setMinimumWidth(53)  # 80/1.5≈53
         ctrl.addWidget(self.model_lbl)
         ctrl.addStretch()
         ctrl.addWidget(self.delay_lbl)

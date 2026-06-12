@@ -17,7 +17,7 @@ def build_audio_tab(win):
 
     # 音效
     win.eq_en = QCheckBox("开启音效")
-    win.preset_combo = QComboBox(); win.preset_combo.addItems(PRESETS.keys()); win.preset_combo.setFixedWidth(90)
+    win.preset_combo = QComboBox(); win.preset_combo.addItems(PRESETS.keys()); win.preset_combo.setFixedWidth(60)  # 90/1.5=60
     win.preset_combo.currentTextChanged.connect(win._apply_preset)
     row0 = QHBoxLayout(); row0.addWidget(win.eq_en); row0.addWidget(win.preset_combo); row0.addStretch()
     g.addLayout(row0, r, 0, 1, 3); r+=1
