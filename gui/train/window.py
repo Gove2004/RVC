@@ -1,4 +1,6 @@
 """训练 GUI 主窗口"""
+from pathlib import Path
+
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget
 
 from configs.config import load_state_json, save_state_json, state_path
