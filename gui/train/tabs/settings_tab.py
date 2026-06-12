@@ -30,7 +30,8 @@ def _build_data_group(win) -> QGroupBox:
     win.exp_name = QLineEdit("exp01")
     win.input_dir = QLineEdit()
     browse = QPushButton("浏览")
-    browse.setFixedWidth(33)  # 50/1.5≈33
+    browse.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    browse.setStyleSheet(ButtonStyles.small())
     browse.clicked.connect(lambda: browse_directory(win, win.input_dir))
     win.sample_rate = QComboBox()
     win.sample_rate.addItems(["48k", "32k"])
@@ -67,13 +68,15 @@ def _build_train_group(win) -> QGroupBox:
     win.pretrain_d = QLineEdit()
     g_row = QHBoxLayout()
     g_btn = QPushButton("浏览")
-    g_btn.setFixedWidth(33)  # 50/1.5≈33
+    g_btn.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    g_btn.setStyleSheet(ButtonStyles.small())
     g_btn.clicked.connect(lambda: browse_file(win, win.pretrain_g))
     g_row.addWidget(win.pretrain_g)
     g_row.addWidget(g_btn)
     d_row = QHBoxLayout()
     d_btn = QPushButton("浏览")
-    d_btn.setFixedWidth(33)  # 50/1.5≈33
+    d_btn.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    d_btn.setStyleSheet(ButtonStyles.small())
     d_btn.clicked.connect(lambda: browse_file(win, win.pretrain_d))
     d_row.addWidget(win.pretrain_d)
     d_row.addWidget(d_btn)

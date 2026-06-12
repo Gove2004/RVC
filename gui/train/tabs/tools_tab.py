@@ -59,7 +59,8 @@ def _build_merge_group(win) -> QGroupBox:
 
     win.merge_name = QLineEdit("merged")
     win.btn_merge = QPushButton("合并")
-    win.btn_merge.setFixedWidth(33)  # 50/1.5≈33
+    win.btn_merge.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    win.btn_merge.setStyleSheet(ButtonStyles.small())
     win.btn_merge.clicked.connect(lambda: _run_merge(win))
     name_row = QHBoxLayout()
     name_row.setSpacing(4)
@@ -79,14 +80,16 @@ def _build_inspect_group(win) -> QGroupBox:
 
     win.inspect_path = QLineEdit()
     btn_browse = QPushButton("浏览")
-    btn_browse.setFixedWidth(33)  # 50/1.5≈33
+    btn_browse.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    btn_browse.setStyleSheet(ButtonStyles.small())
     btn_browse.clicked.connect(lambda: browse_file(win, win.inspect_path))
     grid.addWidget(QLabel("模型文件"), 0, 0)
     grid.addWidget(win.inspect_path, 0, 1)
     grid.addWidget(btn_browse, 0, 2)
 
     btn_inspect = QPushButton("查看")
-    btn_inspect.setFixedWidth(33)  # 50/1.5≈33
+    btn_inspect.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    btn_inspect.setStyleSheet(ButtonStyles.small())
     btn_inspect.clicked.connect(lambda: _run_inspect(win))
     grid.addWidget(btn_inspect, 0, 3)
 

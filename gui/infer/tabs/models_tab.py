@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QFileDialog,
 )
+from PySide6.QtCore import Qt
 import os
 
 from gui.styles import ButtonStyles, Layout
@@ -18,7 +19,11 @@ def build_models_tab(win):
     btn_add.clicked.connect(win._add_model)
     bar.addWidget(btn_add)
     l.addLayout(bar)
-    scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     container = QWidget()
     win._models_layout = QVBoxLayout(container); win._models_layout.addStretch()
     scroll.setWidget(container)
