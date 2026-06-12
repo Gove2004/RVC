@@ -62,11 +62,11 @@ class MainWindow(QMainWindow):
         ctrl.setSpacing(8)
         self.btn_start = QPushButton("开始")
         self.btn_start.setFixedSize(60, 21)  # 增加宽度以容纳"加载中"和"运行中"
-        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
+        self.btn_start.setStyleSheet("QPushButton{background:#28a745;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}")
         self.btn_start.clicked.connect(self._start)
         self.btn_stop = QPushButton("停止")
         self.btn_stop.setFixedSize(60, 21)  # 保持一致
-        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
+        self.btn_stop.setStyleSheet("QPushButton{background:#dc3545;color:white;font-weight:bold;padding:3px 5px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._stop)
         ctrl.addWidget(self.btn_start)
