@@ -109,8 +109,8 @@ class ButtonStyles:
             QPushButton {{
                 background: {bg};
                 color: {Colors.TEXT_WHITE};
-                font-weight: bold;
-                padding: 4px 8px;
+                font-weight: normal;
+                padding: 0px;
                 border: none;
                 border-radius: {Layout.RADIUS_NORMAL}px;
             }}

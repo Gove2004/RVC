@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from gui.infer.widgets import _sl
+from gui.styles import ButtonStyles
 
 
 def sep():
