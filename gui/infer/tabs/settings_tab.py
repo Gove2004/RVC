@@ -27,7 +27,9 @@ def build_settings_tab(win):
     win.output_combo = QComboBox(); g.addWidget(win.output_combo, r, 1, 1, 2); r+=1
     g.addWidget(QLabel("副输出"), r, 0)
     win.output2_combo = QComboBox(); g.addWidget(win.output2_combo, r, 1)
-    refresh_btn = QPushButton("刷新"); refresh_btn.setFixedWidth(30); refresh_btn.clicked.connect(win._reload_dev)
+    refresh_btn = QPushButton("刷新"); refresh_btn.setFixedWidth(30)
+    refresh_btn.setStyleSheet(ButtonStyles.small())
+    refresh_btn.clicked.connect(win._reload_dev)
     g.addWidget(refresh_btn, r, 2); r+=1
     win.sr_model_radio = QRadioButton(); win.sr_model_radio.setChecked(True)
     win.sr_device_radio = QRadioButton()
