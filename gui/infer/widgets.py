@@ -92,24 +92,28 @@ class ModelCard(QFrame):
         b.setStyleSheet(ButtonStyles.small())
         b.clicked.connect(lambda: self._browse(self.idx_edit, "索引 (*.index)")); bl.addWidget(b, r, 2); r+=1
 
-        def add_s(label, sl, lbl, row):
-            bl.addWidget(QLabel(label), row, 0); bl.addWidget(sl, row, 1); bl.addWidget(lbl, row, 2)
+        def add_slider(label, slider, value_label, row):
+            bl.addWidget(QLabel(label), row, 0); bl.addWidget(slider, row, 1); bl.addWidget(value_label, row, 2)
 
-        self.pit_sl = _sl(-16,16,1,pitch); self.pit_lbl = QLabel(str(pitch))
-        self.pit_sl.valueChanged.connect(lambda v: self.pit_lbl.setText(str(v)))
-        add_s("音调", self.pit_sl, self.pit_lbl, r); r+=1
-        self.gen_sl = _sl(0,100,1,gender); self.gen_lbl = QLabel(f"{(gender/100-0.5)*4:+.2f}")
-        self.gen_sl.valueChanged.connect(lambda v: self.gen_lbl.setText(f"{(v/100-0.5)*4:+.2f}"))
-        add_s("性别", self.gen_sl, self.gen_lbl, r); r+=1
-        self.ir_sl = _sl(0,100,1,int(index_rate*100)); self.ir_lbl = QLabel(f"{index_rate:.2f}")
-        self.ir_sl.valueChanged.connect(lambda v: self.ir_lbl.setText(f"{v/100:.2f}"))
-        add_s("索引", self.ir_sl, self.ir_lbl, r); r+=1
-        self.rms_sl = _sl(0,100,1,int(rms_mix*100)); self.rms_lbl = QLabel(f"{rms_mix:.2f}")
-        self.rms_sl.valueChanged.connect(lambda v: self.rms_lbl.setText(f"{v/100:.2f}"))
-        add_s("响度", self.rms_sl, self.rms_lbl, r); r+=1
-        self.protect_sl = _sl(0,100,1,protect); self.protect_lbl = QLabel(f"{protect/100:.2f}")
-        self.protect_sl.valueChanged.connect(lambda v: self.protect_lbl.setText(f"{v/100:.2f}"))
-        add_s("辅音保护", self.protect_sl, self.protect_lbl, r); r+=1
+        self.pitch_slider = _sl(-16,16,1,pitch); self.pitch_label = QLabel(str(pitch))
+        self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
+        add_slider("音调", self.pitch_slider, self.pitch_label, r); r+=1
+
+        self.gender_slider = _sl(0,100,1,gender); self.gender_label = QLabel(f"{(gender/100-0.5)*4:+.2f}")
+        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{(v/100-0.5)*4:+.2f}"))
+        add_slider("性别", self.gender_slider, self.gender_label, r); r+=1
+
+        self.index_rate_slider = _sl(0,100,1,int(index_rate*100)); self.index_rate_label = QLabel(f"{index_rate:.2f}")
+        self.index_rate_slider.valueChanged.connect(lambda v: self.index_rate_label.setText(f"{v/100:.2f}"))
+        add_slider("索引", self.index_rate_slider, self.index_rate_label, r); r+=1
+
+        self.rms_mix_slider = _sl(0,100,1,int(rms_mix*100)); self.rms_mix_label = QLabel(f"{rms_mix:.2f}")
+        self.rms_mix_slider.valueChanged.connect(lambda v: self.rms_mix_label.setText(f"{v/100:.2f}"))
+        add_slider("响度", self.rms_mix_slider, self.rms_mix_label, r); r+=1
+
+        self.protect_slider = _sl(0,100,1,protect); self.protect_label = QLabel(f"{protect/100:.2f}")
+        self.protect_slider.valueChanged.connect(lambda v: self.protect_label.setText(f"{v/100:.2f}"))
+        add_slider("辅音保护", self.protect_slider, self.protect_label, r); r+=1
 
         self._del = QPushButton("删除此模型")
         self._del.setStyleSheet(ButtonStyles.danger())
@@ -129,18 +133,18 @@ class ModelCard(QFrame):
     def _on_load(self):
         self.load_requested.emit(
             self._name.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
-            self.pit_sl.value(), _sl_value_as_float(self.ir_sl), _sl_value_as_float(self.rms_sl),
-            _sl_value_as_float(self.gen_sl), _sl_value_as_float(self.protect_sl),
+            self.pitch_slider.value(), _sl_value_as_float(self.index_rate_slider), _sl_value_as_float(self.rms_mix_slider),
+            _sl_value_as_float(self.gender_slider), _sl_value_as_float(self.protect_slider),
         )
 
     def get_data(self):
         return {
             "name": self._name.text(), "pth": self.pth_edit.text().strip(),
-            "idx": self.idx_edit.text().strip(), "pitch": self.pit_sl.value(),
-            "index_rate": _sl_value_as_float(self.ir_sl),
-            "rms_mix": _sl_value_as_float(self.rms_sl),
-            "gender": _sl_value_as_float(self.gen_sl),
-            "protect": self.protect_sl.value()/100,
+            "idx": self.idx_edit.text().strip(), "pitch": self.pitch_slider.value(),
+            "index_rate": _sl_value_as_float(self.index_rate_slider),
+            "rms_mix": _sl_value_as_float(self.rms_mix_slider),
+            "gender": _sl_value_as_float(self.gender_slider),
+            "protect": self.protect_slider.value()/100,
         }
 
     def set_active(self, active):

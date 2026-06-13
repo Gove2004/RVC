@@ -122,11 +122,11 @@ class MainWindow(QMainWindow):
         if name not in PRESETS:
             return
         pr = PRESETS[name]
-        self.eq_sub.setValue(int(pr.get("eq_sub", 0) * 100))
-        self.eq_lo.setValue(int(pr.get("eq_low", 0) * 100))
-        self.eq_mi.setValue(int(pr.get("eq_mid", 0) * 100))
-        self.eq_hi_mid.setValue(int(pr.get("eq_hi_mid", 0) * 100))
-        self.eq_hi.setValue(int(pr.get("eq_high", 0) * 100))
+        self.eq_sub_slider.setValue(int(pr.get("eq_sub", 0) * 100))
+        self.eq_low_slider.setValue(int(pr.get("eq_low", 0) * 100))
+        self.eq_mid_slider.setValue(int(pr.get("eq_mid", 0) * 100))
+        self.eq_hi_mid_slider.setValue(int(pr.get("eq_hi_mid", 0) * 100))
+        self.eq_high_slider.setValue(int(pr.get("eq_high", 0) * 100))
 
     # ── 设备管理委托 ──
 
@@ -146,11 +146,11 @@ class MainWindow(QMainWindow):
             return
         self.controller.apply_model_config(
             ModelConfig(
-                pitch=card.pit_sl.value(),
-                index_rate=_sl_value_as_float(card.ir_sl),
-                rms_mix=_sl_value_as_float(card.rms_sl),
-                gender=(_sl_value_as_float(card.gen_sl) - 0.5) * 4,
-                protect=_sl_value_as_float(card.protect_sl),
+                pitch=card.pitch_slider.value(),
+                index_rate=_sl_value_as_float(card.index_rate_slider),
+                rms_mix=_sl_value_as_float(card.rms_mix_slider),
+                gender=(_sl_value_as_float(card.gender_slider) - 0.5) * 4,
+                protect=_sl_value_as_float(card.protect_slider),
                 f0method=self.f0_combo.currentText(),
             )
         )
@@ -158,14 +158,14 @@ class MainWindow(QMainWindow):
     def _apply_runtime_params(self):
         self.controller.apply_runtime_config(
             RuntimeConfig(
-                eq_en=self.eq_en.isChecked(),
-                eq_sub=_sl_value_as_float(self.eq_sub),
-                eq_low=_sl_value_as_float(self.eq_lo),
-                eq_mid=_sl_value_as_float(self.eq_mi),
-                eq_hi_mid=_sl_value_as_float(self.eq_hi_mid),
-                eq_high=_sl_value_as_float(self.eq_hi),
-                reverb=_sl_value_as_float(self.rev_sl),
-                out2_enabled=self.out2_combo.currentIndex() > 0,
+                eq_en=self.eq_enable_checkbox.isChecked(),
+                eq_sub=_sl_value_as_float(self.eq_sub_slider),
+                eq_low=_sl_value_as_float(self.eq_low_slider),
+                eq_mid=_sl_value_as_float(self.eq_mid_slider),
+                eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
+                eq_high=_sl_value_as_float(self.eq_high_slider),
+                reverb=_sl_value_as_float(self.reverb_slider),
+                out2_enabled=self.output2_combo.currentIndex() > 0,
             )
         )
 
@@ -216,7 +216,7 @@ class MainWindow(QMainWindow):
             self._show_warning("模型文件路径为空")
             return
         idx = self.model_manager.active_card.idx_edit.text().strip()
-        ir = _sl_value_as_float(self.model_manager.active_card.ir_sl)
+        ir = _sl_value_as_float(self.model_manager.active_card.index_rate_slider)
         self._apply_model_params()
         self._start_engine(pth, idx, ir)
 
@@ -247,18 +247,18 @@ class MainWindow(QMainWindow):
         try:
             stats = self.controller.setup_engine(
                 EngineConfig(
-                    hostapi_name=self.ha_combo.currentText(),
-                    input_device_pos=self.in_combo.currentIndex(),
-                    output_device_pos=self.out_combo.currentIndex(),
-                    output2_device_pos=self.out2_combo.currentIndex() - 1,
-                    sr_mode="model" if self.sr_r1.isChecked() else "device",
-                    block_time=_sl_value_as_float(self.bl_sl),
-                    crossfade_time=_sl_value_as_float(self.cf_sl),
-                    extra_time=_sl_value_as_float(self.ex_sl),
+                    hostapi_name=self.hostapi_combo.currentText(),
+                    input_device_pos=self.input_combo.currentIndex(),
+                    output_device_pos=self.output_combo.currentIndex(),
+                    output2_device_pos=self.output2_combo.currentIndex() - 1,
+                    sr_mode="model" if self.sr_model_radio.isChecked() else "device",
+                    block_time=_sl_value_as_float(self.block_time_slider),
+                    crossfade_time=_sl_value_as_float(self.crossfade_slider),
+                    extra_time=_sl_value_as_float(self.extra_time_slider),
                 )
             )
-            self.sr_r1_lbl.setText(f"模型采样率: {stats.sr_model}")
-            self.sr_r2_lbl.setText(f"设备采样率: {stats.sr_dev}")
+            self.sr_model_label.setText(f"模型采样率: {stats.sr_model}")
+            self.sr_device_label.setText(f"设备采样率: {stats.sr_dev}")
             self.delay_lbl.setText(f"延迟: {stats.delay_ms}")
             self._mark_running()
             self._timer.start(200)

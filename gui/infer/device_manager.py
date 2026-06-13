@@ -14,7 +14,7 @@ class DeviceManager:
 
     def reload_devices(self) -> None:
         """重新加载音频设备列表"""
-        hostapi_name = self.window.ha_combo.currentText()
+        hostapi_name = self.window.hostapi_combo.currentText()
         if not hostapi_name:
             return
         apis, ins, outs = get_audio_devices()
@@ -30,16 +30,16 @@ class DeviceManager:
     def load_hostapis(self) -> None:
         """加载可用的音频驱动"""
         apis, ins, outs = get_audio_devices()
-        self.window.ha_combo.clear()
-        self.window.ha_combo.addItems([a.name for a in apis])
+        self.window.hostapi_combo.clear()
+        self.window.hostapi_combo.addItems([a.name for a in apis])
         self._populate_device_combos(ins, outs)
 
     def _populate_device_combos(self, ins: List, outs: List) -> None:
         """填充设备下拉框"""
-        self.window.in_combo.clear()
-        self.window.in_combo.addItems([d.name for d in ins])
-        self.window.out_combo.clear()
-        self.window.out_combo.addItems([d.name for d in outs])
-        self.window.out2_combo.clear()
-        self.window.out2_combo.addItem("不使用")
-        self.window.out2_combo.addItems([d.name for d in outs])
+        self.window.input_combo.clear()
+        self.window.input_combo.addItems([d.name for d in ins])
+        self.window.output_combo.clear()
+        self.window.output_combo.addItems([d.name for d in outs])
+        self.window.output2_combo.clear()
+        self.window.output2_combo.addItem("不使用")
+        self.window.output2_combo.addItems([d.name for d in outs])

@@ -29,14 +29,14 @@ class OfflineManager:
 
         if path:
             target_widget.setText(path)
-            if kind == "in" and not self.window.off_out.text():
+            if kind == "in" and not self.window.offline_output.text():
                 base, _ = os.path.splitext(path)
-                self.window.off_out.setText(base + "_converted.wav")
+                self.window.offline_output.setText(base + "_converted.wav")
 
     def start_conversion(self) -> None:
         """开始离线转换"""
-        inp = self.window.off_in.text().strip()
-        out = self.window.off_out.text().strip()
+        inp = self.window.offline_input.text().strip()
+        out = self.window.offline_output.text().strip()
 
         if not inp:
             self.window._show_warning("请选择输入文件")
@@ -47,7 +47,7 @@ class OfflineManager:
         if not out:
             base, _ = os.path.splitext(inp)
             out = base + "_converted.wav"
-            self.window.off_out.setText(out)
+            self.window.offline_output.setText(out)
 
         if not self.window.model_manager.active_card:
             self.window._show_warning("请先在「模型」中选择一个模型")
@@ -66,50 +66,50 @@ class OfflineManager:
         from gui.infer.widgets import _sl_value_as_float
         card = self.window.model_manager.active_card
         idx = card.idx_edit.text().strip()
-        pitch = card.pit_sl.value()
+        pitch = card.pitch_slider.value()
         f0method = self.window.f0_combo.currentText()
 
         self.worker = OfflineWorker(
             inp, out, pth, idx, pitch, f0method,
-            _sl_value_as_float(card.ir_sl),
-            _sl_value_as_float(card.rms_sl),
-            (_sl_value_as_float(card.gen_sl) - 0.5) * 4,
-            _sl_value_as_float(card.protect_sl),
-            self.window.eq_en.isChecked(),
-            _sl_value_as_float(self.window.eq_sub),
-            _sl_value_as_float(self.window.eq_lo),
-            _sl_value_as_float(self.window.eq_mi),
-            _sl_value_as_float(self.window.eq_hi_mid),
-            _sl_value_as_float(self.window.eq_hi),
-            _sl_value_as_float(self.window.rev_sl),
+            _sl_value_as_float(card.index_rate_slider),
+            _sl_value_as_float(card.rms_mix_slider),
+            (_sl_value_as_float(card.gender_slider) - 0.5) * 4,
+            _sl_value_as_float(card.protect_slider),
+            self.window.eq_enable_checkbox.isChecked(),
+            _sl_value_as_float(self.window.eq_sub_slider),
+            _sl_value_as_float(self.window.eq_low_slider),
+            _sl_value_as_float(self.window.eq_mid_slider),
+            _sl_value_as_float(self.window.eq_hi_mid_slider),
+            _sl_value_as_float(self.window.eq_high_slider),
+            _sl_value_as_float(self.window.reverb_slider),
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
-        self.window.off_btn.setEnabled(False)
-        self.window.off_btn.setText("转换中...")
-        self.window.off_status.setText("初始化...")
+        self.window.offline_button.setEnabled(False)
+        self.window.offline_button.setText("转换中...")
+        self.window.offline_status.setText("初始化...")
 
     def _on_progress(self, current: int, total: int) -> None:
         """更新进度"""
-        self.window.off_status.setText(f"进度: {current}/{total}")
+        self.window.offline_status.setText(f"进度: {current}/{total}")
 
     def _on_finished(self, path: str) -> None:
         """转换完成"""
-        self.window.off_btn.setEnabled(True)
-        self.window.off_btn.setText("开始转换")
-        self.window.off_status.setText("完成")
+        self.window.offline_button.setEnabled(True)
+        self.window.offline_button.setText("开始转换")
+        self.window.offline_status.setText("完成")
         if self.worker:
             self.worker.wait()
             self.worker = None
 
     def _on_error(self, msg: str) -> None:
         """转换出错"""
-        self.window.off_btn.setEnabled(True)
-        self.window.off_btn.setText("开始转换")
-        self.window.off_status.setText("错误")
+        self.window.offline_button.setEnabled(True)
+        self.window.offline_button.setText("开始转换")
+        self.window.offline_status.setText("错误")
         if self.worker:
             self.worker.wait()
             self.worker = None

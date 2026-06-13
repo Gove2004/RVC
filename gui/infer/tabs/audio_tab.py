@@ -15,39 +15,39 @@ def build_audio_tab(win):
     g.setColumnStretch(1, 1)
     r = 0
 
-    # 音效
-    win.eq_en = QCheckBox("开启音效")
-    win.preset_combo = QComboBox(); win.preset_combo.addItems(PRESETS.keys()); win.preset_combo.setFixedWidth(60)  # 90/1.5=60
+    # 音效总开关和预设
+    win.eq_enable_checkbox = QCheckBox("开启音效")
+    win.preset_combo = QComboBox(); win.preset_combo.addItems(PRESETS.keys()); win.preset_combo.setFixedWidth(60)
     win.preset_combo.currentTextChanged.connect(win._apply_preset)
-    row0 = QHBoxLayout(); row0.addWidget(win.eq_en); row0.addWidget(win.preset_combo); row0.addStretch()
+    row0 = QHBoxLayout(); row0.addWidget(win.eq_enable_checkbox); row0.addWidget(win.preset_combo); row0.addStretch()
     g.addLayout(row0, r, 0, 1, 3); r+=1
 
-    def add_eq(label, sl, lbl, row):
-        g.addWidget(QLabel(label), row, 0); g.addWidget(sl, row, 1); g.addWidget(lbl, row, 2)
+    def add_eq_slider(label, slider, value_label, row):
+        g.addWidget(QLabel(label), row, 0); g.addWidget(slider, row, 1); g.addWidget(value_label, row, 2)
 
     # 5段EQ：超低频、低频、中频、中高频、高频
-    win.eq_sub = _sl(-2000,2000,500,0); win.eq_sub_lbl = QLabel("0.0"); win.eq_sub_lbl.setMinimumWidth(35)
-    win.eq_sub.valueChanged.connect(lambda v: win.eq_sub_lbl.setText(f"{v/100:.1f}"))
-    add_eq("超低频 (60Hz)", win.eq_sub, win.eq_sub_lbl, r); r+=1
+    win.eq_sub_slider = _sl(-2000,2000,500,0); win.eq_sub_label = QLabel("0.0"); win.eq_sub_label.setMinimumWidth(35)
+    win.eq_sub_slider.valueChanged.connect(lambda v: win.eq_sub_label.setText(f"{v/100:.1f}"))
+    add_eq_slider("超低频 (60Hz)", win.eq_sub_slider, win.eq_sub_label, r); r+=1
 
-    win.eq_lo = _sl(-3000,2000,500,0); win.eq_lo_lbl = QLabel("0.0"); win.eq_lo_lbl.setMinimumWidth(35)
-    win.eq_lo.valueChanged.connect(lambda v: win.eq_lo_lbl.setText(f"{v/100:.1f}"))
-    add_eq("低频 (200Hz)", win.eq_lo, win.eq_lo_lbl, r); r+=1
+    win.eq_low_slider = _sl(-3000,2000,500,0); win.eq_low_label = QLabel("0.0"); win.eq_low_label.setMinimumWidth(35)
+    win.eq_low_slider.valueChanged.connect(lambda v: win.eq_low_label.setText(f"{v/100:.1f}"))
+    add_eq_slider("低频 (200Hz)", win.eq_low_slider, win.eq_low_label, r); r+=1
 
-    win.eq_mi = _sl(-2000,2000,500,0); win.eq_mi_lbl = QLabel("0.0"); win.eq_mi_lbl.setMinimumWidth(35)
-    win.eq_mi.valueChanged.connect(lambda v: win.eq_mi_lbl.setText(f"{v/100:.1f}"))
-    add_eq("中频 (1kHz)", win.eq_mi, win.eq_mi_lbl, r); r+=1
+    win.eq_mid_slider = _sl(-2000,2000,500,0); win.eq_mid_label = QLabel("0.0"); win.eq_mid_label.setMinimumWidth(35)
+    win.eq_mid_slider.valueChanged.connect(lambda v: win.eq_mid_label.setText(f"{v/100:.1f}"))
+    add_eq_slider("中频 (1kHz)", win.eq_mid_slider, win.eq_mid_label, r); r+=1
 
-    win.eq_hi_mid = _sl(-2000,2000,500,0); win.eq_hi_mid_lbl = QLabel("0.0"); win.eq_hi_mid_lbl.setMinimumWidth(35)
-    win.eq_hi_mid.valueChanged.connect(lambda v: win.eq_hi_mid_lbl.setText(f"{v/100:.1f}"))
-    add_eq("中高频 (3kHz)", win.eq_hi_mid, win.eq_hi_mid_lbl, r); r+=1
+    win.eq_hi_mid_slider = _sl(-2000,2000,500,0); win.eq_hi_mid_label = QLabel("0.0"); win.eq_hi_mid_label.setMinimumWidth(35)
+    win.eq_hi_mid_slider.valueChanged.connect(lambda v: win.eq_hi_mid_label.setText(f"{v/100:.1f}"))
+    add_eq_slider("中高频 (3kHz)", win.eq_hi_mid_slider, win.eq_hi_mid_label, r); r+=1
 
-    win.eq_hi = _sl(-3000,3000,500,0); win.eq_hi_lbl = QLabel("0.0"); win.eq_hi_lbl.setMinimumWidth(35)
-    win.eq_hi.valueChanged.connect(lambda v: win.eq_hi_lbl.setText(f"{v/100:.1f}"))
-    add_eq("高频 (8kHz)", win.eq_hi, win.eq_hi_lbl, r); r+=1
+    win.eq_high_slider = _sl(-3000,3000,500,0); win.eq_high_label = QLabel("0.0"); win.eq_high_label.setMinimumWidth(35)
+    win.eq_high_slider.valueChanged.connect(lambda v: win.eq_high_label.setText(f"{v/100:.1f}"))
+    add_eq_slider("高频 (8kHz)", win.eq_high_slider, win.eq_high_label, r); r+=1
 
     # 混响
-    win.rev_sl = _sl(0,50,1,0); win.rev_lbl = QLabel("0.00"); win.rev_lbl.setMinimumWidth(35)
-    win.rev_sl.valueChanged.connect(lambda v: win.rev_lbl.setText(f"{v/100:.2f}"))
-    add_eq("空间混响", win.rev_sl, win.rev_lbl, r)
+    win.reverb_slider = _sl(0,50,1,0); win.reverb_label = QLabel("0.00"); win.reverb_label.setMinimumWidth(35)
+    win.reverb_slider.valueChanged.connect(lambda v: win.reverb_label.setText(f"{v/100:.2f}"))
+    add_eq_slider("空间混响", win.reverb_slider, win.reverb_label, r)
     return w
