@@ -24,7 +24,7 @@ assets/hubert_inputs.pth
 assets/rmvpe_inputs.pth
 
 # Runtime configs (migrated to assets/configs/)
-configs/
+/configs/
 
 # Temp
 TEMP/
