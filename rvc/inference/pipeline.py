@@ -9,7 +9,9 @@ import torch
 import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.models.cache import default_inference_cache
+from rvc.models.inference_cache import default_inference_cache
+from rvc.inference.f0_extractor import create_f0_extractor
+from rvc.inference.model_loader import SynthesizerLoader
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +111,13 @@ class VCPipeline:
         from rvc.models.hubert import load_hubert
         self.model = load_hubert(self.config, self.inference_cache)
 
-        # Synthesizer
-        self._load_synthesizer()
+        # Synthesizer（使用 SynthesizerLoader）
+        loader = SynthesizerLoader(self.config, self.inference_cache)
+        result = loader.load(self.pth_path)
+        self.net_g = result["net_g"]
+        self.tgt_sr = result["tgt_sr"]
+        self.if_f0 = result["if_f0"]
+        self.version = result["version"]
 
         # 移除 weight_norm
         try:
@@ -118,36 +125,21 @@ class VCPipeline:
         except Exception:
             pass
 
-        # FAISS Index
+        # FAISS Index（检查缓存）
         if self.index_rate > 0 and self.index_path and os.path.exists(self.index_path):
-            self.index = faiss.read_index(self.index_path)
-            self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
-            logger.info("加载 %s", os.path.basename(self.index_path))
-
-    def _load_synthesizer(self):
-        logger.info("加载 Synthesizer")
-        ckpt = torch.load(self.pth_path, map_location="cpu", weights_only=False)
-        self.tgt_sr = ckpt["config"][-1]
-        self.if_f0 = ckpt.get("f0", 1)
-        self.version = ckpt.get("version", "v2")
-        n_spk = ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
-
-        from rvc.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
-        if self.if_f0 == 1:
-            self.net_g = SynthesizerTrnMsNSFsid(
-                *ckpt["config"],
-                is_half=self.is_half,
-            )
-        else:
-            self.net_g = SynthesizerTrnMsNSFsid_nono(
-                *ckpt["config"],
-                is_half=self.is_half,
-            )
-
-        self.net_g.load_state_dict(ckpt["weight"], strict=False)
-        self.net_g.eval().to(self.device)
-        if self.is_half:
-            self.net_g.half()
+            cached = self.inference_cache.get_index(self.index_path)
+            if cached:
+                self.index = cached["index"]
+                self.big_npy = cached["big_npy"]
+                logger.info("使用缓存 Index: %s", os.path.basename(self.index_path))
+            else:
+                self.index = faiss.read_index(self.index_path)
+                self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
+                self.inference_cache.set_index(self.index_path, {
+                    "index": self.index,
+                    "big_npy": self.big_npy,
+                })
+                logger.info("加载 Index: %s", os.path.basename(self.index_path))
 
     def change_key(self, key):
         self.f0_up_key = key
@@ -161,60 +153,13 @@ class VCPipeline:
             self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
         self.index_rate = rate
 
-    def _get_f0_post(self, f0):
-        if not torch.is_tensor(f0):
-            f0 = torch.from_numpy(f0)
-        f0 = f0.float().to(self.device).squeeze()
-        f0_mel = 1127 * torch.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - self.f0_mel_min) * 254 / (
-            self.f0_mel_max - self.f0_mel_min
-        ) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        f0_coarse = torch.round(f0_mel).long()
-        return f0_coarse, f0
-
-    def _get_f0_rmvpe(self, x, f0_up_key):
-        cache_key = (self.device, self.is_half)
-        cached = self.inference_cache.get_rmvpe(cache_key)
-        if cached is None:
-            from rvc.rmvpe import RMVPE
-            logger.info("加载 RMVPE（一次性）")
-            cached = RMVPE("assets/rmvpe/rmvpe.pt", is_half=self.is_half, device=self.device)
-            self.inference_cache.set_rmvpe(cache_key, cached)
-        self.model_rmvpe = cached
-        f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
-        f0 *= pow(2, f0_up_key / 12)
-        return self._get_f0_post(f0)
-
-    def _get_f0_fcpe(self, x, f0_up_key):
-        cache_key = self.device
-        cached = self.inference_cache.get_fcpe(cache_key)
-        if cached is None:
-            from torchfcpe import spawn_bundled_infer_model
-            logger.info("加载 FCPE...")
-            fcpe_logger = logging.getLogger("torchfcpe")
-            saved_level = fcpe_logger.level
-            fcpe_logger.setLevel(logging.ERROR)
-            try:
-                cached = spawn_bundled_infer_model(self.device)
-            finally:
-                fcpe_logger.setLevel(saved_level)
-            self.inference_cache.set_fcpe(cache_key, cached)
-        self.model_fcpe = cached
-        f0 = self.model_fcpe.infer(
-            x.to(self.device).unsqueeze(0).float(),
-            sr=16000,
-            decoder_mode="local_argmax",
-            threshold=0.006,
-        )
-        f0 *= pow(2, f0_up_key / 12)
-        return self._get_f0_post(f0)
-
     def _get_f0(self, x, f0_up_key, method="fcpe"):
-        if method == "rmvpe":
-            return self._get_f0_rmvpe(x, f0_up_key)
-        return self._get_f0_fcpe(x, f0_up_key)
+        """统一的 F0 提取接口 — 使用抽象层。"""
+        extractor = create_f0_extractor(method, self.device, self.is_half, self.inference_cache)
+        # x 可能是 Tensor 或 numpy，extractor 会处理
+        if not torch.is_tensor(x):
+            x = torch.from_numpy(x)
+        return extractor.extract(x, 16000, f0_up_key)
 
     def _extract_hubert_features(self, input_wav):
         if not torch.is_tensor(input_wav):
@@ -265,12 +210,27 @@ class VCPipeline:
         return pitch.long(), pitchf.float()
 
     def infer_offline(self, input_wav, f0method="fcpe", protect=0.0):
+        """离线推理（完整音频）。
+
+        Args:
+            input_wav: np.ndarray or torch.Tensor, 输入音频 (16kHz)
+            f0method: str, F0 提取方法
+            protect: float, 辅音保护强度 [0, 1.0]
+
+        Returns:
+            np.ndarray: 合成音频 (tgt_sr 采样率)
+        """
         if not torch.is_tensor(input_wav):
             input_wav = torch.from_numpy(input_wav).float()
         p_len = input_wav.shape[0] // 160
+
+        # 计算 formant 因子
+        factor = pow(2, self.formant_shift / 12)
+
         pitch = pitchf = None
         if self.if_f0 == 1:
-            pitch, pitchf = self._get_f0(input_wav, self.f0_up_key, f0method)
+            # F0 提取时补偿 formant（与实时推理一致）
+            pitch, pitchf = self._get_f0(input_wav, self.f0_up_key - self.formant_shift, f0method)
             pitch, pitchf = self._prepare_pitch_tensors(pitch, pitchf, p_len)
         feats = self._extract_hubert_features(input_wav)
         feats0 = self._clone_protect_source(feats, protect)
@@ -285,7 +245,25 @@ class VCPipeline:
                 result = self.net_g.infer(feats, p_len_t, pitch, pitchf, sid)
             else:
                 result = self.net_g.infer(feats, p_len_t, sid)
-        return result[0][0, 0].data.cpu().float().numpy()
+
+        audio = result[0][0, 0].data.float()
+
+        # Formant 重采样（与实时推理一致）
+        upp_res = int(np.floor(factor * self.tgt_sr // 100))
+        if upp_res != self.tgt_sr // 100:
+            if upp_res not in self.resample_kernel:
+                if len(self.resample_kernel) >= 16:
+                    self.resample_kernel.clear()
+                from torchaudio.transforms import Resample as TatResample
+                self.resample_kernel[upp_res] = TatResample(
+                    orig_freq=upp_res,
+                    new_freq=self.tgt_sr // 100,
+                    dtype=torch.float32,
+                ).to(self.device)
+            # 对于离线推理，直接使用完整音频长度
+            audio = self.resample_kernel[upp_res](audio)
+
+        return audio.cpu().numpy()
 
     def infer(self, input_wav, block_frame_16k, skip_head, return_length, f0method="fcpe", protect=0.0):
         """实时推理一个音频块。

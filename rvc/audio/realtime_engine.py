@@ -13,7 +13,8 @@ from PySide6.QtCore import QObject, Signal
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.utils import phase_vocoder
-from configs.config import Config
+from rvc.audio.effects import create_realtime_chain
+from gui.configs import Config
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -45,8 +46,15 @@ class RealtimeEngine:
         self.sola_buffer = None; self.output_buffer = None
         self.fade_in = None; self.fade_out = None
         self.resampler = None; self.resampler2 = None
-        self.reverb_buffer = None
         self.bgm_audio = None; self.bgm_ptr = 0
+
+        # 效果器（setup 时创建）
+        self.eq = None
+        self.reverb = None
+
+        # 效果参数缓存（用于检测变化）
+        self._last_eq_params = None
+        self._last_reverb_mix = None
 
         self.loaded_pth = ""; self.loaded_idx = ""
         self.infer_ms = 0.0
@@ -102,7 +110,6 @@ class RealtimeEngine:
 
         self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
         self.output_buffer = self.input_wav.clone()
-        self.reverb_buffer = torch.zeros(int(0.15 * self.sr), device=config.device)
 
         ls = torch.linspace(0, 1, steps=self.sola_buffer_frame, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
@@ -113,6 +120,9 @@ class RealtimeEngine:
             self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(config.device)
         else:
             self.resampler_model2dev = None
+
+        # 创建效果器（实时模式）
+        _, self.eq, self.reverb = create_realtime_chain(self.sr)
 
         self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
@@ -203,27 +213,17 @@ class RealtimeEngine:
                 r2 = torch.max(r2, torch.ones_like(r2)*1e-3)
                 infer *= torch.pow(r1 / r2, 1 - params.rms_mix)
 
-            if params.enable_eq:
-                # 频域 EQ：避免 IIR 滤波器的 block 边界跳变
-                spec = torch.fft.rfft(infer)
-                freqs = torch.fft.rfftfreq(infer.shape[0], 1/self.sr, device=config.device)
-
-                # 5段均衡器，高斯窗口平滑
-                def apply_band(spec, freqs, center, width, gain_db):
-                    if gain_db == 0:
-                        return spec
-                    gain_linear = 10 ** (gain_db / 20)
-                    mask = torch.exp(-0.5 * ((freqs - center) / width) ** 2)
-                    gain_curve = 1 + (gain_linear - 1) * mask
-                    return spec * gain_curve
-
-                if params.eq_sub: spec = apply_band(spec, freqs, 60, 40, max(-12, min(12, params.eq_sub)))
-                if params.eq_low: spec = apply_band(spec, freqs, 200, 100, max(-12, min(12, params.eq_low)))
-                if params.eq_mid: spec = apply_band(spec, freqs, 1000, 300, max(-12, min(12, params.eq_mid)))
-                if params.eq_hi_mid: spec = apply_band(spec, freqs, 3000, 600, max(-12, min(12, params.eq_hi_mid)))
-                if params.eq_high: spec = apply_band(spec, freqs, 8000, 2000, max(-12, min(12, params.eq_high)))
-
-                infer = torch.fft.irfft(spec, n=infer.shape[0])
+            # 应用 EQ（SOLA 之前，只在参数变化时同步）
+            if params.enable_eq and self.eq:
+                current_eq = (params.eq_sub, params.eq_low, params.eq_mid, params.eq_hi_mid, params.eq_high)
+                if self._last_eq_params != current_eq:
+                    self.eq.set_band('sub', params.eq_sub)
+                    self.eq.set_band('low', params.eq_low)
+                    self.eq.set_band('mid', params.eq_mid)
+                    self.eq.set_band('hi_mid', params.eq_hi_mid)
+                    self.eq.set_band('high', params.eq_high)
+                    self._last_eq_params = current_eq
+                infer = self.eq(infer)
 
             ci = infer[None, None, :self.sola_buffer_frame + self.sola_search_frame]
             cn = F.conv1d(ci, self.sola_buffer[None, None, :])
@@ -238,18 +238,12 @@ class RealtimeEngine:
             self.sola_buffer[:] = infer[self.block_frame:self.block_frame+self.sola_buffer_frame]
             chunk = infer[:self.block_frame]
 
-            if params.enable_eq:
-                if params.reverb > 0:
-                    ri = torch.cat([self.reverb_buffer, chunk])
-                    d1 = int(0.017*self.sr); d2 = int(0.031*self.sr); d3 = int(0.047*self.sr); d4 = int(0.073*self.sr)
-                    t1 = ri[-self.block_frame-d1:-d1]*0.3
-                    t2 = -ri[-self.block_frame-d2:-d2]*0.2
-                    t3 = ri[-self.block_frame-d3:-d3]*0.15
-                    t4 = -ri[-self.block_frame-d4:-d4]*0.08
-                    rv = t1+t2+t3+t4
-                    rv = F.avg_pool1d(rv[None,None], 5, 1, 2).squeeze()
-                    chunk = chunk*(1-params.reverb*0.5) + rv*params.reverb
-                    self.reverb_buffer = ri[-self.reverb_buffer.shape[0]:]
+            # 应用混响（SOLA 之后，只在参数变化时同步）
+            if params.enable_eq and self.reverb and params.reverb > 0:
+                if self._last_reverb_mix != params.reverb:
+                    self.reverb.set_mix(params.reverb)
+                    self._last_reverb_mix = params.reverb
+                chunk = self.reverb(chunk)
 
             if params.bgm_enable and self.bgm_audio is not None and params.bgm_vol > 0:
                 bl = self.bgm_audio.shape[0]; need = self.block_frame; ci2 = 0

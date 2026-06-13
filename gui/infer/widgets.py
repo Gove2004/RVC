@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal
 
-from configs.config import load_state_json, save_state_json
+from gui.configs import load_state_json, save_state_json
 from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout
 
 

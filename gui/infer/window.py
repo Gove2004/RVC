@@ -13,7 +13,7 @@ from PySide6.QtCore import QTimer
 from rvc.inference import Params
 from rvc.audio import get_audio_devices, PRESETS
 from rvc.inference import OfflineWorker
-from configs.config import load_state_json, save_state_json
+from gui.configs import load_state_json, save_state_json
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
 from gui.infer.widgets import ModelCard, ModelListData, LoadThread
 from gui.infer.tabs.settings_tab import build_settings_tab
@@ -446,7 +446,21 @@ class MainWindow(QMainWindow):
         rms = self._active_card.rms_sl.value() / 100
         protect = self._active_card.protect_sl.value() / 100
 
-        self._off_worker = OfflineWorker(inp, out, pth, idx, ir, pitch, f0m, rms, protect)
+        # 收集声学参数
+        enable_eq = self.eq_en.isChecked()
+        eq_bands = {
+            'sub': self.eq_sub.value() / 100,
+            'low': self.eq_lo.value() / 100,
+            'mid': self.eq_mi.value() / 100,
+            'hi_mid': self.eq_hi_mid.value() / 100,
+            'high': self.eq_hi.value() / 100,
+        }
+        reverb_mix = self.rev_sl.value() / 100
+
+        self._off_worker = OfflineWorker(
+            inp, out, pth, idx, ir, pitch, f0m, rms, protect,
+            enable_eq=enable_eq, eq_bands=eq_bands, reverb_mix=reverb_mix
+        )
         self._off_worker.progress.connect(self._off_progress)
         self._off_worker.finished.connect(self._off_done)
         self._off_worker.error.connect(self._off_err)

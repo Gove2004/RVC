@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget
 
-from configs.config import load_state_json, save_state_json, state_path
+from gui.configs import load_state_json, save_state_json, state_path
 from rvc.train.train_worker import TrainWorker
 from gui.train.widgets import ToolThread
 from gui.train.tabs.settings_tab import build_settings_tab

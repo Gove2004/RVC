@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from configs.config import runtime_train_config_path
+from gui.configs import runtime_train_config_path
 
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):

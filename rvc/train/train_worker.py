@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from configs.config import Config
+from gui.configs import Config
 from rvc.train.extract_f0 import F0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
 from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_matches

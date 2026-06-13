@@ -1,5 +1,5 @@
-# Original project (reference only)
-Retrieval-based-Voice-Conversion-WebUI/
+# Original project (reference only - hidden)
+.Retrieval-based-Voice-Conversion-WebUI/
 
 # Python
 .venv/
@@ -23,10 +23,8 @@ assets/indices/*.index
 assets/hubert_inputs.pth
 assets/rmvpe_inputs.pth
 
-# Runtime configs (legacy - now migrated to configs/state/)
-configs/inuse/
-configs/config.json
-configs/models.json
+# Runtime configs (migrated to assets/configs/)
+configs/
 
 # Temp
 TEMP/
