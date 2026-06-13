@@ -127,11 +127,17 @@ class RealtimeEngine:
         # 创建效果器（实时模式）
         _, self.eq, self.reverb = create_realtime_chain(self.sr)
 
-        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr, channels=self.channels, dtype="float32")
-        self.stream.start()
-        self.running = True
+        try:
+            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr, channels=self.channels, dtype="float32")
+            self.stream.start()
+            self.running = True
+        except Exception as e:
+            if "Invalid sample rate" in str(e) or "-9997" in str(e):
+                raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
+            raise
 
     def setup_out2(self, dev_idx):
+        logger.info(f"设置副输出设备: {dev_idx}")
         def out2_callback(outdata, frames, time_info, status):
             try:
                 if not self.out2_q.empty():
@@ -141,14 +147,20 @@ class RealtimeEngine:
                     outdata[:] = 0
             except Exception:
                 outdata[:] = 0
-        self.stream2 = sd.OutputStream(
-            device=dev_idx, samplerate=self.sr, channels=self.channels,
-            dtype="float32", blocksize=self.block_frame, callback=out2_callback
-        )
-        self.stream2.start()
-        while not self.out2_q.empty():
-            try: self.out2_q.get_nowait()
-            except: pass
+        try:
+            self.stream2 = sd.OutputStream(
+                device=dev_idx, samplerate=self.sr, channels=self.channels,
+                dtype="float32", blocksize=self.block_frame, callback=out2_callback
+            )
+            self.stream2.start()
+            logger.info(f"副输出流已启动: 采样率={self.sr}, 声道={self.channels}, blocksize={self.block_frame}")
+            while not self.out2_q.empty():
+                try: self.out2_q.get_nowait()
+                except: pass
+        except Exception as e:
+            if "Invalid sample rate" in str(e) or "-9997" in str(e):
+                raise RuntimeError(f"副输出采样率 {self.sr} Hz 不支持") from e
+            raise
 
 
     def stop(self):
@@ -267,5 +279,10 @@ class RealtimeEngine:
                     try: self.out2_q.get_nowait()
                     except Exception: pass
                 self.out2_q.put_nowait(outdata.copy())
+            elif self.stream2 and not params.enable_out2:
+                # 调试：检查为什么副输出没有启用
+                if not hasattr(self, '_out2_debug_logged'):
+                    logger.warning(f"副输出流存在但 enable_out2=False")
+                    self._out2_debug_logged = True
 
         self.infer_ms = (time.perf_counter() - t0) * 1000

@@ -5,12 +5,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from gui.infer.widgets import _sl
-from gui.styles import ButtonStyles
+from gui.styles import ButtonStyles, Colors
 
 
 def sep():
     """水平分隔线"""
-    f = QFrame(); f.setFrameShape(QFrame.Shape.HLine); f.setStyleSheet("color:#444"); return f
+    f = QFrame(); f.setFrameShape(QFrame.Shape.HLine); f.setStyleSheet(f"color:{Colors.DIVIDER}"); return f
 
 
 def build_settings_tab(win):

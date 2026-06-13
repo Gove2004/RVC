@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 
 from gui.configs import load_state_json, save_state_json
-from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout
+from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
 
 __all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_sl_value_as_float"]
 
@@ -62,7 +62,7 @@ class ModelCard(QFrame):
 
         # 头部: 名称 + 使用按钮 + 展开按钮
         hdr = QWidget()
-        hl = QHBoxLayout(hdr); hl.setContentsMargins(6,5,6,5)
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(6,8,6,8)
         self._name = QLabel(name or os.path.splitext(os.path.basename(pth))[0])
         self._name.setStyleSheet(LabelStyles.bold())
         self._btn_use = QPushButton("使用")
@@ -120,7 +120,7 @@ class ModelCard(QFrame):
         self._del.setStyleSheet(ButtonStyles.danger())
         bl.addWidget(self._del, r, 0, 1, 3)
         root.addWidget(self._body)
-        self.setStyleSheet("ModelCard{border:1px solid #444;border-radius:3px;margin:1px}")
+        self.setStyleSheet(f"ModelCard{{{CardStyles.default()}}}")
 
     def _toggle(self):
         self._expanded = not self._expanded
@@ -149,28 +149,26 @@ class ModelCard(QFrame):
         }
 
     def set_active(self, active):
-        from gui.styles import Colors
         if active:
             self._btn_use.setText("使用中")
             self._btn_use.setEnabled(False)
-            self._btn_use.setStyleSheet(f"QPushButton{{background:{Colors.SUCCESS};color:white;border:none;padding:3px;border-radius:3px;font-size:11px}}")
-            self.setStyleSheet(f"ModelCard{{border:1px solid {Colors.SUCCESS};border-radius:3px;margin:1px;background:{Colors.SUCCESS_BG}}}")
-            self._name.setStyleSheet(f"font-weight:bold;color:{Colors.SUCCESS}")
+            self._btn_use.setStyleSheet(ButtonStyles.small())
+            self.setStyleSheet(f"ModelCard{{{CardStyles.active('success')}}}")
+            self._name.setStyleSheet(LabelStyles.status("success"))
         else:
             self._btn_use.setText("使用")
             self._btn_use.setEnabled(True)
-            self._btn_use.setStyleSheet(f"QPushButton{{background:{Colors.SECONDARY};color:white;border:none;padding:3px;border-radius:3px;font-size:11px}}QPushButton:hover{{background:{Colors.SECONDARY_HOVER}}}")
-            self.setStyleSheet(f"ModelCard{{border:1px solid {Colors.BORDER};border-radius:3px;margin:1px}}")
-            self._name.setStyleSheet("font-weight:bold")
+            self._btn_use.setStyleSheet(ButtonStyles.small())
+            self.setStyleSheet(f"ModelCard{{{CardStyles.default()}}}")
+            self._name.setStyleSheet(LabelStyles.bold())
 
     def set_loading(self, loading):
-        from gui.styles import Colors
         if loading:
             self._btn_use.setText("加载中")
             self._btn_use.setEnabled(False)
-            self._btn_use.setStyleSheet(f"QPushButton{{background:{Colors.INFO};color:white;border:none;padding:3px;border-radius:3px;font-size:11px}}")
-            self.setStyleSheet(f"ModelCard{{border:1px solid {Colors.INFO};border-radius:3px;margin:1px;background:{Colors.INFO_BG}}}")
-            self._name.setStyleSheet(f"font-weight:bold;color:{Colors.INFO}")
+            self._btn_use.setStyleSheet(ButtonStyles.small())
+            self.setStyleSheet(f"ModelCard{{{CardStyles.active('info')}}}")
+            self._name.setStyleSheet(LabelStyles.status("info"))
 
 
 # ─────────────────── 加载线程 ───────────────────

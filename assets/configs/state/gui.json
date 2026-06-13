@@ -15,5 +15,5 @@
   "ha": "MME",
   "in_dev": "麦克风 (NVIDIA Broadcast)",
   "out_dev": "CABLE Input (VB-Audio Virtual C",
-  "out2_dev": "不使用"
+  "out2_dev": "扬声器 (Realtek(R) Audio)"
 }

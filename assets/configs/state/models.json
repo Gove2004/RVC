@@ -7,8 +7,8 @@
       "pitch": 12,
       "index_rate": 0.0,
       "rms_mix": 0.5,
-      "gender": 0.0,
-      "protect": 0.0
+      "gender": 0.25,
+      "protect": 0.9
     }
   ]
 }
