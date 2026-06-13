@@ -214,6 +214,16 @@ class MainWindow(QMainWindow):
         idx = self.model_manager.active_card.idx_edit.text().strip()
         ir = _sl_value_as_float(self.model_manager.active_card.index_rate_slider)
         self._apply_model_params()
+        self._apply_runtime_params()  # 应用运行时参数（包括副输出、EQ 等）
+
+        # 保存配置（在启动前保存当前设置）
+        try:
+            self.config_manager.save_config()
+            self.model_manager.save_models()
+            logger.info("配置已保存")
+        except Exception as e:
+            logger.warning("保存配置失败: %s", e)
+
         self._start_engine(pth, idx, ir)
 
     def _start_engine(self, pth, idx, idx_rate):
