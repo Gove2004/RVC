@@ -38,7 +38,15 @@ class ModelListData:
 
     @staticmethod
     def load():
-        return load_state_json("models", {"models": []}).get("models", [])
+        data = load_state_json("models", {"models": []})
+        models = data.get("models", [])
+        # 迁移旧格式：如果 gender/protect 是 float (0.0-1.0)，转换为 int (0-100)
+        for m in models:
+            if "gender" in m and isinstance(m["gender"], float) and 0 <= m["gender"] <= 1:
+                m["gender"] = int(m["gender"] * 100)
+            if "protect" in m and isinstance(m["protect"], float) and 0 <= m["protect"] <= 1:
+                m["protect"] = int(m["protect"] * 100)
+        return models
 
     @staticmethod
     def save(models):
@@ -140,12 +148,14 @@ class ModelCard(QFrame):
 
     def get_data(self):
         return {
-            "name": self._name.text(), "pth": self.pth_edit.text().strip(),
-            "idx": self.idx_edit.text().strip(), "pitch": self.pitch_slider.value(),
+            "name": self._name.text(),
+            "pth": self.pth_edit.text().strip(),
+            "idx": self.idx_edit.text().strip(),
+            "pitch": self.pitch_slider.value(),
             "index_rate": _sl_value_as_float(self.index_rate_slider),
             "rms_mix": _sl_value_as_float(self.rms_mix_slider),
-            "gender": _sl_value_as_float(self.gender_slider),
-            "protect": self.protect_slider.value()/100,
+            "gender": self.gender_slider.value(),  # 保存原始 slider 值（0-100）
+            "protect": self.protect_slider.value(),  # 保存原始 slider 值（0-100）
         }
 
     def set_active(self, active):

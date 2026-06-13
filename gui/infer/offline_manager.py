@@ -22,7 +22,7 @@ class OfflineManager:
         """浏览文件选择"""
         if kind == "in":
             path, _ = QFileDialog.getOpenFileName(
-                self.window, "选择输入文件", "", "音频 (*.wav *.mp3 *.flac)"
+                self.window, "选择输入文件", "", "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus)"
             )
         else:
             path, _ = QFileDialog.getSaveFileName(

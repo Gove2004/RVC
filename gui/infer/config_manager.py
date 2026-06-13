@@ -22,10 +22,16 @@ class ConfigManager:
         self._load_device_config(d)
         self._load_engine_config(d)
         self._load_audio_config(d)
+        self._load_active_model(d)
 
     def save_config(self) -> None:
         """保存配置到持久化存储"""
         from gui.infer.widgets import _sl_value_as_float
+
+        # 保存当前选中模型的 pth 路径
+        active_pth = ""
+        if self.window.model_manager.active_card:
+            active_pth = self.window.model_manager.active_card.pth_edit.text().strip()
 
         d = {
             "version": CONFIG_VERSION,
@@ -33,18 +39,20 @@ class ConfigManager:
             "cf": _sl_value_as_float(self.window.crossfade_slider),
             "ex": _sl_value_as_float(self.window.extra_time_slider),
             "f0": self.window.f0_combo.currentText(),
+            "sr_mode": "model" if self.window.sr_model_radio.isChecked() else "device",
             "eq_en": self.window.eq_enable_checkbox.isChecked(),
-            "eq_sub": _sl_value_as_float(self.window.eq_sub_slider),
-            "eq_lo": _sl_value_as_float(self.window.eq_low_slider),
-            "eq_mi": _sl_value_as_float(self.window.eq_mid_slider),
-            "eq_hi_mid": _sl_value_as_float(self.window.eq_hi_mid_slider),
-            "eq_hi": _sl_value_as_float(self.window.eq_high_slider),
-            "rev": _sl_value_as_float(self.window.reverb_slider),
+            "eq_sub": self.window.eq_sub_slider.value(),  # 保存原始 slider 值
+            "eq_lo": self.window.eq_low_slider.value(),
+            "eq_mi": self.window.eq_mid_slider.value(),
+            "eq_hi_mid": self.window.eq_hi_mid_slider.value(),
+            "eq_hi": self.window.eq_high_slider.value(),
+            "rev": self.window.reverb_slider.value(),  # 保存原始 slider 值
             "preset": self.window.preset_combo.currentText(),
             "ha": self.window.hostapi_combo.currentText(),
             "in_dev": self.window.input_combo.currentText(),
             "out_dev": self.window.output_combo.currentText(),
             "out2_dev": self.window.output2_combo.currentText(),
+            "active_model": active_pth,
         }
         save_state_json(CONFIG_KEY, d)
 
@@ -85,12 +93,40 @@ class ConfigManager:
         if idx >= 0:
             self.window.f0_combo.setCurrentIndex(idx)
 
+        # 加载采样率模式
+        sr_mode = d.get("sr_mode", "model")
+        if sr_mode == "model":
+            self.window.sr_model_radio.setChecked(True)
+        else:
+            self.window.sr_device_radio.setChecked(True)
+
     def _load_audio_config(self, d: Dict[str, Any]) -> None:
         """加载音频效果配置"""
         self.window.eq_enable_checkbox.setChecked(d.get("eq_en", False))
-        self.window.eq_sub_slider.setValue(int(d.get("eq_sub", 0) * 100))
-        self.window.eq_low_slider.setValue(int(d.get("eq_lo", 0) * 100))
-        self.window.eq_mid_slider.setValue(int(d.get("eq_mi", 0) * 100))
-        self.window.eq_hi_mid_slider.setValue(int(d.get("eq_hi_mid", 0) * 100))
-        self.window.eq_high_slider.setValue(int(d.get("eq_hi", 0) * 100))
-        self.window.reverb_slider.setValue(int(d.get("rev", 0) * 100))
+
+        # 迁移旧格式：如果值是 float 且在合理范围内，认为是旧格式（已除以100）
+        def _migrate_slider_value(key: str, default: int, min_val: int, max_val: int) -> int:
+            val = d.get(key, default)
+            # 如果是 float 且绝对值 <= 100，认为是旧格式（需要乘以 100）
+            if isinstance(val, float) and abs(val) <= 100:
+                return int(val * 100)
+            return int(val)
+
+        self.window.eq_sub_slider.setValue(_migrate_slider_value("eq_sub", 0, -2000, 2000))
+        self.window.eq_low_slider.setValue(_migrate_slider_value("eq_lo", 0, -3000, 2000))
+        self.window.eq_mid_slider.setValue(_migrate_slider_value("eq_mi", 0, -2000, 2000))
+        self.window.eq_hi_mid_slider.setValue(_migrate_slider_value("eq_hi_mid", 0, -2000, 2000))
+        self.window.eq_high_slider.setValue(_migrate_slider_value("eq_hi", 0, -3000, 3000))
+        self.window.reverb_slider.setValue(_migrate_slider_value("rev", 0, 0, 100))
+
+    def _load_active_model(self, d: Dict[str, Any]) -> None:
+        """加载上次选中的模型"""
+        active_pth = d.get("active_model", "")
+        if not active_pth:
+            return
+        # 在模型列表中查找匹配的模型并设置为 active
+        for card in self.window.model_manager.cards:
+            if card.pth_edit.text().strip() == active_pth:
+                card.set_active(True)
+                self.window.model_manager.active_card = card
+                break
