@@ -1,48 +1,54 @@
 """推理 GUI 主窗口"""
-import json
 import logging
-import os
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QPushButton, QFileDialog, QMessageBox,
+    QHBoxLayout, QLabel, QPushButton, QMessageBox,
     QTabWidget,
 )
 from PySide6.QtCore import QTimer
 
-from rvc.inference import Params
-from rvc.audio import get_audio_devices, PRESETS
-from rvc.inference import OfflineWorker
-from gui.configs import load_state_json, save_state_json
+from rvc.audio import PRESETS
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
-from gui.infer.widgets import ModelCard, ModelListData, LoadThread, _sl_value_as_float
+from gui.infer.widgets import LoadThread, _sl_value_as_float
 from gui.infer.tabs.settings_tab import build_settings_tab
 from gui.infer.tabs.models_tab import build_models_tab
 from gui.infer.tabs.audio_tab import build_audio_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
+from gui.infer.model_manager import ModelManager
+from gui.infer.config_manager import ConfigManager
+from gui.infer.device_manager import DeviceManager
+from gui.infer.offline_manager import OfflineManager
 from gui.styles import ButtonStyles, Layout
 
 logger = logging.getLogger(__name__)
-
-CONFIG_KEY = "gui"
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self.resize(357, 333)  # 设置初始窗口大小 (535/1.5 x 500/1.5)
+        self.resize(357, 333)
         self.controller = InferController()
         self.runtime_params = self.controller.runtime_params
         self.engine = self.controller.engine
-        self._active_card = None
         self._loading = False
-        self._off_worker = None
+        self._lt = None
         self._timer = QTimer()
         self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(self.engine.infer_ms)}"))
         self._build_ui()
+
+        # 初始化管理器
+        self.model_manager = ModelManager(self, self._models_layout)
+        self.model_manager.on_card_load = self._on_card_load
+        self.config_manager = ConfigManager(self)
+        self.device_manager = DeviceManager(self)
+        self.offline_manager = OfflineManager(self)
+
         self.engine.signals.runtime_error.connect(self._on_runtime_error)
-        self._load_cfg()
+        self.device_manager.load_hostapis()
+        self.model_manager.load_models()
+        self.config_manager.load_config()
 
     # ── 辅助方法 ──
 
@@ -100,169 +106,51 @@ class MainWindow(QMainWindow):
         ctrl.addWidget(self.stat_lbl)
         root.addLayout(ctrl)
 
-    # ── 模型管理 ──
+    # ── 模型管理委托 ──
 
     def _add_model(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择模型", "assets/weights", "模型 (*.pth)")
-        if not path:
-            return
-        name = os.path.splitext(os.path.basename(path))[0]
-        self._add_card(name=name, pth=path)
-
-    def _add_card(self, name="", pth="", idx="", pitch=0,
-                  index_rate=0.0, rms_mix=0.0, gender=50, protect=50):
-        card = ModelCard(name, pth, idx, pitch, index_rate=index_rate, rms_mix=rms_mix, gender=gender, protect=protect)
-        card.load_requested.connect(self._on_card_load)
-        card._del.clicked.connect(lambda: self._remove_card(card))
-        self._models_layout.insertWidget(self._models_layout.count() - 1, card)
-        self._model_cards.append(card)
-        return card
-
-    def _remove_card(self, card):
-        if self._active_card == card:
-            self._active_card = None
-        self._model_cards.remove(card)
-        self._models_layout.removeWidget(card)
-        card.deleteLater()
-        self._save_models()
+        """委托给 ModelManager"""
+        self.model_manager.add_model_from_file()
 
     def _on_card_load(self, name, pth, idx, pitch, ir, rms, gender, protect):
-        if not pth:
-            return
-        if self._active_card:
-            self._active_card.set_active(False)
-        for c in self._model_cards:
-            if c.pth_edit.text().strip() == pth:
-                self._active_card = c
-                c.set_active(True)
-                break
+        """模型卡片加载回调"""
         self.model_lbl.setText(f"当前: {name}")
 
-    def _save_models(self):
-        models = [c.get_data() for c in self._model_cards]
-        ModelListData.save(models)
+    # ── 预设管理 ──
 
     def _apply_preset(self, name):
         if name not in PRESETS:
             return
         pr = PRESETS[name]
-        # 应用 EQ 预设（不含混响）
         self.eq_sub.setValue(int(pr.get("eq_sub", 0) * 100))
         self.eq_lo.setValue(int(pr.get("eq_low", 0) * 100))
         self.eq_mi.setValue(int(pr.get("eq_mid", 0) * 100))
         self.eq_hi_mid.setValue(int(pr.get("eq_hi_mid", 0) * 100))
         self.eq_hi.setValue(int(pr.get("eq_high", 0) * 100))
 
-    # ── 配置持久化 ──
-
-    def _load_cfg(self):
-        for m in ModelListData.load():
-            self._add_card(m.get("name", ""), m.get("pth", ""), m.get("idx", ""),
-                           m.get("pitch", 0),
-                           m.get("index_rate", 0), m.get("rms_mix", 0),
-                           int(m.get("gender", 0.5) * 100), int(m.get("protect", 0.5) * 100))
-        d = load_state_json(CONFIG_KEY, {})
-        self._reload_dev()
-        ha = d.get("ha", "")
-        if ha:
-            idx = self.ha_combo.findText(ha)
-            if idx >= 0:
-                self.ha_combo.setCurrentIndex(idx)
-        for dev_key, combo in [("in_dev", self.in_combo), ("out_dev", self.out_combo)]:
-            dev = d.get(dev_key, "")
-            if dev:
-                idx = combo.findText(dev)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
-        out2_dev = d.get("out2_dev", "")
-        if out2_dev:
-            idx = self.out2_combo.findText(out2_dev)
-            if idx >= 0:
-                self.out2_combo.setCurrentIndex(idx)
-        if d.get("sr_mode", "model") == "device":
-            self.sr_r2.setChecked(True)
-        f0 = d.get("f0", "fcpe")
-        idx = self.f0_combo.findText(f0)
-        if idx >= 0:
-            self.f0_combo.setCurrentIndex(idx)
-        self.bl_sl.setValue(int(d.get("bl", 0.25) * 100))
-        self.cf_sl.setValue(int(d.get("cf", 0.05) * 100))
-        self.ex_sl.setValue(int(d.get("ex", 2.5) * 100))
-        self.eq_en.setChecked(d.get("eq_en", False))
-        self.eq_sub.setValue(int(d.get("eq_sub", 0) * 100))
-        self.eq_lo.setValue(int(d.get("eq_lo", 0) * 100))
-        self.eq_mi.setValue(int(d.get("eq_mi", 0) * 100))
-        self.eq_hi_mid.setValue(int(d.get("eq_hi_mid", 0) * 100))
-        self.eq_hi.setValue(int(d.get("eq_hi", 0) * 100))
-        self.rev_sl.setValue(int(d.get("rev", 0) * 100))
-        pr = d.get("preset", "原声")
-        if pr in PRESETS:
-            self.preset_combo.setCurrentText(pr)
-        selected = d.get("selected", "")
-        if selected:
-            for c in self._model_cards:
-                if c.pth_edit.text().strip() == selected:
-                    self._active_card = c
-                    c.set_active(True)
-                    self.model_lbl.setText(f"当前: {c._name.text()}")
-                    break
-
-    def _save_cfg(self):
-        self._save_models()
-        d = {
-            "version": 2, "bl": _sl_value_as_float(self.bl_sl),
-            "cf": _sl_value_as_float(self.cf_sl), "ex": _sl_value_as_float(self.ex_sl),
-            "f0": self.f0_combo.currentText(),
-            "eq_en": self.eq_en.isChecked(),
-            "eq_sub": _sl_value_as_float(self.eq_sub), "eq_lo": _sl_value_as_float(self.eq_lo),
-            "eq_mi": _sl_value_as_float(self.eq_mi), "eq_hi_mid": _sl_value_as_float(self.eq_hi_mid),
-            "eq_hi": _sl_value_as_float(self.eq_hi),
-            "rev": _sl_value_as_float(self.rev_sl),
-            "preset": self.preset_combo.currentText(),
-            "ha": self.ha_combo.currentText(),
-            "in_dev": self.in_combo.currentText(),
-            "out_dev": self.out_combo.currentText(),
-            "out2_dev": self.out2_combo.currentText(),
-            "sr_mode": "model" if self.sr_r1.isChecked() else "device",
-            "selected": self._active_card.pth_edit.text().strip() if self._active_card else "",
-        }
-        try:
-            save_state_json(CONFIG_KEY, d)
-        except Exception:
-            logger.warning("保存配置失败", exc_info=True)
-
-    # ── 设备管理 ──
+    # ── 设备管理委托 ──
 
     def _reload_dev(self):
-        self.ha_combo.blockSignals(True)
-        self.ha_combo.clear()
-        names, *_ = get_audio_devices()
-        self.ha_combo.addItems(names)
-        self.ha_combo.blockSignals(False)
-        self._ha_changed(self.ha_combo.currentText())
+        """委托给 DeviceManager"""
+        self.device_manager.reload_devices()
 
     def _ha_changed(self, name):
-        if not name:
-            return
-        _, ins, outs, _, _ = get_audio_devices(name)
-        self.in_combo.clear()
-        self.in_combo.addItems(ins)
-        self.out_combo.clear()
-        self.out_combo.addItems(outs)
-        self.out2_combo.clear()
-        self.out2_combo.addItem("不启用")
-        self.out2_combo.addItems(outs)
+        """委托给 DeviceManager"""
+        self.device_manager.on_hostapi_changed(name)
 
-    # ── 启动/停止 ──
+    # ── 引擎参数应用 ──
 
     def _apply_model_params(self):
+        card = self.model_manager.active_card
+        if not card:
+            return
         self.controller.apply_model_config(
             ModelConfig(
-                pitch=self._active_card.pit_sl.value(),
-                index_rate=_sl_value_as_float(self._active_card.ir_sl),
-                rms_mix=_sl_value_as_float(self._active_card.rms_sl),
-                gender=(_sl_value_as_float(self._active_card.gen_sl) - 0.5) * 4,
-                protect=_sl_value_as_float(self._active_card.protect_sl),
+                pitch=card.pit_sl.value(),
+                index_rate=_sl_value_as_float(card.ir_sl),
+                rms_mix=_sl_value_as_float(card.rms_sl),
+                gender=(_sl_value_as_float(card.gen_sl) - 0.5) * 4,
+                protect=_sl_value_as_float(card.protect_sl),
                 f0method=self.f0_combo.currentText(),
             )
         )
@@ -281,11 +169,12 @@ class MainWindow(QMainWindow):
             )
         )
 
+    # ── UI 状态管理 ──
+
     def _set_start_button(self, text, enabled, style):
         self.btn_start.setEnabled(enabled)
         self.btn_start.setText(text)
         if "28a745" in style or "3b82f6" in style:
-            # 保留颜色语义，但使用统一样式
             if "28a745" in style:
                 self.btn_start.setStyleSheet(ButtonStyles.primary())
             else:
@@ -302,43 +191,38 @@ class MainWindow(QMainWindow):
 
     def _reset_runtime_ui(self):
         self._timer.stop()
-        self._set_start_button(
-            "开始",
-            True,
-            "QPushButton{background:#28a745;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#218838}QPushButton:disabled{background:#555}",
-        )
-        self._set_stop_button(
-            False,
-            "QPushButton{background:#dc3545;color:white;font-weight:bold;padding:5px 20px;border-radius:3px}QPushButton:hover{background:#c82333}QPushButton:disabled{background:#555}",
-        )
+        self._set_start_button("开始", True, ButtonStyles.primary())
+        self._set_stop_button(False, ButtonStyles.muted())
         self.delay_lbl.setText("延迟: -")
         self.stat_lbl.setText("推理: -")
 
     def _mark_loading(self):
-        if self._active_card:
-            self._active_card.set_loading(True)
+        if self.model_manager.active_card:
+            self.model_manager.active_card.set_loading(True)
         self._set_start_button("加载中", False, ButtonStyles.secondary())
 
     def _mark_running(self):
         self._set_start_button("运行中", False, ButtonStyles.primary())
         self._set_stop_button(True, ButtonStyles.danger())
 
+    # ── 启动/停止 ──
+
     def _start(self):
-        if not self._active_card:
+        if not self.model_manager.active_card:
             self._show_warning("请先在模型列表中选择一个模型")
             return
-        pth = self._active_card.pth_edit.text().strip()
+        pth = self.model_manager.active_card.pth_edit.text().strip()
         if not pth:
             self._show_warning("模型文件路径为空")
             return
-        idx = self._active_card.idx_edit.text().strip()
-        ir = _sl_value_as_float(self._active_card.ir_sl)
+        idx = self.model_manager.active_card.idx_edit.text().strip()
+        ir = _sl_value_as_float(self.model_manager.active_card.ir_sl)
         self._apply_model_params()
         self._start_engine(pth, idx, ir)
 
     def _start_engine(self, pth, idx, idx_rate):
         if self._loading:
-            if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
+            if self._lt and self._lt.isRunning():
                 self._lt.terminate()
                 self._lt.wait()
             self._loading = False
@@ -353,13 +237,13 @@ class MainWindow(QMainWindow):
 
     def _on_load_done(self):
         self._loading = False
-        if hasattr(self, '_lt') and self._lt:
+        if self._lt:
             self._lt.deleteLater()
             self._lt = None
 
     def _on_loaded(self, sr):
-        if self._active_card:
-            self._active_card.set_active(True)
+        if self.model_manager.active_card:
+            self.model_manager.active_card.set_active(True)
         try:
             stats = self.controller.setup_engine(
                 EngineConfig(
@@ -378,14 +262,15 @@ class MainWindow(QMainWindow):
             self.delay_lbl.setText(f"延迟: {stats.delay_ms}")
             self._mark_running()
             self._timer.start(200)
-            self._save_cfg()
+            self.config_manager.save_config()
+            self.model_manager.save_models()
         except Exception as e:
             self._on_err(str(e))
 
     def _on_err(self, e):
-        if self._active_card:
-            self._active_card.set_active(False)
-        self._active_card = None
+        if self.model_manager.active_card:
+            self.model_manager.active_card.set_active(False)
+        self.model_manager.active_card = None
         self._reset_runtime_ui()
         self._show_error(str(e))
 
@@ -399,13 +284,13 @@ class MainWindow(QMainWindow):
 
     def _stop(self):
         if self._loading:
-            if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
+            if self._lt and self._lt.isRunning():
                 self._lt.terminate()
                 self._lt.wait()
             self._loading = False
             self._reset_runtime_ui()
-            if self._active_card:
-                self._active_card.set_active(False)
+            if self.model_manager.active_card:
+                self.model_manager.active_card.set_active(False)
             return
 
         if not self.engine.running:
@@ -414,107 +299,25 @@ class MainWindow(QMainWindow):
         self._reset_runtime_ui()
         logger.info("停止")
 
-    # ── 离线推理 ──
+    # ── 离线推理委托 ──
 
     def _off_browse(self, tgt, kind):
-        if kind == "in":
-            path, _ = QFileDialog.getOpenFileName(
-                self, "选择音频", "",
-                "音频 (*.wav *.mp3 *.flac *.ogg *.m4a *.wma *.aac *.opus);;所有 (*)")
-        else:
-            path, _ = QFileDialog.getSaveFileName(self, "保存音频", "", "WAV (*.wav)")
-        if path:
-            tgt.setText(path)
-            if kind == "in" and not self.off_out.text():
-                base, _ = os.path.splitext(path)
-                self.off_out.setText(base + "_converted.wav")
+        """委托给 OfflineManager"""
+        self.offline_manager.browse_file(tgt, kind)
 
     def _off_start(self):
-        inp = self.off_in.text().strip()
-        out = self.off_out.text().strip()
-        if not inp:
-            self._show_warning("请选择输入文件")
-            return
-        if not os.path.exists(inp):
-            self._show_warning(f"文件不存在: {inp}")
-            return
-        if not out:
-            base, _ = os.path.splitext(inp)
-            out = base + "_converted.wav"
-            self.off_out.setText(out)
-        if not self._active_card:
-            self._show_warning("请先在「模型」中选择一个模型")
-            return
-        pth = self._active_card.pth_edit.text().strip()
-        if not pth:
-            self._show_warning("模型路径为空")
-            return
-        if self.engine.running:
-            self._show_warning("请先停止实时变声")
-            return
-
-        idx = self._active_card.idx_edit.text().strip()
-        ir = self._active_card.ir_sl.value() / 100
-        pitch = self._active_card.pit_sl.value()
-        f0m = self.f0_combo.currentText()
-        rms = self._active_card.rms_sl.value() / 100
-        protect = self._active_card.protect_sl.value() / 100
-
-        # 收集声学参数
-        enable_eq = self.eq_en.isChecked()
-        eq_bands = {
-            'sub': self.eq_sub.value() / 100,
-            'low': self.eq_lo.value() / 100,
-            'mid': self.eq_mi.value() / 100,
-            'hi_mid': self.eq_hi_mid.value() / 100,
-            'high': self.eq_hi.value() / 100,
-        }
-        reverb_mix = self.rev_sl.value() / 100
-
-        self._off_worker = OfflineWorker(
-            inp, out, pth, idx, ir, pitch, f0m, rms, protect,
-            enable_eq=enable_eq, eq_bands=eq_bands, reverb_mix=reverb_mix
-        )
-        self._off_worker.progress.connect(self._off_progress)
-        self._off_worker.finished.connect(self._off_done)
-        self._off_worker.error.connect(self._off_err)
-        self.off_btn.setEnabled(False)
-        self.off_btn.setText("转换中...")
-        self.off_progress.setValue(0)
-        self._off_worker.start()
-
-    def _off_progress(self, cur, total):
-        self.off_progress.setMaximum(total)
-        self.off_progress.setValue(cur)
-        self.off_status.setText(f"{cur}/{total}")
-
-    def _off_done(self, path):
-        self.off_btn.setEnabled(True)
-        self.off_btn.setText("开始转换")
-        self.off_status.setText(f"完成: {path}")
-        if self._off_worker:
-            self._off_worker.wait()
-            self._off_worker = None
-
-    def _off_err(self, msg):
-        self.off_btn.setEnabled(True)
-        self.off_btn.setText("开始转换")
-        self.off_status.setText("错误")
-        if self._off_worker:
-            self._off_worker.wait()
-            self._off_worker = None
-        self._show_error(f"离线推理错误: {str(msg).strip().splitlines()[-1]}")
+        """委托给 OfflineManager"""
+        self.offline_manager.start_conversion()
 
     def closeEvent(self, e):
         self._timer.stop()
-        if hasattr(self, '_lt') and self._lt and self._lt.isRunning():
+        if self._lt and self._lt.isRunning():
             self._lt.quit()
             self._lt.wait(2000)
-        if self._off_worker and self._off_worker.isRunning():
-            self._off_worker.quit()
-            self._off_worker.wait(2000)
+        self.offline_manager.cleanup()
         try:
-            self._save_cfg()
+            self.config_manager.save_config()
+            self.model_manager.save_models()
         except OSError as e:
             logger.error("保存配置失败（文件系统错误）: %s", e)
         except Exception as e:
