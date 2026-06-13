@@ -9,6 +9,12 @@ import torch.nn.functional as F
 from abc import ABC, abstractmethod
 from typing import Optional
 
+# 混响延迟配置（毫秒）
+# 使用不同延迟时间创造空间感，避免梳状滤波
+REVERB_DELAYS_MS = [17, 31, 47, 73]
+REVERB_GAINS = [0.3, -0.2, 0.15, -0.08]  # 对应每个延迟的增益
+REVERB_BUFFER_SIZE_MS = 150  # 实时模式缓冲区大小（毫秒）
+
 
 class AudioEffect(ABC):
     """音频效果器基类 — 机架单元抽象接口"""
@@ -117,14 +123,14 @@ class SimpleReverb(AudioEffect):
         self.mix = 0.0  # 混响混合比例 (0 = 干声, 1 = 湿声)
 
         # 延迟参数（毫秒）
-        self.delays_ms = [17, 31, 47, 73]
+        self.delays_ms = REVERB_DELAYS_MS
         self.delays_samples = [int(d * 0.001 * sample_rate) for d in self.delays_ms]
-        self.gains = [0.3, -0.2, 0.15, -0.08]
+        self.gains = REVERB_GAINS
 
         # 实时模式：维护环形缓冲区（设备在首次处理时推断）
         if realtime:
             max_delay = max(self.delays_samples)
-            buffer_size = int(0.15 * sample_rate)  # 150ms 缓冲
+            buffer_size = int(REVERB_BUFFER_SIZE_MS * 0.001 * sample_rate)
             self.buffer = None  # 延迟初始化，等待推断 device
             self.buffer_size = buffer_size
 

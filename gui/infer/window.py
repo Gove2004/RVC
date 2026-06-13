@@ -15,7 +15,7 @@ from rvc.audio import get_audio_devices, PRESETS
 from rvc.inference import OfflineWorker
 from gui.configs import load_state_json, save_state_json
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
-from gui.infer.widgets import ModelCard, ModelListData, LoadThread
+from gui.infer.widgets import ModelCard, ModelListData, LoadThread, _sl_value_as_float
 from gui.infer.tabs.settings_tab import build_settings_tab
 from gui.infer.tabs.models_tab import build_models_tab
 from gui.infer.tabs.audio_tab import build_audio_tab
@@ -43,6 +43,20 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self.engine.signals.runtime_error.connect(self._on_runtime_error)
         self._load_cfg()
+
+    # ── 辅助方法 ──
+
+    def _show_warning(self, message: str) -> None:
+        """显示警告对话框"""
+        QMessageBox.warning(self, "提示", message)
+
+    def _show_error(self, message: str) -> None:
+        """显示错误对话框"""
+        QMessageBox.critical(self, "错误", message)
+
+    def _show_info(self, message: str) -> None:
+        """显示信息对话框"""
+        QMessageBox.information(self, "提示", message)
 
     def _build_ui(self):
         cw = QWidget()
@@ -196,14 +210,14 @@ class MainWindow(QMainWindow):
     def _save_cfg(self):
         self._save_models()
         d = {
-            "version": 2, "bl": self.bl_sl.value() / 100,
-            "cf": self.cf_sl.value() / 100, "ex": self.ex_sl.value() / 100,
+            "version": 2, "bl": _sl_value_as_float(self.bl_sl),
+            "cf": _sl_value_as_float(self.cf_sl), "ex": _sl_value_as_float(self.ex_sl),
             "f0": self.f0_combo.currentText(),
             "eq_en": self.eq_en.isChecked(),
-            "eq_sub": self.eq_sub.value() / 100, "eq_lo": self.eq_lo.value() / 100,
-            "eq_mi": self.eq_mi.value() / 100, "eq_hi_mid": self.eq_hi_mid.value() / 100,
-            "eq_hi": self.eq_hi.value() / 100,
-            "rev": self.rev_sl.value() / 100,
+            "eq_sub": _sl_value_as_float(self.eq_sub), "eq_lo": _sl_value_as_float(self.eq_lo),
+            "eq_mi": _sl_value_as_float(self.eq_mi), "eq_hi_mid": _sl_value_as_float(self.eq_hi_mid),
+            "eq_hi": _sl_value_as_float(self.eq_hi),
+            "rev": _sl_value_as_float(self.rev_sl),
             "preset": self.preset_combo.currentText(),
             "ha": self.ha_combo.currentText(),
             "in_dev": self.in_combo.currentText(),
@@ -245,10 +259,10 @@ class MainWindow(QMainWindow):
         self.controller.apply_model_config(
             ModelConfig(
                 pitch=self._active_card.pit_sl.value(),
-                index_rate=self._active_card.ir_sl.value() / 100,
-                rms_mix=self._active_card.rms_sl.value() / 100,
-                gender=(self._active_card.gen_sl.value() / 100 - 0.5) * 4,
-                protect=self._active_card.protect_sl.value() / 100,
+                index_rate=_sl_value_as_float(self._active_card.ir_sl),
+                rms_mix=_sl_value_as_float(self._active_card.rms_sl),
+                gender=(_sl_value_as_float(self._active_card.gen_sl) - 0.5) * 4,
+                protect=_sl_value_as_float(self._active_card.protect_sl),
                 f0method=self.f0_combo.currentText(),
             )
         )
@@ -257,12 +271,12 @@ class MainWindow(QMainWindow):
         self.controller.apply_runtime_config(
             RuntimeConfig(
                 eq_en=self.eq_en.isChecked(),
-                eq_sub=self.eq_sub.value() / 100,
-                eq_low=self.eq_lo.value() / 100,
-                eq_mid=self.eq_mi.value() / 100,
-                eq_hi_mid=self.eq_hi_mid.value() / 100,
-                eq_high=self.eq_hi.value() / 100,
-                reverb=self.rev_sl.value() / 100,
+                eq_sub=_sl_value_as_float(self.eq_sub),
+                eq_low=_sl_value_as_float(self.eq_lo),
+                eq_mid=_sl_value_as_float(self.eq_mi),
+                eq_hi_mid=_sl_value_as_float(self.eq_hi_mid),
+                eq_high=_sl_value_as_float(self.eq_hi),
+                reverb=_sl_value_as_float(self.rev_sl),
                 out2_enabled=self.out2_combo.currentIndex() > 0,
             )
         )
@@ -311,14 +325,14 @@ class MainWindow(QMainWindow):
 
     def _start(self):
         if not self._active_card:
-            QMessageBox.warning(self, "提示", "请先在模型列表中选择一个模型")
+            self._show_warning("请先在模型列表中选择一个模型")
             return
         pth = self._active_card.pth_edit.text().strip()
         if not pth:
-            QMessageBox.warning(self, "提示", "模型文件路径为空")
+            self._show_warning("模型文件路径为空")
             return
         idx = self._active_card.idx_edit.text().strip()
-        ir = self._active_card.ir_sl.value() / 100
+        ir = _sl_value_as_float(self._active_card.ir_sl)
         self._apply_model_params()
         self._start_engine(pth, idx, ir)
 
@@ -354,9 +368,9 @@ class MainWindow(QMainWindow):
                     output_device_pos=self.out_combo.currentIndex(),
                     output2_device_pos=self.out2_combo.currentIndex() - 1,
                     sr_mode="model" if self.sr_r1.isChecked() else "device",
-                    block_time=self.bl_sl.value() / 100,
-                    crossfade_time=self.cf_sl.value() / 100,
-                    extra_time=self.ex_sl.value() / 100,
+                    block_time=_sl_value_as_float(self.bl_sl),
+                    crossfade_time=_sl_value_as_float(self.cf_sl),
+                    extra_time=_sl_value_as_float(self.ex_sl),
                 )
             )
             self.sr_r1_lbl.setText(f"模型采样率: {stats.sr_model}")
@@ -373,7 +387,7 @@ class MainWindow(QMainWindow):
             self._active_card.set_active(False)
         self._active_card = None
         self._reset_runtime_ui()
-        QMessageBox.critical(self, "错误", str(e))
+        self._show_error(str(e))
 
     def _on_runtime_error(self, message):
         if self.engine.running:
@@ -381,7 +395,7 @@ class MainWindow(QMainWindow):
         else:
             self.engine.runtime_error_pending = False
         self._reset_runtime_ui()
-        QMessageBox.critical(self, "实时推理错误", str(message))
+        self._show_error(f"实时推理错误: {message}")
 
     def _stop(self):
         if self._loading:
@@ -419,24 +433,24 @@ class MainWindow(QMainWindow):
         inp = self.off_in.text().strip()
         out = self.off_out.text().strip()
         if not inp:
-            QMessageBox.warning(self, "提示", "请选择输入文件")
+            self._show_warning("请选择输入文件")
             return
         if not os.path.exists(inp):
-            QMessageBox.warning(self, "提示", f"文件不存在: {inp}")
+            self._show_warning(f"文件不存在: {inp}")
             return
         if not out:
             base, _ = os.path.splitext(inp)
             out = base + "_converted.wav"
             self.off_out.setText(out)
         if not self._active_card:
-            QMessageBox.warning(self, "提示", "请先在「模型」中选择一个模型")
+            self._show_warning("请先在「模型」中选择一个模型")
             return
         pth = self._active_card.pth_edit.text().strip()
         if not pth:
-            QMessageBox.warning(self, "提示", "模型路径为空")
+            self._show_warning("模型路径为空")
             return
         if self.engine.running:
-            QMessageBox.warning(self, "提示", "请先停止实时变声")
+            self._show_warning("请先停止实时变声")
             return
 
         idx = self._active_card.idx_edit.text().strip()
@@ -489,7 +503,7 @@ class MainWindow(QMainWindow):
         if self._off_worker:
             self._off_worker.wait()
             self._off_worker = None
-        QMessageBox.critical(self, "离线推理错误", str(msg).strip().splitlines()[-1])
+        self._show_error(f"离线推理错误: {str(msg).strip().splitlines()[-1]}")
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -501,7 +515,9 @@ class MainWindow(QMainWindow):
             self._off_worker.wait(2000)
         try:
             self._save_cfg()
-        except Exception:
-            logger.warning("保存配置失败", exc_info=True)
+        except OSError as e:
+            logger.error("保存配置失败（文件系统错误）: %s", e)
+        except Exception as e:
+            logger.error("保存配置失败: %s", e, exc_info=True)
         self.engine.stop()
         e.accept()

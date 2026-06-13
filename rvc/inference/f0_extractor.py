@@ -6,6 +6,32 @@ import torch
 
 logger = logging.getLogger(__name__)
 
+# F0 范围常量
+F0_MIN = 50.0  # Hz - 人声最低基频
+F0_MAX = 1100.0  # Hz - 人声最高基频
+
+
+def _normalize_f0_to_coarse(f0: torch.Tensor, f0_min: float = F0_MIN, f0_max: float = F0_MAX) -> torch.Tensor:
+    """将连续 F0 归一化为离散 pitch 值 (1-255)。
+
+    使用 Mel 频率标度进行归一化，将 F0 映射到 MIDI-like 的离散表示。
+
+    Args:
+        f0: 连续 F0 值 (Hz)
+        f0_min: F0 最小值 (Hz)
+        f0_max: F0 最大值 (Hz)
+
+    Returns:
+        pitch_coarse: 离散化的 pitch 值，范围 [1, 255]
+    """
+    f0_mel_min = 1127 * torch.log(1 + torch.tensor(f0_min) / 700)
+    f0_mel_max = 1127 * torch.log(1 + torch.tensor(f0_max) / 700)
+    f0_mel = 1127 * torch.log(1 + f0 / 700)
+    f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (f0_mel_max - f0_mel_min) + 1
+    f0_mel[f0_mel <= 1] = 1
+    f0_mel[f0_mel > 255] = 255
+    return torch.round(f0_mel).long()
+
 
 class F0Extractor(ABC):
     """F0 提取器抽象基类 — 统一接口。"""
@@ -28,7 +54,7 @@ class F0Extractor(ABC):
 class RMVPEExtractor(F0Extractor):
     """RMVPE F0 提取器"""
 
-    def __init__(self, model_path: str, device: torch.device, is_half: bool):
+    def __init__(self, model_path: str, device: torch.device, is_half: bool) -> None:
         from rvc.models.rmvpe import RMVPE
         logger.info("加载 RMVPE")
         self.model = RMVPE(model_path, is_half=is_half, device=device)
@@ -46,13 +72,7 @@ class RMVPEExtractor(F0Extractor):
         f0 = f0.float().to(self.device).squeeze()
 
         # Mel 归一化
-        f0_mel_min = 1127 * torch.log(1 + torch.tensor(50.0) / 700)
-        f0_mel_max = 1127 * torch.log(1 + torch.tensor(1100.0) / 700)
-        f0_mel = 1127 * torch.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (f0_mel_max - f0_mel_min) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        pitch_coarse = torch.round(f0_mel).long()
+        pitch_coarse = _normalize_f0_to_coarse(f0)
 
         return pitch_coarse, f0
 
@@ -60,7 +80,7 @@ class RMVPEExtractor(F0Extractor):
 class FCPEExtractor(F0Extractor):
     """FCPE F0 提取器"""
 
-    def __init__(self, device: torch.device):
+    def __init__(self, device: torch.device) -> None:
         from torchfcpe import spawn_bundled_infer_model
         logger.info("加载 FCPE")
         # 抑制 torchfcpe 的日志
@@ -88,13 +108,7 @@ class FCPEExtractor(F0Extractor):
         f0 = f0.float().to(self.device).squeeze()
 
         # Mel 归一化
-        f0_mel_min = 1127 * torch.log(1 + torch.tensor(50.0) / 700)
-        f0_mel_max = 1127 * torch.log(1 + torch.tensor(1100.0) / 700)
-        f0_mel = 1127 * torch.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (f0_mel_max - f0_mel_min) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        pitch_coarse = torch.round(f0_mel).long()
+        pitch_coarse = _normalize_f0_to_coarse(f0)
 
         return pitch_coarse, f0
 

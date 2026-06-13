@@ -10,12 +10,27 @@ from PySide6.QtCore import Qt, QThread, Signal
 from gui.configs import load_state_json, save_state_json
 from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout
 
+__all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_sl_value_as_float"]
+
 
 def _sl(mn, mx, st, dv):
     """创建水平滑块的快捷函数"""
     s = QSlider(Qt.Orientation.Horizontal)
     s.setRange(mn, mx); s.setSingleStep(st); s.setValue(dv)
     return s
+
+
+def _sl_value_as_float(slider: QSlider, divisor: float = 100.0) -> float:
+    """将滑块整数值转换为浮点数。
+
+    Args:
+        slider: QSlider 实例
+        divisor: 除数（默认 100.0，即将 0-100 映射到 0.0-1.0）
+
+    Returns:
+        float: 转换后的浮点值
+    """
+    return slider.value() / divisor
 
 
 class ModelListData:
@@ -114,16 +129,17 @@ class ModelCard(QFrame):
     def _on_load(self):
         self.load_requested.emit(
             self._name.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
-            self.pit_sl.value(), self.ir_sl.value()/100, self.rms_sl.value()/100,
-            self.gen_sl.value()/100, self.protect_sl.value()/100,
+            self.pit_sl.value(), _sl_value_as_float(self.ir_sl), _sl_value_as_float(self.rms_sl),
+            _sl_value_as_float(self.gen_sl), _sl_value_as_float(self.protect_sl),
         )
 
     def get_data(self):
         return {
             "name": self._name.text(), "pth": self.pth_edit.text().strip(),
             "idx": self.idx_edit.text().strip(), "pitch": self.pit_sl.value(),
-            "index_rate": self.ir_sl.value()/100,
-            "rms_mix": self.rms_sl.value()/100, "gender": self.gen_sl.value()/100,
+            "index_rate": _sl_value_as_float(self.ir_sl),
+            "rms_mix": _sl_value_as_float(self.rms_sl),
+            "gender": _sl_value_as_float(self.gen_sl),
             "protect": self.protect_sl.value()/100,
         }
 

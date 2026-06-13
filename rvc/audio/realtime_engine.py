@@ -19,6 +19,9 @@ from gui.configs import Config
 logger = logging.getLogger(__name__)
 config = Config()
 
+# 实时推理错误容忍配置
+MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
+
 
 class EngineSignals(QObject):
     runtime_error = Signal(str)
@@ -59,7 +62,7 @@ class RealtimeEngine:
         self.loaded_pth = ""; self.loaded_idx = ""
         self.infer_ms = 0.0
         self.error_count = 0
-        self.max_error_count = 3
+        self.max_error_count = MAX_CONSECUTIVE_ERRORS
         self.last_error = ""
         self.runtime_error_pending = False
 
@@ -154,10 +157,14 @@ class RealtimeEngine:
         self.runtime_error_pending = False
         for s in (self.stream2, self.stream):
             if s:
-                try: s.abort()
-                except Exception: pass
-                try: s.close()
-                except Exception: pass
+                try:
+                    s.abort()
+                except Exception as e:
+                    logger.debug("停止流时出错: %s", e)
+                try:
+                    s.close()
+                except Exception as e:
+                    logger.debug("关闭流时出错: %s", e)
         self.stream = self.stream2 = None
 
     @staticmethod

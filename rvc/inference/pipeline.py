@@ -10,10 +10,13 @@ import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.models.inference_cache import default_inference_cache
-from rvc.inference.f0_extractor import create_f0_extractor
+from rvc.inference.f0_extractor import create_f0_extractor, F0_MIN, F0_MAX
 from rvc.inference.model_loader import SynthesizerLoader
 
 logger = logging.getLogger(__name__)
+
+# Pitch 缓存大小（10ms 帧数）
+PITCH_CACHE_SIZE = 1024
 
 
 def faiss_blend(feats_npy, index, big_npy, index_rate, is_half):
@@ -85,13 +88,13 @@ class VCPipeline:
 
         self.f0_up_key = 0
         self.formant_shift = 0.0
-        self.f0_min = 50
-        self.f0_max = 1100
+        self.f0_min = F0_MIN
+        self.f0_max = F0_MAX
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
-        self.cache_pitch = torch.zeros(1024, device=self.device, dtype=torch.long)
-        self.cache_pitchf = torch.zeros(1024, device=self.device, dtype=torch.float32)
+        self.cache_pitch = torch.zeros(PITCH_CACHE_SIZE, device=self.device, dtype=torch.long)
+        self.cache_pitchf = torch.zeros(PITCH_CACHE_SIZE, device=self.device, dtype=torch.float32)
 
         self.model = None       # HuBERT
         self.net_g = None       # Synthesizer
@@ -103,7 +106,7 @@ class VCPipeline:
         self.model_rmvpe = None
         self.model_fcpe = None
 
-    def load(self):
+    def load(self) -> None:
         """加载所有模型（HuBERT + Synthesizer + 可选Index）"""
         logger.info("加载 %s", os.path.basename(self.pth_path))
 
@@ -122,8 +125,10 @@ class VCPipeline:
         # 移除 weight_norm
         try:
             self.net_g.remove_weight_norm()
-        except Exception:
-            pass
+        except AttributeError:
+            logger.debug("模型没有 weight_norm，跳过移除")
+        except Exception as e:
+            logger.warning("移除 weight_norm 失败: %s", e)
 
         # FAISS Index（检查缓存）
         if self.index_rate > 0 and self.index_path and os.path.exists(self.index_path):
@@ -141,13 +146,13 @@ class VCPipeline:
                 })
                 logger.info("加载 Index: %s", os.path.basename(self.index_path))
 
-    def change_key(self, key):
+    def change_key(self, key: int) -> None:
         self.f0_up_key = key
 
-    def change_formant(self, shift):
+    def change_formant(self, shift: float) -> None:
         self.formant_shift = shift
 
-    def change_index_rate(self, rate):
+    def change_index_rate(self, rate: float) -> None:
         if rate > 0 and self.index is None and self.index_path and os.path.exists(self.index_path):
             self.index = faiss.read_index(self.index_path)
             self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
@@ -184,8 +189,8 @@ class VCPipeline:
                 npy = feats[0][skip_head // 2 :].detach().cpu().numpy().astype("float32")
                 blended = faiss_blend(npy, self.index, self.big_npy, self.index_rate, self.is_half)
                 feats[0][skip_head // 2 :] = torch.from_numpy(blended).to(self.device)
-            except Exception:
-                logger.debug("索引匹配失败: %s", traceback.format_exc())
+            except Exception as e:
+                logger.warning("FAISS 索引混合失败，使用原始特征: %s", e)
         return feats
 
     def _prepare_pitch_tensors(self, pitch, pitchf, p_len):
@@ -265,7 +270,7 @@ class VCPipeline:
 
         return audio.cpu().numpy()
 
-    def infer(self, input_wav, block_frame_16k, skip_head, return_length, f0method="fcpe", protect=0.0):
+    def infer(self, input_wav: torch.Tensor, block_frame_16k: int, skip_head: int, return_length: int, f0method: str = "fcpe", protect: float = 0.0) -> torch.Tensor:
         """实时推理一个音频块。
 
         Args:

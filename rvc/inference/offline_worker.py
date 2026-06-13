@@ -16,7 +16,11 @@ from rvc.audio.utils import match_rms
 logger = logging.getLogger(__name__)
 config = Config()
 
-_X_PAD = 3  # 与 Config 中 x_pad 一致
+# 音频 padding 配置（秒）
+AUDIO_PAD_SECONDS = 3  # 前后各 padding 3 秒以提供推理上下文
+
+# 音频时长限制（秒）
+MAX_AUDIO_DURATION = 300  # 5 分钟
 
 
 class OfflineWorker(QThread):
@@ -55,8 +59,8 @@ class OfflineWorker(QThread):
 
         # 时长限制
         duration = len(wav) / sr
-        if duration > 300:
-            self.error.emit(f"音频时长 {duration:.0f}s 超过限制（最长 5 分钟）")
+        if duration > MAX_AUDIO_DURATION:
+            self.error.emit(f"音频时长 {duration:.0f}s 超过限制（最长 {MAX_AUDIO_DURATION // 60} 分钟）")
             self.finished.emit("")
             return
 
@@ -73,8 +77,8 @@ class OfflineWorker(QThread):
         self.progress.emit(20, 100)
 
         tgt_sr = vc.tgt_sr
-        t_pad = 16000 * _X_PAD  # 48000 样本 (16kHz 下 3s)
-        t_pad_tgt = tgt_sr * _X_PAD  # 模型采样率下的 padding
+        t_pad = 16000 * AUDIO_PAD_SECONDS  # 16kHz 下的 padding 样本数
+        t_pad_tgt = tgt_sr * AUDIO_PAD_SECONDS  # 模型采样率下的 padding 样本数
 
         # Pad 音频（反射填充）
         audio_pad = np.pad(wav, (t_pad, t_pad), mode="reflect")
