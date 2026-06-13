@@ -12,6 +12,7 @@ from gui.configs import Config
 from rvc.audio.loader import load_audio_native
 from rvc.audio.effects import create_offline_chain
 from rvc.audio.utils import match_rms
+from rvc.inference.offline_config import OfflineConfig
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -28,19 +29,9 @@ class OfflineWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, input_path, output_path, pth, idx, idx_rate, pitch, f0method, rms_mix, protect,
-                 enable_eq=False, eq_bands=None, reverb_mix=0.0):
+    def __init__(self, cfg: OfflineConfig):
         super().__init__()
-        self.input_path = input_path
-        self.output_path = output_path
-        self.pth = pth; self.idx = idx; self.idx_rate = idx_rate
-        self.pitch = pitch; self.f0method = f0method; self.rms_mix = rms_mix
-        self.protect = protect
-
-        # 声学参数
-        self.enable_eq = enable_eq
-        self.eq_bands = eq_bands or {'sub': 0, 'low': 0, 'mid': 0, 'hi_mid': 0, 'high': 0}
-        self.reverb_mix = reverb_mix
+        self.cfg = cfg
 
     def run(self):
         try:
@@ -55,7 +46,7 @@ class OfflineWorker(QThread):
 
         # 加载音频
         self.progress.emit(0, 100)
-        wav, sr = load_audio_native(self.input_path)
+        wav, sr = load_audio_native(self.cfg.input_path)
 
         # 时长限制
         duration = len(wav) / sr
@@ -71,9 +62,9 @@ class OfflineWorker(QThread):
 
         # 推理引擎
         from rvc.inference.pipeline import VCPipeline
-        vc = VCPipeline(config, self.pth, self.idx, self.idx_rate)
+        vc = VCPipeline(config, self.cfg.model_path, self.cfg.index_path, self.cfg.index_rate)
         vc.load()
-        vc.change_key(self.pitch)
+        vc.change_key(self.cfg.pitch)
         self.progress.emit(20, 100)
 
         tgt_sr = vc.tgt_sr
@@ -84,18 +75,18 @@ class OfflineWorker(QThread):
         audio_pad = np.pad(wav, (t_pad, t_pad), mode="reflect")
         self.progress.emit(40, 100)
 
-        audio1 = vc.infer_offline(audio_pad, self.f0method, self.protect)
+        audio1 = vc.infer_offline(audio_pad, self.cfg.f0method, self.cfg.protect)
         self.progress.emit(75, 100)
 
         # Trim padding
         audio1 = audio1[t_pad_tgt : -t_pad_tgt] if t_pad_tgt > 0 else audio1
 
         # RMS 响度匹配
-        if self.rms_mix != 1:
-            audio1 = match_rms(wav, 16000, audio1, tgt_sr, self.rms_mix)
+        if self.cfg.rms_mix != 1:
+            audio1 = match_rms(wav, 16000, audio1, tgt_sr, self.cfg.rms_mix)
 
         # 声学效果处理
-        if self.enable_eq:
+        if self.cfg.eq_enabled:
             self.progress.emit(85, 100)
             audio1 = self._apply_effects(audio1, tgt_sr)
 
@@ -103,9 +94,9 @@ class OfflineWorker(QThread):
         audio_max = np.abs(audio1).max() / 0.99
         if audio_max > 1:
             audio1 = audio1 / audio_max
-        sf.write(self.output_path, audio1, tgt_sr, subtype="FLOAT")
+        sf.write(self.cfg.output_path, audio1, tgt_sr, subtype="FLOAT")
         self.progress.emit(100, 100)
-        self.finished.emit(self.output_path)
+        self.finished.emit(self.cfg.output_path)
 
         # 释放 GPU 显存
         del vc
@@ -117,12 +108,12 @@ class OfflineWorker(QThread):
         chain, eq, reverb = create_offline_chain(sr)
 
         # 配置参数
-        eq.set_band('sub', self.eq_bands['sub'])
-        eq.set_band('low', self.eq_bands['low'])
-        eq.set_band('mid', self.eq_bands['mid'])
-        eq.set_band('hi_mid', self.eq_bands['hi_mid'])
-        eq.set_band('high', self.eq_bands['high'])
-        reverb.set_mix(self.reverb_mix)
+        eq.set_band('sub', self.cfg.eq_bands['sub'])
+        eq.set_band('low', self.cfg.eq_bands['low'])
+        eq.set_band('mid', self.cfg.eq_bands['mid'])
+        eq.set_band('hi_mid', self.cfg.eq_bands['hi_mid'])
+        eq.set_band('high', self.cfg.eq_bands['high'])
+        reverb.set_mix(self.cfg.reverb_mix)
 
         # 转换为 Tensor 处理
         audio_t = torch.from_numpy(audio).to(config.device)

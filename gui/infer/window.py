@@ -19,6 +19,7 @@ from gui.infer.model_manager import ModelManager
 from gui.infer.config_manager import ConfigManager
 from gui.infer.device_manager import DeviceManager
 from gui.infer.offline_manager import OfflineManager
+from gui.infer.utils import format_error_message
 from gui.styles import ButtonStyles, Layout
 
 logger = logging.getLogger(__name__)
@@ -272,7 +273,7 @@ class MainWindow(QMainWindow):
             self.model_manager.active_card.set_active(False)
         self.model_manager.active_card = None
         self._reset_runtime_ui()
-        self._show_error(str(e))
+        self._show_error(format_error_message(e))
 
     def _on_runtime_error(self, message):
         if self.engine.running:

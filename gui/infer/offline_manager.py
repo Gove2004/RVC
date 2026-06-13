@@ -3,7 +3,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QFileDialog
 import os
 
-from rvc.inference import OfflineWorker
+from rvc.inference.offline_worker import OfflineWorker
+from rvc.inference.offline_config import OfflineConfig
+from gui.infer.utils import format_error_message
 
 if TYPE_CHECKING:
     from gui.infer.window import MainWindow
@@ -53,7 +55,8 @@ class OfflineManager:
             self.window._show_warning("请先在「模型」中选择一个模型")
             return
 
-        pth = self.window.model_manager.active_card.pth_edit.text().strip()
+        card = self.window.model_manager.active_card
+        pth = card.pth_edit.text().strip()
         if not pth:
             self.window._show_warning("模型路径为空")
             return
@@ -62,27 +65,9 @@ class OfflineManager:
             self.window._show_warning("请先停止实时变声")
             return
 
-        # 启动转换
-        from gui.infer.widgets import _sl_value_as_float
-        card = self.window.model_manager.active_card
-        idx = card.idx_edit.text().strip()
-        pitch = card.pitch_slider.value()
-        f0method = self.window.f0_combo.currentText()
-
-        self.worker = OfflineWorker(
-            inp, out, pth, idx, pitch, f0method,
-            _sl_value_as_float(card.index_rate_slider),
-            _sl_value_as_float(card.rms_mix_slider),
-            (_sl_value_as_float(card.gender_slider) - 0.5) * 4,
-            _sl_value_as_float(card.protect_slider),
-            self.window.eq_enable_checkbox.isChecked(),
-            _sl_value_as_float(self.window.eq_sub_slider),
-            _sl_value_as_float(self.window.eq_low_slider),
-            _sl_value_as_float(self.window.eq_mid_slider),
-            _sl_value_as_float(self.window.eq_hi_mid_slider),
-            _sl_value_as_float(self.window.eq_high_slider),
-            _sl_value_as_float(self.window.reverb_slider),
-        )
+        # 构建配置并启动转换
+        config = OfflineConfig.from_ui(self.window, card)
+        self.worker = OfflineWorker(config)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
@@ -91,10 +76,13 @@ class OfflineManager:
         self.window.offline_button.setEnabled(False)
         self.window.offline_button.setText("转换中...")
         self.window.offline_status.setText("初始化...")
+        self.window.offline_progress.setValue(0)
 
     def _on_progress(self, current: int, total: int) -> None:
         """更新进度"""
         self.window.offline_status.setText(f"进度: {current}/{total}")
+        if total > 0:
+            self.window.offline_progress.setValue(current)
 
     def _on_finished(self, path: str) -> None:
         """转换完成"""
@@ -113,7 +101,7 @@ class OfflineManager:
         if self.worker:
             self.worker.wait()
             self.worker = None
-        self.window._show_error(f"离线推理错误: {str(msg).strip().splitlines()[-1]}")
+        self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
 
     def cleanup(self) -> None:
         """清理资源"""

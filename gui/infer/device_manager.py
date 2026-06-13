@@ -14,16 +14,15 @@ class DeviceManager:
 
     def reload_devices(self) -> None:
         """重新加载音频设备列表"""
-        hostapi_name = self.window.hostapi_combo.currentText()
-        if not hostapi_name:
-            return
-        apis, ins, outs = get_audio_devices()
-        self._populate_device_combos(ins, outs)
+        self._refresh_devices()
 
     def on_hostapi_changed(self, name: str) -> None:
         """音频驱动改变时的处理"""
-        if not name:
-            return
+        if name:
+            self._refresh_devices()
+
+    def _refresh_devices(self) -> None:
+        """内部：刷新设备列表"""
         apis, ins, outs = get_audio_devices()
         self._populate_device_combos(ins, outs)
 

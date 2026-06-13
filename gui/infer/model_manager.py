@@ -60,7 +60,17 @@ class ModelManager:
         card.deleteLater()
         self.save_models()
 
-    def _handle_card_load(self, name, pth, idx, pitch, ir, rms, gender, protect):
+    def _handle_card_load(
+        self,
+        name: str,
+        pth: str,
+        idx: str,
+        pitch: int,
+        ir: float,
+        rms: float,
+        gender: float,
+        protect: float
+    ) -> None:
         """处理卡片加载请求"""
         if not pth:
             return

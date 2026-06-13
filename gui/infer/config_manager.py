@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from gui.infer.window import MainWindow
 
 CONFIG_KEY = "gui"
+CONFIG_VERSION = 2  # 配置文件版本号
 
 
 class ConfigManager:
@@ -27,7 +28,7 @@ class ConfigManager:
         from gui.infer.widgets import _sl_value_as_float
 
         d = {
-            "version": 2,
+            "version": CONFIG_VERSION,
             "bl": _sl_value_as_float(self.window.block_time_slider),
             "cf": _sl_value_as_float(self.window.crossfade_slider),
             "ex": _sl_value_as_float(self.window.extra_time_slider),
