@@ -148,26 +148,28 @@ class ModelCard(QFrame):
         }
 
     def set_active(self, active):
+        from gui.styles import Colors
         if active:
             self._btn_use.setText("使用中")
             self._btn_use.setEnabled(False)
-            self._btn_use.setStyleSheet("QPushButton{background:#28a745;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}")
-            self.setStyleSheet("ModelCard{border:1px solid #28a745;border-radius:3px;margin:1px;background:rgba(40,167,69,0.06)}")
-            self._name.setStyleSheet("font-weight:bold;color:#28a745")
+            self._btn_use.setStyleSheet(f"QPushButton{{background:{Colors.SUCCESS};color:white;border:none;padding:3px;border-radius:3px;font-size:11px}}")
+            self.setStyleSheet(f"ModelCard{{border:1px solid {Colors.SUCCESS};border-radius:3px;margin:1px;background:{Colors.SUCCESS_BG}}}")
+            self._name.setStyleSheet(f"font-weight:bold;color:{Colors.SUCCESS}")
         else:
             self._btn_use.setText("使用")
             self._btn_use.setEnabled(True)
-            self._btn_use.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}QPushButton:hover{background:#2563eb}")
-            self.setStyleSheet("ModelCard{border:1px solid #444;border-radius:3px;margin:1px}")
+            self._btn_use.setStyleSheet(f"QPushButton{{background:{Colors.SECONDARY};color:white;border:none;padding:3px;border-radius:3px;font-size:11px}}QPushButton:hover{{background:{Colors.SECONDARY_HOVER}}}")
+            self.setStyleSheet(f"ModelCard{{border:1px solid {Colors.BORDER};border-radius:3px;margin:1px}}")
             self._name.setStyleSheet("font-weight:bold")
 
     def set_loading(self, loading):
+        from gui.styles import Colors
         if loading:
             self._btn_use.setText("加载中")
             self._btn_use.setEnabled(False)
-            self._btn_use.setStyleSheet("QPushButton{background:#3b82f6;color:white;border:none;padding:3px;border-radius:3px;font-size:11px}")
-            self.setStyleSheet("ModelCard{border:1px solid #3b82f6;border-radius:3px;margin:1px;background:rgba(59,130,246,0.06)}")
-            self._name.setStyleSheet("font-weight:bold;color:#3b82f6")
+            self._btn_use.setStyleSheet(f"QPushButton{{background:{Colors.INFO};color:white;border:none;padding:3px;border-radius:3px;font-size:11px}}")
+            self.setStyleSheet(f"ModelCard{{border:1px solid {Colors.INFO};border-radius:3px;margin:1px;background:{Colors.INFO_BG}}}")
+            self._name.setStyleSheet(f"font-weight:bold;color:{Colors.INFO}")
 
 
 # ─────────────────── 加载线程 ───────────────────

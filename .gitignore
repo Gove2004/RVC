@@ -26,8 +26,7 @@ assets/rmvpe_inputs.pth
 # Runtime configs (migrated to assets/configs/)
 /configs/
 
-# Temp
-TEMP/
+# Temp files
 *.tmp
 
 # OS

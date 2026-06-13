@@ -175,8 +175,8 @@ class MainWindow(QMainWindow):
     def _set_start_button(self, text, enabled, style):
         self.btn_start.setEnabled(enabled)
         self.btn_start.setText(text)
-        if "28a745" in style or "3b82f6" in style:
-            if "28a745" in style:
+        if "10b981" in style or "6366f1" in style:
+            if "10b981" in style:
                 self.btn_start.setStyleSheet(ButtonStyles.primary())
             else:
                 self.btn_start.setStyleSheet(ButtonStyles.secondary())
