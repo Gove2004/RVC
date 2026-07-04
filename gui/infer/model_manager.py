@@ -34,8 +34,8 @@ class ModelManager:
         pitch: int = 0,
         index_rate: float = 0.0,
         rms_mix: float = 0.0,
-        gender: int = 50,
-        protect: int = 50,
+        gender: float = 0.0,
+        protect: float = 0.5,
     ) -> ModelCard:
         """添加模型卡片到列表"""
         card = ModelCard(

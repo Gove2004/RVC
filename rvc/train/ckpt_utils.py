@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from gui.configs import runtime_train_config_path
+from gui.configs import train_config_path
 
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
@@ -51,7 +51,7 @@ def latest_checkpoint_path(dir_path: str, prefix: str):
 
 
 def load_train_json(sr: int):
-    path = runtime_train_config_path(sr)
+    path = train_config_path(sr)
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -66,7 +66,7 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
         "weight": weights,
         "config": model_config,
         "info": f"{epoch}epoch",
-        "sr": "48k" if sr == 48000 else "32k",
+        "sr": "48k",
         "f0": 1,
         "version": "v2",
     }

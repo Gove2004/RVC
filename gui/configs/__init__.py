@@ -1,18 +1,16 @@
-"""GUI 配置模块 — 状态持久化、训练配置"""
+"""配置管理"""
 from gui.configs.config import (
     Config,
-    load_state_json,
-    save_state_json,
-    state_path,
+    ModelConfig,
+    load_config,
+    save_config,
     train_config_path,
-    runtime_train_config_path,
 )
 
 __all__ = [
     "Config",
-    "load_state_json",
-    "save_state_json",
-    "state_path",
+    "ModelConfig",
+    "load_config",
+    "save_config",
     "train_config_path",
-    "runtime_train_config_path",
 ]

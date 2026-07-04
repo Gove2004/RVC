@@ -3,15 +3,13 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget
 
-from gui.configs import load_state_json, save_state_json, state_path
+from gui.configs import load_config, save_config
 from rvc.train.train_worker import TrainWorker
 from gui.train.widgets import ToolThread
 from gui.train.tabs.settings_tab import build_settings_tab
 from gui.train.tabs.train_tab import build_train_tab
 from gui.train.tabs.tools_tab import build_tools_tab
 from gui.styles import ButtonStyles, LabelStyles, Layout
-
-TRAIN_STATE_KEY = "train"
 
 
 class TrainWindow(QMainWindow):
@@ -41,7 +39,8 @@ class TrainWindow(QMainWindow):
     # ── 训练逻辑 ────────────────────────────────────────────
 
     def _on_sr_changed(self, text: str):
-        sr = "48k" if text == "48k" else "32k"
+        """采样率改变时自动填充预训练模型（仅 48k）"""
+        sr = "48k"
         if not self.pretrain_g.text().strip():
             path = Path(f"assets/pretrained_v2/f0G{sr}.pth")
             if path.exists():
@@ -126,10 +125,13 @@ class TrainWindow(QMainWindow):
             "pretrain_g": self.pretrain_g.text().strip(),
             "pretrain_d": self.pretrain_d.text().strip(),
         }
-        save_state_json(TRAIN_STATE_KEY, cfg)
+        config = load_config()
+        config["train"] = cfg
+        save_config(config)
 
     def _load_cfg(self):
-        cfg = load_state_json(TRAIN_STATE_KEY, {})
+        config = load_config()
+        cfg = config.get("train", {})
         if cfg.get("exp_name"):
             self.exp_name.setText(cfg["exp_name"])
         if cfg.get("input_dir"):

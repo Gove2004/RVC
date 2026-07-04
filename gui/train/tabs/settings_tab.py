@@ -35,7 +35,7 @@ def _build_data_group(win) -> QGroupBox:
     browse.setStyleSheet(ButtonStyles.small())
     browse.clicked.connect(lambda: browse_directory(win, win.input_dir))
     win.sample_rate = QComboBox()
-    win.sample_rate.addItems(["48k", "32k"])
+    win.sample_rate.addItems(["48k"])
     win.sample_rate.currentTextChanged.connect(win._on_sr_changed)
 
     grid.addWidget(QLabel("实验名"), 0, 0)

@@ -50,7 +50,7 @@ class TrainWorker(QThread):
         config = Config()
         exp_dir = Path("logs") / self.options["exp_name"]
         exp_dir.mkdir(parents=True, exist_ok=True)
-        sr = 48000 if self.options["sr"] == "48k" else 32000
+        sr = 48000  # 仅支持 48k
 
         if self.step != "preprocess" and exp_dir.exists() and not manifest_matches(exp_dir, self.options["input_dir"], sr, 3.7):
             raise RuntimeError("实验目录与当前输入不一致，请先重新执行预处理")

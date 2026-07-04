@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal
 
-from gui.configs import load_state_json, save_state_json
+from gui.configs import load_config, save_config
 from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
 
 __all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_sl_value_as_float"]
@@ -38,19 +38,14 @@ class ModelListData:
 
     @staticmethod
     def load():
-        data = load_state_json("models", {"models": []})
-        models = data.get("models", [])
-        # 迁移旧格式：如果 gender/protect 是 float (0.0-1.0)，转换为 int (0-100)
-        for m in models:
-            if "gender" in m and isinstance(m["gender"], float) and 0 <= m["gender"] <= 1:
-                m["gender"] = int(m["gender"] * 100)
-            if "protect" in m and isinstance(m["protect"], float) and 0 <= m["protect"] <= 1:
-                m["protect"] = int(m["protect"] * 100)
-        return models
+        cfg = load_config()
+        return cfg.get("models", [])
 
     @staticmethod
     def save(models):
-        save_state_json("models", {"models": models})
+        cfg = load_config()
+        cfg["models"] = models
+        save_config(cfg)
 
 
 class ModelCard(QFrame):
@@ -59,7 +54,13 @@ class ModelCard(QFrame):
     load_requested = Signal(str, str, str, float, float, float, float, float)
 
     def __init__(self, name="", pth="", idx="", pitch=0,
-                 index_rate=0.0, rms_mix=0.0, gender=50, protect=50, parent=None):
+                 index_rate=0.0, rms_mix=0.0, gender=0.0, protect=0.5, parent=None):
+        """初始化模型卡片
+
+        参数均为 UI 显示值（人类可读）：
+        - gender: -2.5 到 +2.5
+        - protect: 0.0 到 1.0
+        """
         super().__init__(parent)
         self._expanded = False
         self._build(name, pth, idx, pitch, index_rate, rms_mix, gender, protect)
@@ -108,8 +109,10 @@ class ModelCard(QFrame):
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
         add_slider("音调", self.pitch_slider, self.pitch_label, r); r+=1
 
-        self.gender_slider = _sl(0,100,1,gender); self.gender_label = QLabel(f"{(gender/100-0.5)*4:+.2f}")
-        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{(v/100-0.5)*4:+.2f}"))
+        # gender: UI 显示 -2.5~+2.5，slider 内部 0~100
+        gender_slider_val = int(((gender + 2.5) / 5.0) * 100)
+        self.gender_slider = _sl(0,100,1,gender_slider_val); self.gender_label = QLabel(f"{gender:+.2f}")
+        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{(v/100*5-2.5):+.2f}"))
         add_slider("性别", self.gender_slider, self.gender_label, r); r+=1
 
         self.index_rate_slider = _sl(0,100,1,int(index_rate*100)); self.index_rate_label = QLabel(f"{index_rate:.2f}")
@@ -120,7 +123,9 @@ class ModelCard(QFrame):
         self.rms_mix_slider.valueChanged.connect(lambda v: self.rms_mix_label.setText(f"{v/100:.2f}"))
         add_slider("响度", self.rms_mix_slider, self.rms_mix_label, r); r+=1
 
-        self.protect_slider = _sl(0,100,1,protect); self.protect_label = QLabel(f"{protect/100:.2f}")
+        # protect: UI 显示 0.0~1.0，slider 内部 0~100
+        protect_slider_val = int(protect * 100)
+        self.protect_slider = _sl(0,100,1,protect_slider_val); self.protect_label = QLabel(f"{protect:.2f}")
         self.protect_slider.valueChanged.connect(lambda v: self.protect_label.setText(f"{v/100:.2f}"))
         add_slider("辅音保护", self.protect_slider, self.protect_label, r); r+=1
 
@@ -147,15 +152,16 @@ class ModelCard(QFrame):
         )
 
     def get_data(self):
+        """返回模型配置数据（所有值为 UI 显示值，人类可读）"""
         return {
             "name": self._name.text(),
             "pth": self.pth_edit.text().strip(),
             "idx": self.idx_edit.text().strip(),
-            "pitch": self.pitch_slider.value(),
-            "index_rate": _sl_value_as_float(self.index_rate_slider),
-            "rms_mix": _sl_value_as_float(self.rms_mix_slider),
-            "gender": self.gender_slider.value(),  # 保存原始 slider 值（0-100）
-            "protect": self.protect_slider.value(),  # 保存原始 slider 值（0-100）
+            "pitch": self.pitch_slider.value(),  # 音调是整数，不需要转换
+            "index_rate": _sl_value_as_float(self.index_rate_slider),  # 0.0-1.0
+            "rms_mix": _sl_value_as_float(self.rms_mix_slider),  # 0.0-1.0
+            "gender": (self.gender_slider.value() / 100 * 5 - 2.5),  # -2.5 到 +2.5
+            "protect": _sl_value_as_float(self.protect_slider),  # 0.0-1.0
         }
 
     def set_active(self, active):

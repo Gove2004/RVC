@@ -115,10 +115,8 @@ class Trainer:
                 self.progress_callback(epoch, self.cfg.epochs)
         if last_epoch is None:
             raise RuntimeError("训练在首个 epoch 前已停止")
-        output = Path("assets") / "weights" / f"{Path(self.cfg.exp_dir).name}.pth"
-        export_model(self.net_g.state_dict(), self.cfg.sr, self.json_config, last_epoch, str(output))
-        self.log(f"导出模型: {output}")
-        return str(output)
+        # 最终模型路径（已在 _save 中导出）
+        return str(Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
 
     def _train_epoch(self, epoch: int):
         self.net_g.train()
@@ -170,6 +168,15 @@ class Trainer:
                 })
 
     def _save(self, epoch: int):
-        save_checkpoint(self.net_g, self.optim_g, self.cfg.learning_rate, epoch, str(Path(self.cfg.exp_dir) / f"G_{epoch}.pth"))
-        save_checkpoint(self.net_d, self.optim_d, self.cfg.learning_rate, epoch, str(Path(self.cfg.exp_dir) / f"D_{epoch}.pth"))
+        """保存 checkpoint 并导出可用模型"""
+        ckpt_dir = Path(self.cfg.exp_dir) / "4_checkpoints"
+        ckpt_dir.mkdir(exist_ok=True)
+
+        save_checkpoint(self.net_g, self.optim_g, self.cfg.learning_rate, epoch, str(ckpt_dir / f"G_{epoch}.pth"))
+        save_checkpoint(self.net_d, self.optim_d, self.cfg.learning_rate, epoch, str(ckpt_dir / f"D_{epoch}.pth"))
         self.log(f"保存 checkpoint: epoch {epoch}")
+
+        # 同时导出可用模型到 weights/
+        output = Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{epoch}.pth"
+        export_model(self.net_g.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
+        self.log(f"导出模型: {output}")
