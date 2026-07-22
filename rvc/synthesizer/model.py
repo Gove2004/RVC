@@ -1,6 +1,6 @@
 """合成器模型 — 统一基类 + v2 768 维变体（带 F0 / 无 F0）"""
 import logging
-from typing import Optional
+from typing import Final, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,8 @@ sr2sr = {
 
 class _SynthesizerTrnMsBase(nn.Module):
     """统一的 Synthesizer 基类 — 通过 use_f0 参数控制是否使用 F0。"""
+
+    __constants__ = ["use_f0"]
 
     def __init__(
         self,
@@ -65,7 +67,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         self.segment_size = segment_size
         self.gin_channels = gin_channels
         self.spk_embed_dim = spk_embed_dim
-        self.use_f0 = use_f0
+        self.use_f0: Final[bool] = use_f0
 
         # Text Encoder（256 维输入，后续子类会替换为 768 维）
         self.enc_p = TextEncoder(
@@ -172,13 +174,20 @@ class _SynthesizerTrnMsBase(nn.Module):
         g = self.emb_g(sid).unsqueeze(-1)
 
         if skip_head is not None and return_length is not None:
-            assert isinstance(skip_head, torch.Tensor)
-            assert isinstance(return_length, torch.Tensor)
-            head = int(skip_head.item())
-            length = int(return_length.item())
-            flow_head = torch.clamp(skip_head - 24, min=0)
-            dec_head = head - int(flow_head.item())
-            m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
+            if isinstance(skip_head, torch.Tensor):
+                head = int(skip_head.item())
+                flow_head = torch.clamp(skip_head - 24, min=0)
+                dec_head = head - int(flow_head.item())
+            else:
+                head = int(skip_head)
+                flow_head = max(head - 24, 0)
+                dec_head = head - flow_head
+            length = int(return_length.item()) if isinstance(return_length, torch.Tensor) else int(return_length)
+            if self.use_f0:
+                assert pitch is not None
+                m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
+            else:
+                m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths, flow_head)
             z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
             z = self.flow(z_p, x_mask, g=g, reverse=True)
             z = z[:, :, dec_head : dec_head + length]
@@ -186,12 +195,17 @@ class _SynthesizerTrnMsBase(nn.Module):
             if self.use_f0 and nsff0 is not None:
                 nsff0 = nsff0[:, head : head + length]
         else:
-            m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
+            if self.use_f0:
+                assert pitch is not None
+                m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
+            else:
+                m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
             z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
             z = self.flow(z_p, x_mask, g=g, reverse=True)
 
         # Decoder — 根据 use_f0 传递参数
         if self.use_f0:
+            assert nsff0 is not None
             o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2)
         else:
             o = self.dec(z * x_mask, g=g, n_res=return_length2)

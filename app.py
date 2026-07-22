@@ -14,13 +14,21 @@ if sys.stdout is not None:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler(stream=sys.stdout)] if sys.stdout else [],
-)
+LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 
-logging.getLogger("torchfcpe").setLevel(logging.ERROR)
+
+def _configure_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format=LOG_FORMAT,
+        handlers=[logging.StreamHandler(stream=sys.stdout)] if sys.stdout else [],
+        force=True,
+    )
+    for name in ("torchfcpe", "faiss", "faiss.loader", "fairseq", "numba", "matplotlib"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+_configure_logging()
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)

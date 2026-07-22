@@ -3,8 +3,8 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget
 
-from gui.configs import load_config, save_config
-from rvc.train.train_worker import TrainWorker
+from gui.configs import TrainGuiState, load_config, save_config
+from gui.train.workers import TrainWorker
 from gui.train.widgets import ToolThread
 from gui.train.tabs.settings_tab import build_settings_tab
 from gui.train.tabs.train_tab import build_train_tab
@@ -113,45 +113,46 @@ class TrainWindow(QMainWindow):
 
     # ── 配置持久化 ──────────────────────────────────────────
 
+    def collect_gui_state(self) -> TrainGuiState:
+        return TrainGuiState(
+            exp_name=self.exp_name.text().strip(),
+            input_dir=self.input_dir.text().strip(),
+            sample_rate=self.sample_rate.currentText(),
+            epochs=self.epochs.value(),
+            batch_size=self.batch_size.value(),
+            save_every=self.save_every.value(),
+            learning_rate=self.learning_rate.text().strip(),
+            pretrain_g=self.pretrain_g.text().strip(),
+            pretrain_d=self.pretrain_d.text().strip(),
+        )
+
+    def apply_gui_state(self, state: TrainGuiState) -> None:
+        if state.exp_name:
+            self.exp_name.setText(state.exp_name)
+        if state.input_dir:
+            self.input_dir.setText(state.input_dir)
+        if state.sample_rate:
+            idx = self.sample_rate.findText(state.sample_rate)
+            if idx >= 0:
+                self.sample_rate.setCurrentIndex(idx)
+        self.epochs.setValue(state.epochs)
+        self.batch_size.setValue(state.batch_size)
+        self.save_every.setValue(state.save_every)
+        if state.learning_rate:
+            self.learning_rate.setText(state.learning_rate)
+        if state.pretrain_g:
+            self.pretrain_g.setText(state.pretrain_g)
+        if state.pretrain_d:
+            self.pretrain_d.setText(state.pretrain_d)
+
     def _save_cfg(self):
-        cfg = {
-            "exp_name": self.exp_name.text().strip(),
-            "input_dir": self.input_dir.text().strip(),
-            "sr": self.sample_rate.currentText(),
-            "epochs": self.epochs.value(),
-            "batch_size": self.batch_size.value(),
-            "save_every": self.save_every.value(),
-            "learning_rate": self.learning_rate.text().strip(),
-            "pretrain_g": self.pretrain_g.text().strip(),
-            "pretrain_d": self.pretrain_d.text().strip(),
-        }
         config = load_config()
-        config["train"] = cfg
+        config["train"] = self.collect_gui_state().to_dict()
         save_config(config)
 
     def _load_cfg(self):
         config = load_config()
-        cfg = config.get("train", {})
-        if cfg.get("exp_name"):
-            self.exp_name.setText(cfg["exp_name"])
-        if cfg.get("input_dir"):
-            self.input_dir.setText(cfg["input_dir"])
-        if cfg.get("sr"):
-            idx = self.sample_rate.findText(cfg["sr"])
-            if idx >= 0:
-                self.sample_rate.setCurrentIndex(idx)
-        if cfg.get("epochs"):
-            self.epochs.setValue(cfg["epochs"])
-        if cfg.get("batch_size"):
-            self.batch_size.setValue(cfg["batch_size"])
-        if cfg.get("save_every"):
-            self.save_every.setValue(cfg["save_every"])
-        if cfg.get("learning_rate"):
-            self.learning_rate.setText(cfg["learning_rate"])
-        if cfg.get("pretrain_g"):
-            self.pretrain_g.setText(cfg["pretrain_g"])
-        if cfg.get("pretrain_d"):
-            self.pretrain_d.setText(cfg["pretrain_d"])
+        self.apply_gui_state(TrainGuiState.from_dict(config.get("train", {})))
 
     # ── 训练回调 ────────────────────────────────────────────
 

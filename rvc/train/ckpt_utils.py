@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from gui.configs import train_config_path
+from rvc.runtime import train_config_path
 
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):

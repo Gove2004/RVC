@@ -177,9 +177,14 @@ rvc/
     utils.py                # 设备枚举、EQ 预设、RMS 匹配
     effects.py              # 音频效果链（FFT EQ + 混响）
   inference/
-    pipeline.py             # VCPipeline（核心推理管线，353 行）
-    model_loader.py         # SynthesizerLoader（PyTorch + JIT）
-    offline_worker.py       # OfflineWorker（离线推理）
+    pipeline.py             # VCPipeline facade（实时/离线推理编排）
+    feature_processing.py   # HuBERT 特征、padding mask、protect blend
+    index_retrieval.py      # FAISS index 加载与特征混合
+    pitch_tracker.py        # F0 提取窗口与实时 pitch cache
+    synthesis.py            # Synthesizer 推理调用与 formant 重采样
+    model_session.py        # HuBERT/Synthesizer/Index session 加载
+    model_loader.py         # SynthesizerLoader（PyTorch）
+    offline_config.py       # OfflineConfig（离线推理配置）
     params.py               # Params（运行时参数单例）
     f0_extractor.py         # F0 提取器抽象层（RMVPE/FCPE）
   models/
@@ -290,8 +295,8 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 本项目最近完成了全面的代码重构，显著提升了代码质量：
 
 - ✅ **消除 85% 重复代码** — RMS 匹配、Synthesizer 基类统一、F0 提取器抽象
-- ✅ **模块化拆分** — rmvpe (542行 → 4个模块)、pipeline (529行 → 353行)、styles (278行 → 4个模块)
-- ✅ **命名一致性** — 文件名与类名对应 (`realtime_engine.py`, `offline_worker.py`, `inference_cache.py`)
+- ✅ **模块化拆分** — rmvpe、pipeline、styles、realtime audio、GUI state 持续拆分
+- ✅ **命名一致性** — 文件名与职责对应 (`realtime_engine.py`, `model_session.py`, `inference_cache.py`)
 - ✅ **职责分离** — 配置代码 (`gui/configs/`) 与配置数据 (`assets/configs/`) 分离
 - ✅ **日志格式统一** — 简洁清晰的中文日志
 

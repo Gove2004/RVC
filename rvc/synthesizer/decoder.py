@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from torch.nn import Conv1d, ConvTranspose1d
 from torch.nn import functional as F
-from torch.nn.utils import parametrizations
+from torch.nn.utils import parametrize, parametrizations
 from rvc.nn import modules
 from rvc.nn.commons import init_weights
 
@@ -128,7 +128,7 @@ class SineGen(torch.nn.Module):
         uv = uv * (f0 > self.voiced_threshold)
         return uv
     
-    def _f02sine(self, f0, upp):
+    def _f02sine(self, f0: torch.Tensor, upp: int):
         """ f0: (batchsize, length, dim)
             where dim indicates fundamental tone and overtones
         """
@@ -331,6 +331,7 @@ class GeneratorNSF(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.ups:
-            parametrizations.remove_parametrizations(l, "weight")
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
         for l in self.resblocks:
             l.remove_weight_norm()

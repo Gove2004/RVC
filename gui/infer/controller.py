@@ -48,10 +48,10 @@ class EngineStats:
 
 
 class InferController:
-    def __init__(self, runtime_params=None, engine=None, inference_cache=None):
+    def __init__(self, runtime_params=None, engine=None, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params or Params()
         self.inference_cache = inference_cache or default_inference_cache
-        self.engine = engine or RealtimeEngine(self.runtime_params, self.inference_cache)
+        self.engine = engine or RealtimeEngine(self.runtime_params, self.inference_cache, on_runtime_error=on_runtime_error)
 
     def apply_model_config(self, config: ModelConfig):
         self.runtime_params.update(

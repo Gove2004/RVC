@@ -1,9 +1,10 @@
+"""训练 GUI 线程 worker。"""
 import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from gui.configs import Config
+from rvc.runtime import Config
 from rvc.train.extract_f0 import F0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
 from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_matches
@@ -50,7 +51,7 @@ class TrainWorker(QThread):
         config = Config()
         exp_dir = Path("logs") / self.options["exp_name"]
         exp_dir.mkdir(parents=True, exist_ok=True)
-        sr = 48000  # 仅支持 48k
+        sr = 48000
 
         if self.step != "preprocess" and exp_dir.exists() and not manifest_matches(exp_dir, self.options["input_dir"], sr, 3.7):
             raise RuntimeError("实验目录与当前输入不一致，请先重新执行预处理")

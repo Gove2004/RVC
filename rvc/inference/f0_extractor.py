@@ -1,5 +1,8 @@
 """F0 提取器抽象层 — 统一 RMVPE 和 FCPE 的接口"""
+import contextlib
 import logging
+import math
+import sys
 from abc import ABC, abstractmethod
 
 import torch
@@ -9,6 +12,43 @@ logger = logging.getLogger(__name__)
 # F0 范围常量
 F0_MIN = 50.0  # Hz - 人声最低基频
 F0_MAX = 1100.0  # Hz - 人声最高基频
+
+F0_MEL_MIN = 1127 * math.log(1 + F0_MIN / 700)
+F0_MEL_MAX = 1127 * math.log(1 + F0_MAX / 700)
+
+
+class _FilteredStream:
+    def __init__(self, stream, blocked_prefixes, blocked_contains):
+        self.stream = stream
+        self.blocked_prefixes = blocked_prefixes
+        self.blocked_contains = blocked_contains
+
+    def write(self, text):
+        if not text or not text.strip():
+            return len(text)
+        stripped = text.lstrip()
+        if any(stripped.startswith(prefix) for prefix in self.blocked_prefixes):
+            return len(text)
+        if any(token in text for token in self.blocked_contains):
+            return len(text)
+        return self.stream.write(text)
+
+    def flush(self):
+        return self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+@contextlib.contextmanager
+def _suppress_third_party_output(*prefixes, contains=()):
+    stdout, stderr = sys.stdout, sys.stderr
+    sys.stdout = _FilteredStream(stdout, prefixes, contains) if stdout else stdout
+    sys.stderr = _FilteredStream(stderr, prefixes, contains) if stderr else stderr
+    try:
+        yield
+    finally:
+        sys.stdout, sys.stderr = stdout, stderr
 
 
 def _normalize_f0_to_coarse(f0: torch.Tensor, f0_min: float = F0_MIN, f0_max: float = F0_MAX) -> torch.Tensor:
@@ -24,8 +64,12 @@ def _normalize_f0_to_coarse(f0: torch.Tensor, f0_min: float = F0_MIN, f0_max: fl
     Returns:
         pitch_coarse: 离散化的 pitch 值，范围 [1, 255]
     """
-    f0_mel_min = 1127 * torch.log(1 + torch.tensor(f0_min) / 700)
-    f0_mel_max = 1127 * torch.log(1 + torch.tensor(f0_max) / 700)
+    if f0_min == F0_MIN and f0_max == F0_MAX:
+        f0_mel_min = F0_MEL_MIN
+        f0_mel_max = F0_MEL_MAX
+    else:
+        f0_mel_min = 1127 * math.log(1 + f0_min / 700)
+        f0_mel_max = 1127 * math.log(1 + f0_max / 700)
     f0_mel = 1127 * torch.log(1 + f0 / 700)
     f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (f0_mel_max - f0_mel_min) + 1
     f0_mel[f0_mel <= 1] = 1
@@ -61,17 +105,12 @@ class RMVPEExtractor(F0Extractor):
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int) -> tuple[torch.Tensor, torch.Tensor]:
-        # RMVPE 需要 numpy 输入
-        audio_np = audio.cpu().numpy() if audio.is_cuda else audio.numpy()
-        f0 = self.model.infer_from_audio(audio_np, thred=0.03)
+        f0 = self.model.infer_from_audio(audio, thred=0.03)
         f0 *= pow(2, f0_up_key / 12)
 
-        # 转换为 Tensor
         if not torch.is_tensor(f0):
             f0 = torch.from_numpy(f0)
         f0 = f0.float().to(self.device).squeeze()
-
-        # Mel 归一化
         pitch_coarse = _normalize_f0_to_coarse(f0)
 
         return pitch_coarse, f0
@@ -88,7 +127,14 @@ class FCPEExtractor(F0Extractor):
         saved_level = fcpe_logger.level
         fcpe_logger.setLevel(logging.ERROR)
         try:
-            self.model = spawn_bundled_infer_model(device)
+            with _suppress_third_party_output(
+                "[INFO]",
+                "[INF0]",
+                "[WARN]",
+                ">",
+                contains=("torchfcpe.mel_tools.nv_mel_extractor", "Librosa not found"),
+            ):
+                self.model = spawn_bundled_infer_model(device)
         finally:
             fcpe_logger.setLevel(saved_level)
         self.device = device

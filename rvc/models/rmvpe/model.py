@@ -1,5 +1,4 @@
 """RMVPE 模型 — F0 提取推理接口"""
-import logging
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -24,18 +23,17 @@ class RMVPE:
         if str(self.device) == "cuda":
             self.device = torch.device("cuda:0")
 
+        self.model = self._load_model(model_path, is_half)
+        cents_mapping = 20 * np.arange(360) + 1997.3794084376191
+        self.cents_mapping = np.pad(cents_mapping, (4, 4))
+
+    def _load_model(self, model_path: str, is_half: bool):
         model = E2E(4, 1, (2, 2))
         ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt)
         model.eval()
-        if is_half:
-            model = model.half()
-        else:
-            model = model.float()
-
-        self.model = model.to(device)
-        cents_mapping = 20 * np.arange(360) + 1997.3794084376191
-        self.cents_mapping = np.pad(cents_mapping, (4, 4))
+        model = model.half() if is_half else model.float()
+        return model.to(self.device)
 
     def mel2hidden(self, mel):
         with torch.no_grad():

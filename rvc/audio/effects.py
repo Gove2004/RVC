@@ -70,6 +70,11 @@ class ParametricEQ(AudioEffect):
             'hi_mid': {'center': 3000, 'width': 600, 'gain_db': 0.0}, # 中高频
             'high': {'center': 8000, 'width': 2000, 'gain_db': 0.0}, # 高频
         }
+        self._freqs_cache_key = None
+        self._freqs_cache = None
+        self._mask_cache = {}
+        self._gain_curve_cache_key = None
+        self._gain_curve_cache = None
 
     def set_band(self, band: str, gain_db: float):
         """设置频段增益
@@ -81,32 +86,52 @@ class ParametricEQ(AudioEffect):
         if band in self.bands:
             self.bands[band]['gain_db'] = max(-12, min(12, gain_db))
 
+    def _get_freqs(self, audio: torch.Tensor) -> tuple[tuple, torch.Tensor]:
+        key = (audio.shape[0], audio.device, audio.dtype)
+        if self._freqs_cache_key != key:
+            self._freqs_cache_key = key
+            self._freqs_cache = torch.fft.rfftfreq(audio.shape[0], 1 / self.sample_rate, device=audio.device).to(audio.dtype)
+            self._mask_cache.clear()
+            self._gain_curve_cache_key = None
+            self._gain_curve_cache = None
+        return key, self._freqs_cache
+
+    def _get_mask(self, band: str, freqs_key: tuple, freqs: torch.Tensor) -> torch.Tensor:
+        key = (band, freqs_key)
+        mask = self._mask_cache.get(key)
+        if mask is None:
+            band_cfg = self.bands[band]
+            mask = torch.exp(-0.5 * ((freqs - band_cfg['center']) / band_cfg['width']) ** 2)
+            self._mask_cache[key] = mask
+        return mask
+
+    def _get_gain_curve(self, audio: torch.Tensor) -> torch.Tensor:
+        freqs_key, freqs = self._get_freqs(audio)
+        gains = tuple(self.bands[band]['gain_db'] for band in self.bands)
+        key = (freqs_key, gains)
+        if self._gain_curve_cache_key == key and self._gain_curve_cache is not None:
+            return self._gain_curve_cache
+
+        gain_curve = torch.ones(freqs.shape, device=audio.device, dtype=audio.dtype)
+        for band, band_cfg in self.bands.items():
+            gain_db = band_cfg['gain_db']
+            if gain_db == 0:
+                continue
+            gain_linear = 10 ** (gain_db / 20)
+            gain_curve *= 1 + (gain_linear - 1) * self._get_mask(band, freqs_key, freqs)
+
+        self._gain_curve_cache_key = key
+        self._gain_curve_cache = gain_curve
+        return gain_curve
+
     def process(self, audio: torch.Tensor) -> torch.Tensor:
         """FFT频域均衡处理"""
         # 快速路径：所有增益为 0 时跳过
         if all(b['gain_db'] == 0 for b in self.bands.values()):
             return audio
 
-        # FFT 变换到频域
         spec = torch.fft.rfft(audio)
-        freqs = torch.fft.rfftfreq(audio.shape[0], 1/self.sample_rate, device=audio.device)
-
-        # 依次应用各频段（高斯窗口平滑）
-        for band_cfg in self.bands.values():
-            gain_db = band_cfg['gain_db']
-            if gain_db == 0:
-                continue
-
-            center = band_cfg['center']
-            width = band_cfg['width']
-            gain_linear = 10 ** (gain_db / 20)
-
-            # 高斯窗口
-            mask = torch.exp(-0.5 * ((freqs - center) / width) ** 2)
-            gain_curve = 1 + (gain_linear - 1) * mask
-            spec = spec * gain_curve
-
-        # IFFT 返回时域
+        spec *= self._get_gain_curve(audio)
         return torch.fft.irfft(spec, n=audio.shape[0])
 
 

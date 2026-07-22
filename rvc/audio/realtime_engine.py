@@ -8,13 +8,14 @@ import librosa
 import numpy as np
 import sounddevice as sd
 import torch
-import torch.nn.functional as F
-from PySide6.QtCore import QObject, Signal
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.audio.utils import phase_vocoder
 from rvc.audio.effects import create_realtime_chain
-from gui.configs import Config
+from rvc.audio.output_router import mix_bgm, route_secondary_output, write_main_output
+from rvc.audio.realtime_effects import apply_post_sola_effects, apply_pre_sola_effects
+from rvc.audio.realtime_mix import apply_rms_mix
+from rvc.audio.sola import apply_sola
+from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -23,21 +24,17 @@ config = Config()
 MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
 
 
-class EngineSignals(QObject):
-    runtime_error = Signal(str)
-
-
 class RealtimeEngine:
-    def __init__(self, runtime_params, inference_cache=None):
+    def __init__(self, runtime_params, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params
         self.inference_cache = inference_cache
+        self.on_runtime_error = on_runtime_error
         self.vc_engine = None
         self.stream = None
         self.stream2 = None
         self.running = False
         self.function = "vc"
         self.out2_q = queue.Queue(maxsize=10)
-        self.signals = EngineSignals()
 
         self.sr = 48000; self.zc = 480; self.channels = 1
         self.block_frame = 0; self.block_frame_16k = 0
@@ -46,8 +43,10 @@ class RealtimeEngine:
         self.skip_head = 0; self.return_length = 0
 
         self.input_wav = None; self.input_wav_res = None
+        self.input_wav_work = None; self.input_wav_res_work = None
         self.sola_buffer = None; self.output_buffer = None
-        self.fade_in = None; self.fade_out = None
+        self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
+        self.bgm_mix_buffer = None
         self.resampler = None; self.resampler2 = None
         self.bgm_audio = None; self.bgm_ptr = 0
 
@@ -109,6 +108,9 @@ class RealtimeEngine:
         n = self.extra_frame + self.crossfade_frame + self.sola_search_frame + self.block_frame
         self.input_wav = torch.zeros(n, device=config.device)
         self.input_wav_res = torch.zeros(160 * n // zc, device=config.device)
+        self.input_wav_work = torch.empty_like(self.input_wav)
+        self.input_wav_res_work = torch.empty_like(self.input_wav_res)
+        self.bgm_mix_buffer = torch.empty(self.block_frame, device=config.device)
         self.zc = zc
 
         self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
@@ -117,6 +119,7 @@ class RealtimeEngine:
         ls = torch.linspace(0, 1, steps=self.sola_buffer_frame, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
         self.fade_out = 1 - self.fade_in
+        self.sola_norm_kernel = torch.ones(1, 1, self.sola_buffer_frame, device=config.device)
 
         self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(config.device)
         if self.sr_model != self.sr:
@@ -179,12 +182,6 @@ class RealtimeEngine:
                     logger.debug("关闭流时出错: %s", e)
         self.stream = self.stream2 = None
 
-    @staticmethod
-    def _fast_rms(wav, fl, hop):
-        p = fl // 2
-        sq = F.pad(wav.unsqueeze(0).unsqueeze(0), (p, p), mode='reflect') ** 2
-        return torch.sqrt(torch.clamp(F.avg_pool1d(sq, fl, hop).squeeze(), min=1e-8))
-
     def _cb(self, indata, outdata, frames, times, status):
         try:
             self._cb_impl(indata, outdata, frames, times, status)
@@ -197,20 +194,23 @@ class RealtimeEngine:
             if self.error_count >= self.max_error_count and not self.runtime_error_pending:
                 self.running = False
                 self.runtime_error_pending = True
-                try:
-                    self.signals.runtime_error.emit(self.last_error or "实时推理失败")
-                except Exception:
-                    logger.exception("发送实时错误信号失败")
+                if self.on_runtime_error:
+                    self.on_runtime_error(self.last_error or "实时推理失败")
 
     def _cb_impl(self, indata, outdata, frames, times, status):
         t0 = time.perf_counter()
         params = self.runtime_params
         with torch.no_grad():
-            mono = librosa.to_mono(indata.T) if indata.ndim > 1 else indata[:, 0]
+            mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
+            mono = np.ascontiguousarray(mono)
 
-            self.input_wav = torch.roll(self.input_wav, -self.block_frame)
-            self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono.copy()).to(config.device)
-            self.input_wav_res = torch.roll(self.input_wav_res, -self.block_frame_16k)
+            self.input_wav_work[:-self.block_frame].copy_(self.input_wav[self.block_frame:])
+            self.input_wav_work[-self.block_frame:].zero_()
+            self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
+            self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono).to(config.device)
+            self.input_wav_res_work[:-self.block_frame_16k].copy_(self.input_wav_res[self.block_frame_16k:])
+            self.input_wav_res_work[-self.block_frame_16k:].zero_()
+            self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
             self.input_wav_res[-160*(mono.shape[0]//self.zc+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.zc:])[160:]
 
             if self.function == "vc" and self.vc_engine:
@@ -225,64 +225,48 @@ class RealtimeEngine:
 
             if params.rms_mix < 1 and self.function == "vc":
                 ref = self.input_wav[self.extra_frame:]
-                r1 = self._fast_rms(ref[:infer.shape[0]], 4*self.zc, self.zc)
-                r1 = F.interpolate(r1[None,None], size=infer.shape[0]+1, mode='linear', align_corners=True)[0,0,:-1]
-                r2 = self._fast_rms(infer, 4*self.zc, self.zc)
-                r2 = F.interpolate(r2[None,None], size=infer.shape[0]+1, mode='linear', align_corners=True)[0,0,:-1]
-                r2 = torch.max(r2, torch.ones_like(r2)*1e-3)
-                infer *= torch.pow(r1 / r2, 1 - params.rms_mix)
+                infer = apply_rms_mix(ref, infer, params.rms_mix, self.zc)
 
-            # 应用 EQ（SOLA 之前，只在参数变化时同步）
-            if params.enable_eq and self.eq:
-                current_eq = (params.eq_sub, params.eq_low, params.eq_mid, params.eq_hi_mid, params.eq_high)
-                if self._last_eq_params != current_eq:
-                    self.eq.set_band('sub', params.eq_sub)
-                    self.eq.set_band('low', params.eq_low)
-                    self.eq.set_band('mid', params.eq_mid)
-                    self.eq.set_band('hi_mid', params.eq_hi_mid)
-                    self.eq.set_band('high', params.eq_high)
-                    self._last_eq_params = current_eq
-                infer = self.eq(infer)
+            infer, self._last_eq_params = apply_pre_sola_effects(
+                infer,
+                params,
+                self.eq,
+                self._last_eq_params,
+            )
 
-            ci = infer[None, None, :self.sola_buffer_frame + self.sola_search_frame]
-            cn = F.conv1d(ci, self.sola_buffer[None, None, :])
-            cd = torch.sqrt(F.conv1d(ci**2, torch.ones(1,1,self.sola_buffer_frame, device=config.device)) + 1e-8)
-            off = torch.argmax(cn[0,0] / cd[0,0])
-            infer = infer[off:]
-            if not params.use_pv:
-                infer[:self.sola_buffer_frame] *= self.fade_in
-                infer[:self.sola_buffer_frame] += self.sola_buffer * self.fade_out
-            else:
-                infer[:self.sola_buffer_frame] = phase_vocoder(self.sola_buffer, infer[:self.sola_buffer_frame], self.fade_out, self.fade_in)
-            self.sola_buffer[:] = infer[self.block_frame:self.block_frame+self.sola_buffer_frame]
-            chunk = infer[:self.block_frame]
+            chunk = apply_sola(
+                infer,
+                self.sola_buffer,
+                self.sola_norm_kernel,
+                self.fade_in,
+                self.fade_out,
+                self.block_frame,
+                self.sola_buffer_frame,
+                self.sola_search_frame,
+                params.use_pv,
+            )
 
-            # 应用混响（SOLA 之后，只在参数变化时同步）
-            if params.enable_eq and self.reverb and params.reverb > 0:
-                if self._last_reverb_mix != params.reverb:
-                    self.reverb.set_mix(params.reverb)
-                    self._last_reverb_mix = params.reverb
-                chunk = self.reverb(chunk)
+            chunk, self._last_reverb_mix = apply_post_sola_effects(
+                chunk,
+                params,
+                self.reverb,
+                self._last_reverb_mix,
+            )
 
-            if params.bgm_enable and self.bgm_audio is not None and params.bgm_vol > 0:
-                bl = self.bgm_audio.shape[0]; need = self.block_frame; ci2 = 0
-                bc = torch.zeros(self.block_frame)
-                while need > 0:
-                    take = min(need, bl - self.bgm_ptr)
-                    bc[ci2:ci2+take] = self.bgm_audio[self.bgm_ptr:self.bgm_ptr+take]
-                    self.bgm_ptr = (self.bgm_ptr + take) % bl; ci2 += take; need -= take
-                chunk += bc.to(config.device) * params.bgm_vol
+            if params.bgm_enable:
+                chunk, self.bgm_audio, self.bgm_ptr = mix_bgm(
+                    chunk,
+                    self.bgm_audio,
+                    self.bgm_ptr,
+                    self.bgm_mix_buffer,
+                    params.bgm_vol,
+                    self.block_frame,
+                )
 
-            outdata[:] = chunk.repeat(self.channels, 1).t().cpu().numpy()
-            if self.stream2 and params.enable_out2:
-                if self.out2_q.full():
-                    try: self.out2_q.get_nowait()
-                    except Exception: pass
-                self.out2_q.put_nowait(outdata.copy())
-            elif self.stream2 and not params.enable_out2:
-                # 调试：检查为什么副输出没有启用
-                if not hasattr(self, '_out2_debug_logged'):
-                    logger.warning(f"副输出流存在但 enable_out2=False")
-                    self._out2_debug_logged = True
+            write_main_output(chunk, outdata, self.channels)
+            should_log_out2_disabled = route_secondary_output(outdata, self.stream2, self.out2_q, params.enable_out2)
+            if should_log_out2_disabled and not hasattr(self, '_out2_debug_logged'):
+                logger.warning("副输出流存在但 enable_out2=False")
+                self._out2_debug_logged = True
 
         self.infer_ms = (time.perf_counter() - t0) * 1000

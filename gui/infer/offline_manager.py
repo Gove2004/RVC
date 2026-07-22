@@ -3,9 +3,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QFileDialog
 import os
 
-from rvc.inference.offline_worker import OfflineWorker
+from gui.infer.workers import OfflineWorker
 from rvc.inference.offline_config import OfflineConfig
 from gui.infer.utils import format_error_message
+from gui.infer.widgets import _sl_value_as_float
 
 if TYPE_CHECKING:
     from gui.infer.window import MainWindow
@@ -66,7 +67,26 @@ class OfflineManager:
             return
 
         # 构建配置并启动转换
-        config = OfflineConfig.from_ui(self.window, card)
+        config = OfflineConfig(
+            input_path=self.window.offline_input.text().strip(),
+            output_path=self.window.offline_output.text().strip(),
+            model_path=card.pth_edit.text().strip(),
+            index_path=card.idx_edit.text().strip(),
+            pitch=card.pitch_slider.value(),
+            f0method=self.window.f0_combo.currentText(),
+            index_rate=_sl_value_as_float(card.index_rate_slider),
+            rms_mix=_sl_value_as_float(card.rms_mix_slider),
+            protect=_sl_value_as_float(card.protect_slider),
+            eq_enabled=self.window.eq_enable_checkbox.isChecked(),
+            eq_bands={
+                'sub': _sl_value_as_float(self.window.eq_sub_slider),
+                'low': _sl_value_as_float(self.window.eq_low_slider),
+                'mid': _sl_value_as_float(self.window.eq_mid_slider),
+                'hi_mid': _sl_value_as_float(self.window.eq_hi_mid_slider),
+                'high': _sl_value_as_float(self.window.eq_high_slider),
+            },
+            reverb_mix=_sl_value_as_float(self.window.reverb_slider),
+        )
         self.worker = OfflineWorker(config)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)

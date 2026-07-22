@@ -46,7 +46,7 @@ class TextEncoder(nn.Module):
     def forward(
         self,
         phone: torch.Tensor,
-        pitch: torch.Tensor,
+        pitch: Optional[torch.Tensor],
         lengths: torch.Tensor,
         skip_head: Optional[torch.Tensor] = None,
     ):

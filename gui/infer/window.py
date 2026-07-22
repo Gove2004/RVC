@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer
 
 from rvc.audio import PRESETS
+from gui.configs.infer_state import InferGuiState
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
 from gui.infer.widgets import LoadThread, _sl_value_as_float
 from gui.infer.tabs.settings_tab import build_settings_tab
@@ -30,7 +31,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
         self.resize(357, 333)
-        self.controller = InferController()
+        self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.engine = self.controller.engine
         self._loading = False
@@ -46,7 +47,6 @@ class MainWindow(QMainWindow):
         self.device_manager = DeviceManager(self)
         self.offline_manager = OfflineManager(self)
 
-        self.engine.signals.runtime_error.connect(self._on_runtime_error)
         self.device_manager.load_hostapis()
         self.model_manager.load_models()
         self.config_manager.load_config()
@@ -141,34 +141,50 @@ class MainWindow(QMainWindow):
 
     # ── 引擎参数应用 ──
 
-    def _apply_model_params(self):
+    def collect_model_config(self) -> ModelConfig | None:
         card = self.model_manager.active_card
         if not card:
-            return
-        self.controller.apply_model_config(
-            ModelConfig(
-                pitch=card.pitch_slider.value(),
-                index_rate=_sl_value_as_float(card.index_rate_slider),
-                rms_mix=_sl_value_as_float(card.rms_mix_slider),
-                gender=(_sl_value_as_float(card.gender_slider) - 0.5) * 4,
-                protect=_sl_value_as_float(card.protect_slider),
-                f0method=self.f0_combo.currentText(),
-            )
+            return None
+        return ModelConfig(
+            pitch=card.pitch_slider.value(),
+            index_rate=_sl_value_as_float(card.index_rate_slider),
+            rms_mix=_sl_value_as_float(card.rms_mix_slider),
+            gender=(_sl_value_as_float(card.gender_slider) - 0.5) * 4,
+            protect=_sl_value_as_float(card.protect_slider),
+            f0method=self.f0_combo.currentText(),
         )
 
-    def _apply_runtime_params(self):
-        self.controller.apply_runtime_config(
-            RuntimeConfig(
-                eq_en=self.eq_enable_checkbox.isChecked(),
-                eq_sub=_sl_value_as_float(self.eq_sub_slider),
-                eq_low=_sl_value_as_float(self.eq_low_slider),
-                eq_mid=_sl_value_as_float(self.eq_mid_slider),
-                eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
-                eq_high=_sl_value_as_float(self.eq_high_slider),
-                reverb=_sl_value_as_float(self.reverb_slider),
-                out2_enabled=self.output2_combo.currentIndex() > 0,
-            )
+    def collect_runtime_config(self) -> RuntimeConfig:
+        return RuntimeConfig(
+            eq_en=self.eq_enable_checkbox.isChecked(),
+            eq_sub=_sl_value_as_float(self.eq_sub_slider),
+            eq_low=_sl_value_as_float(self.eq_low_slider),
+            eq_mid=_sl_value_as_float(self.eq_mid_slider),
+            eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
+            eq_high=_sl_value_as_float(self.eq_high_slider),
+            reverb=_sl_value_as_float(self.reverb_slider),
+            out2_enabled=self.output2_combo.currentIndex() > 0,
         )
+
+    def collect_engine_config(self) -> EngineConfig:
+        return EngineConfig(
+            hostapi_name=self.hostapi_combo.currentText(),
+            input_device_pos=self.input_combo.currentIndex(),
+            output_device_pos=self.output_combo.currentIndex(),
+            output2_device_pos=self.output2_combo.currentIndex() - 1,
+            sr_mode="model" if self.sr_model_radio.isChecked() else "device",
+            block_time=_sl_value_as_float(self.block_time_slider),
+            crossfade_time=_sl_value_as_float(self.crossfade_slider),
+            extra_time=_sl_value_as_float(self.extra_time_slider),
+        )
+
+    def _apply_model_params(self):
+        config = self.collect_model_config()
+        if config:
+            self.controller.apply_model_config(config)
+
+    def _apply_runtime_params(self):
+        self.controller.apply_runtime_config(self.collect_runtime_config())
 
     # ── UI 状态管理 ──
 
@@ -200,6 +216,80 @@ class MainWindow(QMainWindow):
     def _mark_running(self):
         self._set_start_button("运行中", False, ButtonStyles.primary())
         self._set_stop_button(True, ButtonStyles.danger())
+
+    def collect_gui_state(self) -> InferGuiState:
+        active_pth = ""
+        if self.model_manager.active_card:
+            active_pth = self.model_manager.active_card.pth_edit.text().strip()
+        return InferGuiState(
+            version=2,
+            block_time=_sl_value_as_float(self.block_time_slider),
+            crossfade_time=_sl_value_as_float(self.crossfade_slider),
+            extra_time=_sl_value_as_float(self.extra_time_slider),
+            f0method=self.f0_combo.currentText(),
+            sr_mode="model" if self.sr_model_radio.isChecked() else "device",
+            eq_enabled=self.eq_enable_checkbox.isChecked(),
+            eq_sub=_sl_value_as_float(self.eq_sub_slider),
+            eq_low=_sl_value_as_float(self.eq_low_slider),
+            eq_mid=_sl_value_as_float(self.eq_mid_slider),
+            eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
+            eq_high=_sl_value_as_float(self.eq_high_slider),
+            reverb=_sl_value_as_float(self.reverb_slider),
+            preset=self.preset_combo.currentText(),
+            hostapi=self.hostapi_combo.currentText(),
+            input_device=self.input_combo.currentText(),
+            output_device=self.output_combo.currentText(),
+            output2_device=self.output2_combo.currentText(),
+            active_model=active_pth,
+        )
+
+    def apply_gui_state(self, state: InferGuiState) -> None:
+        idx = self.preset_combo.findText(state.preset)
+        if idx >= 0:
+            self.preset_combo.setCurrentIndex(idx)
+
+        if state.hostapi:
+            idx = self.hostapi_combo.findText(state.hostapi)
+            if idx >= 0:
+                self.hostapi_combo.setCurrentIndex(idx)
+
+        for value, combo in [
+            (state.input_device, self.input_combo),
+            (state.output_device, self.output_combo),
+            (state.output2_device, self.output2_combo),
+        ]:
+            if value:
+                idx = combo.findText(value)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+
+        self.block_time_slider.setValue(int(state.block_time * 100))
+        self.crossfade_slider.setValue(int(state.crossfade_time * 100))
+        self.extra_time_slider.setValue(int(state.extra_time * 100))
+
+        idx = self.f0_combo.findText(state.f0method)
+        if idx >= 0:
+            self.f0_combo.setCurrentIndex(idx)
+
+        if state.sr_mode == "model":
+            self.sr_model_radio.setChecked(True)
+        else:
+            self.sr_device_radio.setChecked(True)
+
+        self.eq_enable_checkbox.setChecked(state.eq_enabled)
+        self.eq_sub_slider.setValue(int(state.eq_sub * 100))
+        self.eq_low_slider.setValue(int(state.eq_low * 100))
+        self.eq_mid_slider.setValue(int(state.eq_mid * 100))
+        self.eq_hi_mid_slider.setValue(int(state.eq_hi_mid * 100))
+        self.eq_high_slider.setValue(int(state.eq_high * 100))
+        self.reverb_slider.setValue(int(state.reverb * 100))
+
+        if state.active_model:
+            for card in self.model_manager.cards:
+                if card.pth_edit.text().strip() == state.active_model:
+                    card.set_active(True)
+                    self.model_manager.active_card = card
+                    break
 
     # ── 启动/停止 ──
 
@@ -251,18 +341,7 @@ class MainWindow(QMainWindow):
         if self.model_manager.active_card:
             self.model_manager.active_card.set_active(True)
         try:
-            stats = self.controller.setup_engine(
-                EngineConfig(
-                    hostapi_name=self.hostapi_combo.currentText(),
-                    input_device_pos=self.input_combo.currentIndex(),
-                    output_device_pos=self.output_combo.currentIndex(),
-                    output2_device_pos=self.output2_combo.currentIndex() - 1,
-                    sr_mode="model" if self.sr_model_radio.isChecked() else "device",
-                    block_time=_sl_value_as_float(self.block_time_slider),
-                    crossfade_time=_sl_value_as_float(self.crossfade_slider),
-                    extra_time=_sl_value_as_float(self.extra_time_slider),
-                )
-            )
+            stats = self.controller.setup_engine(self.collect_engine_config())
             self.sr_model_label.setText(f"模型采样率: {stats.sr_model}")
             self.sr_device_label.setText(f"设备采样率: {stats.sr_dev}")
             self.delay_lbl.setText(f"延迟: {stats.delay_ms}")

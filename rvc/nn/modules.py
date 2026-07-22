@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import Conv1d, ConvTranspose1d
 from torch.nn import functional as F
-from torch.nn.utils import parametrizations
+from torch.nn.utils import parametrize, parametrizations
 
 from rvc.nn import commons
 from rvc.nn.commons import get_padding, init_weights
@@ -161,12 +161,14 @@ class WN(torch.nn.Module):
         return output * x_mask
 
     def remove_weight_norm(self):
-        if self.gin_channels != 0:
-            parametrizations.remove_parametrizations(self.cond_layer, "weight")
+        if self.gin_channels != 0 and parametrize.is_parametrized(self.cond_layer, "weight"):
+            parametrize.remove_parametrizations(self.cond_layer, "weight")
         for l in self.in_layers:
-            parametrizations.remove_parametrizations(l, "weight")
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
         for l in self.res_skip_layers:
-            parametrizations.remove_parametrizations(l, "weight")
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
 
 class ResBlock1(torch.nn.Module):
     def __init__(self, channels, kernel_size=3, dilation=(1, 3, 5)):
@@ -261,9 +263,11 @@ class ResBlock1(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.convs1:
-            parametrizations.remove_parametrizations(l, "weight")
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
         for l in self.convs2:
-            parametrizations.remove_parametrizations(l, "weight")
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
 
 class ResBlock2(torch.nn.Module):
     def __init__(self, channels, kernel_size=3, dilation=(1, 3)):
@@ -308,7 +312,8 @@ class ResBlock2(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.convs:
-            parametrizations.remove_parametrizations(l, "weight")
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
 
 
 class Flip(nn.Module):
