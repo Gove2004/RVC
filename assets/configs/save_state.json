@@ -16,7 +16,7 @@
     "preset": "原声",
     "ha": "MME",
     "in_dev": "麦克风 (NVIDIA Broadcast)",
-    "out_dev": "CABLE Input (VB-Audio Virtual C",
+    "out_dev": "扬声器 (Realtek(R) Audio)",
     "out2_dev": "不使用",
     "active_model": "E:/Projects/Python/RVC/assets/weights/songyue.pth"
   },
@@ -27,7 +27,7 @@
       "idx": "E:/Projects/Python/RVC/assets/indices/kikiV2.index",
       "pitch": 12,
       "index_rate": 0.0,
-      "rms_mix": 0.0,
+      "rms_mix": 0.5,
       "gender": -1.5,
       "protect": 0.0
     }
