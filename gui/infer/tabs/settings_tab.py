@@ -68,11 +68,8 @@ def build_settings_tab(win):
     # ── 音高算法 ──
     win.f0_rmvp_btn = QRadioButton("RMVPE"); win.f0_fcpe_btn = QRadioButton("FCPE")
     f0_group = QButtonGroup(w); f0_group.addButton(win.f0_rmvp_btn); f0_group.addButton(win.f0_fcpe_btn)
-    f0_method = "fcpe"
-    if f0_method == "rmvpe":
-        win.f0_rmvp_btn.setChecked(True)
-    else:
-        win.f0_fcpe_btn.setChecked(True)
+    # Default to FCPE
+    win.f0_fcpe_btn.setChecked(True)
 
     f0_w = QWidget(); f0r = QHBoxLayout(f0_w); f0r.setSpacing(6); f0r.setContentsMargins(0, 0, 0, 0)
     f0r.addWidget(QLabel("音高算法")); f0r.addWidget(win.f0_rmvp_btn); f0r.addWidget(win.f0_fcpe_btn); f0r.addStretch()

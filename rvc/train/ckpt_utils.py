@@ -12,6 +12,7 @@ from rvc.runtime import train_config_path
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path + ".tmp"
     torch.save(
         {
             "model": model.state_dict(),
@@ -19,8 +20,9 @@ def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: st
             "optimizer": optimizer.state_dict() if optimizer is not None else None,
             "learning_rate": learning_rate,
         },
-        path,
+        tmp_path,
     )
+    os.replace(tmp_path, path)
 
 
 def load_checkpoint(path: str, model, optimizer=None):
@@ -71,7 +73,9 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
         "version": "v2",
     }
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(ckpt, output_path)
+    tmp_path = output_path + ".tmp"
+    torch.save(ckpt, tmp_path)
+    os.replace(tmp_path, output_path)
 
 
 def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
@@ -99,7 +103,9 @@ def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
         "version": ckpt_a.get("version", "v2"),
     }
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(ckpt, output_path)
+    tmp_path = output_path + ".tmp"
+    torch.save(ckpt, tmp_path)
+    os.replace(tmp_path, output_path)
 
 
 

@@ -23,7 +23,7 @@ def apply_sola(
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
     energy = F.conv1d(ci**2, sola_norm_kernel)
-    cd = torch.sqrt(energy + 1e-8)
+    cd = (energy + 1e-8).rsqrt()
     score = cn[0, 0] / cd[0, 0]
     best_score, offset = torch.max(score, dim=0)
     valid_match = (torch.max(energy) >= SOLA_MIN_ENERGY) & (best_score >= SOLA_MIN_CORR)

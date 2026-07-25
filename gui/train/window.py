@@ -16,9 +16,10 @@ class TrainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 训练")
-        self.resize(360, 253)  # 540/1.5=360, 380/1.5≈253
+        self.resize(360, 253)
         self.worker = None
         self._tool_thread = None
+        self._last_loss_text = ""
         self._build_ui()
         self._load_cfg()
 
@@ -39,8 +40,8 @@ class TrainWindow(QMainWindow):
     # ── 训练逻辑 ────────────────────────────────────────────
 
     def _on_sr_changed(self, text: str):
-        """采样率改变时自动填充预训练模型（仅 48k）"""
-        sr = "48k"
+        """采样率改变时自动填充预训练模型"""
+        sr = text
         if not self.pretrain_g.text().strip():
             path = Path(f"assets/pretrained_v2/f0G{sr}.pth")
             if path.exists():
@@ -169,11 +170,14 @@ class TrainWindow(QMainWindow):
         self.on_progress(epoch, total)
 
     def on_loss(self, data: dict):
-        self.loss_label.setText(
+        text = (
             "Loss: "
             f"D {data['loss_d']:.4f} | G {data['loss_g']:.4f} | "
             f"Mel {data['loss_mel']:.4f} | KL {data['loss_kl']:.4f} | FM {data['loss_fm']:.4f}"
         )
+        if text != self._last_loss_text:
+            self.loss_label.setText(text)
+            self._last_loss_text = text
 
     def on_log(self, message: str):
         self.log_edit.append(message.rstrip())

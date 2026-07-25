@@ -42,9 +42,9 @@ def infer_realtime_audio(
     cache_pitch,
     cache_pitchf,
     sid,
-    skip_head_t,
-    return_length_t,
-    return_length2,
+    skip_head: int,
+    return_length: int,
+    return_length2: int,
     use_f0: int,
     is_half: bool,
 ):
@@ -55,7 +55,7 @@ def infer_realtime_audio(
             synthesizer, "synth-realtime-f0",
             lambda: synthesizer.infer(
                 feats, p_len_t, cache_pitch, cache_pitchf, sid,
-                skip_head_t, return_length_t, return_length2,
+                skip_head, return_length, return_length2,
             ),
         )
     else:
@@ -63,7 +63,7 @@ def infer_realtime_audio(
             synthesizer, "synth-realtime-no-f0",
             lambda: synthesizer.infer(
                 feats, p_len_t, None, None, sid,
-                skip_head_t, return_length_t, return_length2,
+                skip_head, return_length, return_length2,
             ),
         )
     return result
@@ -77,7 +77,7 @@ def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, r
         return audio
 
     if upp_res not in resample_kernel:
-        if len(resample_kernel) >= 16:
+        if len(resample_kernel) >= 64:
             resample_kernel.clear()
         resample_kernel[upp_res] = TatResample(
             orig_freq=upp_res,

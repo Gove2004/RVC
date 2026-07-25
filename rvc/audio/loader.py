@@ -1,6 +1,5 @@
 """统一音频加载工具 — 支持任意格式，自动 fallback 到 ffmpeg"""
 import logging
-import re
 import subprocess
 import warnings
 from pathlib import Path
@@ -70,15 +69,17 @@ def _load_via_ffmpeg_native(path: Path) -> tuple[np.ndarray, int]:
     """通过 ffmpeg 解码，保持原始采样率。"""
     if not _FFMPEG.exists():
         raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}\n也无法用 librosa 加载: {path}")
-    # 探测采样率
-    info = subprocess.run([str(_FFMPEG), "-i", str(path)], capture_output=True, text=True)
-    sr = 48000
-    for line in info.stderr.split("\n"):
-        if "Hz" in line and "Audio" in line:
-            m = re.search(r"(\d+) Hz", line)
-            if m:
-                sr = int(m.group(1))
-                break
+    # 用 ffprobe 可靠地获取采样率
+    probe_cmd = [
+        str(_FFMPEG), "-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=sample_rate", "-of", "csv=p=0",
+        str(path),
+    ]
+    try:
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+        sr = int(probe.stdout.strip()) if probe.returncode == 0 and probe.stdout.strip() else 48000
+    except (ValueError, FileNotFoundError):
+        sr = 48000
     cmd = [
         str(_FFMPEG), "-i", str(path), "-vn",
         "-acodec", "pcm_f32le", "-f", "f32le", "-ac", "1", "-",

@@ -18,6 +18,7 @@ class OfflineManager:
     def __init__(self, window: 'MainWindow'):
         self.window = window
         self.worker = None
+        self._converting = False
 
     def browse_file(self, target_widget, kind: str) -> None:
         """浏览文件选择"""
@@ -38,6 +39,9 @@ class OfflineManager:
 
     def start_conversion(self) -> None:
         """开始离线转换"""
+        if self._converting:
+            self.window._show_warning("已有转换任务正在运行")
+            return
         inp = self.window.offline_input.text().strip()
         out = self.window.offline_output.text().strip()
 
@@ -88,6 +92,7 @@ class OfflineManager:
             reverb_mix=_sl_value_as_float(self.window.reverb_slider),
         )
         self.worker = OfflineWorker(config)
+        self._converting = True
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
@@ -106,20 +111,22 @@ class OfflineManager:
 
     def _on_finished(self, path: str) -> None:
         """转换完成"""
+        self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
         self.window.offline_status.setText("完成")
         if self.worker:
-            self.worker.wait()
+            self.worker.deleteLater()
             self.worker = None
 
     def _on_error(self, msg: str) -> None:
         """转换出错"""
+        self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
         self.window.offline_status.setText("错误")
         if self.worker:
-            self.worker.wait()
+            self.worker.deleteLater()
             self.worker = None
         self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
 

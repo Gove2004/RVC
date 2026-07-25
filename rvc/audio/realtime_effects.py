@@ -12,7 +12,7 @@ def apply_pre_sola_effects(
         return audio, last_eq_params
 
     current_eq = (params.eq_sub, params.eq_low, params.eq_mid, params.eq_hi_mid, params.eq_high)
-    if last_eq_params != current_eq:
+    if last_eq_params is None or last_eq_params != current_eq:
         eq.set_band("sub", params.eq_sub)
         eq.set_band("low", params.eq_low)
         eq.set_band("mid", params.eq_mid)

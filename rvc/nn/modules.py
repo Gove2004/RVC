@@ -99,6 +99,7 @@ class WN(torch.nn.Module):
         self.in_layers = torch.nn.ModuleList()
         self.res_skip_layers = torch.nn.ModuleList()
         self.drop = nn.Dropout(float(p_dropout))
+        self._n_channels_tensor = torch.IntTensor([hidden_channels])
 
         if gin_channels != 0:
             cond_layer = torch.nn.Conv1d(
@@ -133,7 +134,6 @@ class WN(torch.nn.Module):
         self, x: torch.Tensor, x_mask: torch.Tensor, g: Optional[torch.Tensor] = None
     ):
         output = torch.zeros_like(x)
-        n_channels_tensor = torch.IntTensor([self.hidden_channels])
 
         if g is not None:
             g = self.cond_layer(g)
@@ -148,7 +148,7 @@ class WN(torch.nn.Module):
             else:
                 g_l = torch.zeros_like(x_in)
 
-            acts = commons.fused_add_tanh_sigmoid_multiply(x_in, g_l, n_channels_tensor)
+            acts = commons.fused_add_tanh_sigmoid_multiply(x_in, g_l, self._n_channels_tensor)
             acts = self.drop(acts)
 
             res_skip_acts = res_skip_layer(acts)
@@ -329,7 +329,7 @@ class Flip(nn.Module):
             logdet = torch.zeros(x.size(0)).to(dtype=x.dtype, device=x.device)
             return x, logdet
         else:
-            return x, torch.zeros([1], device=x.device)
+            return x, torch.zeros([], device=x.device)
 
 
 

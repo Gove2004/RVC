@@ -7,14 +7,16 @@ import torch.nn.functional as F
 from rvc.tools.cuda_graph import run_cuda_graph
 
 
-def cached_padding_mask(cache: dict, shape, device: str) -> torch.Tensor:
-    mask = cache.get(shape)
-    if mask is None:
+def cached_padding_mask(cache: dict, shape, device: str) -> tuple[torch.Tensor, bool]:
+    entry = cache.get(shape)
+    if entry is None:
         if len(cache) >= 8:
             cache.clear()
         mask = torch.zeros(shape, dtype=torch.bool, device=device)
-        cache[shape] = mask
-    return mask
+        cache[shape] = (mask, False)  # (mask, has_nonzero)
+        return mask, False
+    mask, has_nonzero = entry
+    return mask, has_nonzero
 
 
 def extract_hubert_features(model, input_wav, device: str, is_half: bool, padding_mask_cache: dict) -> torch.Tensor:
@@ -23,20 +25,22 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool, paddin
     feats = input_wav.to(device)
     feats = feats.half() if is_half else feats.float()
     feats = feats.view(1, -1)
-    padding_mask = cached_padding_mask(padding_mask_cache, feats.shape, device)
+    padding_mask, _has_padding = cached_padding_mask(padding_mask_cache, feats.shape, device)
 
-    has_padding = bool(torch.any(padding_mask).cpu().item())
-    if not has_padding:
+    # For fixed-size realtime blocks the mask is pre-allocated zeros;
+    # _has_padding tracks changes without a GPU→CPU sync.
+    if not _has_padding:
         feats_result = model(feats, attention_mask=None)
     else:
         attention_mask = (~padding_mask.bool()).long()
         feats_result = model(feats, attention_mask=attention_mask)
 
     # CUDA Graph replay 返回的已经是 clone，但边缘情况可能不走图
-    if not torch.is_tensor(feats_result):
-        feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
-    else:
-        feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
+    # Unpack tuple return (some models return (hidden,) not plain tensor)
+    if isinstance(feats_result, tuple):
+        feats_result = feats_result[0]
+    # Unconditional last-frame padding for feature alignment
+    feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
     return feats_result
 
 

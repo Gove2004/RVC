@@ -1,7 +1,10 @@
 """GUI 状态持久化配置。"""
 import json
+import threading
 
 from rvc.runtime import config_path
+
+_lock = threading.Lock()
 
 
 def load_config() -> dict:
@@ -15,6 +18,7 @@ def load_config() -> dict:
 
 
 def save_config(data: dict):
-    state_file = config_path()
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    with _lock:
+        state_file = config_path()
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

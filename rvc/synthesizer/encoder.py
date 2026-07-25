@@ -48,7 +48,7 @@ class TextEncoder(nn.Module):
         phone: torch.Tensor,
         pitch: Optional[torch.Tensor],
         lengths: torch.Tensor,
-        skip_head: Optional[torch.Tensor] = None,
+        skip_head: int | torch.Tensor | None = None,
     ):
         if pitch is None:
             x = self.emb_phone(phone)
@@ -62,8 +62,7 @@ class TextEncoder(nn.Module):
         )
         x = self.encoder(x * x_mask, x_mask)
         if skip_head is not None:
-            assert isinstance(skip_head, torch.Tensor)
-            head = int(skip_head.item())
+            head = int(skip_head) if isinstance(skip_head, torch.Tensor) else skip_head
             x = x[:, :, head:]
             x_mask = x_mask[:, :, head:]
         stats = self.proj(x) * x_mask

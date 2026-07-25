@@ -166,23 +166,18 @@ class _SynthesizerTrnMsBase(nn.Module):
         pitch: Optional[torch.Tensor],
         nsff0: Optional[torch.Tensor],
         sid: torch.Tensor,
-        skip_head: Optional[torch.Tensor] = None,
-        return_length: Optional[torch.Tensor] = None,
-        return_length2: Optional[torch.Tensor] = None,
+        skip_head: int = 0,
+        return_length: int = 0,
+        return_length2: int | torch.Tensor | None = None,
     ):
         """推理 — 统一接口，根据 use_f0 自动处理 pitch/nsff0 参数。"""
         g = self.emb_g(sid).unsqueeze(-1)
 
-        if skip_head is not None and return_length is not None:
-            if isinstance(skip_head, torch.Tensor):
-                head = int(skip_head.item())
-                flow_head = torch.clamp(skip_head - 24, min=0)
-                dec_head = head - int(flow_head.item())
-            else:
-                head = int(skip_head)
-                flow_head = max(head - 24, 0)
-                dec_head = head - flow_head
-            length = int(return_length.item()) if isinstance(return_length, torch.Tensor) else int(return_length)
+        if skip_head > 0 or return_length > 0:
+            head = int(skip_head)
+            flow_head = max(head - 24, 0)
+            dec_head = head - flow_head
+            length = int(return_length)
             if self.use_f0:
                 assert pitch is not None
                 m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)

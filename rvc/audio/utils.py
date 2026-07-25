@@ -70,7 +70,9 @@ def match_rms(source_audio, source_sr, target_audio, target_sr, mix_rate):
 
 
 def get_audio_devices(hostapi_name=None):
-    sd._terminate(); sd._initialize()
+    """枚举音频设备，仅在首次调用时重新初始化 sounddevice。"""
+    if not sd.query_devices():
+        sd._terminate(); sd._initialize()
     devices = sd.query_devices()
     hostapis = sd.query_hostapis()
     for ha in hostapis:

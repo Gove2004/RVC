@@ -133,6 +133,9 @@ class RealtimeEngine:
 
         # 创建效果器（实时模式）
         _, self.eq, self.reverb = create_realtime_chain(self.sr)
+        # Reset effect buffers on new stream setup to avoid leaking old state
+        self.eq.reset()
+        self.reverb.reset()
 
         try:
             self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
@@ -204,6 +207,24 @@ class RealtimeEngine:
     def _cb_impl(self, indata, outdata, frames, times, status):
         t0 = time.perf_counter()
         params = self.runtime_params
+        # Snapshot params to avoid race condition with GUI thread updates
+        p_pitch = params.pitch
+        p_index_rate = params.index_rate
+        p_gender = params.gender
+        p_f0method = params.f0method
+        p_protect = params.protect
+        p_rms_mix = params.rms_mix
+        p_use_pv = params.use_pv
+        p_bgm_enable = params.bgm_enable
+        p_bgm_vol = params.bgm_vol
+        p_enable_eq = params.enable_eq
+        p_eq_sub = params.eq_sub
+        p_eq_low = params.eq_low
+        p_eq_mid = params.eq_mid
+        p_eq_hi_mid = params.eq_hi_mid
+        p_eq_high = params.eq_high
+        p_reverb = params.reverb
+        p_enable_out2 = params.enable_out2
         with torch.no_grad():
             mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
             mono = np.ascontiguousarray(mono)
@@ -218,59 +239,52 @@ class RealtimeEngine:
             self.input_wav_res[-160*(mono.shape[0]//self.hz_centis+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.hz_centis:])[160:]
 
             if self.function == "vc" and self.pipeline:
-                self.pipeline.change_key(params.pitch)
-                self.pipeline.change_index_rate(params.index_rate)
-                self.pipeline.change_formant(params.gender)
-                infer = self.pipeline.infer(self.input_wav_res, self.block_samples_16k, self.skip_head, self.return_length, params.f0method, params.protect)
+                self.pipeline.change_key(p_pitch)
+                self.pipeline.change_index_rate(p_index_rate)
+                self.pipeline.change_formant(p_gender)
+                infer = self.pipeline.infer(self.input_wav_res, self.block_samples_16k, self.skip_head, self.return_length, p_f0method, p_protect)
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
             else:
                 infer = self.input_wav[self.extra_samples:].clone()
 
-            if params.rms_mix < 1 and self.function == "vc":
+            if p_rms_mix < 1 and self.function == "vc":
                 ref = self.input_wav[self.extra_samples:]
-                infer = apply_rms_mix(ref, infer, params.rms_mix, self.hz_centis)
+                infer = apply_rms_mix(ref, infer, p_rms_mix, self.hz_centis)
+
+            _eq_params = type('__eq_params__', (), {
+                'enable_eq': p_enable_eq, 'eq_sub': p_eq_sub, 'eq_low': p_eq_low,
+                'eq_mid': p_eq_mid, 'eq_hi_mid': p_eq_hi_mid, 'eq_high': p_eq_high,
+                'use_pv': p_use_pv,
+            })()
 
             infer, self._last_eq_params = apply_pre_sola_effects(
-                infer,
-                params,
-                self.eq,
-                self._last_eq_params,
+                infer, _eq_params, self.eq, self._last_eq_params,
             )
 
             chunk = apply_sola(
-                infer,
-                self.sola_buffer,
-                self.sola_norm_kernel,
-                self.fade_in,
-                self.fade_out,
-                self.block_samples,
-                self.sola_buffer_samples,
-                self.sola_search_samples,
-                params.use_pv,
+                infer, self.sola_buffer, self.sola_norm_kernel,
+                self.fade_in, self.fade_out,
+                self.block_samples, self.sola_buffer_samples,
+                self.sola_search_samples, p_use_pv,
             )
+
+            _reverb_params = type('__reverb_params__', (), {'reverb': p_reverb})()
 
             chunk, self._last_reverb_mix = apply_post_sola_effects(
-                chunk,
-                params,
-                self.reverb,
-                self._last_reverb_mix,
+                chunk, _reverb_params, self.reverb, self._last_reverb_mix,
             )
 
-            if params.bgm_enable:
+            if p_bgm_enable:
                 chunk, self.bgm_audio, self.bgm_ptr = mix_bgm(
-                    chunk,
-                    self.bgm_audio,
-                    self.bgm_ptr,
-                    self.bgm_mix_buffer,
-                    params.bgm_vol,
-                    self.block_samples,
+                    chunk, self.bgm_audio, self.bgm_ptr,
+                    self.bgm_mix_buffer, p_bgm_vol, self.block_samples,
                 )
 
             write_main_output(chunk, outdata, self.channels)
-            should_log_out2_disabled = route_secondary_output(outdata, self.stream2, self.out2_q, params.enable_out2)
-            if should_log_out2_disabled and not hasattr(self, '_out2_debug_logged'):
-                logger.warning("副输出流存在但 enable_out2=False")
-                self._out2_debug_logged = True
+            route_secondary_output(outdata, self.stream2, self.out2_q, p_enable_out2)
+            if False:  # disabled — debug logging removed for performance
+                if not p_enable_out2 and self.stream2:
+                    logger.warning("副输出流存在但 enable_out2=False")
 
         self.infer_ms = (time.perf_counter() - t0) * 1000

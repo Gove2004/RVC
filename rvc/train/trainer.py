@@ -47,6 +47,16 @@ class Trainer:
     def stop(self):
         self.stop_requested = True
 
+    def cleanup(self):
+        """释放 GPU 资源（用于训练停止后回收显存）"""
+        for attr in ("synthesizer", "net_d", "optim_g", "optim_d", "scheduler_g", "scheduler_d"):
+            if hasattr(self, attr):
+                setattr(self, attr, None)
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def log(self, message: str):
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         with self.log_file.open("a", encoding="utf-8") as f:

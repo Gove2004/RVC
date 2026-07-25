@@ -222,7 +222,7 @@ class SimpleReverb(AudioEffect):
 
     def reset(self):
         """重置缓冲区"""
-        if self.realtime and hasattr(self, 'buffer'):
+        if self.realtime and hasattr(self, 'buffer') and self.buffer is not None:
             self.buffer.zero_()
 
 

@@ -1,3 +1,5 @@
+import bisect
+import logging
 import random
 from pathlib import Path
 
@@ -7,6 +9,8 @@ import torch
 from torch.utils.data import Dataset, Sampler
 
 from rvc.train.mel_processing import spectrogram_torch
+
+logger = logging.getLogger(__name__)
 
 
 class TextAudioLoaderMultiNSFsid(Dataset):
@@ -50,6 +54,8 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         spec, wav = self._get_audio(wav_path)
 
         min_len = min(phone.shape[0], pitch.shape[0], pitchf.shape[0], spec.shape[1])
+        if min_len < phone.shape[0] or min_len < pitch.shape[0] or min_len < pitchf.shape[0] or min_len < spec.shape[1]:
+            logger.warning("特征长度不对齐 (phone=%d, pitch=%d, pitchf=%d, spec=%d)，截断至 %d", phone.shape[0], pitch.shape[0], pitchf.shape[0], spec.shape[1], min_len)
         phone = phone[:min_len]
         pitch = pitch[:min_len]
         pitchf = pitchf[:min_len]
@@ -126,17 +132,21 @@ class BucketSampler(Sampler):
 
     def _create_buckets(self):
         buckets = [[] for _ in range(len(self.boundaries) - 1)]
+        total = 0
+        assigned = 0
         for idx, length in enumerate(self.dataset.lengths):
+            total += 1
             bucket_idx = self._bisect(length)
             if bucket_idx != -1:
+                assigned += 1
                 buckets[bucket_idx].append(idx)
+        if dropped := total - assigned:
+            logger.warning("BucketSampler: %d/%d 样本被跳过（长度超出范围 [%d, %d]）", dropped, total, self.boundaries[0], self.boundaries[-1])
         return [bucket for bucket in buckets if bucket]
 
     def _bisect(self, length: int):
-        for i in range(len(self.boundaries) - 1):
-            if self.boundaries[i] <= length < self.boundaries[i + 1]:
-                return i
-        return -1
+        i = bisect.bisect_right(self.boundaries, length) - 1
+        return i if 0 <= i < len(self.buckets) else -1
 
     def __iter__(self):
         batches = []

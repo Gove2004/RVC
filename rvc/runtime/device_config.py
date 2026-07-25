@@ -1,7 +1,6 @@
 """运行时设备配置。"""
 import json
 import logging
-import os
 import sys
 import threading
 
@@ -29,20 +28,18 @@ class Config:
     def _init(self):
         self.device = "cuda:0"
         self.is_half = True
-        self.use_cuda_graph = True
+        self.use_cuda_graph = False
         self.gpu_name = None
         self.json_config = self._load_train_configs()
         self.gpu_mem = None
         self.x_pad, self.x_query, self.x_center, self.x_max = self._init_device()
 
         # CUDA Graph 探测 — 初始化时就跑，之后所有推理路径都生效
-        if self.use_cuda_graph:
-            if configure_cuda_graph(self.device):
-                logger.info("CUDA Graph 已启用 (GPU: %s)", self.gpu_name)
-            else:
-                self.use_cuda_graph = False
-                os.environ["RVC_CUDA_GRAPH"] = "0"
-                logger.info("CUDA Graph 不支持，已禁用")
+        if configure_cuda_graph(self.device):
+            self.use_cuda_graph = True
+            logger.info("CUDA Graph 已启用 (GPU: %s)", self.gpu_name)
+        else:
+            logger.info("CUDA Graph 不支持，已禁用")
 
     def _load_train_configs(self) -> dict:
         return {

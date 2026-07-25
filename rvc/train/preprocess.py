@@ -3,7 +3,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import librosa
@@ -13,8 +12,6 @@ from scipy import signal
 
 from rvc.audio.loader import load_audio as _load_audio_lib
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_FFMPEG = _PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"
 _RUNTIME_DIRS = [
@@ -41,26 +38,32 @@ class Slicer:
         if wav.shape[0] <= self.min_length:
             return [wav]
         rms = librosa.feature.rms(y=wav, frame_length=self.hop_size * 2, hop_length=self.hop_size).squeeze(0)
+        below = rms < self.threshold
+        length = len(below)
+
         sil_tags = []
         silence_start = None
         clip_start = 0
-        for i, value in enumerate(rms):
-            pos = i * self.hop_size
-            if value < self.threshold:
+        i = 0
+        while i < length:
+            if below[i]:
                 if silence_start is None:
-                    silence_start = pos
+                    silence_start = int(np.clip(i * self.hop_size, 0, length * self.hop_size))
+                i += 1
                 continue
             if silence_start is None:
+                i += 1
                 continue
-            silence_end = pos
+            silence_end = min(int(np.clip((i + 1) * self.hop_size, 0, length * self.hop_size)), len(wav))
             silence_len = silence_end - silence_start
             if silence_len >= self.min_interval and silence_end - clip_start >= self.min_length:
                 cut = silence_start + min(silence_len // 2, self.max_sil_kept)
                 sil_tags.append((clip_start, cut))
                 clip_start = cut
             silence_start = None
-        if clip_start < wav.shape[0]:
-            sil_tags.append((clip_start, wav.shape[0]))
+            i += 1
+        if clip_start < len(wav):
+            sil_tags.append((clip_start, len(wav)))
         return [wav[start:end] for start, end in sil_tags if end - start > self.hop_size]
 
 

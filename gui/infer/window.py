@@ -38,6 +38,7 @@ class MainWindow(QMainWindow):
         self._lt = None
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
+        self._delay_ms = 0
         self._build_ui()
 
         # 初始化管理器
@@ -317,8 +318,8 @@ class MainWindow(QMainWindow):
     def _start_engine(self, pth, idx, idx_rate):
         if self._loading:
             if self._lt and self._lt.isRunning():
-                self._lt.terminate()
-                self._lt.wait()
+                self._lt.request_stop()
+                self._lt.wait(3000)
             self._loading = False
 
         self._loading = True
@@ -368,8 +369,8 @@ class MainWindow(QMainWindow):
     def _stop(self):
         if self._loading:
             if self._lt and self._lt.isRunning():
-                self._lt.terminate()
-                self._lt.wait()
+                self._lt.request_stop()
+                self._lt.wait(3000)
             self._loading = False
             self._reset_runtime_ui()
             if self.model_manager.active_card:

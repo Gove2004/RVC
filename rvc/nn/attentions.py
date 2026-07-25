@@ -82,10 +82,6 @@ class MultiHeadAttention(nn.Module):
         n_heads,
         p_dropout=0.0,
         window_size=None,
-        heads_share=True,
-        block_length=None,
-        proximal_bias=False,
-        proximal_init=False,
     ):
         super(MultiHeadAttention, self).__init__()
         assert channels % n_heads == 0
@@ -95,13 +91,10 @@ class MultiHeadAttention(nn.Module):
         self.n_heads = n_heads
         self.p_dropout = p_dropout
         self.window_size = window_size
-        self.heads_share = heads_share
-        self.block_length = block_length
-        self.proximal_bias = proximal_bias
-        self.proximal_init = proximal_init
         self.attn = None
 
         self.k_channels = channels // n_heads
+        self.inv_k_channels_sqrt = 1.0 / math.sqrt(self.k_channels)
         self.conv_q = nn.Conv1d(channels, channels, 1)
         self.conv_k = nn.Conv1d(channels, channels, 1)
         self.conv_v = nn.Conv1d(channels, channels, 1)
@@ -109,7 +102,7 @@ class MultiHeadAttention(nn.Module):
         self.drop = nn.Dropout(p_dropout)
 
         if window_size is not None:
-            n_heads_rel = 1 if heads_share else n_heads
+            n_heads_rel = 1
             rel_stddev = self.k_channels**-0.5
             self.emb_rel_k = nn.Parameter(
                 torch.randn(n_heads_rel, window_size * 2 + 1, self.k_channels)
@@ -123,10 +116,6 @@ class MultiHeadAttention(nn.Module):
         nn.init.xavier_uniform_(self.conv_q.weight)
         nn.init.xavier_uniform_(self.conv_k.weight)
         nn.init.xavier_uniform_(self.conv_v.weight)
-        if proximal_init:
-            with torch.no_grad():
-                self.conv_k.weight.copy_(self.conv_q.weight)
-                self.conv_k.bias.copy_(self.conv_q.bias)
 
     def forward(
         self, x: torch.Tensor, c: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
@@ -154,34 +143,19 @@ class MultiHeadAttention(nn.Module):
         key = key.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
         value = value.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
 
-        scores = torch.matmul(query / math.sqrt(self.k_channels), key.transpose(-2, -1))
+        scores = torch.matmul(query * self.inv_k_channels_sqrt, key.transpose(-2, -1))
         if self.window_size is not None:
             assert (
                 t_s == t_t
             ), "Relative attention is only available for self-attention."
             key_relative_embeddings = self._get_relative_embeddings(self.emb_rel_k, t_s)
             rel_logits = self._matmul_with_relative_keys(
-                query / math.sqrt(self.k_channels), key_relative_embeddings
+                query * self.inv_k_channels_sqrt, key_relative_embeddings
             )
             scores_local = self._relative_position_to_absolute_position(rel_logits)
             scores = scores + scores_local
-        if self.proximal_bias:
-            assert t_s == t_t, "Proximal bias is only available for self-attention."
-            scores = scores + self._attention_bias_proximal(t_s).to(
-                device=scores.device, dtype=scores.dtype
-            )
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e4)
-            if self.block_length is not None:
-                assert (
-                    t_s == t_t
-                ), "Local attention is only available for self-attention."
-                block_mask = (
-                    torch.ones_like(scores)
-                    .triu(-self.block_length)
-                    .tril(self.block_length)
-                )
-                scores = scores.masked_fill(block_mask == 0, -1e4)
         p_attn = F.softmax(scores, dim=-1)  # [b, n_h, t_t, t_s]
         p_attn = self.drop(p_attn)
         output = torch.matmul(p_attn, value)
@@ -278,17 +252,6 @@ class MultiHeadAttention(nn.Module):
         )
         x_final = x_flat.view([batch, heads, length, 2 * length])[:, :, :, 1:]
         return x_final
-
-    def _attention_bias_proximal(self, length: int):
-        """Bias for self-attention to encourage attention to close positions.
-        Args:
-          length: an integer scalar.
-        Returns:
-          a Tensor with shape [1, 1, length, length]
-        """
-        r = torch.arange(length, dtype=torch.float32)
-        diff = torch.unsqueeze(r, 0) - torch.unsqueeze(r, 1)
-        return torch.unsqueeze(torch.unsqueeze(-torch.log1p(torch.abs(diff)), 0), 0)
 
 
 class FFN(nn.Module):

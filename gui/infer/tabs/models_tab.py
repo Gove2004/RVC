@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 
-from gui.styles import ButtonStyles, Layout, Colors, MiscStyles
+from gui.styles import ButtonStyles, Layout, MiscStyles
 
 
 class AddModelCard(QFrame):

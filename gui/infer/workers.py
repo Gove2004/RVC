@@ -30,12 +30,20 @@ class OfflineWorker(QThread):
         self.cfg = cfg
 
     def run(self):
+        vc = None
         try:
             self._do_run()
         except Exception:
             tb = traceback.format_exc()
             logger.error("离线推理失败:\n%s", tb)
             self.error.emit(tb.strip())
+        finally:
+            try:
+                if vc is not None:
+                    del vc
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     def _do_run(self):
         import soundfile as sf
@@ -58,7 +66,7 @@ class OfflineWorker(QThread):
         vc.change_key(self.cfg.pitch)
         self.progress.emit(20, 100)
 
-        tgt_sr = vc.tgt_sr
+        tgt_sr = vc.target_sr
         t_pad = 16000 * AUDIO_PAD_SECONDS
         t_pad_tgt = tgt_sr * AUDIO_PAD_SECONDS
         audio_pad = np.pad(wav, (t_pad, t_pad), mode="reflect")
@@ -81,9 +89,6 @@ class OfflineWorker(QThread):
         sf.write(self.cfg.output_path, audio1, tgt_sr, subtype="FLOAT")
         self.progress.emit(100, 100)
         self.finished.emit(self.cfg.output_path)
-
-        del vc
-        torch.cuda.empty_cache()
 
     def _apply_effects(self, audio: np.ndarray, sr: int) -> np.ndarray:
         chain, eq, reverb = create_offline_chain(sr)

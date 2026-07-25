@@ -1,5 +1,4 @@
 """训练 GUI 通用组件"""
-from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QFileDialog, QLineEdit

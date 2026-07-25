@@ -33,7 +33,7 @@ def faiss_blend(feats_npy: np.ndarray, index, index_vectors: np.ndarray, index_r
     score, ix = index.search(feats_npy, k=k)
     if not (ix >= 0).all():
         return feats_npy
-    weight = np.square(1 / score)
+    weight = np.square(1.0 / np.maximum(score, 1e-10))
     weight /= weight.sum(axis=1, keepdims=True)
     blended = np.sum(index_vectors[ix] * np.expand_dims(weight, axis=2), axis=1)
     result = blended * index_rate + feats_npy * (1 - index_rate)
@@ -50,9 +50,28 @@ def apply_faiss_index(
     is_half: bool,
     device: str,
     skip_head: int = 0,
-) -> torch.Tensor:
+    blend_every_n: int = 4,
+    blend_counter: list[int] | None = None,
+) -> tuple[torch.Tensor, int | None]:
+    """Apply FAISS index blending with optional frequency reduction.
+
+    Args:
+        blend_every_n: Run FAISS every Nth block (1 = every block). Reduces GPU-CPU-GPU sync overhead.
+        blend_counter: Mutable single-element list [count]. If None, FAISS runs every block.
+
+    Returns:
+        (feats, blend_counter) — counter is None if blend_every_n <= 1 or no counter provided.
+    """
     if index is None or index_vectors is None or index_rate <= 0:
-        return feats
+        return feats, blend_counter
+
+    should_blend = True
+    if blend_counter is not None and blend_every_n > 1:
+        blend_counter[0] = (blend_counter[0] + 1) % blend_every_n
+        should_blend = blend_counter[0] == 0
+
+    if not should_blend:
+        return feats, blend_counter
 
     try:
         npy = feats[0][skip_head // 2:].detach().cpu().numpy().astype("float32")
@@ -60,4 +79,4 @@ def apply_faiss_index(
         feats[0][skip_head // 2:] = torch.from_numpy(blended).to(device)
     except Exception as e:
         logger.warning("FAISS 索引混合失败，使用原始特征: %s", e)
-    return feats
+    return feats, blend_counter

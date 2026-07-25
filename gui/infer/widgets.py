@@ -165,6 +165,14 @@ class LoadThread(QThread):
     def __init__(self, engine, pth, idx, idx_rate):
         super().__init__()
         self.engine = engine; self.pth = pth; self.idx = idx; self.rate = idx_rate
+        self._stop_requested = False
+    def request_stop(self):
+        self._stop_requested = True
+    def is_stopping(self):
+        return self._stop_requested
     def run(self):
-        try: self.ok.emit(self.engine.load_model(self.pth, self.idx, self.rate, True))
-        except Exception as e: self.err.emit(str(e))
+        try:
+            if not self.is_stopping():
+                self.ok.emit(self.engine.load_model(self.pth, self.idx, self.rate, True))
+        except Exception as e:
+            self.err.emit(str(e))

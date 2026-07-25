@@ -52,6 +52,7 @@ class VCPipeline:
         self.model_fcpe = None
         self._long_tensor_cache = {}
         self._padding_mask_cache = {}
+        self._faiss_blend_counter = None
 
     def _cached_long_tensor(self, value: int) -> torch.Tensor:
         return cached_long_tensor(self._long_tensor_cache, value, self.device)
@@ -84,7 +85,11 @@ class VCPipeline:
         return clone_protect_source(feats, self.use_f0, protect)
 
     def _apply_faiss_index(self, feats, skip_head=0):
-        return apply_faiss_index(feats, self.index, self.index_vectors, self.index_rate, self.is_half, self.device, skip_head)
+        feats, _ = apply_faiss_index(
+            feats, self.index, self.index_vectors, self.index_rate, self.is_half, self.device,
+            skip_head, blend_every_n=4, blend_counter=self._faiss_blend_counter,
+        )
+        return feats
 
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
@@ -184,15 +189,12 @@ class VCPipeline:
             feats,
             p_len,
             feats0,
-            cache_pitchf.clone() if feats0 is not None else None,
+            cache_pitchf,
             protect,
         )
 
         p_len_t = self._cached_long_tensor(p_len)
         sid = self._cached_long_tensor(0)
-        skip_head_t = self._cached_long_tensor(skip_head)
-        return_length_t = self._cached_long_tensor(return_length)
-        return_length2 = self._cached_long_tensor(return_length2_val)
 
         infered_audio, _, _ = infer_realtime_audio(
             self.synthesizer,
@@ -201,9 +203,9 @@ class VCPipeline:
             cache_pitch,
             cache_pitchf,
             sid,
-            skip_head_t,
-            return_length_t,
-            return_length2,
+            skip_head,
+            return_length,
+            return_length2_val,
             self.use_f0,
             self.is_half,
         )

@@ -59,17 +59,6 @@ def rand_slice_segments(x: torch.Tensor, x_lengths: Optional[torch.Tensor] = Non
 
 
 def clip_grad_value_(parameters, clip_value: Optional[float], norm_type: float = 2.0):
-    if isinstance(parameters, torch.Tensor):
-        parameters = [parameters]
-    parameters = [p for p in parameters if p.grad is not None]
-    norm_type = float(norm_type)
-    if clip_value is not None:
-        clip_value = float(clip_value)
-
-    total_norm = 0.0
     for p in parameters:
-        param_norm = p.grad.data.norm(norm_type)
-        total_norm += param_norm.item() ** norm_type
-        if clip_value is not None:
-            p.grad.data.clamp_(min=-clip_value, max=clip_value)
-    return total_norm ** (1.0 / norm_type)
+        if p.grad is not None:
+            p.grad.data.clamp_(min=-clip_value or -float("inf"), max=clip_value or float("inf"))

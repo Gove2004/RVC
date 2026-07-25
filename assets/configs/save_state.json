@@ -4,7 +4,7 @@
     "cf": 0.09,
     "ex": 1.5,
     "f0": "rmvpe",
-    "sr_mode": "model",
+    "sr_mode": "device",
     "eq_en": false,
     "eq_sub": 0.0,
     "eq_lo": 0.0,

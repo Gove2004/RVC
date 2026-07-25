@@ -31,6 +31,9 @@ class TrainWorker(QThread):
         self._stop_requested = True
         if self._trainer is not None:
             self._trainer.stop()
+            trainer = self._trainer
+            self._trainer = None
+            trainer.cleanup()
         self.stage_changed.emit("正在停止")
         self.log_message.emit("收到停止请求，将在当前步骤结束后保存退出")
 
@@ -109,6 +112,12 @@ class TrainWorker(QThread):
         self.log_message.emit(f"训练样本数: {count}")
         if count == 0:
             raise RuntimeError("没有可训练样本")
+
+        # Validate pretrain paths before starting training
+        for name in ("pretrain_g", "pretrain_d"):
+            path = self.options.get(name, "")
+            if path and not Path(path).exists():
+                raise RuntimeError(f"预训练模型不存在: {path}")
 
         self.stage_changed.emit("训练模型")
         self.log_message.emit("开始训练模型")

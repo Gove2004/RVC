@@ -63,11 +63,10 @@ class Generator(torch.nn.Module):
         self,
         x: torch.Tensor,
         g: Optional[torch.Tensor] = None,
-        n_res: Optional[torch.Tensor] = None,
+        n_res: int | torch.Tensor | None = None,
     ):
         if n_res is not None:
-            assert isinstance(n_res, torch.Tensor)
-            n = int(n_res.item())
+            n = int(n_res) if isinstance(n_res, torch.Tensor) else n_res
             if n != x.shape[-1]:
                 x = F.interpolate(x, size=n, mode="linear")
         x = self.conv_pre(x)
@@ -293,13 +292,12 @@ class GeneratorNSF(torch.nn.Module):
         x,
         f0,
         g: Optional[torch.Tensor] = None,
-        n_res: Optional[torch.Tensor] = None,
+        n_res: int | torch.Tensor | None = None,
     ):
         har_source, noi_source, uv = self.m_source(f0, self.upp)
         har_source = har_source.transpose(1, 2)
         if n_res is not None:
-            assert isinstance(n_res, torch.Tensor)
-            n = int(n_res.item())
+            n = int(n_res) if isinstance(n_res, torch.Tensor) else n_res
             if n * self.upp != har_source.shape[-1]:
                 har_source = F.interpolate(har_source, size=n * self.upp, mode="linear")
             if n != x.shape[-1]:
