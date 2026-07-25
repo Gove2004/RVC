@@ -17,6 +17,7 @@ assets/weights/*.pth
 assets/pretrained_v2/*.pth
 assets/rmvpe/*.pt
 assets/rmvpe/*.onnx
+assets/hubert_base/
 assets/indices/*.index
 assets/hubert_inputs.pth
 assets/rmvpe_inputs.pth
