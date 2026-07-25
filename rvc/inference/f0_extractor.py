@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 
 import torch
 
+from rvc.tools.cuda_graph import cuda_graph_enabled, run_cuda_graph
+
 logger = logging.getLogger(__name__)
 
 # F0 范围常量
@@ -137,15 +139,48 @@ class FCPEExtractor(F0Extractor):
                 self.model = spawn_bundled_infer_model(device)
         finally:
             fcpe_logger.setLevel(saved_level)
+
+        # CUDA Graph 需要 local_offsets 在 GPU 上（不能在 capture 期间 host→device copy）
+        if cuda_graph_enabled(device) and hasattr(self.model, "model"):
+            self.local_offsets = torch.arange(9, device=device, dtype=torch.long).view(1, 1, 9)
+        else:
+            self.local_offsets = None
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int) -> tuple[torch.Tensor, torch.Tensor]:
-        f0 = self.model.infer(
-            audio.to(self.device).unsqueeze(0).float(),
-            sr=sr,
-            decoder_mode="local_argmax",
-            threshold=0.006,
-        )
+        wav_t = audio.to(self.device).unsqueeze(0).float()
+
+        if cuda_graph_enabled(self.device):
+            # CUDA Graph-safe FCPE infer: skip Wav2MelModule (has tensor-dependent conditionals),
+            # capture only the stable-shape neural net + decoder.
+            mel = self.model.wav2mel(wav_t, sr)
+
+            def graphable_infer(mel_input):
+                model = self.model.model
+                latent = model(mel_input)
+                batch, frames, _ = latent.shape
+                cents = model.cent_table[None, None, :].expand(batch, frames, -1)
+
+                confidence, max_index = torch.max(latent, dim=-1, keepdim=True)
+                local_index = self.local_offsets + (max_index - 4)
+                local_index = local_index.clamp(0, model.out_dims - 1)
+                local_cents = torch.gather(cents, -1, local_index)
+                local_latent = torch.gather(latent, -1, local_index)
+                decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
+
+                confidence_mask = torch.ones_like(confidence)
+                confidence_mask.masked_fill_(confidence <= 0.006, float("-inf"))
+                decoded = decoded * confidence_mask
+                return 10.0 * torch.pow(2.0, decoded / 1200.0)
+
+            f0 = run_cuda_graph(
+                self.model.model, "fcpe-core-local_argmax-0.006", graphable_infer, mel
+            )
+        else:
+            f0 = self.model.infer(
+                wav_t, sr=sr, decoder_mode="local_argmax", threshold=0.006,
+            )
+
         f0 *= pow(2, f0_up_key / 12)
 
         # 转换为 Tensor

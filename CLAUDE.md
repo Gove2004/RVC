@@ -23,6 +23,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is no automated test suite. Runtime verification is manual: start the relevant GUI, check console logs, and exercise the changed path.
 
+## Original RVC Source
+
+- **Location:** `.Retrieval-based-Voice-Conversion-WebUI/` (separate git repo, fetch with `git -C ".Retrieval-based-Voice-Conversion-WebUI" fetch origin && git -C ".Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main`)
+- **Remote:** `https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI.git`
+- When checking upstream changes, always sync this repo first. Key recent upstream updates:
+  - CUDA Graph inference acceleration (disabled by default for WebUI offline mode)
+  - ASIO glitch fix + multi-API device support
+  - GPU processing for UVR5 / audio loading & resampling
+  - NSF inference optimization
+  - TensorRT & ONNX export warnings
+  - PyMSS backend replacing UVR5 separation
+  - DirectML support for PyMSS
+- Only import relevant changes — our codebase is heavily refactored and structurally different from upstream.
+- When syncing from upstream, check: `rvc/audio/`, `rvc/inference/`, `rvc/models/`, `rvc/nn/`, `rvc/runtime/`
+
 ## Runtime Requirements
 
 - Windows + NVIDIA CUDA GPU are required; `rvc.runtime.Config` exits if CUDA is unavailable.

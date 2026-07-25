@@ -24,7 +24,7 @@ def _configure_logging():
         handlers=[logging.StreamHandler(stream=sys.stdout)] if sys.stdout else [],
         force=True,
     )
-    for name in ("torchfcpe", "faiss", "faiss.loader", "fairseq", "numba", "matplotlib"):
+    for name in ("torchfcpe", "faiss", "faiss.loader", "numba", "matplotlib"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
 

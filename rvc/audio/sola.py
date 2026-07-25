@@ -15,12 +15,12 @@ def apply_sola(
     sola_norm_kernel: torch.Tensor,
     fade_in: torch.Tensor,
     fade_out: torch.Tensor,
-    block_frame: int,
-    sola_buffer_frame: int,
-    sola_search_frame: int,
+    block_samples: int,
+    sola_buffer_samples: int,
+    sola_search_samples: int,
     use_phase_vocoder: bool,
 ) -> torch.Tensor:
-    ci = infer[None, None, :sola_buffer_frame + sola_search_frame]
+    ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
     energy = F.conv1d(ci**2, sola_norm_kernel)
     cd = torch.sqrt(energy + 1e-8)
@@ -31,10 +31,10 @@ def apply_sola(
     infer = infer[offset:]
 
     if use_phase_vocoder:
-        infer[:sola_buffer_frame] = phase_vocoder(sola_buffer, infer[:sola_buffer_frame], fade_out, fade_in)
+        infer[:sola_buffer_samples] = phase_vocoder(sola_buffer, infer[:sola_buffer_samples], fade_out, fade_in)
     else:
-        infer[:sola_buffer_frame] *= fade_in
-        infer[:sola_buffer_frame] += sola_buffer * fade_out
+        infer[:sola_buffer_samples] *= fade_in
+        infer[:sola_buffer_samples] += sola_buffer * fade_out
 
-    sola_buffer[:] = infer[block_frame:block_frame + sola_buffer_frame]
-    return infer[:block_frame]
+    sola_buffer[:] = infer[block_samples:block_samples + sola_buffer_samples]
+    return infer[:block_samples]

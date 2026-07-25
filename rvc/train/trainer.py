@@ -59,7 +59,7 @@ class Trainer:
         random.seed(self.train_cfg.get("seed", 1234))
         np.random.seed(self.train_cfg.get("seed", 1234))
         spec_channels = self.data_cfg["filter_length"] // 2 + 1
-        self.net_g = SynthesizerTrnMsNSFsid(
+        self.synthesizer = SynthesizerTrnMsNSFsid(
             spec_channels,
             self.segment_size,
             **self.model_cfg,
@@ -67,21 +67,21 @@ class Trainer:
             sr=self.cfg.sr,
         ).to(self.cfg.device)
         self.net_d = MultiPeriodDiscriminatorV2(self.model_cfg.get("use_spectral_norm", False)).to(self.cfg.device)
-        self.optim_g = torch.optim.AdamW(self.net_g.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
+        self.optim_g = torch.optim.AdamW(self.synthesizer.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
 
         latest_g = latest_checkpoint_path(self.cfg.exp_dir, "G")
         latest_d = latest_checkpoint_path(self.cfg.exp_dir, "D")
         if latest_g and latest_d:
-            _, epoch_g = load_checkpoint(latest_g, self.net_g, self.optim_g)
+            _, epoch_g = load_checkpoint(latest_g, self.synthesizer, self.optim_g)
             _, epoch_d = load_checkpoint(latest_d, self.net_d, self.optim_d)
             self.start_epoch = min(epoch_g, epoch_d) + 1
             self.log(f"恢复训练: epoch {self.start_epoch}")
         else:
             if self.cfg.pretrain_g:
                 state = torch.load(self.cfg.pretrain_g, map_location="cpu", weights_only=False)
-                self.net_g.load_state_dict(state.get("weight", state.get("model", state)), strict=False)
+                self.synthesizer.load_state_dict(state.get("weight", state.get("model", state)), strict=False)
                 self.log("加载预训练 G")
             if self.cfg.pretrain_d:
                 state = torch.load(self.cfg.pretrain_d, map_location="cpu", weights_only=False)
@@ -119,7 +119,7 @@ class Trainer:
         return str(Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
 
     def _train_epoch(self, epoch: int):
-        self.net_g.train()
+        self.synthesizer.train()
         self.net_d.train()
         for batch_idx, batch in enumerate(self.loader, 1):
             if self.stop_requested:
@@ -127,7 +127,7 @@ class Trainer:
             phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = [x.to(self.cfg.device, non_blocking=True) for x in batch]
             wave = wave.unsqueeze(1)
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
-                y_hat, ids_slice, _, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = self.net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
+                y_hat, ids_slice, _, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = self.synthesizer(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
                 mel = spec_to_mel_torch(spec, self.data_cfg["filter_length"], self.data_cfg["n_mel_channels"], self.cfg.sr, self.data_cfg["mel_fmin"], self.data_cfg["mel_fmax"])
                 y_mel = commons.slice_segments(mel, ids_slice, self.segment_size)
                 y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1), self.data_cfg["filter_length"], self.data_cfg["n_mel_channels"], self.cfg.sr, self.data_cfg["hop_length"], self.data_cfg["win_length"], self.data_cfg["mel_fmin"], self.data_cfg["mel_fmax"])
@@ -152,7 +152,7 @@ class Trainer:
             self.optim_g.zero_grad(set_to_none=True)
             self.scaler.scale(loss_gen_all).backward()
             self.scaler.unscale_(self.optim_g)
-            commons.clip_grad_value_(self.net_g.parameters(), 1.0)
+            commons.clip_grad_value_(self.synthesizer.parameters(), 1.0)
             self.scaler.step(self.optim_g)
             self.scaler.update()
 
@@ -172,11 +172,11 @@ class Trainer:
         ckpt_dir = Path(self.cfg.exp_dir) / "4_checkpoints"
         ckpt_dir.mkdir(exist_ok=True)
 
-        save_checkpoint(self.net_g, self.optim_g, self.cfg.learning_rate, epoch, str(ckpt_dir / f"G_{epoch}.pth"))
+        save_checkpoint(self.synthesizer, self.optim_g, self.cfg.learning_rate, epoch, str(ckpt_dir / f"G_{epoch}.pth"))
         save_checkpoint(self.net_d, self.optim_d, self.cfg.learning_rate, epoch, str(ckpt_dir / f"D_{epoch}.pth"))
         self.log(f"保存 checkpoint: epoch {epoch}")
 
         # 同时导出可用模型到 weights/
         output = Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{epoch}.pth"
-        export_model(self.net_g.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
+        export_model(self.synthesizer.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
         self.log(f"导出模型: {output}")

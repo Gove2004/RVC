@@ -1,6 +1,10 @@
 """HuBERT 特征处理。"""
+import os
+
 import torch
 import torch.nn.functional as F
+
+from rvc.tools.cuda_graph import run_cuda_graph
 
 
 def cached_padding_mask(cache: dict, shape, device: str) -> torch.Tensor:
@@ -20,14 +24,24 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool, paddin
     feats = feats.half() if is_half else feats.float()
     feats = feats.view(1, -1)
     padding_mask = cached_padding_mask(padding_mask_cache, feats.shape, device)
-    with torch.no_grad():
-        logits = model.extract_features(source=feats, padding_mask=padding_mask, output_layer=12)
-    feats = logits[0]
-    return torch.cat((feats, feats[:, -1:, :]), 1)
+
+    has_padding = bool(torch.any(padding_mask).cpu().item())
+    if not has_padding:
+        feats_result = model(feats, attention_mask=None)
+    else:
+        attention_mask = (~padding_mask.bool()).long()
+        feats_result = model(feats, attention_mask=attention_mask)
+
+    # CUDA Graph replay 返回的已经是 clone，但边缘情况可能不走图
+    if not torch.is_tensor(feats_result):
+        feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
+    else:
+        feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
+    return feats_result
 
 
-def clone_protect_source(feats: torch.Tensor, if_f0: int, protect: float) -> torch.Tensor | None:
-    if if_f0 == 1 and protect > 0:
+def clone_protect_source(feats: torch.Tensor, use_f0: int, protect: float) -> torch.Tensor | None:
+    if use_f0 == 1 and protect > 0:
         return feats.clone()
     return None
 

@@ -30,19 +30,18 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self.resize(357, 333)
+        self.resize(285, 266)
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.engine = self.controller.engine
         self._loading = False
         self._lt = None
         self._timer = QTimer()
-        self._timer.timeout.connect(lambda: self.stat_lbl.setText(f"推理: {int(self.engine.infer_ms)}"))
+        self._timer.timeout.connect(self._update_timer)
         self._build_ui()
 
         # 初始化管理器
         self.model_manager = ModelManager(self, self._models_layout)
-        self.model_manager.on_card_load = self._on_card_load
         self.config_manager = ConfigManager(self)
         self.device_manager = DeviceManager(self)
         self.offline_manager = OfflineManager(self)
@@ -73,10 +72,10 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(8, 8, 8, 8)
 
         tabs = QTabWidget()
-        tabs.addTab(build_settings_tab(self), "设置")
-        tabs.addTab(build_models_tab(self), "模型")
-        tabs.addTab(build_audio_tab(self), "声学")
-        tabs.addTab(build_offline_tab(self), "离线")
+        tabs.addTab(build_settings_tab(self), "基础设置")
+        tabs.addTab(build_models_tab(self), "模型列表")
+        tabs.addTab(build_audio_tab(self), "声学处理")
+        tabs.addTab(build_offline_tab(self), "离线推理")
         root.addWidget(tabs)
 
         # 底部控制栏
@@ -95,29 +94,26 @@ class MainWindow(QMainWindow):
         self.btn_stop.clicked.connect(self._stop)
         ctrl.addWidget(self.btn_start)
         ctrl.addWidget(self.btn_stop)
-        self.model_lbl = QLabel("当前: -")
-        self.model_lbl.setMinimumWidth(100)
-        self.delay_lbl = QLabel("延迟: -")
-        self.delay_lbl.setMinimumWidth(60)
-        self.stat_lbl = QLabel("推理: -")
-        self.stat_lbl.setMinimumWidth(60)
-        ctrl.addWidget(self.model_lbl)
+
+        self.btn_refresh = QPushButton("刷新")
+        self.btn_refresh.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
+        self.btn_refresh.setStyleSheet(ButtonStyles.secondary())
+        self.btn_refresh.clicked.connect(self._reload_dev)
+        ctrl.addWidget(self.btn_refresh)
         ctrl.addStretch()
+        self.delay_lbl = QLabel("延迟: -")
+        self.delay_lbl.setMinimumWidth(100)
         ctrl.addWidget(self.delay_lbl)
-        ctrl.addWidget(self.stat_lbl)
         root.addLayout(ctrl)
+
+    def _update_timer(self):
+        self.delay_lbl.setText(f"延迟: {self._delay_ms}+{int(self.engine.infer_ms)}")
 
     # ── 模型管理委托 ──
 
     def _add_model(self):
         """委托给 ModelManager"""
         self.model_manager.add_model_from_file()
-
-    def _on_card_load(self, name, pth, idx, pitch, ir, rms, gender, protect):
-        """模型卡片加载回调"""
-        self.model_lbl.setText(f"当前: {name}")
-
-    # ── 预设管理 ──
 
     def _apply_preset(self, name):
         if name not in PRESETS:
@@ -148,22 +144,22 @@ class MainWindow(QMainWindow):
         return ModelConfig(
             pitch=card.pitch_slider.value(),
             index_rate=_sl_value_as_float(card.index_rate_slider),
-            rms_mix=_sl_value_as_float(card.rms_mix_slider),
             gender=(_sl_value_as_float(card.gender_slider) - 0.5) * 4,
             protect=_sl_value_as_float(card.protect_slider),
-            f0method=self.f0_combo.currentText(),
+            f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
         )
 
     def collect_runtime_config(self) -> RuntimeConfig:
         return RuntimeConfig(
-            eq_en=self.eq_enable_checkbox.isChecked(),
+            enable_eq=self.eq_enable_checkbox.isChecked(),
             eq_sub=_sl_value_as_float(self.eq_sub_slider),
             eq_low=_sl_value_as_float(self.eq_low_slider),
             eq_mid=_sl_value_as_float(self.eq_mid_slider),
             eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
             eq_high=_sl_value_as_float(self.eq_high_slider),
             reverb=_sl_value_as_float(self.reverb_slider),
-            out2_enabled=self.output2_combo.currentIndex() > 0,
+            enable_out2=self.output2_combo.currentIndex() > 0,
+            rms_mix=_sl_value_as_float(self.rms_mix_slider),
         )
 
     def collect_engine_config(self) -> EngineConfig:
@@ -206,7 +202,6 @@ class MainWindow(QMainWindow):
         self._set_start_button("开始", True, ButtonStyles.primary())
         self._set_stop_button(False, ButtonStyles.muted())
         self.delay_lbl.setText("延迟: -")
-        self.stat_lbl.setText("推理: -")
 
     def _mark_loading(self):
         if self.model_manager.active_card:
@@ -216,17 +211,17 @@ class MainWindow(QMainWindow):
     def _mark_running(self):
         self._set_start_button("运行中", False, ButtonStyles.primary())
         self._set_stop_button(True, ButtonStyles.danger())
+        self._timer.start(200)
 
     def collect_gui_state(self) -> InferGuiState:
         active_pth = ""
         if self.model_manager.active_card:
             active_pth = self.model_manager.active_card.pth_edit.text().strip()
         return InferGuiState(
-            version=2,
             block_time=_sl_value_as_float(self.block_time_slider),
             crossfade_time=_sl_value_as_float(self.crossfade_slider),
             extra_time=_sl_value_as_float(self.extra_time_slider),
-            f0method=self.f0_combo.currentText(),
+            f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
             sr_mode="model" if self.sr_model_radio.isChecked() else "device",
             eq_enabled=self.eq_enable_checkbox.isChecked(),
             eq_sub=_sl_value_as_float(self.eq_sub_slider),
@@ -235,6 +230,7 @@ class MainWindow(QMainWindow):
             eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
             eq_high=_sl_value_as_float(self.eq_high_slider),
             reverb=_sl_value_as_float(self.reverb_slider),
+            rms_mix=_sl_value_as_float(self.rms_mix_slider),
             preset=self.preset_combo.currentText(),
             hostapi=self.hostapi_combo.currentText(),
             input_device=self.input_combo.currentText(),
@@ -267,9 +263,10 @@ class MainWindow(QMainWindow):
         self.crossfade_slider.setValue(int(state.crossfade_time * 100))
         self.extra_time_slider.setValue(int(state.extra_time * 100))
 
-        idx = self.f0_combo.findText(state.f0method)
-        if idx >= 0:
-            self.f0_combo.setCurrentIndex(idx)
+        if state.f0method == "rmvpe":
+            self.f0_rmvp_btn.setChecked(True)
+        else:
+            self.f0_fcpe_btn.setChecked(True)
 
         if state.sr_mode == "model":
             self.sr_model_radio.setChecked(True)
@@ -283,6 +280,7 @@ class MainWindow(QMainWindow):
         self.eq_hi_mid_slider.setValue(int(state.eq_hi_mid * 100))
         self.eq_high_slider.setValue(int(state.eq_high * 100))
         self.reverb_slider.setValue(int(state.reverb * 100))
+        self.rms_mix_slider.setValue(int(state.rms_mix * 100))
 
         if state.active_model:
             for card in self.model_manager.cards:
@@ -342,9 +340,9 @@ class MainWindow(QMainWindow):
             self.model_manager.active_card.set_active(True)
         try:
             stats = self.controller.setup_engine(self.collect_engine_config())
-            self.sr_model_label.setText(f"模型采样率: {stats.sr_model}")
-            self.sr_device_label.setText(f"设备采样率: {stats.sr_dev}")
-            self.delay_lbl.setText(f"延迟: {stats.delay_ms}")
+            self._delay_ms = stats.delay_ms
+            self.sr_model_value.setText(f"{stats.sr_model}")
+            self.sr_device_value.setText(f"{stats.sr_dev}")
             self._mark_running()
             self._timer.start(200)
             self.config_manager.save_config()
@@ -394,7 +392,7 @@ class MainWindow(QMainWindow):
         """委托给 OfflineManager"""
         self.offline_manager.start_conversion()
 
-    def closeEvent(self, e):
+    def closeEvent(self, event):
         self._timer.stop()
         if self._lt and self._lt.isRunning():
             self._lt.quit()
@@ -403,9 +401,9 @@ class MainWindow(QMainWindow):
         try:
             self.config_manager.save_config()
             self.model_manager.save_models()
-        except OSError as e:
-            logger.error("保存配置失败（文件系统错误）: %s", e)
-        except Exception as e:
-            logger.error("保存配置失败: %s", e, exc_info=True)
+        except OSError as save_err:
+            logger.error("保存配置失败（文件系统错误）: %s", save_err)
+        except Exception as save_err:
+            logger.error("保存配置失败: %s", save_err, exc_info=True)
         self.engine.stop()
-        e.accept()
+        event.accept()

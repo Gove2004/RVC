@@ -6,6 +6,7 @@
 - 按钮样式
 - 标签样式
 - 卡片样式
+- UI 组件工具（分隔线等）
 """
 
 from gui.styles.colors import Colors
@@ -16,6 +17,7 @@ from gui.styles.components import (
     CardStyles,
     MiscStyles,
 )
+from gui.styles.widgets import sep
 
 __all__ = [
     "Colors",
@@ -24,4 +26,5 @@ __all__ = [
     "LabelStyles",
     "CardStyles",
     "MiscStyles",
+    "sep",
 ]

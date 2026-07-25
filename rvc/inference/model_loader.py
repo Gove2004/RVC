@@ -4,6 +4,8 @@ import os
 
 import torch
 
+from rvc.tools.cuda_graph import cuda_graph_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class SynthesizerLoader:
             pth_path: .pth 模型路径
 
         Returns:
-            dict: {"net_g": model, "tgt_sr": int, "if_f0": int, "version": str}
+            dict: {"synthesizer": model, "target_sr": int, "use_f0": int, "ckpt_version": str}
         """
         cached = self.inference_cache.get_synthesizer(pth_path)
         if cached:
@@ -38,25 +40,27 @@ class SynthesizerLoader:
     def _load_pytorch(self, pth_path):
         """加载标准 PyTorch Synthesizer。"""
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
-        tgt_sr = ckpt["config"][-1]
-        if_f0 = ckpt.get("f0", 1)
+        target_sr = ckpt["config"][-1]
+        use_f0 = ckpt.get("f0", 1)
         version = ckpt.get("version", "v2")
-        n_spk = ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
+        n_speakers = ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
 
         from rvc.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
-        if if_f0 == 1:
-            net_g = SynthesizerTrnMsNSFsid(*ckpt["config"], is_half=self.is_half)
+        if use_f0 == 1:
+            synthesizer = SynthesizerTrnMsNSFsid(*ckpt["config"], is_half=self.is_half)
         else:
-            net_g = SynthesizerTrnMsNSFsid_nono(*ckpt["config"])
+            synthesizer = SynthesizerTrnMsNSFsid_nono(*ckpt["config"])
 
-        net_g.load_state_dict(ckpt["weight"], strict=False)
-        net_g.eval().to(self.device)
+        synthesizer.load_state_dict(ckpt["weight"], strict=False)
+        synthesizer.eval().to(self.device)
         if self.is_half:
-            net_g.half()
+            synthesizer.half()
+
+        # CUDA Graph 已在 Config 初始化时探测，此处不再重复
 
         return {
-            "net_g": net_g,
-            "tgt_sr": tgt_sr,
-            "if_f0": if_f0,
-            "version": version,
+            "synthesizer": synthesizer,
+            "target_sr": target_sr,
+            "use_f0": use_f0,
+            "ckpt_version": version,
         }

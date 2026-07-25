@@ -1,5 +1,5 @@
 """模型管理器 — 负责模型卡片的增删改查"""
-from typing import Optional, Callable, List
+from typing import List, Optional
 from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 import os
 
@@ -14,7 +14,6 @@ class ModelManager:
         self.models_layout = models_layout
         self.cards: List[ModelCard] = []
         self.active_card: Optional[ModelCard] = None
-        self.on_card_load: Optional[Callable] = None
 
     def add_model_from_file(self) -> None:
         """从文件选择器添加模型"""
@@ -33,7 +32,6 @@ class ModelManager:
         idx: str = "",
         pitch: int = 0,
         index_rate: float = 0.0,
-        rms_mix: float = 0.0,
         gender: float = 0.0,
         protect: float = 0.5,
     ) -> ModelCard:
@@ -41,7 +39,6 @@ class ModelManager:
         card = ModelCard(
             name, pth, idx, pitch,
             index_rate=index_rate,
-            rms_mix=rms_mix,
             gender=gender,
             protect=protect
         )
@@ -81,8 +78,6 @@ class ModelManager:
                 c.set_active(True)
                 self.active_card = c
                 break
-        if self.on_card_load:
-            self.on_card_load(name, pth, idx, pitch, ir, rms, gender, protect)
 
     def save_models(self) -> None:
         """保存模型列表到持久化存储"""

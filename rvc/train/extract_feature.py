@@ -40,8 +40,7 @@ class HuBERTExtractor:
         feats = torch.from_numpy(wav).to(self.device)
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)
-        padding_mask = torch.zeros(feats.shape, dtype=torch.bool, device=self.device)
         with torch.no_grad():
-            logits = self.model.extract_features(source=feats, padding_mask=padding_mask, output_layer=12)
-            feats = logits[0].squeeze(0).float().cpu().numpy()
+            feats_result = self.model(feats, attention_mask=None)
+            feats = feats_result.squeeze(0).float().cpu().numpy()
         return feats.astype(np.float32)

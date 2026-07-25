@@ -1,4 +1,8 @@
-"""实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果"""
+"""实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果。
+
+架构: RealtimeEngine 拥有一个 VCPipeline 实例，在 sounddevice 回调中驱动推理。
+audio 层依赖 inference 层是有意为之——回调必须协调流计时与模型推理。
+"""
 import logging
 import queue
 import threading
@@ -29,17 +33,17 @@ class RealtimeEngine:
         self.runtime_params = runtime_params
         self.inference_cache = inference_cache
         self.on_runtime_error = on_runtime_error
-        self.vc_engine = None
+        self.pipeline = None
         self.stream = None
         self.stream2 = None
         self.running = False
         self.function = "vc"
         self.out2_q = queue.Queue(maxsize=10)
 
-        self.sr = 48000; self.zc = 480; self.channels = 1
-        self.block_frame = 0; self.block_frame_16k = 0
-        self.crossfade_frame = 0; self.sola_buffer_frame = 0
-        self.sola_search_frame = 0; self.extra_frame = 0
+        self.sr = 48000; self.hz_centis = 480; self.channels = 1
+        self.block_samples = 0; self.block_samples_16k = 0
+        self.crossfade_samples = 0; self.sola_buffer_samples = 0
+        self.sola_search_samples = 0; self.extra_samples = 0
         self.skip_head = 0; self.return_length = 0
 
         self.input_wav = None; self.input_wav_res = None
@@ -58,7 +62,7 @@ class RealtimeEngine:
         self._last_eq_params = None
         self._last_reverb_mix = None
 
-        self.loaded_pth = ""; self.loaded_idx = ""
+        self.pth_path = ""; self.idx_path = ""
         self.infer_ms = 0.0
         self.error_count = 0
         self.max_error_count = MAX_CONSECUTIVE_ERRORS
@@ -66,18 +70,18 @@ class RealtimeEngine:
         self.runtime_error_pending = False
 
     def load_model(self, pth, idx, idx_rate, force=False):
-        if not force and self.vc_engine and self.loaded_pth == pth and self.loaded_idx == idx:
-            self.vc_engine.change_index_rate(idx_rate)
-            return self.vc_engine.tgt_sr
+        if not force and self.pipeline and self.pth_path == pth and self.idx_path == idx:
+            self.pipeline.change_index_rate(idx_rate)
+            return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
         try:
-            self.vc_engine = VCPipeline(config, pth, idx, idx_rate, self.inference_cache)
-            self.vc_engine.load()
-            self.loaded_pth = pth; self.loaded_idx = idx
-            return self.vc_engine.tgt_sr
+            self.pipeline = VCPipeline(config, pth, idx, idx_rate, self.inference_cache)
+            self.pipeline.load()
+            self.pth_path = pth; self.idx_path = idx
+            return self.pipeline.target_sr
         except Exception as e:
             logger.error(f"模型加载失败: {e}", exc_info=True)
-            self.vc_engine = None
+            self.pipeline = None
             raise
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
@@ -88,38 +92,38 @@ class RealtimeEngine:
         self.runtime_error_pending = False
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.sr_model = self.vc_engine.tgt_sr
+        self.sr_model = self.pipeline.target_sr
         self.sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
 
         in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
         self.channels = min(int(in_info["max_input_channels"]), int(out_info["max_output_channels"]), 2)
 
         zc = self.sr // 100
-        self.block_frame = int(np.round(block_t * self.sr / zc)) * zc
-        self.crossfade_frame = int(np.round(cf_t * self.sr / zc)) * zc
-        self.sola_buffer_frame = min(self.crossfade_frame, 4 * zc)
-        self.sola_search_frame = zc
-        self.extra_frame = int(np.round(extra_t * self.sr / zc)) * zc
+        self.block_samples = int(np.round(block_t * self.sr / zc)) * zc
+        self.crossfade_samples = int(np.round(cf_t * self.sr / zc)) * zc
+        self.sola_buffer_samples = min(self.crossfade_samples, 4 * zc)
+        self.sola_search_samples = zc
+        self.extra_samples = int(np.round(extra_t * self.sr / zc)) * zc
 
-        self.block_frame_16k = 160 * self.block_frame // zc
-        self.skip_head = self.extra_frame // zc
-        self.return_length = (self.block_frame + self.sola_buffer_frame + self.sola_search_frame) // zc
+        self.block_samples_16k = 160 * self.block_samples // zc
+        self.skip_head = self.extra_samples // zc
+        self.return_length = (self.block_samples + self.sola_buffer_samples + self.sola_search_samples) // zc
 
-        n = self.extra_frame + self.crossfade_frame + self.sola_search_frame + self.block_frame
+        n = self.extra_samples + self.crossfade_samples + self.sola_search_samples + self.block_samples
         self.input_wav = torch.zeros(n, device=config.device)
         self.input_wav_res = torch.zeros(160 * n // zc, device=config.device)
         self.input_wav_work = torch.empty_like(self.input_wav)
         self.input_wav_res_work = torch.empty_like(self.input_wav_res)
-        self.bgm_mix_buffer = torch.empty(self.block_frame, device=config.device)
-        self.zc = zc
+        self.bgm_mix_buffer = torch.empty(self.block_samples, device=config.device)
+        self.hz_centis = zc
 
-        self.sola_buffer = torch.zeros(self.sola_buffer_frame, device=config.device)
+        self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
         self.output_buffer = self.input_wav.clone()
 
-        ls = torch.linspace(0, 1, steps=self.sola_buffer_frame, device=config.device)
+        ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
         self.fade_out = 1 - self.fade_in
-        self.sola_norm_kernel = torch.ones(1, 1, self.sola_buffer_frame, device=config.device)
+        self.sola_norm_kernel = torch.ones(1, 1, self.sola_buffer_samples, device=config.device)
 
         self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(config.device)
         if self.sr_model != self.sr:
@@ -131,7 +135,7 @@ class RealtimeEngine:
         _, self.eq, self.reverb = create_realtime_chain(self.sr)
 
         try:
-            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_frame, samplerate=self.sr, channels=self.channels, dtype="float32")
+            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
             self.stream.start()
             self.running = True
         except Exception as e:
@@ -153,10 +157,10 @@ class RealtimeEngine:
         try:
             self.stream2 = sd.OutputStream(
                 device=dev_idx, samplerate=self.sr, channels=self.channels,
-                dtype="float32", blocksize=self.block_frame, callback=out2_callback
+                dtype="float32", blocksize=self.block_samples, callback=out2_callback
             )
             self.stream2.start()
-            logger.info(f"副输出流已启动: 采样率={self.sr}, 声道={self.channels}, blocksize={self.block_frame}")
+            logger.info(f"副输出流已启动: 采样率={self.sr}, 声道={self.channels}, blocksize={self.block_samples}")
             while not self.out2_q.empty():
                 try: self.out2_q.get_nowait()
                 except: pass
@@ -204,28 +208,28 @@ class RealtimeEngine:
             mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
             mono = np.ascontiguousarray(mono)
 
-            self.input_wav_work[:-self.block_frame].copy_(self.input_wav[self.block_frame:])
-            self.input_wav_work[-self.block_frame:].zero_()
+            self.input_wav_work[:-self.block_samples].copy_(self.input_wav[self.block_samples:])
+            self.input_wav_work[-self.block_samples:].zero_()
             self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
             self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono).to(config.device)
-            self.input_wav_res_work[:-self.block_frame_16k].copy_(self.input_wav_res[self.block_frame_16k:])
-            self.input_wav_res_work[-self.block_frame_16k:].zero_()
+            self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
+            self.input_wav_res_work[-self.block_samples_16k:].zero_()
             self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
-            self.input_wav_res[-160*(mono.shape[0]//self.zc+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.zc:])[160:]
+            self.input_wav_res[-160*(mono.shape[0]//self.hz_centis+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.hz_centis:])[160:]
 
-            if self.function == "vc" and self.vc_engine:
-                self.vc_engine.change_key(params.pitch)
-                self.vc_engine.change_index_rate(params.index_rate)
-                self.vc_engine.change_formant(params.gender)
-                infer = self.vc_engine.infer(self.input_wav_res, self.block_frame_16k, self.skip_head, self.return_length, params.f0method, params.protect)
+            if self.function == "vc" and self.pipeline:
+                self.pipeline.change_key(params.pitch)
+                self.pipeline.change_index_rate(params.index_rate)
+                self.pipeline.change_formant(params.gender)
+                infer = self.pipeline.infer(self.input_wav_res, self.block_samples_16k, self.skip_head, self.return_length, params.f0method, params.protect)
                 if self.resampler_model2dev:
                     infer = self.resampler_model2dev(infer)
             else:
-                infer = self.input_wav[self.extra_frame:].clone()
+                infer = self.input_wav[self.extra_samples:].clone()
 
             if params.rms_mix < 1 and self.function == "vc":
-                ref = self.input_wav[self.extra_frame:]
-                infer = apply_rms_mix(ref, infer, params.rms_mix, self.zc)
+                ref = self.input_wav[self.extra_samples:]
+                infer = apply_rms_mix(ref, infer, params.rms_mix, self.hz_centis)
 
             infer, self._last_eq_params = apply_pre_sola_effects(
                 infer,
@@ -240,9 +244,9 @@ class RealtimeEngine:
                 self.sola_norm_kernel,
                 self.fade_in,
                 self.fade_out,
-                self.block_frame,
-                self.sola_buffer_frame,
-                self.sola_search_frame,
+                self.block_samples,
+                self.sola_buffer_samples,
+                self.sola_search_samples,
                 params.use_pv,
             )
 
@@ -260,7 +264,7 @@ class RealtimeEngine:
                     self.bgm_ptr,
                     self.bgm_mix_buffer,
                     params.bgm_vol,
-                    self.block_frame,
+                    self.block_samples,
                 )
 
             write_main_output(chunk, outdata, self.channels)

@@ -1,18 +1,18 @@
 {
   "gui": {
-    "version": 2,
     "bl": 0.2,
     "cf": 0.09,
-    "ex": 2.5,
-    "f0": "fcpe",
+    "ex": 1.5,
+    "f0": "rmvpe",
     "sr_mode": "model",
     "eq_en": false,
     "eq_sub": 0.0,
     "eq_lo": 0.0,
     "eq_mi": 0.0,
-    "eq_hi_mid": 0.0,
+    "eq_hm": 0.0,
     "eq_hi": 0.0,
     "rev": 0.0,
+    "rms": 0.5,
     "preset": "原声",
     "ha": "MME",
     "in_dev": "麦克风 (NVIDIA Broadcast)",
@@ -27,9 +27,8 @@
       "idx": "E:/Projects/Python/RVC/assets/indices/kikiV2.index",
       "pitch": 12,
       "index_rate": 0.0,
-      "rms_mix": 0.5,
-      "gender": -1.5,
-      "protect": 0.5
+      "gender": -2.5,
+      "protect": 1.0
     }
   ],
   "train": {

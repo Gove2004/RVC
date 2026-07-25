@@ -73,9 +73,9 @@ class OfflineManager:
             model_path=card.pth_edit.text().strip(),
             index_path=card.idx_edit.text().strip(),
             pitch=card.pitch_slider.value(),
-            f0method=self.window.f0_combo.currentText(),
+            f0method="rmvpe" if self.window.f0_rmvp_btn.isChecked() else "fcpe",
             index_rate=_sl_value_as_float(card.index_rate_slider),
-            rms_mix=_sl_value_as_float(card.rms_mix_slider),
+            rms_mix=_sl_value_as_float(self.window.rms_mix_slider),
             protect=_sl_value_as_float(card.protect_slider),
             eq_enabled=self.window.eq_enable_checkbox.isChecked(),
             eq_bands={

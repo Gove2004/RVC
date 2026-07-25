@@ -10,7 +10,6 @@ from rvc.inference import Params
 class ModelConfig:
     pitch: int
     index_rate: float
-    rms_mix: float
     gender: float
     protect: float
     f0method: str
@@ -18,14 +17,15 @@ class ModelConfig:
 
 @dataclass
 class RuntimeConfig:
-    eq_en: bool
+    enable_eq: bool
     eq_sub: float
     eq_low: float
     eq_mid: float
     eq_hi_mid: float
     eq_high: float
     reverb: float
-    out2_enabled: bool
+    enable_out2: bool
+    rms_mix: float
 
 
 @dataclass
@@ -57,7 +57,6 @@ class InferController:
         self.runtime_params.update(
             pitch=config.pitch,
             index_rate=config.index_rate,
-            rms_mix=config.rms_mix,
             gender=config.gender,
             protect=config.protect,
             f0method=config.f0method,
@@ -66,7 +65,7 @@ class InferController:
     def apply_runtime_config(self, config: RuntimeConfig):
         self.runtime_params.update(
             use_pv=False,
-            enable_eq=config.eq_en,
+            enable_eq=config.enable_eq,
             eq_sub=config.eq_sub,
             eq_low=config.eq_low,
             eq_mid=config.eq_mid,
@@ -74,7 +73,8 @@ class InferController:
             eq_high=config.eq_high,
             reverb=config.reverb,
             bgm_enable=False,
-            enable_out2=config.out2_enabled,
+            enable_out2=config.enable_out2,
+            rms_mix=config.rms_mix,
         )
 
     def setup_engine(self, config: EngineConfig):

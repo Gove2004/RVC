@@ -20,7 +20,7 @@ class VCPipeline:
     用法:
         pipeline = VCPipeline(config, pth_path, index_path, index_rate)
         pipeline.load()  # 加载所有模型
-        output = pipeline.infer(input_wav_tensor, block_frame_16k, skip_head, return_length, "fcpe")
+        output = pipeline.infer(input_wav_tensor, block_samples_16k, skip_head, ret_len, "fcpe")
     """
 
     def __init__(self, config, pth_path, index_path="", index_rate=0.0, inference_cache=None):
@@ -32,21 +32,21 @@ class VCPipeline:
         self.index_path = index_path
         self.index_rate = index_rate
 
-        self.f0_up_key = 0
-        self.formant_shift = 0.0
+        self.f0_semitones = 0
+        self.formant_factor = 0.0
         self.f0_min = F0_MIN
         self.f0_max = F0_MAX
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
-        self.cache_pitch, self.cache_pitchf = create_pitch_cache(self.device)
+        self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
 
-        self.model = None       # HuBERT
-        self.net_g = None       # Synthesizer
-        self.tgt_sr = None
-        self.if_f0 = 1
+        self.hubert_model = None       # HuBERT
+        self.synthesizer = None       # Synthesizer model
+        self.target_sr = None
+        self.use_f0 = 1
         self.index = None
-        self.big_npy = None
+        self.index_vectors = None
         self.resample_kernel = {}
         self.model_rmvpe = None
         self.model_fcpe = None
@@ -58,33 +58,33 @@ class VCPipeline:
 
     def load(self) -> None:
         session = load_model_session(self.config, self.pth_path, self.index_path, self.index_rate, self.inference_cache)
-        self.model = session["hubert"]
-        self.net_g = session["net_g"]
-        self.tgt_sr = session["tgt_sr"]
-        self.if_f0 = session["if_f0"]
-        self.version = session["version"]
+        self.hubert_model = session["hubert"]
+        self.synthesizer = session["synthesizer"]
+        self.target_sr = session["target_sr"]
+        self.use_f0 = session["use_f0"]
+        self.ckpt_version = session["ckpt_version"]
         self.index = session["index"]
-        self.big_npy = session["big_npy"]
+        self.index_vectors = session["index_vectors"]
 
     def change_key(self, key: int) -> None:
-        self.f0_up_key = key
+        self.f0_semitones = key
 
     def change_formant(self, shift: float) -> None:
-        self.formant_shift = shift
+        self.formant_factor = shift
 
     def change_index_rate(self, rate: float) -> None:
         if rate > 0 and self.index is None:
-            self.index, self.big_npy = load_index(self.index_path, self.inference_cache)
+            self.index, self.index_vectors = load_index(self.index_path, self.inference_cache)
         self.index_rate = rate
 
     def _extract_hubert_features(self, input_wav):
-        return extract_hubert_features(self.model, input_wav, self.device, self.is_half, self._padding_mask_cache)
+        return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half, self._padding_mask_cache)
 
     def _clone_protect_source(self, feats, protect):
-        return clone_protect_source(feats, self.if_f0, protect)
+        return clone_protect_source(feats, self.use_f0, protect)
 
     def _apply_faiss_index(self, feats, skip_head=0):
-        return apply_faiss_index(feats, self.index, self.big_npy, self.index_rate, self.is_half, self.device, skip_head)
+        return apply_faiss_index(feats, self.index, self.index_vectors, self.index_rate, self.is_half, self.device, skip_head)
 
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
@@ -101,21 +101,21 @@ class VCPipeline:
             protect: float, 辅音保护强度 [0, 1.0]
 
         Returns:
-            np.ndarray: 合成音频 (tgt_sr 采样率)
+            np.ndarray: 合成音频 (target_sr 采样率)
         """
         if not torch.is_tensor(input_wav):
             input_wav = torch.from_numpy(input_wav).float()
         p_len = input_wav.shape[0] // 160
 
         # 计算 formant 因子
-        factor = pow(2, self.formant_shift / 12)
+        factor = pow(2, self.formant_factor / 12)
 
         pitch = pitchf = None
-        if self.if_f0 == 1:
+        if self.use_f0 == 1:
             pitch, pitchf = prepare_offline_pitch(
                 input_wav,
                 p_len,
-                self.f0_up_key - self.formant_shift,
+                self.f0_semitones - self.formant_factor,
                 f0method,
                 self.device,
                 self.is_half,
@@ -129,10 +129,10 @@ class VCPipeline:
         p_len_t = self._cached_long_tensor(p_len)
         sid = self._cached_long_tensor(0)
         with torch.no_grad():
-            result = infer_offline_audio(self.net_g, feats, p_len_t, pitch, pitchf, sid, self.if_f0, self.is_half)
+            result = infer_offline_audio(self.synthesizer, feats, p_len_t, pitch, pitchf, sid, self.use_f0, self.is_half)
 
         audio = result[0][0, 0].data.float()
-        audio = apply_formant_resample(audio, factor, self.tgt_sr, self.resample_kernel, self.device)
+        audio = apply_formant_resample(audio, factor, self.target_sr, self.resample_kernel, self.device)
 
         return audio.cpu().numpy()
 
@@ -148,7 +148,7 @@ class VCPipeline:
             protect: float, 辅音保护强度 [0, 1.0]，值越大保护越强
 
         Returns:
-            torch.Tensor: 合成音频 (tgt_sr 采样率)
+            torch.Tensor: 合成音频 (target_sr 采样率)
         """
         with torch.no_grad():
             return self._infer_impl(input_wav, block_frame_16k, skip_head, return_length, f0method, protect)
@@ -160,19 +160,19 @@ class VCPipeline:
         feats = self._apply_faiss_index(feats, skip_head)
 
         p_len = input_wav.shape[0] // 160
-        factor = pow(2, self.formant_shift / 12)
+        factor = pow(2, self.formant_factor / 12)
         return_length2_val = int(np.ceil(return_length * factor))
-        if self.if_f0 == 1:
+        if self.use_f0 == 1:
             cache_pitch, cache_pitchf = update_realtime_pitch_cache(
                 input_wav,
                 block_frame_16k,
                 p_len,
                 return_length,
                 return_length2_val,
-                self.f0_up_key - self.formant_shift,
+                self.f0_semitones - self.formant_factor,
                 f0method,
-                self.cache_pitch,
-                self.cache_pitchf,
+                self.pitch_cache,
+                self.pitchf_cache,
                 self.device,
                 self.is_half,
                 self.inference_cache,
@@ -195,7 +195,7 @@ class VCPipeline:
         return_length2 = self._cached_long_tensor(return_length2_val)
 
         infered_audio, _, _ = infer_realtime_audio(
-            self.net_g,
+            self.synthesizer,
             feats,
             p_len_t,
             cache_pitch,
@@ -204,18 +204,18 @@ class VCPipeline:
             skip_head_t,
             return_length_t,
             return_length2,
-            self.if_f0,
+            self.use_f0,
             self.is_half,
         )
 
         infered_audio = infered_audio.squeeze(1).float()
 
-        upp_res = int(np.floor(factor * self.tgt_sr // 100))
-        if upp_res != self.tgt_sr // 100:
+        upp_res = int(np.floor(factor * self.target_sr // 100))
+        if upp_res != self.target_sr // 100:
             infered_audio = apply_formant_resample(
                 infered_audio[:, : return_length * upp_res],
                 factor,
-                self.tgt_sr,
+                self.target_sr,
                 self.resample_kernel,
                 self.device,
             )

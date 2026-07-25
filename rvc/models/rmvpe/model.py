@@ -1,10 +1,13 @@
 """RMVPE 模型 — F0 提取推理接口"""
+import logging
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from rvc.models.rmvpe.transforms import MelSpectrogram
 from rvc.models.rmvpe.blocks import E2E
+from rvc.tools.cuda_graph import run_cuda_graph
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,9 @@ class RMVPE:
             if n_pad > 0:
                 mel = F.pad(mel, (0, n_pad), mode="constant")
             mel = mel.half() if self.is_half else mel.float()
-            hidden = self.model(mel)
+            hidden = run_cuda_graph(
+                self.model, "rmvpe-network", lambda input_mel: self.model(input_mel), mel
+            )
             return hidden[:, :n_frames, :]
 
     def decode(self, hidden, thred=0.03):
@@ -54,8 +59,10 @@ class RMVPE:
     def infer_from_audio(self, audio, thred=0.03):
         if not torch.is_tensor(audio):
             audio = torch.from_numpy(audio)
-        mel = self.mel_extractor(
-            audio.float().to(self.device).unsqueeze(0), center=True
+        audio_t = audio.float().to(self.device).unsqueeze(0)
+        mel = run_cuda_graph(
+            self.mel_extractor, "rmvpe-mel-extractor",
+            lambda a: self.mel_extractor(a, center=True), audio_t
         )
         hidden = self.mel2hidden(mel)
         hidden = hidden.squeeze(0).cpu().numpy()

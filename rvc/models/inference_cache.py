@@ -42,7 +42,7 @@ class InferenceCache:
             key: 模型路径
 
         Returns:
-            dict or None: {"net_g": model, "tgt_sr": int, "if_f0": int, "version": str}
+            dict or None: {"synthesizer": model, "target_sr": int, "use_f0": int, "ckpt_version": str}
         """
         with self._lock:
             return self._synthesizer.get(key)
@@ -52,7 +52,7 @@ class InferenceCache:
 
         Args:
             key: 模型路径
-            value: dict: {"net_g": model, "tgt_sr": int, "if_f0": int, "version": str}
+            value: dict: {"synthesizer": model, "target_sr": int, "use_f0": int, "ckpt_version": str}
         """
         with self._lock:
             self._synthesizer[key] = value
@@ -64,7 +64,7 @@ class InferenceCache:
             key: index 文件路径
 
         Returns:
-            dict or None: {"index": faiss.Index, "big_npy": np.ndarray}
+            dict or None: {"index": faiss.Index, "index_vectors": np.ndarray}
         """
         with self._lock:
             return self._index.get(key)
@@ -74,7 +74,7 @@ class InferenceCache:
 
         Args:
             key: index 文件路径
-            value: dict: {"index": faiss.Index, "big_npy": np.ndarray}
+            value: dict: {"index": faiss.Index, "index_vectors": np.ndarray}
         """
         with self._lock:
             self._index[key] = value

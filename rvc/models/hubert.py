@@ -1,17 +1,62 @@
-"""HuBERT 模型加载 — 使用 fairseq 加载原始 HuBERT"""
-import os
+"""HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT"""
 import logging
-import warnings
+from functools import lru_cache
 
 import torch
+from torch import nn
+from transformers import AutoFeatureExtractor, HubertModel
 
 from rvc.models.inference_cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
 
 
-class HubertWrapper:
-    """包装 fairseq HuBERT，提供与 pipeline 兼容的 extract_features 接口"""
+class HubertModelWithFinalProj(HubertModel):
+    """Transformers HuBERT 加 RVC 需要的 final_proj 层。"""
+    def __init__(self, config):
+        super().__init__(config)
+        self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
+
+
+HUBERT_MODEL_PATH = "assets/hubert_base"
+
+
+@lru_cache(maxsize=1)
+def _hubert_audio_needs_normalization():
+    extractor = AutoFeatureExtractor.from_pretrained(
+        HUBERT_MODEL_PATH, local_files_only=True
+    )
+    return bool(extractor.do_normalize)
+
+
+def load_hubert(config, inference_cache=None):
+    inference_cache = inference_cache or default_inference_cache
+    cache_key = (config.device, config.is_half)
+    cached = inference_cache.get_hubert(cache_key)
+    if cached is not None:
+        logger.info("加载 HuBERT（缓存）")
+        return cached
+
+    dtype = torch.float16 if config.is_half else torch.float32
+    logger.info("加载 HuBERT (transformers, %s)", dtype)
+
+    hubert_model = HubertModelWithFinalProj.from_pretrained(
+        HUBERT_MODEL_PATH,
+        local_files_only=True,
+    ).to(config.device).eval()
+
+    if config.is_half:
+        hubert_model = hubert_model.half()
+    else:
+        hubert_model = hubert_model.float()
+
+    wrapped = _HubertWrapper(hubert_model)
+    inference_cache.set_hubert(cache_key, wrapped)
+    return wrapped
+
+
+class _HubertWrapper:
+    """包装 transformers HuBERT，提供与 pipeline 兼容的 extract_features 接口。"""
 
     def __init__(self, model):
         self.model = model
@@ -32,60 +77,17 @@ class HubertWrapper:
         self.model = self.model.eval()
         return self
 
-    def extract_features(self, source, padding_mask=None, output_layer=12):
-        with torch.no_grad():
-            inputs = {
-                "source": source,
-                "padding_mask": padding_mask,
-                "output_layer": output_layer,
-            }
-            logits = self.model.extract_features(**inputs)
-        return (logits[0],)
+    def __call__(self, input_values, attention_mask=None):
+        """Callable forward — 供 feature_processing 直接调用。
 
-
-def load_hubert(config, inference_cache=None):
-    inference_cache = inference_cache or default_inference_cache
-    cache_key = (config.device, config.is_half)
-    cached = inference_cache.get_hubert(cache_key)
-    if cached is not None:
-        logger.info("加载 HuBERT（缓存）")
-        return cached
-
-    hubert_path = "assets/hubert/hubert_base.pt"
-    if not os.path.exists(hubert_path):
-        raise FileNotFoundError(f"找不到 HuBERT 模型: {hubert_path}")
-
-    logger.info("加载 HuBERT")
-    _original_load = torch.load
-
-    def _patched_load(*args, **kwargs):
-        kwargs.setdefault('weights_only', False)
-        return _original_load(*args, **kwargs)
-
-    torch.load = _patched_load
-    _quiet_loggers = ["fairseq.tasks.hubert_pretraining", "fairseq.models.hubert.hubert",
-                      "fairseq.models.hubert", "fairseq"]
-    _saved_levels = {}
-    for name in _quiet_loggers:
-        l = logging.getLogger(name)
-        _saved_levels[name] = l.level
-        l.setLevel(logging.WARNING)
-
-    try:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*weight_norm.*deprecated.*")
-            from fairseq import checkpoint_utils
-            models, _, _ = checkpoint_utils.load_model_ensemble_and_task([hubert_path], suffix="")
-        hubert_model = models[0]
-    finally:
-        torch.load = _original_load
-        for name, level in _saved_levels.items():
-            logging.getLogger(name).setLevel(level)
-
-    hubert_model = HubertWrapper(hubert_model)
-    hubert_model = hubert_model.to(config.device)
-    hubert_model = hubert_model.half() if config.is_half else hubert_model.float()
-    model = hubert_model.eval()
-    inference_cache.set_hubert(cache_key, model)
-    return model
+        返回 tensor（last_hidden_state）。
+        """
+        kwargs = {
+            "input_values": input_values,
+            "attention_mask": attention_mask,
+            "output_hidden_states": False,
+            "return_dict": True,
+        }
+        outputs = self.model(**kwargs)
+        return outputs.last_hidden_state
 

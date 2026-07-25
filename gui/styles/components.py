@@ -182,3 +182,15 @@ class MiscStyles:
     def divider():
         """分隔线"""
         return f"color: {Colors.DIVIDER};"
+
+    @staticmethod
+    def placeholder_frame():
+        """占位卡片框架（虚线边框）"""
+        return f"""
+            QFrame {{
+                border: 1px dashed {Colors.BORDER};
+                border-radius: {Layout.RADIUS_NORMAL}px;
+                margin: 2px 4px;
+                background: transparent;
+            }}
+        """
