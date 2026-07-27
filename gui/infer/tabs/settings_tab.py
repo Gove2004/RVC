@@ -30,7 +30,7 @@ def build_settings_tab(win):
 
     g.addWidget(sep(), r, 0, 1, 3); r += 1
 
-    win.block_time_slider = _sl(2, 150, 1, 25)
+    win.block_time_slider = _sl(5, 100, 1, 25)
     win.block_time_label = QLabel("0.25"); win.block_time_label.setMinimumWidth(35)
     win.block_time_slider.valueChanged.connect(lambda v: win.block_time_label.setText(f"{v / 100:.2f}"))
     g.addWidget(QLabel("采样长度"), r, 0); g.addWidget(win.block_time_slider, r, 1); g.addWidget(win.block_time_label, r, 2); r += 1
