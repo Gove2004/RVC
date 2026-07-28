@@ -8,6 +8,7 @@ class InferGuiState:
     block_time: float
     crossfade_time: float
     extra_time: float
+    protect: float
     f0method: str
     sr_mode: str
     eq_enabled: bool
@@ -31,6 +32,7 @@ class InferGuiState:
             block_time=float(data.get("bl", 0.25)),
             crossfade_time=float(data.get("cf", 0.05)),
             extra_time=float(data.get("ex", 2.5)),
+            protect=float(data.get("protect", 0.25)),
             f0method=str(data.get("f0", "fcpe")),
             sr_mode=str(data.get("sr_mode", "model")),
             eq_enabled=bool(data.get("eq_en", False)),
@@ -54,6 +56,7 @@ class InferGuiState:
             "bl": self.block_time,
             "cf": self.crossfade_time,
             "ex": self.extra_time,
+            "protect": self.protect,
             "f0": self.f0method,
             "sr_mode": self.sr_mode,
             "eq_en": self.eq_enabled,

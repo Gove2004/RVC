@@ -32,15 +32,13 @@ class ModelManager:
         idx: str = "",
         pitch: int = 0,
         index_rate: float = 0.0,
-        gender: float = 0.0,
-        protect: float = 0.5,
+        gender: float = 0.0
     ) -> ModelCard:
         """添加模型卡片到列表"""
         card = ModelCard(
             name, pth, idx, pitch,
             index_rate=index_rate,
-            gender=gender,
-            protect=protect
+            gender=gender
         )
         card.load_requested.connect(self._handle_card_load)
         card._del.clicked.connect(lambda: self.remove_card(card))
@@ -64,9 +62,7 @@ class ModelManager:
         idx: str,
         pitch: int,
         ir: float,
-        rms: float,
         gender: float,
-        protect: float
     ) -> None:
         """处理卡片加载请求"""
         if not pth:

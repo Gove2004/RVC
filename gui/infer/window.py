@@ -4,15 +4,16 @@ import logging
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QPushButton, QMessageBox,
-    QTabWidget,
+    QTabWidget, QSpacerItem, QSizePolicy,
 )
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 
 from rvc.audio import PRESETS
 from gui.configs.infer_state import InferGuiState
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
 from gui.infer.widgets import LoadThread, _sl_value_as_float
-from gui.infer.tabs.settings_tab import build_settings_tab
+from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
+from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab
 from gui.infer.tabs.audio_tab import build_audio_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
@@ -30,7 +31,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self.resize(285, 266)
+        self.resize(200, 150)  # 窗口大小减半
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.engine = self.controller.engine
@@ -50,6 +51,8 @@ class MainWindow(QMainWindow):
         self.device_manager.load_hostapis()
         self.model_manager.load_models()
         self.config_manager.load_config()
+        # Connect refresh button after device_manager is ready
+        self.refresh_btn.clicked.connect(self._reload_dev)
 
     # ── 辅助方法 ──
 
@@ -73,38 +76,44 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(8, 8, 8, 8)
 
         tabs = QTabWidget()
-        tabs.addTab(build_settings_tab(self), "基础设置")
-        tabs.addTab(build_models_tab(self), "模型列表")
-        tabs.addTab(build_audio_tab(self), "声学处理")
-        tabs.addTab(build_offline_tab(self), "离线推理")
+
+        # Create audio_driver_tab and get the refresh button
+        driver_w, self.refresh_btn = build_audio_driver_tab(self)
+        tabs.addTab(driver_w, "驱动")
+        tabs.addTab(build_global_params_tab(self), "参数")
+        tabs.addTab(build_models_tab(self), "模型")
+        tabs.addTab(build_audio_tab(self), "处理")
+        tabs.addTab(build_offline_tab(self), "离线")
         root.addWidget(tabs)
 
-        # 底部控制栏
+        # ── 底部控制栏 ──
         ctrl = QHBoxLayout()
         ctrl.setSpacing(Layout.SPACING_NORMAL)
 
+        # 左侧：开始/停止按钮
+        btn_group = QHBoxLayout()
         self.btn_start = QPushButton("开始")
         self.btn_start.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
         self.btn_start.setStyleSheet(ButtonStyles.primary())
         self.btn_start.clicked.connect(self._start)
+        btn_group.addWidget(self.btn_start)
 
         self.btn_stop = QPushButton("停止")
         self.btn_stop.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
         self.btn_stop.setStyleSheet(ButtonStyles.danger())
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._stop)
-        ctrl.addWidget(self.btn_start)
-        ctrl.addWidget(self.btn_stop)
+        btn_group.addWidget(self.btn_stop)
 
-        self.btn_refresh = QPushButton("刷新")
-        self.btn_refresh.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
-        self.btn_refresh.setStyleSheet(ButtonStyles.secondary())
-        self.btn_refresh.clicked.connect(self._reload_dev)
-        ctrl.addWidget(self.btn_refresh)
-        ctrl.addStretch()
+        spacer1 = QSpacerItem(40, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        btn_group.addSpacerItem(spacer1)
+
+        # 右侧：延迟显示
         self.delay_lbl = QLabel("延迟: -")
         self.delay_lbl.setMinimumWidth(100)
-        ctrl.addWidget(self.delay_lbl)
+        btn_group.addWidget(self.delay_lbl)
+
+        ctrl.addLayout(btn_group)
         root.addLayout(ctrl)
 
     def _update_timer(self):
@@ -146,7 +155,7 @@ class MainWindow(QMainWindow):
             pitch=card.pitch_slider.value(),
             index_rate=_sl_value_as_float(card.index_rate_slider),
             gender=(_sl_value_as_float(card.gender_slider) - 0.5) * 4,
-            protect=_sl_value_as_float(card.protect_slider),
+            protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
             f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
         )
 
@@ -188,7 +197,6 @@ class MainWindow(QMainWindow):
     def _set_start_button(self, text, enabled, style):
         self.btn_start.setEnabled(enabled)
         self.btn_start.setText(text)
-        # 直接使用传入的样式
         self.btn_start.setStyleSheet(style)
 
     def _set_stop_button(self, enabled, style):
@@ -222,6 +230,7 @@ class MainWindow(QMainWindow):
             block_time=_sl_value_as_float(self.block_time_slider),
             crossfade_time=_sl_value_as_float(self.crossfade_slider),
             extra_time=_sl_value_as_float(self.extra_time_slider),
+            protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
             f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
             sr_mode="model" if self.sr_model_radio.isChecked() else "device",
             eq_enabled=self.eq_enable_checkbox.isChecked(),
@@ -263,6 +272,7 @@ class MainWindow(QMainWindow):
         self.block_time_slider.setValue(int(state.block_time * 100))
         self.crossfade_slider.setValue(int(state.crossfade_time * 100))
         self.extra_time_slider.setValue(int(state.extra_time * 100))
+        self.protect_slider.setValue(int(state.protect * 100))
 
         if state.f0method == "rmvpe":
             self.f0_rmvp_btn.setChecked(True)
@@ -303,7 +313,7 @@ class MainWindow(QMainWindow):
         idx = self.model_manager.active_card.idx_edit.text().strip()
         ir = _sl_value_as_float(self.model_manager.active_card.index_rate_slider)
         self._apply_model_params()
-        self._apply_runtime_params()  # 应用运行时参数（包括副输出、EQ 等）
+        self._apply_runtime_params()
 
         # 保存配置（在启动前保存当前设置）
         try:
@@ -342,8 +352,8 @@ class MainWindow(QMainWindow):
         try:
             stats = self.controller.setup_engine(self.collect_engine_config())
             self._delay_ms = stats.delay_ms
-            self.sr_model_value.setText(f"{stats.sr_model}")
-            self.sr_device_value.setText(f"{stats.sr_dev}")
+            self.sr_model_radio.setText(f"模型 {stats.sr_model}")
+            self.sr_device_radio.setText(f"设备 {stats.sr_dev}")
             self._mark_running()
             self._timer.start(200)
             self.config_manager.save_config()

@@ -39,14 +39,14 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片：始终展开，顶部一行 [使用] [模型名居中] [删除]"""
 
-    load_requested = Signal(str, str, str, float, float, float, float, float)
+    load_requested = Signal(str, str, str, float, float, float, float)  # 7个参数，移除protect
 
     def __init__(self, name="", pth="", idx="", pitch=0,
-                 index_rate=0.0, gender=0.0, protect=0.5, parent=None):
+                 index_rate=0.0, gender=0.0, parent=None):
         super().__init__(parent)
-        self._build(name, pth, idx, pitch, index_rate, gender, protect)
+        self._build(name, pth, idx, pitch, index_rate, gender)
 
-    def _build(self, name, pth, idx, pitch, index_rate, gender, protect):
+    def _build(self, name, pth, idx, pitch, index_rate, gender):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(4)
 
         # ── 顶部栏 ──
@@ -106,11 +106,6 @@ class ModelCard(QFrame):
         self.index_rate_slider.valueChanged.connect(lambda v: self.index_rate_label.setText(f"{v / 100:.2f}"))
         bl.addWidget(QLabel("索引占比"), r, 0); bl.addWidget(self.index_rate_slider, r, 1); bl.addWidget(self.index_rate_label, r, 2); r += 1
 
-        protect_slider_val = int(protect * 100)
-        self.protect_slider = _sl(0, 100, 1, protect_slider_val); self.protect_label = QLabel(f"{protect:.2f}")
-        self.protect_slider.valueChanged.connect(lambda v: self.protect_label.setText(f"{v / 100:.2f}"))
-        bl.addWidget(QLabel("辅音保护"), r, 0); bl.addWidget(self.protect_slider, r, 1); bl.addWidget(self.protect_label, r, 2); r += 1
-
         root.addWidget(body)
         self.setStyleSheet(f"ModelCard{{{CardStyles.default()}}}")
 
@@ -123,7 +118,7 @@ class ModelCard(QFrame):
         self.load_requested.emit(
             self._name_label.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
             self.pitch_slider.value(), _sl_value_as_float(self.index_rate_slider), 0.0,
-            _sl_value_as_float(self.gender_slider), _sl_value_as_float(self.protect_slider),
+            _sl_value_as_float(self.gender_slider),
         )
 
     def get_data(self):
@@ -134,7 +129,6 @@ class ModelCard(QFrame):
             "pitch": self.pitch_slider.value(),
             "index_rate": _sl_value_as_float(self.index_rate_slider),
             "gender": (self.gender_slider.value() / 100 * 5 - 2.5),
-            "protect": _sl_value_as_float(self.protect_slider),
         }
 
     def set_active(self, active):
