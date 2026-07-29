@@ -1,10 +1,6 @@
 """HuBERT 特征处理。"""
-import os
-
 import torch
 import torch.nn.functional as F
-
-from rvc.tools.cuda_graph import run_cuda_graph
 
 
 def cached_padding_mask(cache: dict, shape, device: str) -> tuple[torch.Tensor, bool]:

@@ -8,7 +8,6 @@ import queue
 import threading
 import time
 
-import librosa
 import numpy as np
 import sounddevice as sd
 import torch
@@ -205,9 +204,15 @@ class RealtimeEngine:
                     self.on_runtime_error(self.last_error or "实时推理失败")
 
     def _cb_impl(self, indata, outdata, frames, times, status):
+        """实时音频回调主函数 — 按处理阶段拆分：
+
+        输入准备 → 输入缓存轮换 → 降采样 → 语音转换推理 → RMS混合 →
+        SOLA前处理效果 → SOLA对齐 → SOLA后处理效果 → BGM混合 → 输出写入
+        """
         t0 = time.perf_counter()
         params = self.runtime_params
-        # Snapshot params to avoid race condition with GUI thread updates
+
+        # 线程安全：快照参数避免GUI线程更新时的竞态条件
         p_pitch = params.pitch
         p_index_rate = params.index_rate
         p_gender = params.gender
@@ -225,43 +230,27 @@ class RealtimeEngine:
         p_eq_high = params.eq_high
         p_reverb = params.reverb
         p_enable_out2 = params.enable_out2
+
         with torch.no_grad():
-            mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
-            mono = np.ascontiguousarray(mono)
+            # ── 阶段1: 输入准备 ──────────────────────────────────────
+            mono = self._prepare_input(indata)
 
-            self.input_wav_work[:-self.block_samples].copy_(self.input_wav[self.block_samples:])
-            self.input_wav_work[-self.block_samples:].zero_()
-            self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
-            self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono).to(config.device)
-            self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
-            self.input_wav_res_work[-self.block_samples_16k:].zero_()
-            self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
-            self.input_wav_res[-160*(mono.shape[0]//self.hz_centis+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.hz_centis:])[160:]
+            # ── 阶段2: 输入缓存轮换与降采样 ──────────────────────────
+            self._update_input_buffers(mono)
 
-            if self.function == "vc" and self.pipeline:
-                self.pipeline.change_key(p_pitch)
-                self.pipeline.change_index_rate(p_index_rate)
-                self.pipeline.change_formant(p_gender)
-                infer = self.pipeline.infer(self.input_wav_res, self.block_samples_16k, self.skip_head, self.return_length, p_f0method, p_protect)
-                if self.resampler_model2dev:
-                    infer = self.resampler_model2dev(infer)
-            else:
-                infer = self.input_wav[self.extra_samples:].clone()
+            # ── 阶段3: 语音转换推理 ───────────────────────────────────
+            infer = self._run_inference()
 
+            # ── 阶段4: RMS音量包络混合 ────────────────────────────────
             if p_rms_mix < 1 and self.function == "vc":
-                ref = self.input_wav[self.extra_samples:]
-                infer = apply_rms_mix(ref, infer, p_rms_mix, self.hz_centis)
+                infer = self._apply_rms_mix(infer, p_rms_mix)
 
-            _eq_params = type('__eq_params__', (), {
-                'enable_eq': p_enable_eq, 'eq_sub': p_eq_sub, 'eq_low': p_eq_low,
-                'eq_mid': p_eq_mid, 'eq_hi_mid': p_eq_hi_mid, 'eq_high': p_eq_high,
-                'use_pv': p_use_pv,
-            })()
+            # ── 阶段5: SOLA前处理效果（EQ） ──────────────────────────
+            _eq_params = self._create_eq_params(p_enable_eq, p_eq_sub, p_eq_low,
+                                                p_eq_mid, p_eq_hi_mid, p_eq_high, p_use_pv)
+            infer = self._apply_pre_sola_effects(infer, _eq_params)
 
-            infer, self._last_eq_params = apply_pre_sola_effects(
-                infer, _eq_params, self.eq, self._last_eq_params,
-            )
-
+            # ── 阶段6: SOLA对齐 ───────────────────────────────────────
             chunk = apply_sola(
                 infer, self.sola_buffer, self.sola_norm_kernel,
                 self.fade_in, self.fade_out,
@@ -269,22 +258,83 @@ class RealtimeEngine:
                 self.sola_search_samples, p_use_pv,
             )
 
+            # ── 阶段7: SOLA后处理效果（混响） ─────────────────────────
             _reverb_params = type('__reverb_params__', (), {'reverb': p_reverb})()
-
             chunk, self._last_reverb_mix = apply_post_sola_effects(
                 chunk, _reverb_params, self.reverb, self._last_reverb_mix,
             )
 
+            # ── 阶段8: BGM混合 ────────────────────────────────────────
             if p_bgm_enable:
                 chunk, self.bgm_audio, self.bgm_ptr = mix_bgm(
                     chunk, self.bgm_audio, self.bgm_ptr,
                     self.bgm_mix_buffer, p_bgm_vol, self.block_samples,
                 )
 
+            # ── 阶段9: 主输出写入 ─────────────────────────────────────
             write_main_output(chunk, outdata, self.channels)
+
+            # ── 阶段10: 副输出路由 ────────────────────────────────────
             route_secondary_output(outdata, self.stream2, self.out2_q, p_enable_out2)
-            if False:  # disabled — debug logging removed for performance
-                if not p_enable_out2 and self.stream2:
-                    logger.warning("副输出流存在但 enable_out2=False")
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
+
+    def _prepare_input(self, indata):
+        """将输入的立体声/单声道转换为处理的单声道信号"""
+        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
+        return np.ascontiguousarray(mono)
+
+    def _update_input_buffers(self, mono):
+        """轮换输入缓存并执行降采样到16kHz"""
+        # 输入wav缓冲区轮换：shift旧数据，写入新数据
+        self.input_wav_work[:-self.block_samples].copy_(self.input_wav[self.block_samples:])
+        self.input_wav_work[-self.block_samples:].zero_()
+        self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
+        self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono).to(config.device)
+
+        # 降采样输入到16kHz供HuBERT特征提取使用
+        self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
+        self.input_wav_res_work[-self.block_samples_16k:].zero_()
+        self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
+        self.input_wav_res[-160*(mono.shape[0]//self.hz_centis+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.hz_centis:])[160:]
+
+    def _run_inference(self):
+        """执行语音转换推理或直通模式"""
+        if self.function == "vc" and self.pipeline:
+            self.pipeline.change_key(self.runtime_params.pitch)
+            self.pipeline.change_index_rate(self.runtime_params.index_rate)
+            self.pipeline.change_formant(self.runtime_params.gender)
+            infer = self.pipeline.infer(
+                self.input_wav_res, self.block_samples_16k,
+                self.skip_head, self.return_length,
+                self.runtime_params.f0method, self.runtime_params.protect
+            )
+            if self.resampler_model2dev:
+                infer = self.resampler_model2dev(infer)
+        else:
+            infer = self.input_wav[self.extra_samples:].clone()
+        return infer
+
+    def _apply_rms_mix(self, infer, rms_mix):
+        """应用RMS音量包络混合，使转换音量参考原始音量"""
+        ref = self.input_wav[self.extra_samples:]
+        return apply_rms_mix(ref, infer, rms_mix, self.hz_centis)
+
+    def _create_eq_params(self, enable_eq, eq_sub, eq_low, eq_mid, eq_hi_mid, eq_high, use_pv):
+        """创建EQ参数对象，用于实时效果链同步"""
+        _eq_params = type('__eq_params__', (), {
+            'enable_eq': enable_eq, 'eq_sub': eq_sub, 'eq_low': eq_low,
+            'eq_mid': eq_mid, 'eq_hi_mid': eq_hi_mid, 'eq_high': eq_high,
+            'use_pv': use_pv,
+        })()
+        return _eq_params
+
+    def _apply_pre_sola_effects(self, infer, _eq_params):
+        """应用SOLA前的效果（主要为EQ均衡器）。
+
+        直接在实例上更新 _last_eq_params 缓存，返回处理后的音频。
+        """
+        result, self._last_eq_params = apply_pre_sola_effects(
+            infer, _eq_params, self.eq, self._last_eq_params,
+        )
+        return result
