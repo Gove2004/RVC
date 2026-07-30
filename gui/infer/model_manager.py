@@ -82,4 +82,5 @@ class ModelManager:
     def load_models(self) -> None:
         """从持久化存储加载模型列表"""
         for m in ModelListData.load():
+            m.pop("locked", None)  # 兼容旧配置，当前 add_card 不支持 locked
             self.add_card(**m)
