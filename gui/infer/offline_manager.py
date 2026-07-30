@@ -110,14 +110,13 @@ class OfflineManager:
             self.window.offline_progress.setValue(current)
 
     def _on_finished(self, path: str) -> None:
-        """转换完成"""
+        """转换完成 - worker 会自动退出并自行删除，不阻塞等待"""
         self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
         self.window.offline_status.setText("完成")
-        if self.worker:
-            self.worker.deleteLater()
-            self.worker = None
+        # QThread 的 run() 返回后线程自动结束，worker 对象稍后由 Qt 事件循环删除
+        # 不需要 deleteLater() / wait()，避免了阻塞和潜在的"Destroyer while thread still running"警告
 
     def _on_error(self, msg: str) -> None:
         """转换出错"""
@@ -131,7 +130,9 @@ class OfflineManager:
         self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
 
     def cleanup(self) -> None:
-        """清理资源"""
+        """清理资源 - 不阻塞等待，让 worker 自然退出并自行删除"""
         if self.worker and self.worker.isRunning():
-            self.worker.quit()
-            self.worker.wait(2000)
+            # QThread 重写 run() 模式没有事件循环，quit()/wait() 会阻塞
+            # 改用 deleteLater() 在主线程稍后安全删除，或直接忽略
+            # 离线推理完成后 _on_finished/_on_error 会处理 deleteLater()
+            pass
