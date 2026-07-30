@@ -1,12 +1,10 @@
 """运行时设备配置。"""
-import json
 import logging
 import sys
 import threading
 
 import torch
 
-from rvc.runtime.paths import train_config_path
 from rvc.tools.cuda_graph import configure_cuda_graph
 
 logger = logging.getLogger(__name__)
@@ -30,7 +28,6 @@ class Config:
         self.is_half = True
         self.use_cuda_graph = False
         self.gpu_name = None
-        self.json_config = self._load_train_configs()
         self.gpu_mem = None
         self.x_pad, self.x_query, self.x_center, self.x_max = self._init_device()
 
@@ -40,11 +37,6 @@ class Config:
             logger.info("CUDA Graph 已启用 (GPU: %s)", self.gpu_name)
         else:
             logger.info("CUDA Graph 不支持，已禁用")
-
-    def _load_train_configs(self) -> dict:
-        return {
-            "48ktrain_config.json": json.loads(train_config_path().read_text(encoding="utf-8")),
-        }
 
     def _init_device(self) -> tuple:
         if not torch.cuda.is_available():

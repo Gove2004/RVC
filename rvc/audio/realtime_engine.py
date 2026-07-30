@@ -7,6 +7,7 @@ import logging
 import queue
 import threading
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import sounddevice as sd
@@ -27,6 +28,23 @@ config = Config()
 MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
 
 
+@dataclass
+class EQParams:
+    """实时 EQ 参数（传给 apply_pre_sola_effects）"""
+    enable_eq: bool
+    eq_sub: float
+    eq_low: float
+    eq_mid: float
+    eq_hi_mid: float
+    eq_high: float
+
+
+@dataclass
+class ReverbParams:
+    """实时混响参数（传给 apply_post_sola_effects）"""
+    reverb: float
+
+
 class RealtimeEngine:
     def __init__(self, runtime_params, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params
@@ -39,7 +57,7 @@ class RealtimeEngine:
         self.function = "vc"
         self.out2_q = queue.Queue(maxsize=10)
 
-        self.sr = 48000; self.hz_centis = 480; self.channels = 1
+        self.sr = None; self.hz_centis = None; self.channels = 1
         self.block_samples = 0; self.block_samples_16k = 0
         self.crossfade_samples = 0; self.sola_buffer_samples = 0
         self.sola_search_samples = 0; self.extra_samples = 0
@@ -164,8 +182,10 @@ class RealtimeEngine:
             self.stream2.start()
             logger.info(f"副输出流已启动: 采样率={self.sr}, 声道={self.channels}, blocksize={self.block_samples}")
             while not self.out2_q.empty():
-                try: self.out2_q.get_nowait()
-                except: pass
+                try:
+                    self.out2_q.get_nowait()
+                except queue.Empty:
+                    pass
         except Exception as e:
             if "Invalid sample rate" in str(e) or "-9997" in str(e):
                 raise RuntimeError(f"副输出采样率 {self.sr} Hz 不支持") from e
@@ -247,7 +267,7 @@ class RealtimeEngine:
 
             # ── 阶段5: SOLA前处理效果（EQ） ──────────────────────────
             _eq_params = self._create_eq_params(p_enable_eq, p_eq_sub, p_eq_low,
-                                                p_eq_mid, p_eq_hi_mid, p_eq_high, p_use_pv)
+                                                p_eq_mid, p_eq_hi_mid, p_eq_high)
             infer = self._apply_pre_sola_effects(infer, _eq_params)
 
             # ── 阶段6: SOLA对齐 ───────────────────────────────────────
@@ -259,7 +279,7 @@ class RealtimeEngine:
             )
 
             # ── 阶段7: SOLA后处理效果（混响） ─────────────────────────
-            _reverb_params = type('__reverb_params__', (), {'reverb': p_reverb})()
+            _reverb_params = ReverbParams(reverb=p_reverb)
             chunk, self._last_reverb_mix = apply_post_sola_effects(
                 chunk, _reverb_params, self.reverb, self._last_reverb_mix,
             )
@@ -320,14 +340,9 @@ class RealtimeEngine:
         ref = self.input_wav[self.extra_samples:]
         return apply_rms_mix(ref, infer, rms_mix, self.hz_centis)
 
-    def _create_eq_params(self, enable_eq, eq_sub, eq_low, eq_mid, eq_hi_mid, eq_high, use_pv):
+    def _create_eq_params(self, enable_eq, eq_sub, eq_low, eq_mid, eq_hi_mid, eq_high):
         """创建EQ参数对象，用于实时效果链同步"""
-        _eq_params = type('__eq_params__', (), {
-            'enable_eq': enable_eq, 'eq_sub': eq_sub, 'eq_low': eq_low,
-            'eq_mid': eq_mid, 'eq_hi_mid': eq_hi_mid, 'eq_high': eq_high,
-            'use_pv': use_pv,
-        })()
-        return _eq_params
+        return EQParams(enable_eq, eq_sub, eq_low, eq_mid, eq_hi_mid, eq_high)
 
     def _apply_pre_sola_effects(self, infer, _eq_params):
         """应用SOLA前的效果（主要为EQ均衡器）。

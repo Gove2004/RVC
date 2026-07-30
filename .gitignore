@@ -38,3 +38,6 @@ assets/ffmpeg/
 # logs
 logs
 assets/configs/save_state.json
+
+# WorkBuddy local memory
+.workbuddy/

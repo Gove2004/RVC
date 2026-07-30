@@ -11,6 +11,7 @@ def config_path() -> Path:
 
 
 def train_config_path(sr: int | str = None) -> Path:
+    """训练配置路径（当前仅支持 48k）。sr 参数保留以兼容调用方签名。"""
     if not TRAIN_CONFIG_FILE.exists():
         raise FileNotFoundError(f"找不到训练配置: {TRAIN_CONFIG_FILE}")
     return TRAIN_CONFIG_FILE
