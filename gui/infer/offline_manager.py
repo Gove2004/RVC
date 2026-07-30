@@ -80,7 +80,7 @@ class OfflineManager:
             f0method="rmvpe" if self.window.f0_rmvp_btn.isChecked() else "fcpe",
             index_rate=_sl_value_as_float(card.index_rate_slider),
             rms_mix=_sl_value_as_float(self.window.rms_mix_slider),
-            protect=_sl_value_as_float(card.protect_slider),
+            protect=_sl_value_as_float(self.window.protect_slider),
             eq_enabled=self.window.eq_enable_checkbox.isChecked(),
             eq_bands={
                 'sub': _sl_value_as_float(self.window.eq_sub_slider),
