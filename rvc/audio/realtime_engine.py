@@ -232,12 +232,7 @@ class RealtimeEngine:
         t0 = time.perf_counter()
         params = self.runtime_params
 
-        # 线程安全：快照参数避免GUI线程更新时的竞态条件
-        p_pitch = params.pitch
-        p_index_rate = params.index_rate
-        p_gender = params.gender
-        p_f0method = params.f0method
-        p_protect = params.protect
+        # 快照本回调内多次使用的参数（推理相关参数由 _run_inference 直接读 runtime_params）
         p_rms_mix = params.rms_mix
         p_use_pv = params.use_pv
         p_bgm_enable = params.bgm_enable

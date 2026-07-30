@@ -91,7 +91,11 @@ class InferController:
         self.engine.bgm_audio = None
         self.engine.bgm_ptr = 0
         if self.runtime_params.enable_out2 and config.output2_device_pos >= 0:
-            self.engine.setup_out2(out_idx[config.output2_device_pos])
+            try:
+                self.engine.setup_out2(out_idx[config.output2_device_pos])
+            except Exception:
+                self.engine.stop()  # 副输出失败时停掉主流，避免引擎失控
+                raise
         delay = (self.engine.stream.latency[-1] if self.engine.stream else 0) + config.block_time + config.crossfade_time + 0.01
         return EngineStats(self.engine.sr_model, self.engine.sr_dev, int(delay * 1000))
 
