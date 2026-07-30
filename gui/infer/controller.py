@@ -1,9 +1,12 @@
 """推理控制器 — 管理运行时参数、引擎启动和设备绑定。"""
+import logging
 from dataclasses import dataclass
 
 from rvc.audio import RealtimeEngine, get_audio_devices
 from rvc.models import default_inference_cache
 from rvc.inference import Params
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,6 +29,8 @@ class RuntimeConfig:
     reverb: float
     enable_out2: bool
     rms_mix: float
+    bgm_enable: bool = False
+    bgm_vol: float = 0.5
 
 
 @dataclass
@@ -38,6 +43,7 @@ class EngineConfig:
     block_time: float
     crossfade_time: float
     extra_time: float
+    bgm_path: str = ""
 
 
 @dataclass
@@ -72,7 +78,8 @@ class InferController:
             eq_hi_mid=config.eq_hi_mid,
             eq_high=config.eq_high,
             reverb=config.reverb,
-            bgm_enable=False,
+            bgm_enable=config.bgm_enable,
+            bgm_vol=config.bgm_vol,
             enable_out2=config.enable_out2,
             rms_mix=config.rms_mix,
         )
@@ -88,8 +95,13 @@ class InferController:
             config.crossfade_time,
             config.extra_time,
         )
-        self.engine.bgm_audio = None
-        self.engine.bgm_ptr = 0
+        # 背景音：setup 之后 sr 才确定，此时载入并重采样。
+        # 载入失败不影响变声本身，仅清空背景音。
+        try:
+            self.engine.load_bgm(config.bgm_path)
+        except Exception as e:
+            self.engine.load_bgm(None)
+            logger.warning("背景音载入失败，已跳过: %s", e)
         if self.runtime_params.enable_out2 and config.output2_device_pos >= 0:
             try:
                 self.engine.setup_out2(out_idx[config.output2_device_pos])

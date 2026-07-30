@@ -4,7 +4,7 @@ import logging
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QPushButton, QMessageBox,
-    QTabWidget, QSpacerItem, QSizePolicy,
+    QTabWidget, QSpacerItem, QSizePolicy, QFileDialog,
 )
 from PySide6.QtCore import QTimer, Qt
 
@@ -16,6 +16,7 @@ from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab
 from gui.infer.tabs.audio_tab import build_audio_tab
+from gui.infer.tabs.bgm_tab import build_bgm_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
 from gui.infer.model_manager import ModelManager
 from gui.infer.config_manager import ConfigManager
@@ -83,6 +84,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(build_global_params_tab(self), "参数")
         tabs.addTab(build_models_tab(self), "模型")
         tabs.addTab(build_audio_tab(self), "处理")
+        tabs.addTab(build_bgm_tab(self), "背景")
         tabs.addTab(build_offline_tab(self), "离线")
         root.addWidget(tabs)
 
@@ -170,6 +172,8 @@ class MainWindow(QMainWindow):
             reverb=_sl_value_as_float(self.reverb_slider),
             enable_out2=self.output2_combo.currentIndex() > 0,
             rms_mix=_sl_value_as_float(self.rms_mix_slider),
+            bgm_enable=self.bgm_enable_checkbox.isChecked(),
+            bgm_vol=_sl_value_as_float(self.bgm_vol_slider),
         )
 
     def collect_engine_config(self) -> EngineConfig:
@@ -182,6 +186,7 @@ class MainWindow(QMainWindow):
             block_time=_sl_value_as_float(self.block_time_slider),
             crossfade_time=_sl_value_as_float(self.crossfade_slider),
             extra_time=_sl_value_as_float(self.extra_time_slider),
+            bgm_path=self.bgm_path_edit.text().strip(),
         )
 
     def _apply_model_params(self):
@@ -241,6 +246,9 @@ class MainWindow(QMainWindow):
             eq_high=_sl_value_as_float(self.eq_high_slider),
             reverb=_sl_value_as_float(self.reverb_slider),
             rms_mix=_sl_value_as_float(self.rms_mix_slider),
+            bgm_enable=self.bgm_enable_checkbox.isChecked(),
+            bgm_path=self.bgm_path_edit.text().strip(),
+            bgm_vol=_sl_value_as_float(self.bgm_vol_slider),
             preset=self.preset_combo.currentText(),
             hostapi=self.hostapi_combo.currentText(),
             input_device=self.input_combo.currentText(),
@@ -292,6 +300,10 @@ class MainWindow(QMainWindow):
         self.eq_high_slider.setValue(int(state.eq_high * 100))
         self.reverb_slider.setValue(int(state.reverb * 100))
         self.rms_mix_slider.setValue(int(state.rms_mix * 100))
+
+        self.bgm_enable_checkbox.setChecked(state.bgm_enable)
+        self.bgm_path_edit.setText(state.bgm_path)
+        self.bgm_vol_slider.setValue(int(state.bgm_vol * 100))
 
         if state.active_model:
             for card in self.model_manager.cards:
@@ -392,6 +404,16 @@ class MainWindow(QMainWindow):
         self.engine.stop()
         self._reset_runtime_ui()
         logger.info("停止")
+
+    # ── 背景音 ──
+
+    def _bgm_browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择背景音频", "",
+            "音频文件 (*.wav *.mp3 *.flac *.m4a *.ogg *.aac);;所有文件 (*)",
+        )
+        if path:
+            self.bgm_path_edit.setText(path)
 
     # ── 离线推理委托 ──
 

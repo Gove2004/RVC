@@ -15,6 +15,7 @@ import torch
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.effects import create_realtime_chain
+from rvc.audio.loader import load_audio
 from rvc.audio.output_router import mix_bgm, route_secondary_output, write_main_output
 from rvc.audio.realtime_effects import apply_post_sola_effects, apply_pre_sola_effects
 from rvc.audio.realtime_mix import apply_rms_mix
@@ -162,6 +163,19 @@ class RealtimeEngine:
             if "Invalid sample rate" in str(e) or "-9997" in str(e):
                 raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
             raise
+
+    def load_bgm(self, path):
+        """载入背景音频（重采样到当前运行采样率）。path 为空则清除。
+
+        需在 setup() 之后调用——此时 self.sr 才是确定的。
+        """
+        self.bgm_ptr = 0
+        if not path:
+            self.bgm_audio = None
+            return
+        wav, _ = load_audio(path, self.sr)
+        self.bgm_audio = torch.from_numpy(wav).to(config.device)
+        logger.info("背景音已载入: %s (%.1fs @ %dHz)", path, len(wav) / self.sr, self.sr)
 
     def setup_out2(self, dev_idx):
         logger.info(f"设置副输出设备: {dev_idx}")

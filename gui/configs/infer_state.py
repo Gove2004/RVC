@@ -19,6 +19,9 @@ class InferGuiState:
     eq_high: float
     reverb: float
     rms_mix: float
+    bgm_enable: bool
+    bgm_path: str
+    bgm_vol: float
     preset: str
     hostapi: str
     input_device: str
@@ -43,6 +46,9 @@ class InferGuiState:
             eq_high=float(data.get("eq_hi", 0.0)),
             reverb=float(data.get("rev", 0.0)),
             rms_mix=float(data.get("rms", 0.0)),
+            bgm_enable=bool(data.get("bgm_en", False)),
+            bgm_path=str(data.get("bgm_path", "")),
+            bgm_vol=float(data.get("bgm_vol", 0.5)),
             preset=str(data.get("preset", "默认")),
             hostapi=str(data.get("ha", "")),
             input_device=str(data.get("in_dev", "")),
@@ -67,6 +73,9 @@ class InferGuiState:
             "eq_hi": self.eq_high,
             "rev": self.reverb,
             "rms": self.rms_mix,
+            "bgm_en": self.bgm_enable,
+            "bgm_path": self.bgm_path,
+            "bgm_vol": self.bgm_vol,
             "preset": self.preset,
             "ha": self.hostapi,
             "in_dev": self.input_device,
