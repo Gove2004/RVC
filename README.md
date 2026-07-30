@@ -47,7 +47,7 @@ python -m venv .venv
 训练功能需要以下模型：
 
 - `assets/rmvpe/rmvpe.pt` — RMVPE F0 提取器
-- `assets/hubert/hubert_base.pt` — HuBERT 特征提取器
+- `assets/hubert_base/` — HuBERT 特征提取器（transformers 模型目录，含 config.json + pytorch_model.bin）
 
 可选的预训练权重（加速训练收敛）：
 
@@ -126,7 +126,7 @@ python -m venv .venv
    - 在"设置" Tab 填写：
      - **实验名**：训练标识符（如 `exp01`）
      - **音频目录**：包含人声文件的文件夹
-     - **采样率**：48k 或 32k
+     - **采样率**：48k
      - **训练参数**：Epoch, Batch size, 学习率等
 
 4. **执行训练**
@@ -138,11 +138,11 @@ python -m venv .venv
      4. **训练** — GAN 训练（Generator + Discriminator）
 
 5. **导出模型**
-   - 训练完成后，模型导出到 `assets/weights/<实验名>.pth`
+   - 训练完成后，模型导出到 `assets/weights/<实验名>_e<epoch>.pth`
    - 可选：在"工具" Tab 合并多个 checkpoint 或查看模型信息
 
 6. **使用训练的模型**
-   - 返回推理 GUI，加载 `assets/weights/<实验名>.pth`
+   - 返回推理 GUI，加载 `assets/weights/<实验名>_e<epoch>.pth`
 
 ### 训练注意事项
 
@@ -162,7 +162,7 @@ gui/
     layout.py               # 布局参数
     components.py           # 样式组件
   configs/                  # 配置代码
-    config.py               # Config 单例（设备配置）
+    config.py               # load_config/save_config（GUI 状态）
   infer/                    # 推理 GUI
     window.py               # 主窗口
     controller.py           # 控制器（依赖注入）
@@ -209,11 +209,11 @@ rvc/
     ckpt_utils.py           # Checkpoint 工具
 assets/
   configs/                  # 配置数据
-    state/                  # 持久化状态（gui.json, models.json, train.json）
-    train/                  # 训练超参数（32k.json, 48k.json）
+    save_state.json         # GUI 持久化状态
+    48ktrain_config.json    # 训练超参数
   weights/                  # 推理模型
   indices/                  # FAISS 索引
-  hubert/                   # HuBERT 权重
+  hubert_base/              # HuBERT 权重（transformers 模型目录）
   rmvpe/                    # RMVPE 权重
   pretrained_v2/            # 预训练权重
   ffmpeg/                   # ffmpeg 二进制
@@ -288,8 +288,7 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 ## 开发文档
 
 - **CLAUDE.md** — 完整的架构文档和开发指南
-- **REFACTOR_REPORT.md** — 2026-06-13 重构报告（英文）
-- **重构完成报告.md** — 重构总结（中文）
+- **AGENTS.md** — 给 AI 编码助手的上下文指南
 
 ### 最近架构改进（2026-06-13）
 
@@ -306,5 +305,3 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 - 代码重复度：-85%
 - 模块化程度：+30%
 - 日志统一度：+45%
-
-详见 `REFACTOR_REPORT.md` 和 `重构完成报告.md`。

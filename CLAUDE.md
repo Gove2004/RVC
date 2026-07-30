@@ -25,23 +25,23 @@ There is no automated test suite. Runtime verification is manual: start the rele
 
 ## Original RVC Source
 
-- **Location:** `.Retrieval-based-Voice-Conversion-WebUI/` (separate git repo, fetch with `git -C ".Retrieval-based-Voice-Conversion-WebUI" fetch origin && git -C ".Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main`)
+- **Location:** `Retrieval-based-Voice-Conversion-WebUI/` (separate git repo, fetch with `git -C "Retrieval-based-Voice-Conversion-WebUI" fetch origin && git -C "Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main`)
 - **Remote:** `https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI.git`
-- When checking upstream changes, always sync this repo first. Key recent upstream updates:
-  - CUDA Graph inference acceleration (disabled by default for WebUI offline mode)
-  - ASIO glitch fix + multi-API device support
-  - GPU processing for UVR5 / audio loading & resampling
-  - NSF inference optimization
-  - TensorRT & ONNX export warnings
-  - PyMSS backend replacing UVR5 separation
-  - DirectML support for PyMSS
+- The local upstream clone is in sync with `origin/main` (verified 2026-07-30). Upstream's recent updates vs. this project's actual status:
+  - **CUDA Graph inference acceleration** — already integrated (`rvc/tools/cuda_graph.py`; used in f0_extractor/synthesis/rmvpe/model_session; runtime-enabled via `configure_cuda_graph`, `Config.use_cuda_graph` defaults to False)
+  - **ASIO glitch fix + multi-API device support** — N/A; realtime engine uses sounddevice, host API from portaudio, no ASIO-specific code
+  - **GPU processing for UVR5 / audio loading & resampling** — N/A; UVR5 is WebUI-only, audio loading uses CPU librosa + ffmpeg (`rvc/audio/loader.py`)
+  - **NSF inference optimization** — NSF implemented (`rvc/synthesizer/decoder.py` `GeneratorNSF`); specific upstream optimizations not separately verified
+  - **TensorRT & ONNX export warnings** — N/A (WebUI export feature, not used)
+  - **PyMSS backend replacing UVR5 separation** — N/A (vocal separation, WebUI-only)
+  - **DirectML support for PyMSS** — N/A (non-NVIDIA GPU; this project requires CUDA)
 - Only import relevant changes — our codebase is heavily refactored and structurally different from upstream.
 - When syncing from upstream, check: `rvc/audio/`, `rvc/inference/`, `rvc/models/`, `rvc/nn/`, `rvc/runtime/`
 
 ## Runtime Requirements
 
 - Windows + NVIDIA CUDA GPU are required; `rvc.runtime.Config` exits if CUDA is unavailable.
-- Python dependencies are in `requirements.txt`; core libraries are PyTorch, PySide6, sounddevice, librosa, FAISS, fairseq, and torchfcpe.
+- Python dependencies are in `requirements.txt`; core libraries are PyTorch, PySide6, sounddevice, librosa, FAISS, transformers, and torchfcpe.
 - Required model assets live under `assets/`: HuBERT, RMVPE, user weights, indices, pretrained training weights, and ffmpeg.
 
 ## Architecture
@@ -122,7 +122,7 @@ In realtime audio code, frame math must use the active runtime sample rate:
 ```python
 self.sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
 zc = self.sr // 100
-self.block_frame = int(np.round(block_t * self.sr / zc)) * zc
+self.block_samples = int(np.round(block_t * self.sr / zc)) * zc
 ```
 
 Do not hardcode `48000` for realtime frame sizes. `sr_mode="model"` and `sr_mode="device"` must both keep working.
@@ -146,7 +146,7 @@ GUI code should use `gui.styles` (`ButtonStyles`, `LabelStyles`, `CardStyles`, `
 ### Caching
 
 - `rvc.models.default_inference_cache` caches HuBERT, F0 extractors, Synthesizer models, and FAISS indices.
-- CUDA Graph is not currently enabled in this project (`Config.use_cuda_graph = False`). Do not turn it on globally without explicit benchmarking and fallback handling.
+- `Config.use_cuda_graph` defaults to `False` but is runtime-enabled by `configure_cuda_graph` when the GPU supports it. Do not force it on globally without explicit benchmarking and fallback handling.
 
 ## Verification
 
