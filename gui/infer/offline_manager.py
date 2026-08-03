@@ -83,10 +83,8 @@ class OfflineManager:
             protect=_sl_value_as_float(self.window.protect_slider),
             eq_enabled=self.window.eq_enable_checkbox.isChecked(),
             eq_bands={
-                'sub': _sl_value_as_float(self.window.eq_sub_slider),
                 'low': _sl_value_as_float(self.window.eq_low_slider),
                 'mid': _sl_value_as_float(self.window.eq_mid_slider),
-                'hi_mid': _sl_value_as_float(self.window.eq_hi_mid_slider),
                 'high': _sl_value_as_float(self.window.eq_high_slider),
             },
             reverb_mix=_sl_value_as_float(self.window.reverb_slider),

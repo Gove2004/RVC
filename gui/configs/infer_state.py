@@ -12,13 +12,14 @@ class InferGuiState:
     f0method: str
     sr_mode: str
     eq_enabled: bool
-    eq_sub: float
     eq_low: float
     eq_mid: float
-    eq_hi_mid: float
     eq_high: float
     reverb: float
+    reverb_enable: bool
     rms_mix: float
+    nr_enable: bool
+    nr_strength: float
     bgm_enable: bool
     bgm_path: str
     bgm_vol: float
@@ -39,13 +40,14 @@ class InferGuiState:
             f0method=str(data.get("f0", "fcpe")),
             sr_mode=str(data.get("sr_mode", "model")),
             eq_enabled=bool(data.get("eq_en", False)),
-            eq_sub=float(data.get("eq_sub", 0.0)),
             eq_low=float(data.get("eq_lo", 0.0)),
             eq_mid=float(data.get("eq_mi", 0.0)),
-            eq_hi_mid=float(data.get("eq_hm", 0.0)),
             eq_high=float(data.get("eq_hi", 0.0)),
             reverb=float(data.get("rev", 0.0)),
+            reverb_enable=bool(data.get("rev_en", True)),
             rms_mix=float(data.get("rms", 0.0)),
+            nr_enable=bool(data.get("nr_en", False)),
+            nr_strength=float(data.get("nr_str", 0.5)),
             bgm_enable=bool(data.get("bgm_en", False)),
             bgm_path=str(data.get("bgm_path", "")),
             bgm_vol=float(data.get("bgm_vol", 0.5)),
@@ -66,13 +68,14 @@ class InferGuiState:
             "f0": self.f0method,
             "sr_mode": self.sr_mode,
             "eq_en": self.eq_enabled,
-            "eq_sub": self.eq_sub,
             "eq_lo": self.eq_low,
             "eq_mi": self.eq_mid,
-            "eq_hm": self.eq_hi_mid,
             "eq_hi": self.eq_high,
             "rev": self.reverb,
+            "rev_en": self.reverb_enable,
             "rms": self.rms_mix,
+            "nr_en": self.nr_enable,
+            "nr_str": self.nr_strength,
             "bgm_en": self.bgm_enable,
             "bgm_path": self.bgm_path,
             "bgm_vol": self.bgm_vol,

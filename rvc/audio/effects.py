@@ -51,23 +51,19 @@ class AudioEffect(ABC):
 
 
 class ParametricEQ(AudioEffect):
-    """5段参数均衡器 — FFT频域处理（无状态，适合实时）
+    """3段参数均衡器 — FFT频域处理（无状态，适合实时）
 
     频段：
-    - 超低频 60Hz
     - 低频 200Hz
     - 中频 1kHz
-    - 中高频 3kHz
     - 高频 8kHz
     """
 
     def __init__(self, sample_rate: int):
         super().__init__(sample_rate)
         self.bands = {
-            'sub': {'center': 60, 'width': 40, 'gain_db': 0.0},      # 超低频
             'low': {'center': 200, 'width': 100, 'gain_db': 0.0},    # 低频
             'mid': {'center': 1000, 'width': 300, 'gain_db': 0.0},   # 中频
-            'hi_mid': {'center': 3000, 'width': 600, 'gain_db': 0.0}, # 中高频
             'high': {'center': 8000, 'width': 2000, 'gain_db': 0.0}, # 高频
         }
         self._freqs_cache_key = None
@@ -80,7 +76,7 @@ class ParametricEQ(AudioEffect):
         """设置频段增益
 
         Args:
-            band: 'sub' | 'low' | 'mid' | 'hi_mid' | 'high'
+            band: 'low' | 'mid' | 'high'
             gain_db: 增益 (dB)，范围 -12 ~ +12
         """
         if band in self.bands:
@@ -163,9 +159,9 @@ class SimpleReverb(AudioEffect):
         """设置混响混合比例
 
         Args:
-            mix: 0.0 ~ 0.5，超过 0.5 会过湿
+            mix: 0.0 ~ 1.0，超过 0.5 会偏湿
         """
-        self.mix = max(0.0, min(0.5, mix))
+        self.mix = max(0.0, min(1.0, mix))
 
     def process(self, audio: torch.Tensor) -> torch.Tensor:
         """混响处理"""

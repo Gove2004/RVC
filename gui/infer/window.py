@@ -131,11 +131,9 @@ class MainWindow(QMainWindow):
         if name not in PRESETS:
             return
         pr = PRESETS[name]
-        self.eq_sub_slider.setValue(int(pr.get("eq_sub", 0) * 100))
-        self.eq_low_slider.setValue(int(pr.get("eq_low", 0) * 100))
-        self.eq_mid_slider.setValue(int(pr.get("eq_mid", 0) * 100))
-        self.eq_hi_mid_slider.setValue(int(pr.get("eq_hi_mid", 0) * 100))
-        self.eq_high_slider.setValue(int(pr.get("eq_high", 0) * 100))
+        self.eq_low_slider.setValue(int(pr.get("low", 0) * 100))
+        self.eq_mid_slider.setValue(int(pr.get("mid", 0) * 100))
+        self.eq_high_slider.setValue(int(pr.get("high", 0) * 100))
 
     # ── 设备管理委托 ──
 
@@ -164,16 +162,17 @@ class MainWindow(QMainWindow):
     def collect_runtime_config(self) -> RuntimeConfig:
         return RuntimeConfig(
             enable_eq=self.eq_enable_checkbox.isChecked(),
-            eq_sub=_sl_value_as_float(self.eq_sub_slider),
             eq_low=_sl_value_as_float(self.eq_low_slider),
             eq_mid=_sl_value_as_float(self.eq_mid_slider),
-            eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
             eq_high=_sl_value_as_float(self.eq_high_slider),
             reverb=_sl_value_as_float(self.reverb_slider),
+            reverb_enable=self.reverb_enable_checkbox.isChecked(),
             enable_out2=self.output2_combo.currentIndex() > 0,
             rms_mix=_sl_value_as_float(self.rms_mix_slider),
             bgm_enable=self.bgm_enable_checkbox.isChecked(),
             bgm_vol=_sl_value_as_float(self.bgm_vol_slider),
+            nr_enable=self.nr_enable_checkbox.isChecked(),
+            nr_strength=_sl_value_as_float(self.nr_strength_slider),
         )
 
     def collect_engine_config(self) -> EngineConfig:
@@ -239,13 +238,14 @@ class MainWindow(QMainWindow):
             f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
             sr_mode="model" if self.sr_model_radio.isChecked() else "device",
             eq_enabled=self.eq_enable_checkbox.isChecked(),
-            eq_sub=_sl_value_as_float(self.eq_sub_slider),
             eq_low=_sl_value_as_float(self.eq_low_slider),
             eq_mid=_sl_value_as_float(self.eq_mid_slider),
-            eq_hi_mid=_sl_value_as_float(self.eq_hi_mid_slider),
             eq_high=_sl_value_as_float(self.eq_high_slider),
             reverb=_sl_value_as_float(self.reverb_slider),
+            reverb_enable=self.reverb_enable_checkbox.isChecked(),
             rms_mix=_sl_value_as_float(self.rms_mix_slider),
+            nr_enable=self.nr_enable_checkbox.isChecked(),
+            nr_strength=_sl_value_as_float(self.nr_strength_slider),
             bgm_enable=self.bgm_enable_checkbox.isChecked(),
             bgm_path=self.bgm_path_edit.text().strip(),
             bgm_vol=_sl_value_as_float(self.bgm_vol_slider),
@@ -293,13 +293,15 @@ class MainWindow(QMainWindow):
             self.sr_device_radio.setChecked(True)
 
         self.eq_enable_checkbox.setChecked(state.eq_enabled)
-        self.eq_sub_slider.setValue(int(state.eq_sub * 100))
         self.eq_low_slider.setValue(int(state.eq_low * 100))
         self.eq_mid_slider.setValue(int(state.eq_mid * 100))
-        self.eq_hi_mid_slider.setValue(int(state.eq_hi_mid * 100))
         self.eq_high_slider.setValue(int(state.eq_high * 100))
         self.reverb_slider.setValue(int(state.reverb * 100))
+        self.reverb_enable_checkbox.setChecked(state.reverb_enable)
         self.rms_mix_slider.setValue(int(state.rms_mix * 100))
+
+        self.nr_enable_checkbox.setChecked(state.nr_enable)
+        self.nr_strength_slider.setValue(int(state.nr_strength * 100))
 
         self.bgm_enable_checkbox.setChecked(state.bgm_enable)
         self.bgm_path_edit.setText(state.bgm_path)

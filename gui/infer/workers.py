@@ -98,10 +98,8 @@ class OfflineWorker(QThread):
 
     def _apply_effects(self, audio: np.ndarray, sr: int) -> np.ndarray:
         chain, eq, reverb = create_offline_chain(sr)
-        eq.set_band('sub', self.cfg.eq_bands['sub'])
         eq.set_band('low', self.cfg.eq_bands['low'])
         eq.set_band('mid', self.cfg.eq_bands['mid'])
-        eq.set_band('hi_mid', self.cfg.eq_bands['hi_mid'])
         eq.set_band('high', self.cfg.eq_bands['high'])
         reverb.set_mix(self.cfg.reverb_mix)
         audio_t = torch.from_numpy(audio).to(config.device)

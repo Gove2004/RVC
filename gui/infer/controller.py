@@ -21,16 +21,17 @@ class ModelConfig:
 @dataclass
 class RuntimeConfig:
     enable_eq: bool
-    eq_sub: float
     eq_low: float
     eq_mid: float
-    eq_hi_mid: float
     eq_high: float
     reverb: float
     enable_out2: bool
     rms_mix: float
     bgm_enable: bool = False
     bgm_vol: float = 0.5
+    reverb_enable: bool = True
+    nr_enable: bool = False
+    nr_strength: float = 0.5
 
 
 @dataclass
@@ -72,16 +73,17 @@ class InferController:
         self.runtime_params.update(
             use_pv=False,
             enable_eq=config.enable_eq,
-            eq_sub=config.eq_sub,
             eq_low=config.eq_low,
             eq_mid=config.eq_mid,
-            eq_hi_mid=config.eq_hi_mid,
             eq_high=config.eq_high,
             reverb=config.reverb,
+            reverb_enable=config.reverb_enable,
             bgm_enable=config.bgm_enable,
             bgm_vol=config.bgm_vol,
             enable_out2=config.enable_out2,
             rms_mix=config.rms_mix,
+            nr_enable=config.nr_enable,
+            nr_strength=config.nr_strength,
         )
 
     def setup_engine(self, config: EngineConfig):

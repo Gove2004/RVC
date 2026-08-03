@@ -10,6 +10,7 @@ from rvc.audio.effects import (
     create_realtime_chain,
     create_offline_chain,
 )
+from rvc.audio.denoise import SpectralSubtraction
 
 __all__ = [
     "load_audio",
@@ -24,4 +25,5 @@ __all__ = [
     "EffectChain",
     "create_realtime_chain",
     "create_offline_chain",
+    "SpectralSubtraction",
 ]

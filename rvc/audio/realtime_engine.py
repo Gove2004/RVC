@@ -15,6 +15,7 @@ import torch
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.effects import create_realtime_chain
+from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.loader import load_audio
 from rvc.audio.output_router import mix_bgm, route_secondary_output, write_main_output
 from rvc.audio.realtime_effects import apply_post_sola_effects, apply_pre_sola_effects
@@ -33,10 +34,8 @@ MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
 class EQParams:
     """实时 EQ 参数（传给 apply_pre_sola_effects）"""
     enable_eq: bool
-    eq_sub: float
     eq_low: float
     eq_mid: float
-    eq_hi_mid: float
     eq_high: float
 
 
@@ -75,10 +74,12 @@ class RealtimeEngine:
         # 效果器（setup 时创建）
         self.eq = None
         self.reverb = None
+        self.nr_ss = None
 
         # 效果参数缓存（用于检测变化）
         self._last_eq_params = None
         self._last_reverb_mix = None
+        self._last_nr_params = None
 
         self.pth_path = ""; self.idx_path = ""
         self.infer_ms = 0.0
@@ -154,6 +155,11 @@ class RealtimeEngine:
         # Reset effect buffers on new stream setup to avoid leaking old state
         self.eq.reset()
         self.reverb.reset()
+
+        # 降噪器（输入侧）
+        self.nr_ss = SpectralSubtraction(self.sr)
+        self.nr_ss.reset()
+        self._last_nr_params = None
 
         try:
             self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
@@ -258,17 +264,20 @@ class RealtimeEngine:
         p_bgm_enable = params.bgm_enable
         p_bgm_vol = params.bgm_vol
         p_enable_eq = params.enable_eq
-        p_eq_sub = params.eq_sub
         p_eq_low = params.eq_low
         p_eq_mid = params.eq_mid
-        p_eq_hi_mid = params.eq_hi_mid
         p_eq_high = params.eq_high
-        p_reverb = params.reverb
+        p_reverb = params.reverb if params.reverb_enable else 0.0
         p_enable_out2 = params.enable_out2
+        p_nr_enable = params.nr_enable
+        p_nr_strength = params.nr_strength
 
         with torch.no_grad():
             # ── 阶段1: 输入准备 ──────────────────────────────────────
             mono = self._prepare_input(indata)
+
+            # ── 阶段1.5: 输入侧降噪（谱减法） ────────────────────────
+            mono = self._apply_denoise(mono, p_nr_enable, p_nr_strength)
 
             # ── 阶段2: 输入缓存轮换与降采样 ──────────────────────────
             self._update_input_buffers(mono)
@@ -281,8 +290,7 @@ class RealtimeEngine:
                 infer = self._apply_rms_mix(infer, p_rms_mix)
 
             # ── 阶段5: SOLA前处理效果（EQ） ──────────────────────────
-            _eq_params = self._create_eq_params(p_enable_eq, p_eq_sub, p_eq_low,
-                                                p_eq_mid, p_eq_hi_mid, p_eq_high)
+            _eq_params = self._create_eq_params(p_enable_eq, p_eq_low, p_eq_mid, p_eq_high)
             infer = self._apply_pre_sola_effects(infer, _eq_params)
 
             # ── 阶段6: SOLA对齐 ───────────────────────────────────────
@@ -318,6 +326,21 @@ class RealtimeEngine:
         """将输入的立体声/单声道转换为处理的单声道信号"""
         mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
         return np.ascontiguousarray(mono)
+
+    def _apply_denoise(self, mono, enable, strength):
+        """输入侧降噪（谱减法）。
+
+        参数变化检测：强度变了才更新效果器。降噪在 GPU 上做 FFT，
+        与 EQ 同架构、零新增延迟（当前块处理完即输出）。
+        """
+        if not enable or self.nr_ss is None:
+            return mono
+        if self._last_nr_params != strength:
+            self.nr_ss.set_strength(strength)
+            self._last_nr_params = strength
+        t = torch.from_numpy(mono).to(config.device)
+        t = self.nr_ss(t)
+        return t.cpu().numpy()
 
     def _update_input_buffers(self, mono):
         """轮换输入缓存并执行降采样到16kHz"""
@@ -355,9 +378,9 @@ class RealtimeEngine:
         ref = self.input_wav[self.extra_samples:]
         return apply_rms_mix(ref, infer, rms_mix, self.hz_centis)
 
-    def _create_eq_params(self, enable_eq, eq_sub, eq_low, eq_mid, eq_hi_mid, eq_high):
+    def _create_eq_params(self, enable_eq, eq_low, eq_mid, eq_high):
         """创建EQ参数对象，用于实时效果链同步"""
-        return EQParams(enable_eq, eq_sub, eq_low, eq_mid, eq_hi_mid, eq_high)
+        return EQParams(enable_eq, eq_low, eq_mid, eq_high)
 
     def _apply_pre_sola_effects(self, infer, _eq_params):
         """应用SOLA前的效果（主要为EQ均衡器）。
