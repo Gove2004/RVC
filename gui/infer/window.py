@@ -11,6 +11,11 @@ from PySide6.QtCore import QTimer, Qt
 from rvc.audio import PRESETS
 from gui.configs.infer_state import InferGuiState
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
+from gui.infer.param_binding import (
+    collect_gui_state as bridge_collect_gui_state,
+    apply_gui_state as bridge_apply_gui_state,
+    runtime_from_state,
+)
 from gui.infer.widgets import LoadThread, _sl_value_as_float
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
@@ -160,20 +165,8 @@ class MainWindow(QMainWindow):
         )
 
     def collect_runtime_config(self) -> RuntimeConfig:
-        return RuntimeConfig(
-            enable_eq=self.eq_enable_checkbox.isChecked(),
-            eq_low=_sl_value_as_float(self.eq_low_slider),
-            eq_mid=_sl_value_as_float(self.eq_mid_slider),
-            eq_high=_sl_value_as_float(self.eq_high_slider),
-            reverb=_sl_value_as_float(self.reverb_slider),
-            reverb_enable=self.reverb_enable_checkbox.isChecked(),
-            enable_out2=self.output2_combo.currentIndex() > 0,
-            rms_mix=_sl_value_as_float(self.rms_mix_slider),
-            bgm_enable=self.bgm_enable_checkbox.isChecked(),
-            bgm_vol=_sl_value_as_float(self.bgm_vol_slider),
-            nr_enable=self.nr_enable_checkbox.isChecked(),
-            nr_strength=_sl_value_as_float(self.nr_strength_slider),
-        )
+        # 从完整 GUI 状态派生运行时参数（字段绑定见 param_binding.py）
+        return runtime_from_state(self.collect_gui_state())
 
     def collect_engine_config(self) -> EngineConfig:
         return EngineConfig(
@@ -227,92 +220,10 @@ class MainWindow(QMainWindow):
         self._timer.start(200)
 
     def collect_gui_state(self) -> InferGuiState:
-        active_pth = ""
-        if self.model_manager.active_card:
-            active_pth = self.model_manager.active_card.pth_edit.text().strip()
-        return InferGuiState(
-            block_time=_sl_value_as_float(self.block_time_slider),
-            crossfade_time=_sl_value_as_float(self.crossfade_slider),
-            extra_time=_sl_value_as_float(self.extra_time_slider),
-            protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
-            f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
-            sr_mode="model" if self.sr_model_radio.isChecked() else "device",
-            eq_enabled=self.eq_enable_checkbox.isChecked(),
-            eq_low=_sl_value_as_float(self.eq_low_slider),
-            eq_mid=_sl_value_as_float(self.eq_mid_slider),
-            eq_high=_sl_value_as_float(self.eq_high_slider),
-            reverb=_sl_value_as_float(self.reverb_slider),
-            reverb_enable=self.reverb_enable_checkbox.isChecked(),
-            rms_mix=_sl_value_as_float(self.rms_mix_slider),
-            nr_enable=self.nr_enable_checkbox.isChecked(),
-            nr_strength=_sl_value_as_float(self.nr_strength_slider),
-            bgm_enable=self.bgm_enable_checkbox.isChecked(),
-            bgm_path=self.bgm_path_edit.text().strip(),
-            bgm_vol=_sl_value_as_float(self.bgm_vol_slider),
-            preset=self.preset_combo.currentText(),
-            hostapi=self.hostapi_combo.currentText(),
-            input_device=self.input_combo.currentText(),
-            output_device=self.output_combo.currentText(),
-            output2_device=self.output2_combo.currentText(),
-            active_model=active_pth,
-        )
+        return bridge_collect_gui_state(self)
 
     def apply_gui_state(self, state: InferGuiState) -> None:
-        idx = self.preset_combo.findText(state.preset)
-        if idx >= 0:
-            self.preset_combo.setCurrentIndex(idx)
-
-        if state.hostapi:
-            idx = self.hostapi_combo.findText(state.hostapi)
-            if idx >= 0:
-                self.hostapi_combo.setCurrentIndex(idx)
-
-        for value, combo in [
-            (state.input_device, self.input_combo),
-            (state.output_device, self.output_combo),
-            (state.output2_device, self.output2_combo),
-        ]:
-            if value:
-                idx = combo.findText(value)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
-
-        self.block_time_slider.setValue(int(state.block_time * 100))
-        self.crossfade_slider.setValue(int(state.crossfade_time * 100))
-        self.extra_time_slider.setValue(int(state.extra_time * 100))
-        self.protect_slider.setValue(int(state.protect * 100))
-
-        if state.f0method == "rmvpe":
-            self.f0_rmvp_btn.setChecked(True)
-        else:
-            self.f0_fcpe_btn.setChecked(True)
-
-        if state.sr_mode == "model":
-            self.sr_model_radio.setChecked(True)
-        else:
-            self.sr_device_radio.setChecked(True)
-
-        self.eq_enable_checkbox.setChecked(state.eq_enabled)
-        self.eq_low_slider.setValue(int(state.eq_low * 100))
-        self.eq_mid_slider.setValue(int(state.eq_mid * 100))
-        self.eq_high_slider.setValue(int(state.eq_high * 100))
-        self.reverb_slider.setValue(int(state.reverb * 100))
-        self.reverb_enable_checkbox.setChecked(state.reverb_enable)
-        self.rms_mix_slider.setValue(int(state.rms_mix * 100))
-
-        self.nr_enable_checkbox.setChecked(state.nr_enable)
-        self.nr_strength_slider.setValue(int(state.nr_strength * 100))
-
-        self.bgm_enable_checkbox.setChecked(state.bgm_enable)
-        self.bgm_path_edit.setText(state.bgm_path)
-        self.bgm_vol_slider.setValue(int(state.bgm_vol * 100))
-
-        if state.active_model:
-            for card in self.model_manager.cards:
-                if card.pth_edit.text().strip() == state.active_model:
-                    card.set_active(True)
-                    self.model_manager.active_card = card
-                    break
+        bridge_apply_gui_state(self, state)
 
     # ── 启动/停止 ──
 

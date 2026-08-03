@@ -159,43 +159,55 @@ class VCPipeline:
             return self._infer_impl(input_wav, block_frame_16k, skip_head, return_length, f0method, protect)
 
     def _infer_impl(self, input_wav, block_frame_16k, skip_head, return_length, f0method, protect):
-        feats = self._extract_hubert_features(input_wav)
-
-        feats0 = self._clone_protect_source(feats, protect)
-        feats = self._apply_faiss_index(feats, skip_head)
-
         p_len = input_wav.shape[0] // 160
         factor = pow(2, self.formant_factor / 12)
         return_length2_val = int(np.ceil(return_length * factor))
+
+        # 特征提取：HuBERT → 辅音保护克隆 → FAISS 混合
+        feats = self._extract_hubert_features(input_wav)
+        feats0 = self._clone_protect_source(feats, protect)
+        feats = self._apply_faiss_index(feats, skip_head)
+
+        # 音高（F0）缓存更新
         if self.use_f0 == 1:
-            cache_pitch, cache_pitchf = update_realtime_pitch_cache(
-                input_wav,
-                block_frame_16k,
-                p_len,
-                return_length,
-                return_length2_val,
-                self.f0_semitones - self.formant_factor,
-                f0method,
-                self.pitch_cache,
-                self.pitchf_cache,
-                self.device,
-                self.is_half,
-                self.inference_cache,
+            cache_pitch, cache_pitchf = self._update_realtime_pitch(
+                input_wav, block_frame_16k, p_len,
+                return_length, return_length2_val, f0method,
             )
         else:
             cache_pitch = cache_pitchf = None
 
-        feats = self._upsample_features(
-            feats,
+        # 特征上采样（含辅音保护混合）
+        feats = self._upsample_features(feats, p_len, feats0, cache_pitchf, protect)
+
+        # 合成 + 后处理（formant 重采样）
+        infered_audio = self._synthesize_realtime(
+            feats, p_len, cache_pitch, cache_pitchf,
+            skip_head, return_length, return_length2_val,
+        )
+        return self._postprocess_realtime(infered_audio, factor, return_length)
+
+    def _update_realtime_pitch(self, input_wav, block_frame_16k, p_len, return_length, return_length2_val, f0method):
+        """更新实时音高缓存（滑动窗口 + 尾部重算）"""
+        return update_realtime_pitch_cache(
+            input_wav,
+            block_frame_16k,
             p_len,
-            feats0,
-            cache_pitchf,
-            protect,
+            return_length,
+            return_length2_val,
+            self.f0_semitones - self.formant_factor,
+            f0method,
+            self.pitch_cache,
+            self.pitchf_cache,
+            self.device,
+            self.is_half,
+            self.inference_cache,
         )
 
+    def _synthesize_realtime(self, feats, p_len, cache_pitch, cache_pitchf, skip_head, return_length, return_length2_val):
+        """Synthesizer 实时推理，返回 [channels, frames] 音频"""
         p_len_t = self._cached_long_tensor(p_len)
         sid = self._cached_long_tensor(0)
-
         infered_audio, _, _ = infer_realtime_audio(
             self.synthesizer,
             feats,
@@ -209,9 +221,10 @@ class VCPipeline:
             self.use_f0,
             self.is_half,
         )
+        return infered_audio.squeeze(1).float()
 
-        infered_audio = infered_audio.squeeze(1).float()
-
+    def _postprocess_realtime(self, infered_audio, factor, return_length):
+        """formant 重采样（factor≠1 时）"""
         upp_res = int(np.floor(factor * self.target_sr // 100))
         if upp_res != self.target_sr // 100:
             infered_audio = apply_formant_resample(
@@ -221,5 +234,4 @@ class VCPipeline:
                 self.resample_kernel,
                 self.device,
             )
-
         return infered_audio.squeeze()

@@ -250,10 +250,9 @@ class RealtimeEngine:
                 raise sd.CallbackStop  # 安全终止流，避免僵尸流继续占用设备导致下次无法重载
 
     def _cb_impl(self, indata, outdata, frames, times, status):
-        """实时音频回调主函数 — 按处理阶段拆分：
+        """实时音频回调主函数 — 编排各处理阶段：
 
-        输入准备 → 输入缓存轮换 → 降采样 → 语音转换推理 → RMS混合 →
-        SOLA前处理效果 → SOLA对齐 → SOLA后处理效果 → BGM混合 → 输出写入
+        输入准备+降噪 → 缓存轮换/降采样 → 推理 → RMS → EQ → SOLA → 混响 → BGM → 输出
         """
         t0 = time.perf_counter()
         params = self.runtime_params
@@ -273,13 +272,9 @@ class RealtimeEngine:
         p_nr_strength = params.nr_strength
 
         with torch.no_grad():
-            # ── 阶段1: 输入准备 ──────────────────────────────────────
+            # ── 阶段1-2: 输入准备 + 降噪 + 缓存轮换 ─────────────────
             mono = self._prepare_input(indata)
-
-            # ── 阶段1.5: 输入侧降噪（谱减法） ────────────────────────
             mono = self._apply_denoise(mono, p_nr_enable, p_nr_strength)
-
-            # ── 阶段2: 输入缓存轮换与降采样 ──────────────────────────
             self._update_input_buffers(mono)
 
             # ── 阶段3: 语音转换推理 ───────────────────────────────────
@@ -294,33 +289,50 @@ class RealtimeEngine:
             infer = self._apply_pre_sola_effects(infer, _eq_params)
 
             # ── 阶段6: SOLA对齐 ───────────────────────────────────────
-            chunk = apply_sola(
-                infer, self.sola_buffer, self.sola_norm_kernel,
-                self.fade_in, self.fade_out,
-                self.block_samples, self.sola_buffer_samples,
-                self.sola_search_samples, p_use_pv,
-            )
+            chunk = self._apply_sola(infer, p_use_pv)
 
             # ── 阶段7: SOLA后处理效果（混响） ─────────────────────────
-            _reverb_params = ReverbParams(reverb=p_reverb)
-            chunk, self._last_reverb_mix = apply_post_sola_effects(
-                chunk, _reverb_params, self.reverb, self._last_reverb_mix,
-            )
+            chunk = self._apply_reverb(chunk, p_reverb)
 
             # ── 阶段8: BGM混合 ────────────────────────────────────────
-            if p_bgm_enable:
-                chunk, self.bgm_audio, self.bgm_ptr = mix_bgm(
-                    chunk, self.bgm_audio, self.bgm_ptr,
-                    self.bgm_mix_buffer, p_bgm_vol, self.block_samples,
-                )
+            chunk = self._apply_bgm(chunk, p_bgm_enable, p_bgm_vol)
 
-            # ── 阶段9: 主输出写入 ─────────────────────────────────────
-            write_main_output(chunk, outdata, self.channels)
-
-            # ── 阶段10: 副输出路由 ────────────────────────────────────
-            route_secondary_output(outdata, self.stream2, self.out2_q, p_enable_out2)
+            # ── 阶段9-10: 输出写入与副输出路由 ────────────────────────
+            self._write_output(chunk, outdata, p_enable_out2)
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
+
+    def _apply_sola(self, infer, use_pv):
+        """SOLA 时间拉伸对齐，输出块长度 = block_samples"""
+        return apply_sola(
+            infer, self.sola_buffer, self.sola_norm_kernel,
+            self.fade_in, self.fade_out,
+            self.block_samples, self.sola_buffer_samples,
+            self.sola_search_samples, use_pv,
+        )
+
+    def _apply_reverb(self, chunk, reverb):
+        """SOLA 后处理效果（混响），带参数变化缓存"""
+        params = ReverbParams(reverb=reverb)
+        chunk, self._last_reverb_mix = apply_post_sola_effects(
+            chunk, params, self.reverb, self._last_reverb_mix,
+        )
+        return chunk
+
+    def _apply_bgm(self, chunk, enable, vol):
+        """背景音混合（未启用时直通）"""
+        if not enable:
+            return chunk
+        chunk, self.bgm_audio, self.bgm_ptr = mix_bgm(
+            chunk, self.bgm_audio, self.bgm_ptr,
+            self.bgm_mix_buffer, vol, self.block_samples,
+        )
+        return chunk
+
+    def _write_output(self, chunk, outdata, enable_out2):
+        """主输出写入 + 副输出路由"""
+        write_main_output(chunk, outdata, self.channels)
+        route_secondary_output(outdata, self.stream2, self.out2_q, enable_out2)
 
     def _prepare_input(self, indata):
         """将输入的立体声/单声道转换为处理的单声道信号"""

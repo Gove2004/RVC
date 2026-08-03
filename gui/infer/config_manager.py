@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 
 from gui.configs import load_config, save_config
-from gui.configs.infer_state import InferGuiState
+from gui.infer.param_binding import state_from_dict, state_to_dict
 
 if TYPE_CHECKING:
     from gui.infer.window import MainWindow
@@ -16,10 +16,10 @@ class ConfigManager:
 
     def load_config(self) -> None:
         cfg = load_config()
-        state = InferGuiState.from_dict(cfg.get("gui", {}))
+        state = state_from_dict(cfg.get("gui", {}))
         self.window.apply_gui_state(state)
 
     def save_config(self) -> None:
         cfg = load_config()
-        cfg["gui"] = self.window.collect_gui_state().to_dict()
+        cfg["gui"] = state_to_dict(self.window.collect_gui_state())
         save_config(cfg)

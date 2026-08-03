@@ -7,6 +7,7 @@ from gui.infer.workers import OfflineWorker
 from rvc.inference.offline_config import OfflineConfig
 from gui.infer.utils import format_error_message
 from gui.infer.widgets import _sl_value_as_float
+from gui.infer.param_binding import collect_gui_state
 
 if TYPE_CHECKING:
     from gui.infer.window import MainWindow
@@ -70,24 +71,25 @@ class OfflineManager:
             self.window._show_warning("请先停止实时变声")
             return
 
-        # 构建配置并启动转换
+        # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
+        state = collect_gui_state(self.window)
         config = OfflineConfig(
             input_path=self.window.offline_input.text().strip(),
             output_path=self.window.offline_output.text().strip(),
             model_path=card.pth_edit.text().strip(),
             index_path=card.idx_edit.text().strip(),
             pitch=card.pitch_slider.value(),
-            f0method="rmvpe" if self.window.f0_rmvp_btn.isChecked() else "fcpe",
+            f0method=state.f0method,
             index_rate=_sl_value_as_float(card.index_rate_slider),
-            rms_mix=_sl_value_as_float(self.window.rms_mix_slider),
-            protect=_sl_value_as_float(self.window.protect_slider),
-            eq_enabled=self.window.eq_enable_checkbox.isChecked(),
+            rms_mix=state.rms_mix,
+            protect=state.protect,
+            eq_enabled=state.eq_enabled,
             eq_bands={
-                'low': _sl_value_as_float(self.window.eq_low_slider),
-                'mid': _sl_value_as_float(self.window.eq_mid_slider),
-                'high': _sl_value_as_float(self.window.eq_high_slider),
+                'low': state.eq_low,
+                'mid': state.eq_mid,
+                'high': state.eq_high,
             },
-            reverb_mix=_sl_value_as_float(self.window.reverb_slider),
+            reverb_mix=state.reverb,
             gender=_sl_value_as_float(card.gender_slider) * 5 - 2.5,  # [0,1] → [-2.5, 2.5]，与实时一致
         )
         self.worker = OfflineWorker(config)

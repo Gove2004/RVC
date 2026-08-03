@@ -64,10 +64,10 @@ The inference GUI uses a compact 6-tab interface:
 
 | Tab | Path | Description |
 |-----|------|-------------|
-| **驱动** (Audio Driver) | `gui/infer/tabs/audio_driver_tab.py` | Audio device selection (input/output/output2), host API, sample rate mode (model/device), refresh button |
+| **设备** (Audio Driver) | `gui/infer/tabs/audio_driver_tab.py` | Audio device selection (input/output/output2), host API, sample rate mode (model/device), refresh button |
 | **参数** (Global Params) | `gui/infer/tabs/global_params_tab.py` | Block time, crossfade time, extra context time, RMS mix, consonant protect (0~1), F0 method (RMVPE/FCPE) |
 | **模型** (Models) | `gui/infer/tabs/models_tab.py` | Model management — add `.pth` models, activate/remove, index file association |
-| **处理** (Processing) | `gui/infer/tabs/audio_tab.py` | 5-band EQ (60Hz/200Hz/1kHz/3kHz/8kHz), reverb, effect presets, enable/disable |
+| **效果** (Effects) | `gui/infer/tabs/audio_tab.py` | Per-item toggles: reverb (0~1), spectral-subtraction denoise (0~1), 3-band EQ (200Hz/1kHz/8kHz) with presets |
 | **背景** (BGM) | `gui/infer/tabs/bgm_tab.py` | Background music — enable toggle, local audio file picker, volume (looped and mixed into final output; volume/toggle apply live) |
 | **离线** (Offline) | `gui/infer/tabs/offline_tab.py` | Offline batch conversion — select input/output WAV files, start conversion |
 
@@ -76,7 +76,7 @@ The inference GUI uses a compact 6-tab interface:
 Realtime path:
 
 ```text
-Mic → RealtimeEngine → VCPipeline → Synthesizer → SOLA/effects/output routing → Speaker
+Mic → [input-side denoise] → RealtimeEngine → VCPipeline → SOLA → effects chain (3-band EQ / reverb) → BGM / output routing → Speaker
 ```
 
 Main pieces:
@@ -110,7 +110,7 @@ Training config path is resolved through `rvc.runtime.train_config_path()` and c
 
 - GUI state file: `assets/configs/save_state.json`
 - GUI state APIs: `gui.configs.load_config()`, `save_config()`, `InferGuiState`, `TrainGuiState`
-- `InferGuiState` includes fields for all tab parameters: block_time, crossfade_time, extra_time, protect, f0method, sr_mode, eq_enabled, EQ bands, reverb, rms_mix, preset, hostapi, input/output devices, active_model
+- `InferGuiState` includes fields for all tab parameters: block_time, crossfade_time, extra_time, protect, f0method, sr_mode, eq_enabled, EQ bands (low/mid/high), reverb, reverb_enable, rms_mix, nr_enable, nr_strength, preset, hostapi, input/output devices, active_model. GUI↔state sync and save/load are driven by the `BINDINGS` table in `gui/infer/param_binding.py` (adding a param = dataclass field + one BINDINGS row + tab widget).
 - Runtime device config: `from rvc.runtime import Config`
 - Do not put runtime CUDA/device logic in `gui.configs`.
 
@@ -165,7 +165,7 @@ For broader refactors:
 
 Manual checks depend on the touched area:
 
-- Inference GUI: launch, load a `.pth`, start/stop realtime, check FCPE/RMVPE if F0 code changed, verify all 6 tabs (驱动/参数/模型/处理/背景/离线) display correctly and parameters are saved/restored
+- Inference GUI: launch, load a `.pth`, start/stop realtime, check FCPE/RMVPE if F0 code changed, verify all 6 tabs (设备/参数/模型/效果/背景/离线) display correctly and parameters are saved/restored
 - Audio engine: test both model/device sample-rate modes, SOLA stability, EQ/reverb, main and secondary output
 - Offline inference: convert one file with the active model
 - Training GUI: launch and verify the changed stage can start
