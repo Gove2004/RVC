@@ -5,6 +5,10 @@ from functools import lru_cache
 import torch
 from torch import nn
 from transformers import AutoFeatureExtractor, HubertModel
+from transformers.utils.logging import disable_progress_bar
+
+# 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
+disable_progress_bar()
 
 from rvc.models.inference_cache import default_inference_cache
 
@@ -38,7 +42,7 @@ def load_hubert(config, inference_cache=None):
         return cached
 
     dtype = torch.float16 if config.is_half else torch.float32
-    logger.info("加载 HuBERT (transformers, %s)", dtype)
+    logger.info("加载 HuBERT（transformers, %s）", dtype)
 
     hubert_model = HubertModelWithFinalProj.from_pretrained(
         HUBERT_MODEL_PATH,

@@ -80,10 +80,10 @@ class MainWindow(QMainWindow):
 
         # Create audio_driver_tab and get the refresh button
         driver_w, self.refresh_btn = build_audio_driver_tab(self)
-        tabs.addTab(driver_w, "驱动")
+        tabs.addTab(driver_w, "设备")
         tabs.addTab(build_global_params_tab(self), "参数")
         tabs.addTab(build_models_tab(self), "模型")
-        tabs.addTab(build_audio_tab(self), "处理")
+        tabs.addTab(build_audio_tab(self), "效果")
         tabs.addTab(build_bgm_tab(self), "背景")
         tabs.addTab(build_offline_tab(self), "离线")
         root.addWidget(tabs)
@@ -374,19 +374,18 @@ class MainWindow(QMainWindow):
             self._on_err(str(e))
 
     def _on_err(self, e):
-        if self.model_manager.active_card:
-            self.model_manager.active_card.set_active(False)
-        self.model_manager.active_card = None
+        # 保留 active_card：模型已加载（或正在加载），报错后用户直接点「开始」即可重试，
+        # 无需重新选择模型。仅复位运行态 UI 并显示错误。
         self._reset_runtime_ui()
         self._show_error(format_error_message(e))
 
     def _on_runtime_error(self, message):
-        if self.engine.running:
-            self.engine.stop()
-        else:
-            self.engine.runtime_error_pending = False
+        # 流已在音频回调内通过 CallbackStop 安全停止；这里只复位 UI（保留已加载模型），
+        # 并延迟到主线程释放设备，避免回调线程内直接 stop 造成死锁。下次「开始」前 setup 也会兜底关闭。
+        self.engine.runtime_error_pending = False
         self._reset_runtime_ui()
         self._show_error(f"实时推理错误: {message}")
+        QTimer.singleShot(0, self.engine.stop)
 
     def _stop(self):
         if self._loading:

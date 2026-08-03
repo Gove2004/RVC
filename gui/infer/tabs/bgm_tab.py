@@ -45,8 +45,4 @@ def build_bgm_tab(win):
     g.addWidget(win.bgm_vol_label, r, 3)
     r += 1
 
-    hint = QLabel("背景音在启动时载入并循环播放，音量可实时调节。")
-    hint.setWordWrap(True)
-    g.addWidget(hint, r, 0, 1, 4)
-
     return w

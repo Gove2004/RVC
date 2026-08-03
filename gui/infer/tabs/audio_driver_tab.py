@@ -38,9 +38,9 @@ def build_audio_driver_tab(win):
 
     # ── 采样率 ──（单行排列，和上面一致）
     win.sr_model_radio = QRadioButton("模型 -")
-    win.sr_model_radio.setMaximumWidth(50)
+    win.sr_model_radio.setMaximumWidth(100)   # 从 50 → 100
     win.sr_device_radio = QRadioButton("设备 -")
-    win.sr_device_radio.setMaximumWidth(50)
+    win.sr_device_radio.setMaximumWidth(100)  # 从 50 → 100
     win.sr_model_radio.setChecked(True)
 
     refresh_btn = QPushButton("刷新")
@@ -50,5 +50,6 @@ def build_audio_driver_tab(win):
     g.addWidget(refresh_btn, r, 0)
     g.addWidget(win.sr_model_radio, r, 1)
     g.addWidget(win.sr_device_radio, r, 2)
+    r += 1
 
     return w, refresh_btn

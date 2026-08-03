@@ -14,12 +14,12 @@ if sys.stdout is not None:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
+LOG_FORMAT = "%(message)s"
 
 
 def _configure_logging():
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format=LOG_FORMAT,
         handlers=[logging.StreamHandler(stream=sys.stdout)] if sys.stdout else [],
         force=True,

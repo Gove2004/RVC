@@ -18,3 +18,4 @@ class OfflineConfig:
     eq_enabled: bool
     eq_bands: Dict[str, float]
     reverb_mix: float
+    gender: float = 0.0

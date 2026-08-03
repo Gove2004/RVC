@@ -103,7 +103,7 @@ class RealtimeEngine:
             raise
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
-        if self.running:
+        if self.stream is not None:
             self.stop()
         self.error_count = 0
         self.last_error = ""
@@ -175,10 +175,15 @@ class RealtimeEngine:
             return
         wav, _ = load_audio(path, self.sr)
         self.bgm_audio = torch.from_numpy(wav).to(config.device)
-        logger.info("背景音已载入: %s (%.1fs @ %dHz)", path, len(wav) / self.sr, self.sr)
+        logger.info("背景音已载入: %s（%.1fs @ %dHz）", path, len(wav) / self.sr, self.sr)
 
     def setup_out2(self, dev_idx):
-        logger.info(f"设置副输出设备: {dev_idx}")
+        dev_name = ""
+        try:
+            dev_name = sd.query_devices(dev_idx)["name"]
+        except Exception:
+            pass
+        logger.info(f"设置副输出设备: {dev_idx}（{dev_name}）" if dev_name else f"设置副输出设备: {dev_idx}")
         def out2_callback(outdata, frames, time_info, status):
             try:
                 if not self.out2_q.empty():
@@ -236,6 +241,7 @@ class RealtimeEngine:
                 self.runtime_error_pending = True
                 if self.on_runtime_error:
                     self.on_runtime_error(self.last_error or "实时推理失败")
+                raise sd.CallbackStop  # 安全终止流，避免僵尸流继续占用设备导致下次无法重载
 
     def _cb_impl(self, indata, outdata, frames, times, status):
         """实时音频回调主函数 — 按处理阶段拆分：

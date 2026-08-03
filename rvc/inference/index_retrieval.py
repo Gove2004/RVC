@@ -15,7 +15,7 @@ def load_index(index_path: str, inference_cache):
 
     cached = inference_cache.get_index(index_path)
     if cached:
-        logger.info("使用缓存 Index: %s", os.path.basename(index_path))
+        logger.info("加载特征索引 %s（缓存）", os.path.basename(index_path))
         return cached["index"], cached["index_vectors"]
 
     index = faiss.read_index(index_path)
@@ -24,7 +24,7 @@ def load_index(index_path: str, inference_cache):
         "index": index,
         "index_vectors": index_vectors,
     })
-    logger.info("加载 Index: %s", os.path.basename(index_path))
+    logger.info("加载特征索引 %s", os.path.basename(index_path))
     return index, index_vectors
 
 

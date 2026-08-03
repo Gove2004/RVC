@@ -127,7 +127,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         # Speaker Embedding
         self.emb_g = nn.Embedding(self.spk_embed_dim, gin_channels)
         logger.debug(
-            "gin_channels: %d, spk_embed_dim: %d, use_f0: %s",
+            "模型配置 gin_channels=%d, spk_embed_dim=%d, use_f0=%s",
             gin_channels, self.spk_embed_dim, use_f0
         )
 

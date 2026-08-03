@@ -43,9 +43,9 @@ def build_global_params_tab(win):
 
     # ── 音高算法 ──（单行排列，和上面一致）
     win.f0_rmvp_btn = QRadioButton("RMVPE")
-    win.f0_rmvp_btn.setMaximumWidth(50)           # 最大宽度
+    win.f0_rmvp_btn.setMaximumWidth(80)   # 从 50 → 80
     win.f0_fcpe_btn = QRadioButton("FCPE")
-    win.f0_fcpe_btn.setMaximumWidth(50)           # 最大宽度
+    win.f0_fcpe_btn.setMaximumWidth(80)   # 从 50 → 80
     win.f0_fcpe_btn.setChecked(True)  # 默认 FCPE
 
     g.addWidget(QLabel("音高算法"), r, 0)

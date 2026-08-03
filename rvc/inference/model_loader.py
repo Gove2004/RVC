@@ -29,7 +29,7 @@ class SynthesizerLoader:
         """
         cached = self.inference_cache.get_synthesizer(pth_path)
         if cached:
-            logger.info("使用缓存 Synthesizer: %s", os.path.basename(pth_path))
+            logger.info("加载 Synthesizer（缓存）")
             return cached
 
         logger.info("加载 Synthesizer")

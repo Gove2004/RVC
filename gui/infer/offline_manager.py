@@ -90,6 +90,7 @@ class OfflineManager:
                 'high': _sl_value_as_float(self.window.eq_high_slider),
             },
             reverb_mix=_sl_value_as_float(self.window.reverb_slider),
+            gender=_sl_value_as_float(card.gender_slider) * 5 - 2.5,  # [0,1] → [-2.5, 2.5]，与实时一致
         )
         self.worker = OfflineWorker(config)
         self._converting = True
