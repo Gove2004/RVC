@@ -14,6 +14,7 @@ class TrainGuiState:
     learning_rate: str
     pretrain_g: str
     pretrain_d: str
+    early_stop: int = 30  # 早停耐心（轮），0 = 关闭
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrainGuiState":
@@ -27,6 +28,7 @@ class TrainGuiState:
             learning_rate=str(data.get("learning_rate", "0.0001")),
             pretrain_g=str(data.get("pretrain_g", "")),
             pretrain_d=str(data.get("pretrain_d", "")),
+            early_stop=int(data.get("early_stop", 30)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -40,4 +42,5 @@ class TrainGuiState:
             "learning_rate": self.learning_rate,
             "pretrain_g": self.pretrain_g,
             "pretrain_d": self.pretrain_d,
+            "early_stop": self.early_stop,
         }

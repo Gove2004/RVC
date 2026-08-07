@@ -172,14 +172,25 @@ def clear_exp_runtime(exp_dir: str | Path):
 
 
 def manifest_matches(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float):
+    return not manifest_diff_reason(exp_dir, input_dir, sr, per)
+
+
+def manifest_diff_reason(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float) -> str:
+    """返回预处理指纹与当前素材不一致的原因；一致时返回空串。"""
     manifest_path = Path(exp_dir) / _MANIFEST_NAME
     if not manifest_path.exists():
-        return False
+        return "该实验目录还没有预处理产物（manifest.json 缺失），需要先执行预处理"
     saved = json.loads(manifest_path.read_text(encoding="utf-8"))
     current = build_exp_manifest(input_dir, sr, per)
-    saved_key = {k: saved.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
-    current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
-    return saved_key == current_key
+    if str(saved.get("input_dir")) != str(current.get("input_dir")):
+        return f"输入目录不一致（预处理: {saved.get('input_dir')}，当前: {current.get('input_dir')}）"
+    if saved.get("sr") != current.get("sr"):
+        return f"采样率不一致（{saved.get('sr')} vs {current.get('sr')}）"
+    if saved.get("per") != current.get("per"):
+        return f"切片时长不一致（{saved.get('per')} vs {current.get('per')}）"
+    if saved.get("input_hash") != current.get("input_hash"):
+        return "素材文件有变化（新增/删除/大小或修改时间变动），旧特征已过期"
+    return ""
 
 
 def generate_filelist(exp_dir: str):

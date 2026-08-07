@@ -28,14 +28,21 @@ class TrainConfig:
     fp16_run: bool = True
     device: str = "cuda:0"
     log_interval: int = 20
+    early_stop_patience: int = 0  # 连续多少轮 Mel loss 无改善则自动停止；0 = 关闭
+    early_stop_min_delta: float = 0.0015  # 视为「有改善」的最小相对提升（相对 best）
+
+
+# 早停保护：训练满该轮数后才开始判定（避免初始抖动误停）
+_EARLY_STOP_MIN_EPOCHS = 50
 
 
 class Trainer:
-    def __init__(self, train_config: TrainConfig, progress_callback=None, log_callback=None, loss_callback=None):
+    def __init__(self, train_config: TrainConfig, progress_callback=None, log_callback=None, loss_callback=None, batch_callback=None):
         self.cfg = train_config
         self.progress_callback = progress_callback
         self.log_callback = log_callback
         self.loss_callback = loss_callback
+        self.batch_callback = batch_callback
         self.stop_requested = False
         self.json_config = load_train_json(self.cfg.sr)
         self.train_cfg = self.json_config["train"]
@@ -112,28 +119,54 @@ class Trainer:
     def train(self):
         self.setup()
         last_epoch = None
+        best_mel = float("inf")
+        no_improve = 0
+        early_stopped = False
         for epoch in range(self.start_epoch, self.cfg.epochs + 1):
             if self.stop_requested:
                 break
-            self._train_epoch(epoch)
+            loss_g, loss_mel, loss_kl, loss_fm, loss_d = self._train_epoch(epoch)
             last_epoch = epoch
             self.scheduler_g.step()
             self.scheduler_d.step()
-            if epoch % self.cfg.save_every_epoch == 0 or epoch == self.cfg.epochs or self.stop_requested:
+
+            # 每轮 loss 落盘（挂机复盘用，train.log 末尾追加）
+            self.log(f"epoch {epoch:4d} | D {loss_d:.4f} | G {loss_g:.4f} | Mel {loss_mel:.4f} | KL {loss_kl:.4f} | FM {loss_fm:.4f}")
+
+            # 早停：训练满保护轮数后，跟踪 Mel loss 平台期。
+            # 用 Mel（平滑、直接反映音质）而非 G（含对抗项、波动大易误判）
+            if self.cfg.early_stop_patience > 0 and epoch >= _EARLY_STOP_MIN_EPOCHS:
+                if loss_mel < best_mel * (1 - self.cfg.early_stop_min_delta):
+                    best_mel = loss_mel
+                    no_improve = 0
+                else:
+                    no_improve += 1
+                    if no_improve >= self.cfg.early_stop_patience:
+                        self.log(f"早停: 连续 {no_improve} 轮 Mel loss 无改善（当前 {loss_mel:.3f}），自动停止")
+                        early_stopped = True
+
+            if epoch % self.cfg.save_every_epoch == 0 or epoch == self.cfg.epochs or self.stop_requested or early_stopped:
                 self._save(epoch)
             if self.progress_callback:
                 self.progress_callback(epoch, self.cfg.epochs)
+            if early_stopped:
+                # 先保存再退出（上面的 _save 已执行）
+                break
         if last_epoch is None:
             raise RuntimeError("训练在首个 epoch 前已停止")
         # 最终模型路径（已在 _save 中导出）
         return str(Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
 
-    def _train_epoch(self, epoch: int):
+    def _train_epoch(self, epoch: int) -> tuple[float, float, float, float, float]:
+        """训练一个 epoch，返回 (平均 G, Mel, KL, FM, D loss)"""
         self.synthesizer.train()
         self.net_d.train()
+        total_batches = len(self.loader)
+        g_sum = mel_sum = kl_sum = fm_sum = d_sum = 0.0
+        loss_count = 0
         for batch_idx, batch in enumerate(self.loader, 1):
             if self.stop_requested:
-                return
+                break
             phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = [x.to(self.cfg.device, non_blocking=True) for x in batch]
             wave = wave.unsqueeze(1)
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
@@ -176,6 +209,19 @@ class Trainer:
                     "loss_kl": float(loss_kl.detach().cpu()),
                     "loss_fm": float(loss_fm.detach().cpu()),
                 })
+
+            if self.batch_callback:
+                self.batch_callback(epoch, batch_idx, total_batches)
+
+            g_sum += float(loss_gen_all.detach().cpu())
+            mel_sum += float(loss_mel.detach().cpu())
+            kl_sum += float(loss_kl.detach().cpu())
+            fm_sum += float(loss_fm.detach().cpu())
+            d_sum += float(loss_disc.detach().cpu())
+            loss_count += 1
+
+        n = max(loss_count, 1)
+        return g_sum / n, mel_sum / n, kl_sum / n, fm_sum / n, d_sum / n
 
     def _save(self, epoch: int):
         """保存 checkpoint 并导出可用模型"""

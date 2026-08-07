@@ -35,7 +35,7 @@ def _build_data_group(win) -> QGroupBox:
     browse.setStyleSheet(ButtonStyles.small())
     browse.clicked.connect(lambda: browse_directory(win, win.input_dir))
     win.sample_rate = QComboBox()
-    win.sample_rate.addItems(["48k"])
+    win.sample_rate.addItems(["40k", "48k"])
     win.sample_rate.currentTextChanged.connect(win._on_sr_changed)
 
     grid.addWidget(QLabel("实验名"), 0, 0)
@@ -63,6 +63,10 @@ def _build_train_group(win) -> QGroupBox:
     win.save_every = QSpinBox()
     win.save_every.setRange(1, 100000)
     win.save_every.setValue(20)
+    win.early_stop = QSpinBox()
+    win.early_stop.setRange(0, 500)
+    win.early_stop.setValue(30)
+    win.early_stop.setToolTip("连续 N 轮 G loss 无改善则自动保存退出；0 = 关闭（挂机推荐 20~30）")
     win.learning_rate = QLineEdit("1e-4")
 
     win.pretrain_g = QLineEdit()
@@ -85,6 +89,7 @@ def _build_train_group(win) -> QGroupBox:
     form.addRow("Epoch", win.epochs)
     form.addRow("Batch size", win.batch_size)
     form.addRow("保存频率", win.save_every)
+    form.addRow("早停耐心", win.early_stop)
     form.addRow("学习率", win.learning_rate)
     form.addRow("预训练 G", g_row)
     form.addRow("预训练 D", d_row)

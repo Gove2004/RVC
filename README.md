@@ -53,6 +53,8 @@ python -m venv .venv
 
 - `assets/pretrained_v2/f0G48k.pth` — 48k Generator
 - `assets/pretrained_v2/f0D48k.pth` — 48k Discriminator
+- `assets/pretrained_v2/f0G40k.pth` — 40k Generator（40k 训练时使用）
+- `assets/pretrained_v2/f0D40k.pth` — 40k Discriminator（40k 训练时使用）
 
 ## 使用
 
@@ -132,7 +134,7 @@ python -m venv .venv
    - 在"设置" Tab 填写：
      - **实验名**：训练标识符（如 `exp01`）
      - **音频目录**：包含人声文件的文件夹
-     - **采样率**：48k
+     - **采样率**：40k / 48k（对应 `assets/configs/40ktrain_config.json` / `48ktrain_config.json`）
      - **训练参数**：Epoch, Batch size, 学习率等
 
 4. **执行训练**
@@ -216,7 +218,8 @@ rvc/
 assets/
   configs/                  # 配置数据
     save_state.json         # GUI 持久化状态
-    48ktrain_config.json    # 训练超参数
+    48ktrain_config.json    # 48k 训练超参数
+    40ktrain_config.json    # 40k 训练超参数
   weights/                  # 推理模型
   indices/                  # FAISS 索引
   hubert_base/              # HuBERT 权重（transformers 模型目录）

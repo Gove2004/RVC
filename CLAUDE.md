@@ -104,7 +104,7 @@ Training GUI uses `gui/train/window.py` and `gui/train/workers.py::TrainWorker`.
 preprocess → extract_f0 → extract_feature → trainer → export .pth
 ```
 
-Training config path is resolved through `rvc.runtime.train_config_path()` and currently points to `assets/configs/48ktrain_config.json`.
+Training config path is resolved through `rvc.runtime.train_config_path(sr)` — supported sample rates are 40k/48k, mapped to `assets/configs/40ktrain_config.json` / `48ktrain_config.json`.
 
 ### State and config
 

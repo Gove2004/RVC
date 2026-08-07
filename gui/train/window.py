@@ -1,4 +1,5 @@
 """训练 GUI 主窗口"""
+import time
 from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget
@@ -65,8 +66,10 @@ class TrainWindow(QMainWindow):
         self.worker.log_message.connect(self.on_log)
         self.worker.loss_update.connect(self.on_loss)
         self.worker.epoch_done.connect(self.on_epoch)
+        self.worker.batch_done.connect(self.on_batch)
         self.worker.error.connect(lambda msg: QMessageBox.critical(self, "训练错误", msg))
         self.worker.finished.connect(self.on_finished)
+        self._batch_t0 = None  # 当前 epoch 首 batch 时间戳（计算 it/s）
         self.worker.start()
 
     def stop_training(self):
@@ -94,6 +97,7 @@ class TrainWindow(QMainWindow):
             "epochs": self.epochs.value(),
             "batch_size": self.batch_size.value(),
             "save_every_epoch": self.save_every.value(),
+            "early_stop_patience": self.early_stop.value(),
             "learning_rate": lr,
             "pretrain_g": self.pretrain_g.text().strip(),
             "pretrain_d": self.pretrain_d.text().strip(),
@@ -109,7 +113,7 @@ class TrainWindow(QMainWindow):
         else:
             self.stop_btn.setStyleSheet(ButtonStyles.muted())
             self.stage_label.setStyleSheet("")
-        for widget in [self.exp_name, self.input_dir, self.sample_rate, self.epochs, self.batch_size, self.save_every, self.learning_rate, self.pretrain_g, self.pretrain_d]:
+        for widget in [self.exp_name, self.input_dir, self.sample_rate, self.epochs, self.batch_size, self.save_every, self.early_stop, self.learning_rate, self.pretrain_g, self.pretrain_d]:
             widget.setEnabled(not running)
 
     # ── 配置持久化 ──────────────────────────────────────────
@@ -125,6 +129,7 @@ class TrainWindow(QMainWindow):
             learning_rate=self.learning_rate.text().strip(),
             pretrain_g=self.pretrain_g.text().strip(),
             pretrain_d=self.pretrain_d.text().strip(),
+            early_stop=self.early_stop.value(),
         )
 
     def apply_gui_state(self, state: TrainGuiState) -> None:
@@ -139,6 +144,7 @@ class TrainWindow(QMainWindow):
         self.epochs.setValue(state.epochs)
         self.batch_size.setValue(state.batch_size)
         self.save_every.setValue(state.save_every)
+        self.early_stop.setValue(state.early_stop)
         if state.learning_rate:
             self.learning_rate.setText(state.learning_rate)
         if state.pretrain_g:
@@ -161,6 +167,7 @@ class TrainWindow(QMainWindow):
         self.stage_label.setText(f"当前阶段: {stage}")
         self.stage_label.setStyleSheet(LabelStyles.status("info"))
         self.progress_bar.setValue(0)
+        self._batch_t0 = None
 
     def on_progress(self, current: int, total: int):
         self.progress_bar.setValue(int(current * 100 / max(total, 1)))
@@ -168,6 +175,26 @@ class TrainWindow(QMainWindow):
     def on_epoch(self, epoch: int, total: int):
         self.epoch_label.setText(f"Epoch: {epoch} / {total}")
         self.on_progress(epoch, total)
+
+    def on_batch(self, epoch: int, batch: int, total: int):
+        """batch 级进度：更新进度条 + 计算 it/s 与剩余时间"""
+        now = time.monotonic()
+        if batch == 1 or self._batch_t0 is None:
+            self._batch_t0 = now
+            it_s = 0.0
+        else:
+            elapsed = now - self._batch_t0
+            it_s = (batch - 1) / max(elapsed, 1e-6)
+
+        self.on_progress(batch, total)
+
+        eta_text = ""
+        if it_s > 0:
+            remaining_batches = (total - batch) + max(self.worker.options["epochs"] - epoch, 0) * total
+            eta_sec = remaining_batches / it_s
+            eta_text = f" · ETA {int(eta_sec // 3600)}h{int(eta_sec % 3600 // 60)}m"
+        speed = f"{it_s:.1f} it/s" if it_s > 0 else "-"
+        self.epoch_label.setText(f"Epoch: {epoch} / {self.worker.options['epochs']} · Batch {batch}/{total} · {speed}{eta_text}")
 
     def on_loss(self, data: dict):
         text = (
@@ -186,6 +213,7 @@ class TrainWindow(QMainWindow):
     def on_finished(self, success: bool, message: str):
         self._set_running(False)
         self.stop_btn.setText("停止训练")
+        self._batch_t0 = None
         self.on_log(message)
         if success:
             self.stage_label.setStyleSheet(LabelStyles.status("success"))

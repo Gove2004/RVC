@@ -54,7 +54,10 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         spec, wav = self._get_audio(wav_path)
 
         min_len = min(phone.shape[0], pitch.shape[0], pitchf.shape[0], spec.shape[1])
-        if min_len < phone.shape[0] or min_len < pitch.shape[0] or min_len < pitchf.shape[0] or min_len < spec.shape[1]:
+        max_len = max(phone.shape[0], pitch.shape[0], pitchf.shape[0], spec.shape[1])
+        # 帧数取整差异（HuBERT/RMVPE/STFT 各 ±1~2 帧）在 RVC 训练中属正常，截断量 <1% 无影响；
+        # 仅明显不对齐（>4 帧）才告警，避免正常训练刷屏
+        if max_len - min_len > 4:
             logger.warning("特征长度不对齐 (phone=%d, pitch=%d, pitchf=%d, spec=%d)，截断至 %d", phone.shape[0], pitch.shape[0], pitchf.shape[0], spec.shape[1], min_len)
         phone = phone[:min_len]
         pitch = pitch[:min_len]
@@ -146,7 +149,8 @@ class BucketSampler(Sampler):
 
     def _bisect(self, length: int):
         i = bisect.bisect_right(self.boundaries, length) - 1
-        return i if 0 <= i < len(self.buckets) else -1
+        # 桶数量 = 边界区间数；不能用 self.buckets（初始化期间尚未赋值，且过滤空桶后长度会变）
+        return i if 0 <= i < len(self.boundaries) - 1 else -1
 
     def __iter__(self):
         batches = []
