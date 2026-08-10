@@ -7,7 +7,6 @@ import logging
 import queue
 import threading
 import time
-from dataclasses import dataclass
 
 import numpy as np
 import sounddevice as sd

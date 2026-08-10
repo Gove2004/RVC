@@ -4,14 +4,7 @@ from functools import lru_cache
 
 import torch
 from torch import nn
-
-# transformers v5 移除了 AutoFeatureExtractor 时回退到 HuBERT 专用的 Wav2Vec2 特征提取器
-try:
-    from transformers import AutoFeatureExtractor, HubertModel
-    _FeatureExtractor = AutoFeatureExtractor
-except ImportError:
-    from transformers import Wav2Vec2FeatureExtractor, HubertModel
-    _FeatureExtractor = Wav2Vec2FeatureExtractor
+from transformers import AutoFeatureExtractor, HubertModel
 from transformers.utils.logging import disable_progress_bar
 
 # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
@@ -34,7 +27,7 @@ HUBERT_MODEL_PATH = "assets/hubert_base"
 
 @lru_cache(maxsize=1)
 def _hubert_audio_needs_normalization():
-    extractor = _FeatureExtractor.from_pretrained(
+    extractor = AutoFeatureExtractor.from_pretrained(
         HUBERT_MODEL_PATH, local_files_only=True
     )
     return bool(extractor.do_normalize)

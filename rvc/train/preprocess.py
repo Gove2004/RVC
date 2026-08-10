@@ -137,11 +137,6 @@ def normalize_audio(wav: np.ndarray):
     return wav.astype(np.float32)
 
 
-def load_audio(path: str | Path, sr: int):
-    """兼容旧接口，委托给 rvc.audio_loader。"""
-    return _load_audio_lib(path, sr)
-
-
 def build_exp_manifest(input_dir: str | Path, sr: int, per: float):
     root = Path(input_dir).resolve()
     files = sorted(

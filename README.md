@@ -290,10 +290,42 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 
 本项目基于 RVC 开源项目，仅供学习研究使用。
 
-## 开发文档
+## 开发说明
 
-- **CLAUDE.md** — 完整的架构文档和开发指南
-- **AGENTS.md** — 给 AI 编码助手的上下文指南
+### 架构分层
+
+- `rvc/` = 核心运行时（推理/音频/模型/训练），**严禁 import `gui` 或 PySide6**
+- `gui/` = PySide6 窗口、控件、管理器、QThread worker
+- 运行时设备/路径配置来自 `rvc.runtime`；GUI 状态持久化来自 `gui.configs`
+- GUI 状态同步与持久化由 `gui/infer/param_binding.py` 的 BINDINGS 表驱动（加参数 = dataclass 字段 + BINDINGS 一行 + Tab 控件）
+
+### 核心实现规则
+
+- **采样率**：实时帧数学用 `zc = sr // 100` 对齐，禁止硬编码 `48000`；`sr_mode="model"` 与 `"device"` 都要工作
+- **模型精度**：模型可能 half/float，feature/index/protect 之后要恢复模型 dtype；pitch coarse 用 `long`
+- **实时回调安全**：sounddevice 回调内禁止阻塞 IO、模型加载、大分配、GPU 同步
+- **降噪**：输入侧谱减法（GPU 块级、零新增延迟），强度是每回调的标量快照
+- **配置**：`Config` 是单例，CUDA 不可用时直接退出；`use_cuda_graph` 默认关闭，运行时探测启用
+
+### 上游同步
+
+上游 RVC-WebUI（`Retrieval-based-Voice-Conversion-WebUI/`，独立 git 仓库）：
+
+```bash
+git -C "Retrieval-based-Voice-Conversion-WebUI" fetch origin
+git -C "Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main
+```
+
+本项目已重度重构，结构不同于上游；同步时只取 `rvc/audio|inference|models|nn|runtime` 相关改动。
+
+### 验证
+
+```bash
+python -m py_compile <file>             # 单文件语法检查
+python -m compileall -q app.py rvc gui # 全量语法检查
+```
+
+无自动化测试，运行时验证靠手动启动 GUI（`python app.py --infer` / `python app.py --train`）。
 
 ### 最近架构改进（2026-06-13）
 

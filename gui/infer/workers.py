@@ -65,9 +65,8 @@ class OfflineWorker(QThread):
         # 使用运行时配置（device, is_half 等）创建 pipeline
         vc = VCPipeline(Config(), self.cfg.model_path, self.cfg.index_path, self.cfg.index_rate)
         vc.load()
-        # 根据 gender 设置 formant shift（与实时推理保持一致）
-        gender = getattr(self.cfg, 'gender', 0.0)  # 兼容旧版 config 没有 gender 的情况（默认 0.0）
-        vc.change_formant(gender)  # 此时 gender 已是 [-2.5, 2.5] 的 formant_shift 值
+        # 根据 gender 设置 formant shift（与实时推理保持一致；已是 [-2.5, 2.5]）
+        vc.change_formant(self.cfg.gender)
         vc.change_key(self.cfg.pitch)
         self.progress.emit(20, 100)
 
