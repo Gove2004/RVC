@@ -58,34 +58,32 @@ Layering rule:
 - Core code must not import `gui` or `PySide6`.
 - Runtime device/path config comes from `rvc.runtime`; GUI state persistence comes from `gui.configs`.
 
-### Inference GUI — 6 Tab Layout
+### Inference GUI — 5 Tab Layout
 
-The inference GUI uses a compact 6-tab interface:
+The inference GUI uses a compact 5-tab interface:
 
 | Tab | Path | Description |
 |-----|------|-------------|
 | **设备** (Audio Driver) | `gui/infer/tabs/audio_driver_tab.py` | Audio device selection (input/output/output2), host API, sample rate mode (model/device), refresh button |
 | **参数** (Global Params) | `gui/infer/tabs/global_params_tab.py` | Block time, crossfade time, extra context time, RMS mix, consonant protect (0~1), F0 method (RMVPE/FCPE) |
 | **模型** (Models) | `gui/infer/tabs/models_tab.py` | Model management — add `.pth` models, activate/remove, index file association |
-| **效果** (Effects) | `gui/infer/tabs/audio_tab.py` | Per-item toggles: reverb (0~1), spectral-subtraction denoise (0~1), 3-band EQ (200Hz/1kHz/8kHz) with presets |
-| **背景** (BGM) | `gui/infer/tabs/bgm_tab.py` | Background music — enable toggle, local audio file picker, volume (looped and mixed into final output; volume/toggle apply live) |
-| **离线** (Offline) | `gui/infer/tabs/offline_tab.py` | Offline batch conversion — select input/output WAV files, start conversion |
+| **噪音** (Noise) | `gui/infer/tabs/noise_tab.py` | Spectral-subtraction denoise toggle (0~1), background audio file picker, background noise toggle + volume (live) |
+| **离线** (Offline) | `gui/infer/tabs/offline_tab.py` | Offline conversion — input file picker, output path (text), start, progress bar |
 
 ### Inference flow
 
 Realtime path:
 
 ```text
-Mic → [input-side denoise] → RealtimeEngine → VCPipeline → SOLA → effects chain (3-band EQ / reverb) → BGM / output routing → Speaker
+Mic → [input-side denoise] → RealtimeEngine → VCPipeline → SOLA → RMS mix → BGM / output routing → Speaker
 ```
 
 Main pieces:
 
-- `rvc/audio/realtime_engine.py` is the realtime facade for sounddevice streams, rolling buffers, resampling, model calls, SOLA, BGM, effects, and secondary output.
+- `rvc/audio/realtime_engine.py` is the realtime facade for sounddevice streams, rolling buffers, resampling, model calls, SOLA, BGM, denoise, and secondary output.
 - Pure realtime helpers live beside it:
   - `sola.py` for SOLA alignment/crossfade
   - `realtime_mix.py` for RMS envelope mix
-  - `realtime_effects.py` for EQ/reverb parameter sync
   - `output_router.py` for BGM and main/secondary output routing
 - `rvc/inference/pipeline.py` is a facade over:
   - `model_session.py` for HuBERT/Synthesizer/index loading
@@ -110,7 +108,7 @@ Training config path is resolved through `rvc.runtime.train_config_path(sr)` —
 
 - GUI state file: `assets/configs/save_state.json`
 - GUI state APIs: `gui.configs.load_config()`, `save_config()`, `InferGuiState`, `TrainGuiState`
-- `InferGuiState` includes fields for all tab parameters: block_time, crossfade_time, extra_time, protect, f0method, sr_mode, eq_enabled, EQ bands (low/mid/high), reverb, reverb_enable, rms_mix, nr_enable, nr_strength, preset, hostapi, input/output devices, active_model. GUI↔state sync and save/load are driven by the `BINDINGS` table in `gui/infer/param_binding.py` (adding a param = dataclass field + one BINDINGS row + tab widget).
+- `InferGuiState` includes fields for all tab parameters: block_time, crossfade_time, extra_time, protect, f0method, sr_mode, rms_mix, nr_enable, nr_strength, bgm_enable, bgm_path, bgm_vol, hostapi, input/output devices, active_model. GUI↔state sync and save/load are driven by the `BINDINGS` table in `gui/infer/param_binding.py` (adding a param = dataclass field + one BINDINGS row + tab widget).
 - Runtime device config: `from rvc.runtime import Config`
 - Do not put runtime CUDA/device logic in `gui.configs`.
 
@@ -136,9 +134,9 @@ Models may be half or float. After feature/index/protect operations, restore the
 
 Avoid blocking operations, file I/O, model loading, large allocations, and unnecessary CPU/GPU sync inside the sounddevice callback. Stop loading threads before starting a new load; the stop button must cancel loading as well as stop a running stream.
 
-### Audio effects
+### Input denoise
 
-Use the modular effect chain in `rvc/audio/effects.py`. Realtime EQ must stay FFT-based; do not use stateful IIR filters in the realtime callback because they can create block-boundary artifacts.
+Input-side denoise (`rvc/audio/denoise.py::SpectralSubtraction`) runs in the realtime callback on the GPU as FFT-domain spectral subtraction with an adaptive noise floor. Keep it block-level with zero added latency; strength is a 0~1 scalar snapshot per callback.
 
 ### GUI style
 
@@ -165,7 +163,7 @@ For broader refactors:
 
 Manual checks depend on the touched area:
 
-- Inference GUI: launch, load a `.pth`, start/stop realtime, check FCPE/RMVPE if F0 code changed, verify all 6 tabs (设备/参数/模型/效果/背景/离线) display correctly and parameters are saved/restored
-- Audio engine: test both model/device sample-rate modes, SOLA stability, EQ/reverb, main and secondary output
+- Inference GUI: launch, load a `.pth`, start/stop realtime, check FCPE/RMVPE if F0 code changed, verify all 5 tabs (设备/参数/模型/噪音/离线) display correctly and parameters are saved/restored
+- Audio engine: test both model/device sample-rate modes, SOLA stability, denoise, main and secondary output
 - Offline inference: convert one file with the active model
 - Training GUI: launch and verify the changed stage can start

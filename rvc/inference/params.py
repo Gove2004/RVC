@@ -11,12 +11,6 @@ class Params:
     protect: float = 0.5
     f0method: str = "fcpe"
     use_pv: bool = False
-    enable_eq: bool = False
-    eq_low: float = 0
-    eq_mid: float = 0
-    eq_high: float = 0
-    reverb: float = 0
-    reverb_enable: bool = True
     nr_enable: bool = False
     nr_strength: float = 0.5
     bgm_enable: bool = False

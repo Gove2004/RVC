@@ -1,18 +1,9 @@
-"""音频工具 — 设备枚举、相位声码器、声学预设、RMS 响度匹配"""
+"""音频工具 — 设备枚举、相位声码器、RMS 响度匹配"""
 import librosa
 import numpy as np
 import sounddevice as sd
 import torch
 import torch.nn.functional as F
-
-PRESETS = {
-    "原声": {"low": 0, "mid": 0, "high": 0},
-    "萝莉": {"low": -5, "mid": 0, "high": 9},
-    "少女": {"low": -2, "mid": 2, "high": 7},
-    "少御": {"low": 2, "mid": 3, "high": 0},
-    "御姐": {"low": 6, "mid": 3, "high": -4},
-    "辣条": {"low": -1, "mid": 5, "high": 6},
-}
 
 
 def phase_vocoder(a, b, fade_out, fade_in):

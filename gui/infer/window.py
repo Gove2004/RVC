@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer, Qt
 
-from rvc.audio import PRESETS
 from gui.configs.infer_state import InferGuiState
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
 from gui.infer.param_binding import (
@@ -20,8 +19,7 @@ from gui.infer.widgets import LoadThread, _sl_value_as_float
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab
-from gui.infer.tabs.audio_tab import build_audio_tab
-from gui.infer.tabs.bgm_tab import build_bgm_tab
+from gui.infer.tabs.noise_tab import build_noise_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
 from gui.infer.model_manager import ModelManager
 from gui.infer.config_manager import ConfigManager
@@ -88,8 +86,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(driver_w, "设备")
         tabs.addTab(build_global_params_tab(self), "参数")
         tabs.addTab(build_models_tab(self), "模型")
-        tabs.addTab(build_audio_tab(self), "效果")
-        tabs.addTab(build_bgm_tab(self), "背景")
+        tabs.addTab(build_noise_tab(self), "噪音")
         tabs.addTab(build_offline_tab(self), "离线")
         root.addWidget(tabs)
 
@@ -131,14 +128,6 @@ class MainWindow(QMainWindow):
     def _add_model(self):
         """委托给 ModelManager"""
         self.model_manager.add_model_from_file()
-
-    def _apply_preset(self, name):
-        if name not in PRESETS:
-            return
-        pr = PRESETS[name]
-        self.eq_low_slider.setValue(int(pr.get("low", 0) * 100))
-        self.eq_mid_slider.setValue(int(pr.get("mid", 0) * 100))
-        self.eq_high_slider.setValue(int(pr.get("high", 0) * 100))
 
     # ── 设备管理委托 ──
 

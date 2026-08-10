@@ -10,7 +10,6 @@ from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime import Config
 from rvc.audio.loader import load_audio_native
-from rvc.audio.effects import create_offline_chain
 from rvc.audio.utils import match_rms
 from rvc.inference.offline_config import OfflineConfig
 
@@ -85,23 +84,9 @@ class OfflineWorker(QThread):
         if self.cfg.rms_mix != 1:
             audio1 = match_rms(wav, 16000, audio1, tgt_sr, self.cfg.rms_mix)
 
-        if self.cfg.eq_enabled:
-            self.progress.emit(85, 100)
-            audio1 = self._apply_effects(audio1, tgt_sr)
-
         audio_max = np.abs(audio1).max() / 0.99
         if audio_max > 1:
             audio1 = audio1 / audio_max
         sf.write(self.cfg.output_path, audio1, tgt_sr, subtype="FLOAT")
         self.progress.emit(100, 100)
         self.finished.emit(self.cfg.output_path)
-
-    def _apply_effects(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        chain, eq, reverb = create_offline_chain(sr)
-        eq.set_band('low', self.cfg.eq_bands['low'])
-        eq.set_band('mid', self.cfg.eq_bands['mid'])
-        eq.set_band('high', self.cfg.eq_bands['high'])
-        reverb.set_mix(self.cfg.reverb_mix)
-        audio_t = torch.from_numpy(audio).to(config.device)
-        audio_t = chain(audio_t)
-        return audio_t.cpu().numpy()

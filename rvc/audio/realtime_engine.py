@@ -14,11 +14,9 @@ import sounddevice as sd
 import torch
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.audio.effects import create_realtime_chain
 from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.loader import load_audio
 from rvc.audio.output_router import mix_bgm, route_secondary_output, write_main_output
-from rvc.audio.realtime_effects import apply_post_sola_effects, apply_pre_sola_effects
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
 from rvc.runtime import Config
@@ -28,21 +26,6 @@ config = Config()
 
 # 实时推理错误容忍配置
 MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
-
-
-@dataclass
-class EQParams:
-    """实时 EQ 参数（传给 apply_pre_sola_effects）"""
-    enable_eq: bool
-    eq_low: float
-    eq_mid: float
-    eq_high: float
-
-
-@dataclass
-class ReverbParams:
-    """实时混响参数（传给 apply_post_sola_effects）"""
-    reverb: float
 
 
 class RealtimeEngine:
@@ -72,13 +55,9 @@ class RealtimeEngine:
         self.bgm_audio = None; self.bgm_ptr = 0
 
         # 效果器（setup 时创建）
-        self.eq = None
-        self.reverb = None
         self.nr_ss = None
 
-        # 效果参数缓存（用于检测变化）
-        self._last_eq_params = None
-        self._last_reverb_mix = None
+        # 降噪参数缓存（用于检测变化）
         self._last_nr_params = None
 
         self.pth_path = ""; self.idx_path = ""
@@ -149,12 +128,6 @@ class RealtimeEngine:
             self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(config.device)
         else:
             self.resampler_model2dev = None
-
-        # 创建效果器（实时模式）
-        _, self.eq, self.reverb = create_realtime_chain(self.sr)
-        # Reset effect buffers on new stream setup to avoid leaking old state
-        self.eq.reset()
-        self.reverb.reset()
 
         # 降噪器（输入侧）
         self.nr_ss = SpectralSubtraction(self.sr)
@@ -262,11 +235,6 @@ class RealtimeEngine:
         p_use_pv = params.use_pv
         p_bgm_enable = params.bgm_enable
         p_bgm_vol = params.bgm_vol
-        p_enable_eq = params.enable_eq
-        p_eq_low = params.eq_low
-        p_eq_mid = params.eq_mid
-        p_eq_high = params.eq_high
-        p_reverb = params.reverb if params.reverb_enable else 0.0
         p_enable_out2 = params.enable_out2
         p_nr_enable = params.nr_enable
         p_nr_strength = params.nr_strength
@@ -284,20 +252,13 @@ class RealtimeEngine:
             if p_rms_mix < 1 and self.function == "vc":
                 infer = self._apply_rms_mix(infer, p_rms_mix)
 
-            # ── 阶段5: SOLA前处理效果（EQ） ──────────────────────────
-            _eq_params = self._create_eq_params(p_enable_eq, p_eq_low, p_eq_mid, p_eq_high)
-            infer = self._apply_pre_sola_effects(infer, _eq_params)
-
-            # ── 阶段6: SOLA对齐 ───────────────────────────────────────
+            # ── 阶段5: SOLA对齐 ───────────────────────────────────────
             chunk = self._apply_sola(infer, p_use_pv)
 
-            # ── 阶段7: SOLA后处理效果（混响） ─────────────────────────
-            chunk = self._apply_reverb(chunk, p_reverb)
-
-            # ── 阶段8: BGM混合 ────────────────────────────────────────
+            # ── 阶段6: BGM混合 ────────────────────────────────────────
             chunk = self._apply_bgm(chunk, p_bgm_enable, p_bgm_vol)
 
-            # ── 阶段9-10: 输出写入与副输出路由 ────────────────────────
+            # ── 阶段7-8: 输出写入与副输出路由 ────────────────────────
             self._write_output(chunk, outdata, p_enable_out2)
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
@@ -310,14 +271,6 @@ class RealtimeEngine:
             self.block_samples, self.sola_buffer_samples,
             self.sola_search_samples, use_pv,
         )
-
-    def _apply_reverb(self, chunk, reverb):
-        """SOLA 后处理效果（混响），带参数变化缓存"""
-        params = ReverbParams(reverb=reverb)
-        chunk, self._last_reverb_mix = apply_post_sola_effects(
-            chunk, params, self.reverb, self._last_reverb_mix,
-        )
-        return chunk
 
     def _apply_bgm(self, chunk, enable, vol):
         """背景音混合（未启用时直通）"""
@@ -389,17 +342,3 @@ class RealtimeEngine:
         """应用RMS音量包络混合，使转换音量参考原始音量"""
         ref = self.input_wav[self.extra_samples:]
         return apply_rms_mix(ref, infer, rms_mix, self.hz_centis)
-
-    def _create_eq_params(self, enable_eq, eq_low, eq_mid, eq_high):
-        """创建EQ参数对象，用于实时效果链同步"""
-        return EQParams(enable_eq, eq_low, eq_mid, eq_high)
-
-    def _apply_pre_sola_effects(self, infer, _eq_params):
-        """应用SOLA前的效果（主要为EQ均衡器）。
-
-        直接在实例上更新 _last_eq_params 缓存，返回处理后的音频。
-        """
-        result, self._last_eq_params = apply_pre_sola_effects(
-            infer, _eq_params, self.eq, self._last_eq_params,
-        )
-        return result

@@ -83,13 +83,6 @@ class OfflineManager:
             index_rate=_sl_value_as_float(card.index_rate_slider),
             rms_mix=state.rms_mix,
             protect=state.protect,
-            eq_enabled=state.eq_enabled,
-            eq_bands={
-                'low': state.eq_low,
-                'mid': state.eq_mid,
-                'high': state.eq_high,
-            },
-            reverb_mix=state.reverb,
             gender=_sl_value_as_float(card.gender_slider) * 5 - 2.5,  # [0,1] → [-2.5, 2.5]，与实时一致
         )
         self.worker = OfflineWorker(config)

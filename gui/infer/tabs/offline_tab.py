@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QProgressBar,
 )
 
-from gui.styles import ButtonStyles, Layout, sep
+from gui.styles import ButtonStyles
 
 
 def build_offline_tab(win):
@@ -14,7 +14,7 @@ def build_offline_tab(win):
     g.setContentsMargins(8, 8, 8, 8)
     r = 0
 
-    # 输入文件行
+    # 输入文件行（文件选择器）
     g.addWidget(QLabel("输入文件"), r, 0)
     win.offline_input = QLineEdit()
     g.addWidget(win.offline_input, r, 1, 1, 2)
@@ -25,18 +25,14 @@ def build_offline_tab(win):
     g.addWidget(btn_in, r, 3)
     r += 1
 
-    # 输出文件行
+    # 输出文件行（文本输入）
     g.addWidget(QLabel("输出文件"), r, 0)
     win.offline_output = QLineEdit()
-    g.addWidget(win.offline_output, r, 1, 1, 2)
-    btn_out = QPushButton("…")
-    btn_out.setFixedWidth(36)
-    btn_out.setStyleSheet(ButtonStyles.small())
-    btn_out.clicked.connect(lambda: win._off_browse(win.offline_output, "out"))
-    g.addWidget(btn_out, r, 3)
+    win.offline_output.setPlaceholderText("输出文件路径（可直接输入）")
+    g.addWidget(win.offline_output, r, 1, 1, 3)
     r += 1
 
-    # 按钮行
+    # 开始转换
     win.offline_button = QPushButton("开始转换")
     win.offline_button.setFixedWidth(80)
     win.offline_button.setStyleSheet(ButtonStyles.secondary())
@@ -46,6 +42,7 @@ def build_offline_tab(win):
     g.addWidget(win.offline_status, r, 1)
     r += 1
 
+    # 进度条
     win.offline_progress = QProgressBar()
     g.addWidget(win.offline_progress, r, 0, 1, 4)
 

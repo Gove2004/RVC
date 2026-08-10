@@ -32,19 +32,12 @@ BINDINGS = [
     ("protect", "protect_slider", X100, "protect", 0.25),
     ("f0method", "f0_rmvp_btn", RADIO_F0, "f0", "fcpe"),
     ("sr_mode", "sr_model_radio", RADIO_SR, "sr_mode", "model"),
-    ("eq_enabled", "eq_enable_checkbox", CHECK, "eq_en", False),
-    ("eq_low", "eq_low_slider", X100, "eq_lo", 0.0),
-    ("eq_mid", "eq_mid_slider", X100, "eq_mi", 0.0),
-    ("eq_high", "eq_high_slider", X100, "eq_hi", 0.0),
-    ("reverb", "reverb_slider", X100, "rev", 0.0),
-    ("reverb_enable", "reverb_enable_checkbox", CHECK, "rev_en", True),
     ("rms_mix", "rms_mix_slider", X100, "rms", 0.0),
     ("nr_enable", "nr_enable_checkbox", CHECK, "nr_en", False),
     ("nr_strength", "nr_strength_slider", X100, "nr_str", 0.5),
     ("bgm_enable", "bgm_enable_checkbox", CHECK, "bgm_en", False),
     ("bgm_path", "bgm_path_edit", TEXT, "bgm_path", ""),
     ("bgm_vol", "bgm_vol_slider", X100, "bgm_vol", 0.5),
-    ("preset", "preset_combo", COMBO, "preset", "默认"),
     ("hostapi", "hostapi_combo", COMBO, "ha", ""),
     ("input_device", "input_combo", COMBO, "in_dev", ""),
     ("output_device", "output_combo", COMBO, "out_dev", ""),
@@ -140,12 +133,6 @@ def apply_gui_state(win, state: InferGuiState) -> None:
 def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
     """状态对象 → 运行时参数（engine 消费的子集）"""
     return RuntimeConfig(
-        enable_eq=state.eq_enabled,
-        eq_low=state.eq_low,
-        eq_mid=state.eq_mid,
-        eq_high=state.eq_high,
-        reverb=state.reverb,
-        reverb_enable=state.reverb_enable,
         # output2_combo 首项为「不使用」；combo 为空（无设备）时旧逻辑 index=-1 视为未启用
         enable_out2=state.output2_device not in ("", "不使用"),
         rms_mix=state.rms_mix,
