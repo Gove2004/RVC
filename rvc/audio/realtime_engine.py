@@ -57,6 +57,7 @@ class RealtimeEngine:
 
         self.pth_path = ""; self.idx_path = ""
         self.infer_ms = 0.0
+        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（EMA 平滑）
         self.error_count = 0
         self.max_error_count = MAX_CONSECUTIVE_ERRORS
         self.last_error = ""
@@ -188,6 +189,11 @@ class RealtimeEngine:
 
     def _cb(self, indata, outdata, frames, times, status):
         try:
+            # 硬件时间戳实测端到端延迟：本块输出被 DAC 播放的时刻 - 本块输入被 ADC 采集的时刻。
+            # 这是 PortAudio 声卡时钟域的精确值，包含设备缓冲/攒块/处理全链路。
+            d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
+            if 0 < d < 2:  # 过滤异常值（时钟跳变/首块）
+                self.measure_ms = self.measure_ms * 0.9 + d * 1000 * 0.1  # EMA 平滑
             self._cb_impl(indata, outdata, frames, times, status)
             self.error_count = 0
         except Exception as e:

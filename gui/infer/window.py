@@ -119,7 +119,9 @@ class MainWindow(QMainWindow):
         root.addLayout(ctrl)
 
     def _update_timer(self):
-        self.delay_lbl.setText(f"延迟: {self._delay_ms}+{int(self.engine.infer_ms)}")
+        if self.engine.running and self.engine.measure_ms > 0:
+            # 硬件时间戳实测（含设备缓冲），比估算更贴近真实听感
+            self.delay_lbl.setText(f"延迟: {self.engine.measure_ms:.0f}ms")
 
     # ── 模型管理委托 ──
 
