@@ -35,9 +35,6 @@ BINDINGS = [
     ("rms_mix", "rms_mix_slider", X100, "rms", 0.0),
     ("nr_enable", "nr_enable_checkbox", CHECK, "nr_en", False),
     ("nr_strength", "nr_strength_slider", X100, "nr_str", 0.5),
-    ("bgm_enable", "bgm_enable_checkbox", CHECK, "bgm_en", False),
-    ("bgm_path", "bgm_path_edit", TEXT, "bgm_path", ""),
-    ("bgm_vol", "bgm_vol_slider", X100, "bgm_vol", 0.5),
     ("hostapi", "hostapi_combo", COMBO, "ha", ""),
     ("input_device", "input_combo", COMBO, "in_dev", ""),
     ("output_device", "output_combo", COMBO, "out_dev", ""),
@@ -136,8 +133,6 @@ def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
         # output2_combo 首项为「不使用」；combo 为空（无设备）时旧逻辑 index=-1 视为未启用
         enable_out2=state.output2_device not in ("", "不使用"),
         rms_mix=state.rms_mix,
-        bgm_enable=state.bgm_enable,
-        bgm_vol=state.bgm_vol,
         nr_enable=state.nr_enable,
         nr_strength=state.nr_strength,
     )

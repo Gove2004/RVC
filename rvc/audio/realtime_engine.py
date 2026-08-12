@@ -14,8 +14,7 @@ import torch
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.denoise import SpectralSubtraction
-from rvc.audio.loader import load_audio
-from rvc.audio.output_router import mix_bgm, route_secondary_output, write_main_output
+from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
 from rvc.runtime import Config
@@ -49,9 +48,7 @@ class RealtimeEngine:
         self.input_wav_work = None; self.input_wav_res_work = None
         self.sola_buffer = None; self.output_buffer = None
         self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
-        self.bgm_mix_buffer = None
         self.resampler = None; self.resampler2 = None
-        self.bgm_audio = None; self.bgm_ptr = 0
 
         # 效果器（setup 时创建）
         self.nr_ss = None
@@ -111,7 +108,6 @@ class RealtimeEngine:
         self.input_wav_res = torch.zeros(160 * n // zc, device=config.device)
         self.input_wav_work = torch.empty_like(self.input_wav)
         self.input_wav_res_work = torch.empty_like(self.input_wav_res)
-        self.bgm_mix_buffer = torch.empty(self.block_samples, device=config.device)
         self.hz_centis = zc
 
         self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
@@ -141,19 +137,6 @@ class RealtimeEngine:
             if "Invalid sample rate" in str(e) or "-9997" in str(e):
                 raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
             raise
-
-    def load_bgm(self, path):
-        """载入背景音频（重采样到当前运行采样率）。path 为空则清除。
-
-        需在 setup() 之后调用——此时 self.sr 才是确定的。
-        """
-        self.bgm_ptr = 0
-        if not path:
-            self.bgm_audio = None
-            return
-        wav, _ = load_audio(path, self.sr)
-        self.bgm_audio = torch.from_numpy(wav).to(config.device)
-        logger.info("背景音已载入: %s（%.1fs @ %dHz）", path, len(wav) / self.sr, self.sr)
 
     def setup_out2(self, dev_idx):
         dev_name = ""
@@ -224,7 +207,7 @@ class RealtimeEngine:
     def _cb_impl(self, indata, outdata, frames, times, status):
         """实时音频回调主函数 — 编排各处理阶段：
 
-        输入准备+降噪 → 缓存轮换/降采样 → 推理 → RMS → EQ → SOLA → 混响 → BGM → 输出
+        输入准备+降噪 → 缓存轮换/降采样 → 推理 → RMS → SOLA → 输出
         """
         t0 = time.perf_counter()
         params = self.runtime_params
@@ -232,8 +215,6 @@ class RealtimeEngine:
         # 快照本回调内多次使用的参数（推理相关参数由 _run_inference 直接读 runtime_params）
         p_rms_mix = params.rms_mix
         p_use_pv = params.use_pv
-        p_bgm_enable = params.bgm_enable
-        p_bgm_vol = params.bgm_vol
         p_enable_out2 = params.enable_out2
         p_nr_enable = params.nr_enable
         p_nr_strength = params.nr_strength
@@ -254,10 +235,7 @@ class RealtimeEngine:
             # ── 阶段5: SOLA对齐 ───────────────────────────────────────
             chunk = self._apply_sola(infer, p_use_pv)
 
-            # ── 阶段6: BGM混合 ────────────────────────────────────────
-            chunk = self._apply_bgm(chunk, p_bgm_enable, p_bgm_vol)
-
-            # ── 阶段7-8: 输出写入与副输出路由 ────────────────────────
+            # ── 阶段6: 输出写入与副输出路由 ───────────────────────────
             self._write_output(chunk, outdata, p_enable_out2)
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
@@ -270,16 +248,6 @@ class RealtimeEngine:
             self.block_samples, self.sola_buffer_samples,
             self.sola_search_samples, use_pv,
         )
-
-    def _apply_bgm(self, chunk, enable, vol):
-        """背景音混合（未启用时直通）"""
-        if not enable:
-            return chunk
-        chunk, self.bgm_audio, self.bgm_ptr = mix_bgm(
-            chunk, self.bgm_audio, self.bgm_ptr,
-            self.bgm_mix_buffer, vol, self.block_samples,
-        )
-        return chunk
 
     def _write_output(self, chunk, outdata, enable_out2):
         """主输出写入 + 副输出路由"""

@@ -19,7 +19,6 @@ from gui.infer.widgets import LoadThread, _sl_value_as_float
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab
-from gui.infer.tabs.noise_tab import build_noise_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
 from gui.infer.model_manager import ModelManager
 from gui.infer.config_manager import ConfigManager
@@ -83,11 +82,10 @@ class MainWindow(QMainWindow):
 
         # Create audio_driver_tab and get the refresh button
         driver_w, self.refresh_btn = build_audio_driver_tab(self)
-        tabs.addTab(driver_w, "设备")
-        tabs.addTab(build_global_params_tab(self), "参数")
-        tabs.addTab(build_models_tab(self), "模型")
-        tabs.addTab(build_noise_tab(self), "噪音")
-        tabs.addTab(build_offline_tab(self), "离线")
+        tabs.addTab(driver_w, "设备驱动")
+        tabs.addTab(build_global_params_tab(self), "参数调节")
+        tabs.addTab(build_models_tab(self), "模型列表")
+        tabs.addTab(build_offline_tab(self), "离线推理")
         root.addWidget(tabs)
 
         # ── 底部控制栏 ──
@@ -167,7 +165,6 @@ class MainWindow(QMainWindow):
             block_time=_sl_value_as_float(self.block_time_slider),
             crossfade_time=_sl_value_as_float(self.crossfade_slider),
             extra_time=_sl_value_as_float(self.extra_time_slider),
-            bgm_path=self.bgm_path_edit.text().strip(),
         )
 
     def _apply_model_params(self):
@@ -305,16 +302,6 @@ class MainWindow(QMainWindow):
         self.engine.stop()
         self._reset_runtime_ui()
         logger.info("停止")
-
-    # ── 背景音 ──
-
-    def _bgm_browse(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择背景音频", "",
-            "音频文件 (*.wav *.mp3 *.flac *.m4a *.ogg *.aac);;所有文件 (*)",
-        )
-        if path:
-            self.bgm_path_edit.setText(path)
 
     # ── 离线推理委托 ──
 

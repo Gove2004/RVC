@@ -52,4 +52,16 @@ def build_audio_driver_tab(win):
     g.addWidget(win.sr_device_radio, r, 2)
     r += 1
 
+    # ── 音高算法 ──
+    win.f0_rmvp_btn = QRadioButton("RMVPE")
+    win.f0_rmvp_btn.setMaximumWidth(80)
+    win.f0_fcpe_btn = QRadioButton("FCPE")
+    win.f0_fcpe_btn.setMaximumWidth(80)
+    win.f0_fcpe_btn.setChecked(True)  # 默认 FCPE
+
+    g.addWidget(QLabel("音高算法"), r, 0)
+    g.addWidget(win.f0_rmvp_btn, r, 1)
+    g.addWidget(win.f0_fcpe_btn, r, 2)
+    r += 1
+
     return w, refresh_btn

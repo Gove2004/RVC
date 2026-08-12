@@ -1,4 +1,4 @@
-"""实时背景音混合与输出路由。"""
+"""实时输出路由 — 主输出写入与副输出分发。"""
 import logging
 import queue
 
@@ -6,50 +6,6 @@ import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
-
-
-def mix_bgm(
-    chunk: torch.Tensor,
-    bgm_audio: torch.Tensor | None,
-    bgm_ptr: int,
-    bgm_mix_buffer: torch.Tensor,
-    bgm_volume: float,
-    block_frame: int,
-) -> tuple[torch.Tensor, torch.Tensor | None, int]:
-    if bgm_audio is None or bgm_volume <= 0:
-        return chunk, bgm_audio, bgm_ptr
-
-    if bgm_audio.device != bgm_mix_buffer.device:
-        bgm_audio = bgm_audio.to(bgm_mix_buffer.device)
-
-    audio_length = bgm_audio.shape[0]
-    need = block_frame
-    cursor = 0
-    bgm_mix_buffer.zero_()
-    while need > 0:
-        take = min(need, audio_length - bgm_ptr)
-        bgm_mix_buffer[cursor:cursor + take] = bgm_audio[bgm_ptr:bgm_ptr + take]
-        cursor += take
-        need -= take
-        bgm_ptr += take
-        if bgm_ptr >= audio_length:
-            # Crossfade at loop boundary to avoid click
-            if need > 0:
-                fade_len = min(64, need, audio_length)
-                t = torch.linspace(1, 0, fade_len, device=bgm_mix_buffer.device)
-                tail = bgm_audio[-fade_len:]
-                head = bgm_audio[:fade_len]
-                blended = tail[-fade_len:] * t + head[:fade_len] * (1 - t)
-                bgm_mix_buffer[cursor:cursor + fade_len] = blended[:need]
-                cursor += fade_len
-                bgm_ptr = fade_len % audio_length
-                need -= fade_len
-            else:
-                bgm_ptr = 0
-            break
-
-    out = chunk + bgm_mix_buffer * bgm_volume
-    return out, bgm_audio, bgm_ptr
 
 
 def write_main_output(chunk: torch.Tensor, outdata: np.ndarray, channels: int) -> None:

@@ -22,8 +22,6 @@ class ModelConfig:
 class RuntimeConfig:
     enable_out2: bool
     rms_mix: float
-    bgm_enable: bool = False
-    bgm_vol: float = 0.5
     nr_enable: bool = False
     nr_strength: float = 0.5
 
@@ -38,7 +36,6 @@ class EngineConfig:
     block_time: float
     crossfade_time: float
     extra_time: float
-    bgm_path: str = ""
 
 
 @dataclass
@@ -66,8 +63,6 @@ class InferController:
     def apply_runtime_config(self, config: RuntimeConfig):
         self.runtime_params.update(
             use_pv=False,
-            bgm_enable=config.bgm_enable,
-            bgm_vol=config.bgm_vol,
             enable_out2=config.enable_out2,
             rms_mix=config.rms_mix,
             nr_enable=config.nr_enable,
@@ -85,13 +80,6 @@ class InferController:
             config.crossfade_time,
             config.extra_time,
         )
-        # 背景音：setup 之后 sr 才确定，此时载入并重采样。
-        # 载入失败不影响变声本身，仅清空背景音。
-        try:
-            self.engine.load_bgm(config.bgm_path)
-        except Exception as e:
-            self.engine.load_bgm(None)
-            logger.warning("背景音载入失败，已跳过: %s", e)
         if self.runtime_params.enable_out2 and config.output2_device_pos >= 0:
             try:
                 self.engine.setup_out2(out_idx[config.output2_device_pos])

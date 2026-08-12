@@ -17,9 +17,6 @@ class InferGuiState:
     rms_mix: float = 0.0
     nr_enable: bool = False
     nr_strength: float = 0.5
-    bgm_enable: bool = False
-    bgm_path: str = ""
-    bgm_vol: float = 0.5
     hostapi: str = ""
     input_device: str = ""
     output_device: str = ""

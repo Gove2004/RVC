@@ -13,8 +13,6 @@ class Params:
     use_pv: bool = False
     nr_enable: bool = False
     nr_strength: float = 0.5
-    bgm_enable: bool = False
-    bgm_vol: float = 0.5
     enable_out2: bool = False
 
     def update(self, **kwargs):

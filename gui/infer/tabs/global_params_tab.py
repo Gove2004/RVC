@@ -1,10 +1,7 @@
-"""全局参数 Tab — 采样/融合参数 + 音高算法 + 辅音保护"""
+"""全局参数 Tab — 采样/融合参数 + 辅音保护 + 频谱降噪"""
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QComboBox, QSlider,
-    QRadioButton, QButtonGroup,
-    QHBoxLayout,
+    QWidget, QGridLayout, QLabel, QCheckBox,
 )
-from PySide6.QtCore import Qt
 
 from gui.infer.widgets import _sl
 
@@ -41,15 +38,12 @@ def build_global_params_tab(win):
     win.protect_slider.valueChanged.connect(lambda v: win.protect_label.setText(f"{v / 100:.2f}"))
     g.addWidget(QLabel("辅音保护"), r, 0); g.addWidget(win.protect_slider, r, 1); g.addWidget(win.protect_label, r, 2); r += 1
 
-    # ── 音高算法 ──（单行排列，和上面一致）
-    win.f0_rmvp_btn = QRadioButton("RMVPE")
-    win.f0_rmvp_btn.setMaximumWidth(80)   # 从 50 → 80
-    win.f0_fcpe_btn = QRadioButton("FCPE")
-    win.f0_fcpe_btn.setMaximumWidth(80)   # 从 50 → 80
-    win.f0_fcpe_btn.setChecked(True)  # 默认 FCPE
-
-    g.addWidget(QLabel("音高算法"), r, 0)
-    g.addWidget(win.f0_rmvp_btn, r, 1)
-    g.addWidget(win.f0_fcpe_btn, r, 2)
+    # ── 频谱降噪（输入侧 GPU 谱减法） ──
+    win.nr_enable_checkbox = QCheckBox("频谱降噪")
+    g.addWidget(win.nr_enable_checkbox, r, 0)
+    win.nr_strength_slider = _sl(0, 100, 1, 50)
+    win.nr_strength_label = QLabel("0.50"); win.nr_strength_label.setMinimumWidth(35)
+    win.nr_strength_slider.valueChanged.connect(lambda v: win.nr_strength_label.setText(f"{v / 100:.2f}"))
+    g.addWidget(win.nr_strength_slider, r, 1); g.addWidget(win.nr_strength_label, r, 2); r += 1
 
     return w
