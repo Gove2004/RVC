@@ -36,12 +36,16 @@ def build_audio_driver_tab(win):
     g.addWidget(win.output2_combo, r, 1, 1, 2)
     r += 1
 
-    # ── 采样率 ──（单行排列，和上面一致）
+    # ── 采样率 ──（QButtonGroup 隔离，避免与下方音高算法互斥）
     win.sr_model_radio = QRadioButton("模型 -")
-    win.sr_model_radio.setMaximumWidth(100)   # 从 50 → 100
+    win.sr_model_radio.setMaximumWidth(100)
     win.sr_device_radio = QRadioButton("设备 -")
-    win.sr_device_radio.setMaximumWidth(100)  # 从 50 → 100
+    win.sr_device_radio.setMaximumWidth(100)
     win.sr_model_radio.setChecked(True)
+
+    sr_group = QButtonGroup(w)
+    sr_group.addButton(win.sr_model_radio)
+    sr_group.addButton(win.sr_device_radio)
 
     refresh_btn = QPushButton("刷新")
     refresh_btn.setStyleSheet(ButtonStyles.secondary())
@@ -52,12 +56,16 @@ def build_audio_driver_tab(win):
     g.addWidget(win.sr_device_radio, r, 2)
     r += 1
 
-    # ── 音高算法 ──
+    # ── 音高算法 ──（独立 QButtonGroup，与采样率组互不干扰）
     win.f0_rmvp_btn = QRadioButton("RMVPE")
     win.f0_rmvp_btn.setMaximumWidth(80)
     win.f0_fcpe_btn = QRadioButton("FCPE")
     win.f0_fcpe_btn.setMaximumWidth(80)
     win.f0_fcpe_btn.setChecked(True)  # 默认 FCPE
+
+    f0_group = QButtonGroup(w)
+    f0_group.addButton(win.f0_rmvp_btn)
+    f0_group.addButton(win.f0_fcpe_btn)
 
     g.addWidget(QLabel("音高算法"), r, 0)
     g.addWidget(win.f0_rmvp_btn, r, 1)

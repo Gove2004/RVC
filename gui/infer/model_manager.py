@@ -30,7 +30,7 @@ class ModelManager:
         name: str = "",
         pth: str = "",
         idx: str = "",
-        pitch: int = 0,
+        pitch: int = 12,
         index_rate: float = 0.0,
         gender: float = 0.0
     ) -> ModelCard:

@@ -58,7 +58,7 @@ def apply_sola(
     score = cn[0, 0] / cd[0, 0]
     best_score, offset = torch.max(score, dim=0)
     valid_match = (torch.max(energy) >= SOLA_MIN_ENERGY) & (best_score >= SOLA_MIN_CORR)
-    offset = torch.where(valid_match, offset, torch.zeros_like(offset))
+    offset = offset.masked_fill(~valid_match, 0)  # 原地清零，避免每回调分配
     infer = infer[offset:]
 
     if use_phase_vocoder:

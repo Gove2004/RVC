@@ -46,10 +46,9 @@ class RealtimeEngine:
 
         self.input_wav = None; self.input_wav_res = None
         self.input_wav_work = None; self.input_wav_res_work = None
-        self.sola_buffer = None; self.output_buffer = None
+        self.sola_buffer = None
         self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
         self.resampler = None; self.resampler2 = None
-
         # 效果器（setup 时创建）
         self.nr_ss = None
 
@@ -111,7 +110,6 @@ class RealtimeEngine:
         self.hz_centis = zc
 
         self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
-        self.output_buffer = self.input_wav.clone()
 
         ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
@@ -222,6 +220,8 @@ class RealtimeEngine:
         with torch.no_grad():
             # ── 阶段1-2: 输入准备 + 降噪 + 缓存轮换 ─────────────────
             mono = self._prepare_input(indata)
+            # 输入一次性上 GPU（降噪/推理/输出共用，避免 CPU↔GPU 往返）
+            mono = torch.from_numpy(mono).to(config.device)
             mono = self._apply_denoise(mono, p_nr_enable, p_nr_strength)
             self._update_input_buffers(mono)
 
@@ -259,28 +259,25 @@ class RealtimeEngine:
         mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
         return np.ascontiguousarray(mono)
 
-    def _apply_denoise(self, mono, enable, strength):
-        """输入侧降噪（谱减法）。
+    def _apply_denoise(self, mono: torch.Tensor, enable: bool, strength: float) -> torch.Tensor:
+        """输入侧降噪（谱减法），输入输出均为 GPU tensor，避免 CPU↔GPU 往返。
 
-        参数变化检测：强度变了才更新效果器。降噪在 GPU 上做 FFT，
-        与 EQ 同架构、零新增延迟（当前块处理完即输出）。
+        参数变化检测：强度变了才更新效果器。
         """
-        if not enable or self.nr_ss is None:
-            return mono
-        if self._last_nr_params != strength:
-            self.nr_ss.set_strength(strength)
-            self._last_nr_params = strength
-        t = torch.from_numpy(mono).to(config.device)
-        t = self.nr_ss(t)
-        return t.cpu().numpy()
+        if enable and self.nr_ss is not None:
+            if self._last_nr_params != strength:
+                self.nr_ss.set_strength(strength)
+                self._last_nr_params = strength
+            return self.nr_ss(mono)
+        return mono
 
-    def _update_input_buffers(self, mono):
-        """轮换输入缓存并执行降采样到16kHz"""
+    def _update_input_buffers(self, mono: torch.Tensor):
+        """轮换输入缓存并执行降采样到16kHz（mono 为 GPU tensor）"""
         # 输入wav缓冲区轮换：shift旧数据，写入新数据
         self.input_wav_work[:-self.block_samples].copy_(self.input_wav[self.block_samples:])
         self.input_wav_work[-self.block_samples:].zero_()
         self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
-        self.input_wav[-mono.shape[0]:] = torch.from_numpy(mono).to(config.device)
+        self.input_wav[-mono.shape[0]:] = mono
 
         # 降采样输入到16kHz供HuBERT特征提取使用
         self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])

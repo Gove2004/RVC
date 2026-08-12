@@ -41,7 +41,7 @@ class ModelCard(QFrame):
 
     load_requested = Signal(str, str, str, float, float, float, float)  # 7个参数，移除protect
 
-    def __init__(self, name="", pth="", idx="", pitch=0,
+    def __init__(self, name="", pth="", idx="", pitch=12,
                  index_rate=0.0, gender=0.0, parent=None):
         super().__init__(parent)
         self._build(name, pth, idx, pitch, index_rate, gender)
