@@ -48,7 +48,7 @@ def _load_or_make_icon() -> QIcon:
 
 
 class TrayManager:
-    """托盘图标 + 右键菜单（显示主窗口 / 退出）。"""
+    """托盘图标 + 右键菜单（状态区/显示/开始停止/直通/退出）。"""
 
     def __init__(self, window, on_quit=None):
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -67,8 +67,8 @@ class TrayManager:
         self.act_toggle.triggered.connect(self._toggle_running)
         act_quit = QAction("退出", menu)
         act_quit.triggered.connect(self.quit)
+
         menu.addAction(act_show)
-        menu.addSeparator()
         menu.addAction(self.act_toggle)
         menu.addSeparator()
         menu.addAction(act_quit)
@@ -76,14 +76,6 @@ class TrayManager:
         self.tray.activated.connect(self._on_activated)
         self.tray.show()
         logger.info("系统托盘已启用")
-
-    def _toggle_running(self):
-        """托盘开始/停止变声（不打开窗口）。"""
-        eng = self.window.controller._engine
-        if eng is not None and eng.running:
-            self.window._stop()
-        else:
-            self.window._start()
 
     def _on_activated(self, reason):
         if reason in (
@@ -97,9 +89,21 @@ class TrayManager:
         self.window.raise_()
         self.window.activateWindow()
 
-    def set_running(self, running: bool):
-        """运行状态同步到托盘 tooltip 与「开始/停止」菜单项。"""
-        self.tray.setToolTip("RVC 实时变声" + (" - 推理中" if running else " - 已停止"))
+    def _toggle_running(self):
+        """托盘开始/停止变声（不打开窗口）。"""
+        eng = self.window.controller._engine
+        if eng is not None and eng.running:
+            self.window._stop()
+        else:
+            self.window._start()
+
+    def update_status(self):
+        """从引擎读取状态，刷新 tooltip 与开始/停止文本。"""
+        eng = self.window.controller._engine
+        running = eng is not None and eng.running
+        latency = f"{eng.measure_ms:.0f}ms" if running and eng.measure_ms > 0 else "-"
+        state = "推理中" if running else "已停止"
+        self.tray.setToolTip(f"RVC 实时变声 状态: {state} 延迟: {latency}")
         self.act_toggle.setText("停止变声" if running else "开始变声")
 
     def notify_minimized(self):

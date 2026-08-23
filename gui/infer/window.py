@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
             # 硬件时间戳实测（含设备缓冲），比估算更贴近真实听感
             self.delay_lbl.setText(f"延迟: {self.engine.measure_ms:.0f}ms")
         if self.tray is not None:
-            self.tray.set_running(self.engine.running)
+            self.tray.update_status()
 
     # ── 模型管理委托 ──
 
@@ -341,7 +341,7 @@ class MainWindow(QMainWindow):
             self._mark_running()
             self._timer.start(200)
             if self.tray is not None:
-                self.tray.set_running(True)
+                self.tray.update_status()
             self.config_manager.save_config()
             self.model_manager.save_models()
         except Exception as e:
@@ -364,7 +364,7 @@ class MainWindow(QMainWindow):
         self.engine.runtime_error_pending = False
         self._reset_runtime_ui()
         if self.tray is not None:
-            self.tray.set_running(False)
+            self.tray.update_status()
         self._show_error(f"实时推理错误: {message}")
         QTimer.singleShot(0, self.engine.stop)
 
@@ -378,7 +378,7 @@ class MainWindow(QMainWindow):
             if self.model_manager.active_card:
                 self.model_manager.active_card.set_active(False)
             if self.tray is not None:
-                self.tray.set_running(False)
+                self.tray.update_status()
             return
 
         if not self.engine.running:
@@ -386,7 +386,7 @@ class MainWindow(QMainWindow):
         self.engine.stop()
         self._reset_runtime_ui()
         if self.tray is not None:
-            self.tray.set_running(False)
+            self.tray.update_status()
         logger.info("停止")
 
     # ── 离线推理委托 ──
