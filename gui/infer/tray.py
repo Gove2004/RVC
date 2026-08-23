@@ -81,11 +81,8 @@ class TrayManager:
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # 单击：快速开始/停止变声
+            # 单击：快速开始/停止变声（双击不响应，避免弹窗）
             self._toggle_running()
-        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            # 双击：显示主窗口
-            self.show_window()
 
     def show_window(self):
         self.window.showNormal()
