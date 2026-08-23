@@ -1,10 +1,12 @@
 """推理 GUI 主窗口"""
 import logging
+import sys
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QPushButton, QMessageBox,
     QTabWidget, QSpacerItem, QSizePolicy, QFileDialog,
+    QApplication,
 )
 from PySide6.QtCore import QTimer, Qt
 
@@ -57,6 +59,37 @@ class MainWindow(QMainWindow):
         self.refresh_btn.clicked.connect(self._reload_dev)
         # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
         QTimer.singleShot(300, self._warmup_engine)
+        # 系统托盘：关闭=最小化到托盘；托盘不可用时直接报错退出
+        self.tray = None
+        try:
+            from gui.infer.tray import TrayManager
+            self.tray = TrayManager(self, on_quit=self._tray_quit)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
+            sys.exit(1)
+
+    def _tray_quit(self):
+        """托盘退出：完整清理（停 timer/加载线程/离线/引擎/保存配置）后退出应用。
+
+        不触发 engine 惰性构造（_engine 为 None 说明从未使用过，无需 stop）。
+        """
+        self._timer.stop()
+        if self._lt and self._lt.isRunning():
+            self._lt.quit()
+            self._lt.wait(2000)
+        self.offline_manager.cleanup()
+        try:
+            self.config_manager.save_config()
+            self.model_manager.save_models()
+        except Exception as e:
+            logger.error("保存配置失败: %s", e, exc_info=True)
+        eng = self.controller._engine
+        if eng is not None:
+            try:
+                eng.stop()
+            except Exception:
+                pass
+        QApplication.instance().quit()
 
     def _warmup_engine(self):
         """后台线程预热 engine — 首次构造会加载 torch 并做 CUDA 探测，
@@ -142,6 +175,8 @@ class MainWindow(QMainWindow):
         if self.engine.running and self.engine.measure_ms > 0:
             # 硬件时间戳实测（含设备缓冲），比估算更贴近真实听感
             self.delay_lbl.setText(f"延迟: {self.engine.measure_ms:.0f}ms")
+        if self.tray is not None:
+            self.tray.set_running(self.engine.running)
 
     # ── 模型管理委托 ──
 
@@ -336,17 +371,11 @@ class MainWindow(QMainWindow):
         self.offline_manager.start_conversion()
 
     def closeEvent(self, event):
-        self._timer.stop()
-        if self._lt and self._lt.isRunning():
-            self._lt.quit()
-            self._lt.wait(2000)
-        self.offline_manager.cleanup()
-        try:
-            self.config_manager.save_config()
-            self.model_manager.save_models()
-        except OSError as save_err:
-            logger.error("保存配置失败（文件系统错误）: %s", save_err)
-        except Exception as save_err:
-            logger.error("保存配置失败: %s", save_err, exc_info=True)
-        self.engine.stop()
-        event.accept()
+        """点关闭按钮 → 隐藏到托盘继续运行（变声不中断），不退出。
+
+        真正的退出走托盘菜单（_tray_quit），那里做完整清理。
+        """
+        event.ignore()
+        self.hide()
+        if self.tray is not None:
+            self.tray.notify_minimized()
