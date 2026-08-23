@@ -68,13 +68,10 @@ class TrayManager:
         menu = QMenu()
         act_show = QAction("显示", menu)
         act_show.triggered.connect(self.show_window)
-        self.act_toggle = QAction("开始", menu)
-        self.act_toggle.triggered.connect(self._toggle_running)
         act_quit = QAction("退出", menu)
         act_quit.triggered.connect(self.quit)
 
         menu.addAction(act_show)
-        menu.addAction(self.act_toggle)
         menu.addSeparator()
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
@@ -84,11 +81,11 @@ class TrayManager:
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # 单击：显示主窗口
-            self.show_window()
-        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            # 双击：快速开始/停止变声
+            # 单击：快速开始/停止变声
             self._toggle_running()
+        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            # 双击：显示主窗口
+            self.show_window()
 
     def show_window(self):
         self.window.showNormal()
@@ -104,13 +101,12 @@ class TrayManager:
             self.window._start()
 
     def update_status(self):
-        """从引擎读取状态，刷新：图标底色（绿=运行/红=停止）、tooltip 延迟、开始/停止文本。"""
+        """从引擎读取状态，刷新图标底色（绿=运行/红=停止）与 tooltip 延迟。"""
         eng = self.window.controller._engine
         running = eng is not None and eng.running
         latency = f"{eng.measure_ms:.0f}ms" if running and eng.measure_ms > 0 else "-"
         self.tray.setToolTip(latency)
         self.tray.setIcon(self._icon_active if running else self._icon_idle)
-        self.act_toggle.setText("停止" if running else "开始")
 
     def notify_minimized(self):
         """首次隐藏到托盘时气泡提示一次。"""
