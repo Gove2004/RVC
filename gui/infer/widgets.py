@@ -39,7 +39,7 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片：始终展开，顶部一行 [使用] [模型名居中] [删除]"""
 
-    load_requested = Signal(str, str, str, float, float, float, float)  # 7个参数，移除protect
+    load_requested = Signal(str, str, str, float, float, float)  # name, pth, idx, pitch, index_rate, gender
 
     def __init__(self, name="", pth="", idx="", pitch=12,
                  index_rate=0.0, gender=0.0, parent=None):
@@ -117,7 +117,7 @@ class ModelCard(QFrame):
     def _on_load(self):
         self.load_requested.emit(
             self._name_label.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
-            self.pitch_slider.value(), _sl_value_as_float(self.index_rate_slider), 0.0,
+            self.pitch_slider.value(), _sl_value_as_float(self.index_rate_slider),
             _sl_value_as_float(self.gender_slider),
         )
 

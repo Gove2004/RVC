@@ -1,5 +1,6 @@
 """推理控制器 — 管理运行时参数、引擎启动和设备绑定。"""
 import logging
+import threading
 from dataclasses import dataclass
 
 # 注意：RealtimeEngine 依赖 torch，惰性构造（见 self.engine property），
@@ -51,15 +52,18 @@ class InferController:
         self.runtime_params = runtime_params or Params()
         self.inference_cache = inference_cache or default_inference_cache
         self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
+        self._engine_lock = threading.Lock()  # 防预热线程与主线程并发构造双实例
         self.on_runtime_error = on_runtime_error
 
     @property
     def engine(self):
         if self._engine is None:
-            from rvc.audio import RealtimeEngine
-            self._engine = RealtimeEngine(
-                self.runtime_params, self.inference_cache, on_runtime_error=self.on_runtime_error
-            )
+            with self._engine_lock:
+                if self._engine is None:
+                    from rvc.audio import RealtimeEngine
+                    self._engine = RealtimeEngine(
+                        self.runtime_params, self.inference_cache, on_runtime_error=self.on_runtime_error
+                    )
         return self._engine
 
     def apply_model_config(self, config: ModelConfig):
@@ -73,7 +77,6 @@ class InferController:
 
     def apply_runtime_config(self, config: RuntimeConfig):
         self.runtime_params.update(
-            use_pv=False,
             enable_out2=config.enable_out2,
             rms_mix=config.rms_mix,
             nr_enable=config.nr_enable,

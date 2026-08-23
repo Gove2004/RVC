@@ -29,7 +29,7 @@ class Config:
         self.use_cuda_graph = False
         self.gpu_name = None
         self.gpu_mem = None
-        self.x_pad, self.x_query, self.x_center, self.x_max = self._init_device()
+        self._init_device()  # GPU 探测（x_pad/x_query/x_center/x_max 已不使用）
 
         # CUDA Graph 探测 — 初始化时就跑，之后所有推理路径都生效
         if configure_cuda_graph(self.device):
@@ -38,7 +38,7 @@ class Config:
         else:
             logger.info("CUDA Graph 不支持，已禁用")
 
-    def _init_device(self) -> tuple:
+    def _init_device(self) -> None:
         if not torch.cuda.is_available():
             logger.error("CUDA is not available. This project requires an NVIDIA GPU.")
             sys.exit(1)
@@ -50,7 +50,3 @@ class Config:
         self.gpu_mem = int(
             torch.cuda.get_device_properties(i_device).total_memory / 1024 / 1024 / 1024 + 0.4
         )
-
-        if self.gpu_mem <= 4:
-            return 1, 5, 30, 32
-        return 3, 10, 60, 65

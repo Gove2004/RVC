@@ -1,10 +1,9 @@
 """HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT"""
 import logging
-from functools import lru_cache
 
 import torch
 from torch import nn
-from transformers import AutoFeatureExtractor, HubertModel
+from transformers import HubertModel
 from transformers.utils.logging import disable_progress_bar
 
 # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
@@ -23,14 +22,6 @@ class HubertModelWithFinalProj(HubertModel):
 
 
 HUBERT_MODEL_PATH = "assets/hubert_base"
-
-
-@lru_cache(maxsize=1)
-def _hubert_audio_needs_normalization():
-    extractor = AutoFeatureExtractor.from_pretrained(
-        HUBERT_MODEL_PATH, local_files_only=True
-    )
-    return bool(extractor.do_normalize)
 
 
 def load_hubert(config, inference_cache=None):

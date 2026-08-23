@@ -3,12 +3,8 @@ from pathlib import Path
 import numpy as np
 
 from rvc.audio.loader import load_audio
+from rvc.inference.f0_extractor import F0_MEL_MAX, F0_MEL_MIN  # 复用推理侧常量，避免算法漂移
 from rvc.models.rmvpe import RMVPE
-
-F0_MIN = 50
-F0_MAX = 1100
-F0_MEL_MIN = 1127 * np.log(1 + F0_MIN / 700)
-F0_MEL_MAX = 1127 * np.log(1 + F0_MAX / 700)
 
 
 class F0Extractor:
@@ -21,7 +17,7 @@ class F0Extractor:
     def request_stop(self):
         self.stop_requested = True
 
-    def run(self, exp_dir: str, progress_callback=None):
+    def run(self, exp_dir: str, progress_callback=None, stop_check=None):
         exp = Path(exp_dir)
         wav_dir = exp / "1_16k_wavs"
         coarse_dir = exp / "2a_f0"
@@ -30,7 +26,7 @@ class F0Extractor:
         continuous_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
         for i, path in enumerate(files, 1):
-            if self.stop_requested:
+            if self.stop_requested or (stop_check is not None and stop_check()):
                 break
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"

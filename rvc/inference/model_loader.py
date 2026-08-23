@@ -25,7 +25,7 @@ class SynthesizerLoader:
             pth_path: .pth 模型路径
 
         Returns:
-            dict: {"synthesizer": model, "target_sr": int, "use_f0": int, "ckpt_version": str}
+            dict: {"synthesizer": model, "target_sr": int, "use_f0": int}
         """
         cached = self.inference_cache.get_synthesizer(pth_path)
         if cached:
@@ -42,7 +42,6 @@ class SynthesizerLoader:
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
         target_sr = ckpt["config"][-1]
         use_f0 = ckpt.get("f0", 1)
-        version = ckpt.get("version", "v2")
         n_speakers = ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
 
         from rvc.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
@@ -62,5 +61,4 @@ class SynthesizerLoader:
             "synthesizer": synthesizer,
             "target_sr": target_sr,
             "use_f0": use_f0,
-            "ckpt_version": version,
         }

@@ -212,27 +212,3 @@ def clear_cuda_graph_cache(owner):
         cache.failures.clear()
         delattr(owner, "_rvc_cuda_graph_cache")
 
-
-def get_cuda_graph_stats(owner):
-    """获取 CUDA Graph 统计信息。"""
-    cache = getattr(owner, "_rvc_cuda_graph_cache", None)
-    if cache is None:
-        return {
-            "entries": 0,
-            "failures": 0,
-            "captures": 0,
-            "replays": 0,
-            "fallbacks": 0,
-            "evictions": 0,
-            "capture_ms": 0.0,
-        }
-    with cache.lock:
-        return {
-            "entries": len(cache.entries),
-            "failures": len(cache.failures),
-            "captures": cache.capture_count,
-            "replays": cache.replay_count,
-            "fallbacks": cache.fallback_count,
-            "evictions": cache.eviction_count,
-            "capture_ms": cache.capture_ms,
-        }

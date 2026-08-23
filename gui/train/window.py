@@ -228,7 +228,15 @@ class TrainWindow(QMainWindow):
             pass
         if self.worker and self.worker.isRunning():
             self.worker.request_stop()
-            self.worker.wait(2000)
+            if not self.worker.wait(2000):
+                # 停止超时：若直接销毁窗口，QThread 对象会被销毁而线程仍在运行
+                # （"Destroyed while thread is still running"）。改为阻止关闭并提示。
+                event.ignore()
+                QMessageBox.information(self, "提示", "任务正在停止，请稍候再关闭窗口")
+                return
         if self._tool_thread and self._tool_thread.isRunning():
-            self._tool_thread.wait(5000)
+            if not self._tool_thread.wait(5000):
+                event.ignore()
+                QMessageBox.information(self, "提示", "工具任务正在停止，请稍候再关闭窗口")
+                return
         event.accept()

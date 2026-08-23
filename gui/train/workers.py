@@ -103,7 +103,7 @@ class TrainWorker(QThread):
         extractor = F0Extractor(config.device, config.is_half)
         if self._stop_requested:
             extractor.request_stop()
-        extractor.run(str(exp_dir), self.progress.emit)
+        extractor.run(str(exp_dir), self.progress.emit, stop_check=lambda: self._stop_requested)
         self._check_stop()
         self.log_message.emit("F0 提取完成")
 
@@ -114,7 +114,7 @@ class TrainWorker(QThread):
         extractor = HuBERTExtractor(config.device, config.is_half)
         if self._stop_requested:
             extractor.request_stop()
-        extractor.run(str(exp_dir), self.progress.emit)
+        extractor.run(str(exp_dir), self.progress.emit, stop_check=lambda: self._stop_requested)
         self._check_stop()
         self.log_message.emit("HuBERT 特征提取完成")
 

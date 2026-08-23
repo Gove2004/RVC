@@ -122,11 +122,3 @@ class OfflineManager:
             self.worker.deleteLater()
             self.worker = None
         self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
-
-    def cleanup(self) -> None:
-        """清理资源 - 不阻塞等待，让 worker 自然退出并自行删除"""
-        if self.worker and self.worker.isRunning():
-            # QThread 重写 run() 模式没有事件循环，quit()/wait() 会阻塞
-            # 改用 deleteLater() 在主线程稍后安全删除，或直接忽略
-            # 离线推理完成后 _on_finished/_on_error 会处理 deleteLater()
-            pass

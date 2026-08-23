@@ -40,6 +40,7 @@ class OfflineWorker(QThread):
 
     def _do_run(self):
         import librosa
+        import numpy as np
         import soundfile as sf
 
         from rvc.audio.loader import load_audio_native
@@ -49,8 +50,8 @@ class OfflineWorker(QThread):
         wav, sr = load_audio_native(self.cfg.input_path)
         duration = len(wav) / sr
         if duration > MAX_AUDIO_DURATION:
+            # 只发 error 不发 finished，避免 UI 状态被「完成」覆盖
             self.error.emit(f"音频时长 {duration:.0f}s 超过限制（最长 {MAX_AUDIO_DURATION // 60} 分钟）")
-            self.finished.emit("")
             return
 
         if sr != 16000:

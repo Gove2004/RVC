@@ -39,7 +39,6 @@ def load_model_session(config, pth_path: str, index_path: str, index_rate: float
         "synthesizer": synthesizer,
         "target_sr": synth["target_sr"],
         "use_f0": synth["use_f0"],
-        "ckpt_version": synth["ckpt_version"],
         "index": index,
         "index_vectors": index_vectors,
     }

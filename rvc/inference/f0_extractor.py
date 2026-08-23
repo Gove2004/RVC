@@ -53,27 +53,19 @@ def _suppress_third_party_output(*prefixes, contains=()):
         sys.stdout, sys.stderr = stdout, stderr
 
 
-def _normalize_f0_to_coarse(f0: torch.Tensor, f0_min: float = F0_MIN, f0_max: float = F0_MAX) -> torch.Tensor:
+def _normalize_f0_to_coarse(f0: torch.Tensor) -> torch.Tensor:
     """将连续 F0 归一化为离散 pitch 值 (1-255)。
 
     使用 Mel 频率标度进行归一化，将 F0 映射到 MIDI-like 的离散表示。
 
     Args:
         f0: 连续 F0 值 (Hz)
-        f0_min: F0 最小值 (Hz)
-        f0_max: F0 最大值 (Hz)
 
     Returns:
         pitch_coarse: 离散化的 pitch 值，范围 [1, 255]
     """
-    if f0_min == F0_MIN and f0_max == F0_MAX:
-        f0_mel_min = F0_MEL_MIN
-        f0_mel_max = F0_MEL_MAX
-    else:
-        f0_mel_min = 1127 * math.log(1 + f0_min / 700)
-        f0_mel_max = 1127 * math.log(1 + f0_max / 700)
     f0_mel = 1127 * torch.log(1 + f0 / 700)
-    f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (f0_mel_max - f0_mel_min) + 1
+    f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - F0_MEL_MIN) * 254 / (F0_MEL_MAX - F0_MEL_MIN) + 1
     f0_mel[f0_mel <= 1] = 1
     f0_mel[f0_mel > 255] = 255
     return torch.round(f0_mel).long()

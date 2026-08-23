@@ -10,7 +10,6 @@ class Params:
     gender: float = 0.0
     protect: float = 0.5
     f0method: str = "fcpe"
-    use_pv: bool = False
     nr_enable: bool = False
     nr_strength: float = 0.5
     enable_out2: bool = False

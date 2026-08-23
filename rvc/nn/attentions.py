@@ -274,10 +274,6 @@ class FFN(nn.Module):
         self.activation = activation
         self.causal = causal
         self.is_activation = True if activation == "gelu" else False
-        # if causal:
-        #     self.padding = self._causal_padding
-        # else:
-        #     self.padding = self._same_padding
 
         self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size)
         self.conv_2 = nn.Conv1d(filter_channels, out_channels, kernel_size)

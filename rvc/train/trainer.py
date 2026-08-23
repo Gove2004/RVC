@@ -14,6 +14,9 @@ from rvc.train.data_utils import BucketSampler, TextAudioCollateMultiNSFsid, Tex
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 
+# 导出模型目录：相对项目根，而非进程工作目录（防止从其他目录启动时写错位置）
+WEIGHTS_DIR = Path(__file__).resolve().parents[2] / "assets" / "weights"
+
 
 @dataclass
 class TrainConfig:
@@ -112,7 +115,7 @@ class Trainer:
         filelist = str(Path(self.cfg.exp_dir) / "filelist.txt")
         dataset = TextAudioLoaderMultiNSFsid(filelist, self.data_cfg)
         sampler = BucketSampler(dataset, self.cfg.batch_size)
-        self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=0, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)
+        self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=2, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)
         if len(self.loader) == 0:
             raise RuntimeError("训练样本不足，无法组成 batch")
 
@@ -155,7 +158,7 @@ class Trainer:
         if last_epoch is None:
             raise RuntimeError("训练在首个 epoch 前已停止")
         # 最终模型路径（已在 _save 中导出）
-        return str(Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
+        return str(WEIGHTS_DIR / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
 
     def _train_epoch(self, epoch: int) -> tuple[float, float, float, float, float]:
         """训练一个 epoch，返回 (平均 G, Mel, KL, FM, D loss)"""
@@ -233,6 +236,6 @@ class Trainer:
         self.log(f"保存 checkpoint: epoch {epoch}")
 
         # 同时导出可用模型到 weights/
-        output = Path("assets/weights") / f"{Path(self.cfg.exp_dir).name}_e{epoch}.pth"
+        output = WEIGHTS_DIR / f"{Path(self.cfg.exp_dir).name}_e{epoch}.pth"
         export_model(self.synthesizer.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
         self.log(f"导出模型: {output}")

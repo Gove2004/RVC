@@ -63,15 +63,27 @@ class TrayManager:
         menu = QMenu()
         act_show = QAction("显示主窗口", menu)
         act_show.triggered.connect(self.show_window)
+        self.act_toggle = QAction("开始变声", menu)
+        self.act_toggle.triggered.connect(self._toggle_running)
         act_quit = QAction("退出", menu)
         act_quit.triggered.connect(self.quit)
         menu.addAction(act_show)
+        menu.addSeparator()
+        menu.addAction(self.act_toggle)
         menu.addSeparator()
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._on_activated)
         self.tray.show()
         logger.info("系统托盘已启用")
+
+    def _toggle_running(self):
+        """托盘开始/停止变声（不打开窗口）。"""
+        eng = self.window.controller._engine
+        if eng is not None and eng.running:
+            self.window._stop()
+        else:
+            self.window._start()
 
     def _on_activated(self, reason):
         if reason in (
@@ -86,8 +98,9 @@ class TrayManager:
         self.window.activateWindow()
 
     def set_running(self, running: bool):
-        """运行状态同步到托盘 tooltip。"""
+        """运行状态同步到托盘 tooltip 与「开始/停止」菜单项。"""
         self.tray.setToolTip("RVC 实时变声" + (" - 推理中" if running else " - 已停止"))
+        self.act_toggle.setText("停止变声" if running else "开始变声")
 
     def notify_minimized(self):
         """首次隐藏到托盘时气泡提示一次。"""

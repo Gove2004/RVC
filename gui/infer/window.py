@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QSpacerItem, QSizePolicy, QFileDialog,
     QApplication,
 )
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, Signal
 
 from gui.configs.infer_state import InferGuiState
 from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
@@ -33,12 +33,16 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
+    # 音频回调线程产生的运行时错误通过此信号转发到主线程（禁止回调线程操作 Qt）
+    runtime_error = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
         self.resize(200, 150)  # 窗口大小减半
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
+        self.runtime_error.connect(self._handle_runtime_error)
         self._loading = False
         self._lt = None
         self._timer = QTimer()
@@ -77,7 +81,6 @@ class MainWindow(QMainWindow):
         if self._lt and self._lt.isRunning():
             self._lt.quit()
             self._lt.wait(2000)
-        self.offline_manager.cleanup()
         try:
             self.config_manager.save_config()
             self.model_manager.save_models()
@@ -187,7 +190,11 @@ class MainWindow(QMainWindow):
     # ── 设备管理委托 ──
 
     def _reload_dev(self):
-        """委托给 DeviceManager"""
+        """委托给 DeviceManager（运行中禁止刷新，防止杀活动流）"""
+        eng = self.controller._engine
+        if eng is not None and eng.running:
+            self._show_warning("运行中不能刷新设备，请先停止")
+            return
         self.device_manager.reload_devices()
 
     def _ha_changed(self, name):
@@ -295,9 +302,18 @@ class MainWindow(QMainWindow):
 
     def _start_engine(self, pth, idx, idx_rate):
         if self._loading:
-            if self._lt and self._lt.isRunning():
-                self._lt.request_stop()
-                self._lt.wait(3000)
+            old = self._lt
+            if old and old.isRunning():
+                old.request_stop()
+                old.wait(3000)  # 超时后旧线程可能仍在跑
+            # 无论旧线程是否结束，先断开其信号：防止它稍后发的 finished
+            # 触发 _on_load_done 误删新线程（self._lt 已被替换）
+            for sig in (old.ok, old.err, old.finished):
+                try:
+                    sig.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+            old.deleteLater()
             self._loading = False
 
         self._loading = True
@@ -324,6 +340,8 @@ class MainWindow(QMainWindow):
             self.sr_device_radio.setText(f"设备 {stats.sr_dev}")
             self._mark_running()
             self._timer.start(200)
+            if self.tray is not None:
+                self.tray.set_running(True)
             self.config_manager.save_config()
             self.model_manager.save_models()
         except Exception as e:
@@ -336,10 +354,17 @@ class MainWindow(QMainWindow):
         self._show_error(format_error_message(e))
 
     def _on_runtime_error(self, message):
-        # 流已在音频回调内通过 CallbackStop 安全停止；这里只复位 UI（保留已加载模型），
-        # 并延迟到主线程释放设备，避免回调线程内直接 stop 造成死锁。下次「开始」前 setup 也会兜底关闭。
+        # 在音频回调线程（PortAudio）调用：只发信号，所有 Qt 操作转发主线程执行
+        self.runtime_error.emit(message)
+
+    def _handle_runtime_error(self, message):
+        # 主线程：流已在音频回调内通过 CallbackStop 安全停止；这里只复位 UI
+        # （保留已加载模型），并延迟释放设备，避免回调线程内直接 stop 造成死锁。
+        # 下次「开始」前 setup 也会兜底关闭。
         self.engine.runtime_error_pending = False
         self._reset_runtime_ui()
+        if self.tray is not None:
+            self.tray.set_running(False)
         self._show_error(f"实时推理错误: {message}")
         QTimer.singleShot(0, self.engine.stop)
 
@@ -352,12 +377,16 @@ class MainWindow(QMainWindow):
             self._reset_runtime_ui()
             if self.model_manager.active_card:
                 self.model_manager.active_card.set_active(False)
+            if self.tray is not None:
+                self.tray.set_running(False)
             return
 
         if not self.engine.running:
             return
         self.engine.stop()
         self._reset_runtime_ui()
+        if self.tray is not None:
+            self.tray.set_running(False)
         logger.info("停止")
 
     # ── 离线推理委托 ──

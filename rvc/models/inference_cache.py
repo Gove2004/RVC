@@ -42,7 +42,7 @@ class InferenceCache:
             key: 模型路径
 
         Returns:
-            dict or None: {"synthesizer": model, "target_sr": int, "use_f0": int, "ckpt_version": str}
+            dict or None: {"synthesizer": model, "target_sr": int, "use_f0": int}
         """
         with self._lock:
             return self._synthesizer.get(key)
@@ -52,7 +52,7 @@ class InferenceCache:
 
         Args:
             key: 模型路径
-            value: dict: {"synthesizer": model, "target_sr": int, "use_f0": int, "ckpt_version": str}
+            value: dict: {"synthesizer": model, "target_sr": int, "use_f0": int}
         """
         with self._lock:
             self._synthesizer[key] = value

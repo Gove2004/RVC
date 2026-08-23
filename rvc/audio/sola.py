@@ -7,7 +7,7 @@ SOLA (Short-time Overlap-Add) 是一种语音处理中的时域对齐算法，
 1. 在搜索窗口内计算参考向量（sola_buffer）与当前推理向量的互相关
 2. 找到相关系数最大的偏移位置作为最佳匹配点
 3. 如果匹配有效（能量足够且相关性达标），则从该偏移处开始输出
-4. 对于重叠部分，若启用相位声码器则进行时频域合成，否则直接线性混合
+4. 重叠部分直接线性混合（交叉淡化）
 5. 更新sola_buffer为最新输出块的前部，用于下一帧对齐
 
 关键阈值：
@@ -16,8 +16,6 @@ SOLA (Short-time Overlap-Add) 是一种语音处理中的时域对齐算法，
 """
 import torch
 import torch.nn.functional as F
-
-from rvc.audio.utils import phase_vocoder
 
 
 SOLA_MIN_CORR = 0.1
@@ -33,7 +31,6 @@ def apply_sola(
     block_samples: int,
     sola_buffer_samples: int,
     sola_search_samples: int,
-    use_phase_vocoder: bool,
 ) -> torch.Tensor:
     """执行单次 SOLA 对齐与交叉淡化。
 
@@ -46,7 +43,6 @@ def apply_sola(
         block_samples: 当前输出块大小
         sola_buffer_samples: SOLA缓冲区大小（通常为跨帧长度）
         sola_search_samples: 搜索窗口大小
-        use_phase_vocoder: 是否使用相位声码器进行更平滑的混合
 
     Returns:
         对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer
@@ -58,14 +54,11 @@ def apply_sola(
     score = cn[0, 0] / cd[0, 0]
     best_score, offset = torch.max(score, dim=0)
     valid_match = (torch.max(energy) >= SOLA_MIN_ENERGY) & (best_score >= SOLA_MIN_CORR)
-    offset = offset.masked_fill(~valid_match, 0)  # 原地清零，避免每回调分配
+    offset.masked_fill_(~valid_match, 0)  # 原地清零，避免每回调分配
     infer = infer[offset:]
 
-    if use_phase_vocoder:
-        infer[:sola_buffer_samples] = phase_vocoder(sola_buffer, infer[:sola_buffer_samples], fade_out, fade_in)
-    else:
-        infer[:sola_buffer_samples] *= fade_in
-        infer[:sola_buffer_samples] += sola_buffer * fade_out
+    infer[:sola_buffer_samples] *= fade_in
+    infer[:sola_buffer_samples] += sola_buffer * fade_out
 
     sola_buffer[:] = infer[block_samples:block_samples + sola_buffer_samples]
     return infer[:block_samples]

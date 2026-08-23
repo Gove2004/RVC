@@ -18,14 +18,14 @@ class HuBERTExtractor:
     def request_stop(self):
         self.stop_requested = True
 
-    def run(self, exp_dir: str, progress_callback=None):
+    def run(self, exp_dir: str, progress_callback=None, stop_check=None):
         exp = Path(exp_dir)
         wav_dir = exp / "1_16k_wavs"
         feat_dir = exp / "3_feature768"
         feat_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
         for i, path in enumerate(files, 1):
-            if self.stop_requested:
+            if self.stop_requested or (stop_check is not None and stop_check()):
                 break
             out_path = feat_dir / f"{path.stem}.npy"
             if not out_path.exists():

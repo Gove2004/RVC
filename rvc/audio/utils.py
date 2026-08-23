@@ -1,29 +1,10 @@
-"""音频工具 — 设备枚举、相位声码器、RMS 响度匹配"""
+"""音频工具 — 设备枚举、RMS 响度匹配"""
 import librosa
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from rvc.audio.device_query import get_audio_devices  # noqa: F401 轻量模块，供 rvc.audio 惰性导出
-
-
-def phase_vocoder(a, b, fade_out, fade_in):
-    window = torch.sqrt(fade_out * fade_in)
-    fa = torch.fft.rfft(a * window)
-    fb = torch.fft.rfft(b * window)
-    absab = torch.abs(fa) + torch.abs(fb)
-    n = a.shape[0]
-    if n % 2 == 0:
-        absab[1:-1] *= 2
-    else:
-        absab[1:] *= 2
-    phia = torch.angle(fa)
-    phib = torch.angle(fb)
-    deltaphase = phib - phia
-    deltaphase = deltaphase - 2 * np.pi * torch.floor(deltaphase / 2 / np.pi + 0.5)
-    w = 2 * np.pi * torch.arange(n // 2 + 1, device=a.device) + deltaphase
-    t = torch.arange(n, device=a.device).unsqueeze(-1) / n
-    return a * (fade_out**2) + b * (fade_in**2) + torch.sum(absab * torch.cos(w * t + phia), -1) * window / n
 
 
 def match_rms(source_audio, source_sr, target_audio, target_sr, mix_rate):

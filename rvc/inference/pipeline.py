@@ -5,12 +5,11 @@ import numpy as np
 import torch
 
 from rvc.models.inference_cache import default_inference_cache
-from rvc.inference.f0_extractor import F0_MIN, F0_MAX
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.index_retrieval import apply_faiss_index, load_index
 from rvc.inference.model_session import load_model_session
 from rvc.inference.pitch_tracker import create_pitch_cache, prepare_offline_pitch, update_realtime_pitch_cache
-from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, cast_pitch_tensors, infer_offline_audio, infer_realtime_audio
+from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_offline_audio, infer_realtime_audio
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +33,7 @@ class VCPipeline:
 
         self.f0_semitones = 0
         self.formant_factor = 0.0
-        self.f0_min = F0_MIN
-        self.f0_max = F0_MAX
-        self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
-        self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
+        self.formant_factor_pow = 1.0  # pow(2, formant/12)，change_formant 时缓存，避免每块重算
 
         self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
 
@@ -63,7 +59,6 @@ class VCPipeline:
         self.synthesizer = session["synthesizer"]
         self.target_sr = session["target_sr"]
         self.use_f0 = session["use_f0"]
-        self.ckpt_version = session["ckpt_version"]
         self.index = session["index"]
         self.index_vectors = session["index_vectors"]
 
@@ -72,6 +67,7 @@ class VCPipeline:
 
     def change_formant(self, shift: float) -> None:
         self.formant_factor = shift
+        self.formant_factor_pow = pow(2, shift / 12)
 
     def change_index_rate(self, rate: float) -> None:
         if rate > 0 and self.index is None:
@@ -94,9 +90,6 @@ class VCPipeline:
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
 
-    def _cast_pitch_tensors(self, pitch, pitchf):
-        return cast_pitch_tensors(pitch, pitchf, self.is_half)
-
     def infer_offline(self, input_wav, f0method="fcpe", protect=0.0):
         """离线推理（完整音频）。
 
@@ -113,7 +106,7 @@ class VCPipeline:
         p_len = input_wav.shape[0] // 160
 
         # 计算 formant 因子
-        factor = pow(2, self.formant_factor / 12)
+        factor = self.formant_factor_pow
 
         pitch = pitchf = None
         if self.use_f0 == 1:
@@ -160,7 +153,7 @@ class VCPipeline:
 
     def _infer_impl(self, input_wav, block_frame_16k, skip_head, return_length, f0method, protect):
         p_len = input_wav.shape[0] // 160
-        factor = pow(2, self.formant_factor / 12)
+        factor = self.formant_factor_pow
         return_length2_val = int(np.ceil(return_length * factor))
 
         # 特征提取：HuBERT → 辅音保护克隆 → FAISS 混合

@@ -109,6 +109,8 @@ class RealtimeEngine:
         self.input_wav_work = torch.empty_like(self.input_wav)
         self.input_wav_res_work = torch.empty_like(self.input_wav_res)
         self.hz_centis = zc
+        # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用，避免每块分配）
+        self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
 
         self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
 
@@ -244,7 +246,6 @@ class RealtimeEngine:
 
         # 快照本回调内多次使用的参数（推理相关参数由 _run_inference 直接读 runtime_params）
         p_rms_mix = params.rms_mix
-        p_use_pv = params.use_pv
         p_enable_out2 = params.enable_out2
         p_nr_enable = params.nr_enable
         p_nr_strength = params.nr_strength
@@ -252,8 +253,11 @@ class RealtimeEngine:
         with torch.no_grad():
             # ── 阶段1-2: 输入准备 + 降噪 + 缓存轮换 ─────────────────
             mono = self._prepare_input(indata)
-            # 输入一次性上 GPU（降噪/推理/输出共用，避免 CPU↔GPU 往返）
-            mono = torch.from_numpy(mono).to(config.device)
+            # 输入一次性上 GPU（降噪/推理/输出共用，避免 CPU↔GPU 往返）。
+            # 预分配 pinned buffer + 非阻塞拷贝，避免每块重复分配临时张量。
+            src = torch.from_numpy(mono)
+            self._in_pin[: src.shape[0]].copy_(src, non_blocking=True)
+            mono = self._in_pin[: src.shape[0]].to(config.device, non_blocking=True)
             mono = self._apply_denoise(mono, p_nr_enable, p_nr_strength)
             self._update_input_buffers(mono)
 
@@ -265,20 +269,20 @@ class RealtimeEngine:
                 infer = self._apply_rms_mix(infer, p_rms_mix)
 
             # ── 阶段5: SOLA对齐 ───────────────────────────────────────
-            chunk = self._apply_sola(infer, p_use_pv)
+            chunk = self._apply_sola(infer)
 
             # ── 阶段6: 输出写入与副输出路由 ───────────────────────────
             self._write_output(chunk, outdata, p_enable_out2)
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
-    def _apply_sola(self, infer, use_pv):
+    def _apply_sola(self, infer):
         """SOLA 时间拉伸对齐，输出块长度 = block_samples"""
         return apply_sola(
             infer, self.sola_buffer, self.sola_norm_kernel,
             self.fade_in, self.fade_out,
             self.block_samples, self.sola_buffer_samples,
-            self.sola_search_samples, use_pv,
+            self.sola_search_samples,
         )
 
     def _write_output(self, chunk, outdata, enable_out2):
@@ -288,7 +292,7 @@ class RealtimeEngine:
 
     def _prepare_input(self, indata):
         """将输入的立体声/单声道转换为处理的单声道信号"""
-        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:, 0]
+        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
         return np.ascontiguousarray(mono)
 
     def _apply_denoise(self, mono: torch.Tensor, enable: bool, strength: float) -> torch.Tensor:
