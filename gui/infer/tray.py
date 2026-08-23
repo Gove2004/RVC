@@ -30,7 +30,7 @@ def _draw_icon(base_color: QColor) -> QIcon:
     pen = QPen(QColor(255, 255, 255), 6)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     p.setPen(pen)
-    bars = [(18, 8), (29, 22), (40, 14)]
+    bars = [(21, 8), (32, 22), (43, 14)]  # 三条杠以圆中心 x=32 对称（原 18/29/40 偏左 3px）
     for x, h in bars:
         p.drawLine(x, 32 - h // 2, x, 32 + h // 2)
     p.end()
