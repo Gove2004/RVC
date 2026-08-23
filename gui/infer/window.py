@@ -37,7 +37,6 @@ class MainWindow(QMainWindow):
         self.resize(200, 150)  # 窗口大小减半
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
-        self.engine = self.controller.engine
         self._loading = False
         self._lt = None
         self._timer = QTimer()
@@ -56,6 +55,27 @@ class MainWindow(QMainWindow):
         self.config_manager.load_config()
         # Connect refresh button after device_manager is ready
         self.refresh_btn.clicked.connect(self._reload_dev)
+        # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
+        QTimer.singleShot(300, self._warmup_engine)
+
+    def _warmup_engine(self):
+        """后台线程预热 engine — 首次构造会加载 torch 并做 CUDA 探测，
+        挪到后台执行，等用户点「开始」时 torch 已就绪。"""
+        import threading
+
+        def _do():
+            try:
+                self.engine  # 触发惰性构造
+                logger.info("引擎预热完成（torch 已加载）")
+            except Exception:
+                logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
+
+        threading.Thread(target=_do, daemon=True, name="engine-warmup").start()
+
+    @property
+    def engine(self):
+        """惰性获取引擎 — 首次访问才构造（构造会加载 torch，避免拖慢窗口出现）。"""
+        return self.controller.engine
 
     # ── 辅助方法 ──
 

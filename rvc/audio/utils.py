@@ -1,9 +1,10 @@
 """音频工具 — 设备枚举、相位声码器、RMS 响度匹配"""
 import librosa
 import numpy as np
-import sounddevice as sd
 import torch
 import torch.nn.functional as F
+
+from rvc.audio.device_query import get_audio_devices  # noqa: F401 轻量模块，供 rvc.audio 惰性导出
 
 
 def phase_vocoder(a, b, fade_out, fade_in):
@@ -58,23 +59,3 @@ def match_rms(source_audio, source_sr, target_audio, target_sr, mix_rate):
     target_audio = target_audio * ratio.numpy()
 
     return target_audio
-
-
-def get_audio_devices(hostapi_name=None):
-    """枚举音频设备，仅在首次调用时重新初始化 sounddevice。"""
-    if not sd.query_devices():
-        sd._terminate(); sd._initialize()
-    devices = sd.query_devices()
-    hostapis = sd.query_hostapis()
-    for ha in hostapis:
-        for idx in ha["devices"]:
-            devices[idx]["hostapi_name"] = ha["name"]
-    ha_names = [h["name"] for h in hostapis]
-    if hostapi_name not in ha_names:
-        hostapi_name = ha_names[0] if ha_names else ""
-    filt = lambda d, ch: d[ch] > 0 and d.get("hostapi_name") == hostapi_name
-    inputs = [d["name"] for d in devices if filt(d, "max_input_channels")]
-    outputs = [d["name"] for d in devices if filt(d, "max_output_channels")]
-    in_idx = [d["index"] for d in devices if filt(d, "max_input_channels")]
-    out_idx = [d["index"] for d in devices if filt(d, "max_output_channels")]
-    return ha_names, inputs, outputs, in_idx, out_idx

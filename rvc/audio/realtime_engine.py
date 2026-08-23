@@ -128,6 +128,11 @@ class RealtimeEngine:
         self.nr_ss.reset()
         self._last_nr_params = None
 
+        # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
+        # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
+        # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
+        self.warmup_inference(2)
+
         try:
             self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
             self.stream.start()
@@ -136,6 +141,27 @@ class RealtimeEngine:
             if "Invalid sample rate" in str(e) or "-9997" in str(e):
                 raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
             raise
+
+    def warmup_inference(self, n: int = 2):
+        """开流前用静音数据跑 n 次完整回调，完成 CUDA Graph 捕获以及
+        降噪/重采样/SOLA/输出等所有首次开销，让首次真实回调即为热状态。
+
+        需在 setup() 分配 buffer 之后、开流之前调用（形状与真实回调一致）。
+        失败只警告，不影响运行。
+        """
+        if self.pipeline is None or self.input_wav_res is None:
+            return
+        self.function = "vc"
+        frames = self.block_samples
+        indata = np.zeros((frames, self.channels), dtype=np.float32)
+        outdata = np.zeros((frames, self.channels), dtype=np.float32)
+        try:
+            with torch.no_grad():
+                for _ in range(n):
+                    self._cb_impl(indata, outdata, frames, None, None)
+            torch.cuda.synchronize()
+        except Exception as e:
+            logger.warning("推理预热失败（不影响运行）: %s", e)
 
     def setup_out2(self, dev_idx):
         dev_name = ""
@@ -193,7 +219,7 @@ class RealtimeEngine:
             # 这是 PortAudio 声卡时钟域的精确值，包含设备缓冲/攒块/处理全链路。
             d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
             if 0 < d < 2:  # 过滤异常值（时钟跳变/首块）
-                self.measure_ms = self.measure_ms * 0.9 + d * 1000 * 0.1  # EMA 平滑
+                self.measure_ms = d * 1000  # 瞬时值（不做 EMA 插值）
             self._cb_impl(indata, outdata, frames, times, status)
             self.error_count = 0
         except Exception as e:

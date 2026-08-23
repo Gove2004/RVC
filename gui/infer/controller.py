@@ -2,7 +2,8 @@
 import logging
 from dataclasses import dataclass
 
-from rvc.audio import RealtimeEngine, get_audio_devices
+# 注意：RealtimeEngine 依赖 torch，惰性构造（见 self.engine property），
+# 避免 GUI 窗口出现前就加载重型依赖。
 from rvc.models import default_inference_cache
 from rvc.inference import Params
 
@@ -49,7 +50,17 @@ class InferController:
     def __init__(self, runtime_params=None, engine=None, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params or Params()
         self.inference_cache = inference_cache or default_inference_cache
-        self.engine = engine or RealtimeEngine(self.runtime_params, self.inference_cache, on_runtime_error=on_runtime_error)
+        self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
+        self.on_runtime_error = on_runtime_error
+
+    @property
+    def engine(self):
+        if self._engine is None:
+            from rvc.audio import RealtimeEngine
+            self._engine = RealtimeEngine(
+                self.runtime_params, self.inference_cache, on_runtime_error=self.on_runtime_error
+            )
+        return self._engine
 
     def apply_model_config(self, config: ModelConfig):
         self.runtime_params.update(
@@ -70,6 +81,8 @@ class InferController:
         )
 
     def setup_engine(self, config: EngineConfig):
+        from rvc.audio import get_audio_devices  # 惰性导入（device_query，轻量）
+
         _, _, _, in_idx, out_idx = get_audio_devices(config.hostapi_name)
         sr_type = "sr_model" if config.sr_mode == "model" else "sr_device"
         self.engine.setup(

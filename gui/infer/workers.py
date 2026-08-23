@@ -2,19 +2,11 @@
 import logging
 import traceback
 
-import librosa
-import numpy as np
-import torch
-import torch.nn.functional as F
 from PySide6.QtCore import QThread, Signal
 
-from rvc.runtime import Config
-from rvc.audio.loader import load_audio_native
-from rvc.audio.utils import match_rms
 from rvc.inference.offline_config import OfflineConfig
 
 logger = logging.getLogger(__name__)
-config = Config()
 AUDIO_PAD_SECONDS = 3
 MAX_AUDIO_DURATION = 300
 
@@ -29,6 +21,8 @@ class OfflineWorker(QThread):
         self.cfg = cfg
 
     def run(self):
+        import torch  # 惰性导入，避免 GUI 启动时加载 torch
+
         vc = None
         try:
             self._do_run()
@@ -45,7 +39,11 @@ class OfflineWorker(QThread):
                 pass
 
     def _do_run(self):
+        import librosa
         import soundfile as sf
+
+        from rvc.audio.loader import load_audio_native
+        from rvc.audio.utils import match_rms
 
         self.progress.emit(0, 100)
         wav, sr = load_audio_native(self.cfg.input_path)
