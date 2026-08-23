@@ -83,11 +83,12 @@ class TrayManager:
         logger.info("系统托盘已启用")
 
     def _on_activated(self, reason):
-        if reason in (
-            QSystemTrayIcon.ActivationReason.Trigger,
-            QSystemTrayIcon.ActivationReason.DoubleClick,
-        ):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # 单击：显示主窗口
             self.show_window()
+        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            # 双击：快速开始/停止变声
+            self._toggle_running()
 
     def show_window(self):
         self.window.showNormal()
