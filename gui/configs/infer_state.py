@@ -17,6 +17,8 @@ class InferGuiState:
     rms_mix: float = 0.0
     nr_enable: bool = False
     nr_strength: float = 0.5
+    break_enable: bool = True
+    break_src_hz: float = 300.0
     hostapi: str = ""
     input_device: str = ""
     output_device: str = ""

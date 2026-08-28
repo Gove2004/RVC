@@ -35,6 +35,8 @@ BINDINGS = [
     ("rms_mix", "rms_mix_slider", X100, "rms", 0.0),
     ("nr_enable", "nr_enable_checkbox", CHECK, "nr_en", False),
     ("nr_strength", "nr_strength_slider", X100, "nr_str", 0.5),
+    ("break_enable", "break_enable_checkbox", CHECK, "brk_en", True),
+    ("break_src_hz", "break_src_hz_slider", X100, "brk_hz", 300.0),
     ("hostapi", "hostapi_combo", COMBO, "ha", ""),
     ("input_device", "input_combo", COMBO, "in_dev", ""),
     ("output_device", "output_combo", COMBO, "out_dev", ""),
@@ -60,8 +62,9 @@ def state_from_dict(data: dict) -> InferGuiState:
 
 def state_to_dict(state: InferGuiState) -> dict:
     """状态对象 → 持久化字典（短键）"""
-    return {key: getattr(state, field)
-            for field, _w, _k, key, _d in BINDINGS}
+    d = {key: getattr(state, field)
+         for field, _w, _k, key, _d in BINDINGS}
+    return d
 
 
 def _get(win, widget, kind):
@@ -135,4 +138,6 @@ def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
         rms_mix=state.rms_mix,
         nr_enable=state.nr_enable,
         nr_strength=state.nr_strength,
+        break_enable=state.break_enable,
+        break_src_hz=state.break_src_hz,
     )

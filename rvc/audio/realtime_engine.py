@@ -47,6 +47,7 @@ class RealtimeEngine:
         self.input_wav = None; self.input_wav_res = None
         self.input_wav_work = None; self.input_wav_res_work = None
         self.sola_buffer = None
+        self.sola_last_offset = None  # SOLA 上一块 offset（GPU 0维 tensor），相邻块平滑用
         self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
         self.resampler = None; self.resampler2 = None
         # 效果器（setup 时创建）
@@ -113,6 +114,7 @@ class RealtimeEngine:
         self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
 
         self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
+        self.sola_last_offset = None  # 新流：SOLA offset 平滑状态清零
 
         ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
@@ -221,7 +223,10 @@ class RealtimeEngine:
             # 这是 PortAudio 声卡时钟域的精确值，包含设备缓冲/攒块/处理全链路。
             d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
             if 0 < d < 2:  # 过滤异常值（时钟跳变/首块）
-                self.measure_ms = d * 1000  # 瞬时值（不做 EMA 插值）
+                ms = d * 1000
+                # EMA 平滑：瞬时值每块跳动（块长 150ms 级），显示会乱跳显得不准。
+                # 首块直接赋值，之后 0.7/0.3 平滑收敛。
+                self.measure_ms = ms if self.measure_ms <= 0 else self.measure_ms * 0.7 + ms * 0.3
             self._cb_impl(indata, outdata, frames, times, status)
             self.error_count = 0
         except Exception as e:
@@ -277,13 +282,15 @@ class RealtimeEngine:
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
     def _apply_sola(self, infer):
-        """SOLA 时间拉伸对齐，输出块长度 = block_samples"""
-        return apply_sola(
+        """SOLA 时间拉伸对齐，输出块长度 = block_samples；记录 offset 供下一块平滑"""
+        chunk, offset = apply_sola(
             infer, self.sola_buffer, self.sola_norm_kernel,
             self.fade_in, self.fade_out,
             self.block_samples, self.sola_buffer_samples,
-            self.sola_search_samples,
+            self.sola_search_samples, self.sola_last_offset,
         )
+        self.sola_last_offset = offset
+        return chunk
 
     def _write_output(self, chunk, outdata, enable_out2):
         """主输出写入 + 副输出路由"""
@@ -327,6 +334,10 @@ class RealtimeEngine:
             self.pipeline.change_key(self.runtime_params.pitch)
             self.pipeline.change_index_rate(self.runtime_params.index_rate)
             self.pipeline.change_formant(self.runtime_params.gender)
+            self.pipeline.change_f0_proc(
+                self.runtime_params.break_enable,
+                self.runtime_params.break_src_hz,
+            )
             infer = self.pipeline.infer(
                 self.input_wav_res, self.block_samples_16k,
                 self.skip_head, self.return_length,

@@ -1,4 +1,4 @@
-"""全局参数 Tab — 采样/融合参数 + 辅音保护 + 频谱降噪"""
+"""全局参数 Tab — 采样/融合参数 + 辅音保护 + 频谱降噪 + 破音保护"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox,
 )
@@ -45,5 +45,13 @@ def build_global_params_tab(win):
     win.nr_strength_label = QLabel("0.50"); win.nr_strength_label.setMinimumWidth(35)
     win.nr_strength_slider.valueChanged.connect(lambda v: win.nr_strength_label.setText(f"{v / 100:.2f}"))
     g.addWidget(win.nr_strength_slider, r, 1); g.addWidget(win.nr_strength_label, r, 2); r += 1
+
+    # ── 破音保护（核心：高音破音/沙哑。源音高超过临界收敛） ──
+    win.break_enable_checkbox = QCheckBox("破音保护")
+    g.addWidget(win.break_enable_checkbox, r, 0)
+    win.break_src_hz_slider = _sl(20000, 40000, 500, 30000)  # 200-400Hz，步长 5
+    win.break_src_hz_label = QLabel("300Hz"); win.break_src_hz_label.setMinimumWidth(45)
+    win.break_src_hz_slider.valueChanged.connect(lambda v: win.break_src_hz_label.setText(f"{v / 100:.0f}Hz"))
+    g.addWidget(win.break_src_hz_slider, r, 1); g.addWidget(win.break_src_hz_label, r, 2); r += 1
 
     return w

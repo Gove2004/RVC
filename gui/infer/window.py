@@ -148,20 +148,13 @@ class MainWindow(QMainWindow):
         ctrl = QHBoxLayout()
         ctrl.setSpacing(Layout.SPACING_NORMAL)
 
-        # 左侧：开始/停止按钮
+        # 左侧：开始/停止（单按钮，按运行状态切换文案与颜色）
         btn_group = QHBoxLayout()
-        self.btn_start = QPushButton("开始")
-        self.btn_start.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
-        self.btn_start.setStyleSheet(ButtonStyles.primary())
-        self.btn_start.clicked.connect(self._start)
-        btn_group.addWidget(self.btn_start)
-
-        self.btn_stop = QPushButton("停止")
-        self.btn_stop.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
-        self.btn_stop.setStyleSheet(ButtonStyles.danger())
-        self.btn_stop.setEnabled(False)
-        self.btn_stop.clicked.connect(self._stop)
-        btn_group.addWidget(self.btn_stop)
+        self.btn_toggle = QPushButton("开始")
+        self.btn_toggle.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
+        self.btn_toggle.setStyleSheet(ButtonStyles.primary())
+        self.btn_toggle.clicked.connect(self._on_toggle_clicked)
+        btn_group.addWidget(self.btn_toggle)
 
         spacer1 = QSpacerItem(40, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         btn_group.addSpacerItem(spacer1)
@@ -241,32 +234,23 @@ class MainWindow(QMainWindow):
 
     # ── UI 状态管理 ──
 
-    def _set_start_button(self, text, enabled, style):
-        self.btn_start.setEnabled(enabled)
-        self.btn_start.setText(text)
-        self.btn_start.setStyleSheet(style)
-
-    def _set_stop_button(self, enabled, style):
-        self.btn_stop.setEnabled(enabled)
-        if enabled:
-            self.btn_stop.setStyleSheet(ButtonStyles.danger())
-        else:
-            self.btn_stop.setStyleSheet(ButtonStyles.muted())
+    def _set_toggle_button(self, text, enabled, style):
+        self.btn_toggle.setEnabled(enabled)
+        self.btn_toggle.setText(text)
+        self.btn_toggle.setStyleSheet(style)
 
     def _reset_runtime_ui(self):
         self._timer.stop()
-        self._set_start_button("开始", True, ButtonStyles.primary())
-        self._set_stop_button(False, ButtonStyles.muted())
+        self._set_toggle_button("开始", True, ButtonStyles.primary())
         self.delay_lbl.setText("延迟: -")
 
     def _mark_loading(self):
         if self.model_manager.active_card:
             self.model_manager.active_card.set_loading(True)
-        self._set_start_button("加载中", False, ButtonStyles.secondary())
+        self._set_toggle_button("加载中", False, ButtonStyles.secondary())
 
     def _mark_running(self):
-        self._set_start_button("运行中", False, ButtonStyles.primary())
-        self._set_stop_button(True, ButtonStyles.danger())
+        self._set_toggle_button("停止", True, ButtonStyles.danger())
         self._timer.start(200)
 
     def collect_gui_state(self) -> InferGuiState:
@@ -276,6 +260,13 @@ class MainWindow(QMainWindow):
         bridge_apply_gui_state(self, state)
 
     # ── 启动/停止 ──
+
+    def _on_toggle_clicked(self):
+        """单按钮切换：运行中→停止，空闲→开始（加载中按钮禁用不会触发）"""
+        if self.engine.running:
+            self._stop()
+        else:
+            self._start()
 
     def _start(self):
         if not self.model_manager.active_card:

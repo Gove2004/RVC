@@ -26,6 +26,8 @@ class RuntimeConfig:
     rms_mix: float
     nr_enable: bool = False
     nr_strength: float = 0.5
+    break_enable: bool = True
+    break_src_hz: float = 300.0
 
 
 @dataclass
@@ -81,6 +83,8 @@ class InferController:
             rms_mix=config.rms_mix,
             nr_enable=config.nr_enable,
             nr_strength=config.nr_strength,
+            break_enable=config.break_enable,
+            break_src_hz=config.break_src_hz,
         )
 
     def setup_engine(self, config: EngineConfig):

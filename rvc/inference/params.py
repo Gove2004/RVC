@@ -13,6 +13,9 @@ class Params:
     nr_enable: bool = False
     nr_strength: float = 0.5
     enable_out2: bool = False
+    # 破音保护（核心瑕疵：高音破音/沙哑）——源赫兹临界，超过压平
+    break_enable: bool = True
+    break_src_hz: float = 300.0
 
     def update(self, **kwargs):
         for key, value in kwargs.items():

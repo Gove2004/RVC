@@ -34,6 +34,11 @@ class VCPipeline:
         self.f0_semitones = 0
         self.formant_factor = 0.0
         self.formant_factor_pow = 1.0  # pow(2, formant/12)，change_formant 时缓存，避免每块重算
+        # 破音保护（用户核心瑕疵）：f0_proc=(开关, 破音临界[源Hz])，
+        # extractor 内按 key 换算成变声后临界。源 ≤临界 → ×2 天然安全，原样保留。
+        self.break_enable = True
+        self.break_src_hz = 300.0
+        self._f0_proc = (self.break_enable, self.break_src_hz)
 
         self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
 
@@ -64,6 +69,13 @@ class VCPipeline:
 
     def change_key(self, key: int) -> None:
         self.f0_semitones = key
+
+    def change_f0_proc(self, enable: bool, break_src_hz: float) -> None:
+        """更新破音保护参数（破音临界用源赫兹，extractor 内换算变声后）。"""
+        self.break_enable = bool(enable)
+        self.break_src_hz = max(50.0, float(break_src_hz))
+        self._f0_proc = (self.break_enable, self.break_src_hz)
+
 
     def change_formant(self, shift: float) -> None:
         self.formant_factor = shift
@@ -118,6 +130,7 @@ class VCPipeline:
                 self.device,
                 self.is_half,
                 self.inference_cache,
+                self._f0_proc,
             )
         feats = self._extract_hubert_features(input_wav)
         feats0 = self._clone_protect_source(feats, protect)
@@ -195,6 +208,7 @@ class VCPipeline:
             self.device,
             self.is_half,
             self.inference_cache,
+            self._f0_proc,
         )
 
     def _synthesize_realtime(self, feats, p_len, cache_pitch, cache_pitchf, skip_head, return_length, return_length2_val):
