@@ -71,8 +71,8 @@ def _build_train_group(win) -> QGroupBox:
 
     win.pretrain_g = QLineEdit()
     win.pretrain_d = QLineEdit()
-    win.pretrain_g.setToolTip("选择采样率后自动匹配 assets/pretrained_v2/f0G{sr}k.pth；留空 = 从零训练（收敛慢）")
-    win.pretrain_d.setToolTip("选择采样率后自动匹配 assets/pretrained_v2/f0D{sr}k.pth；留空 = 从零训练（收敛慢）")
+    win.pretrain_g.setToolTip("选择采样率后自动匹配 assets/pretrained/f0G{sr}k.pth；留空 = 从零训练（收敛慢）")
+    win.pretrain_d.setToolTip("选择采样率后自动匹配 assets/pretrained/f0D{sr}k.pth；留空 = 从零训练（收敛慢）")
     g_row = QHBoxLayout()
     g_btn = QPushButton("浏览")
     g_btn.setFixedWidth(Layout.BTN_WIDTH_SMALL)

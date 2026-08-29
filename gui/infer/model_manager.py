@@ -18,7 +18,7 @@ class ModelManager:
     def add_model_from_file(self) -> None:
         """从文件选择器添加模型"""
         path, _ = QFileDialog.getOpenFileName(
-            self.parent, "选择模型", "assets/weights", "模型 (*.pth)"
+            self.parent, "选择模型", "assets/models", "模型 (*.pth)"
         )
         if not path:
             return

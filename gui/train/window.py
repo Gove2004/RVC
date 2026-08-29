@@ -43,11 +43,11 @@ class TrainWindow(QMainWindow):
     def _on_sr_changed(self, text: str):
         """采样率改变时自动匹配预训练 G/D（存在即填，不存在清空；用户可再手动改）。
 
-        选择 40k/48k 不再需要手动指定 G/D——自动指向 assets/pretrained_v2/f0G/f0D{sr}k.pth。
+        选择 40k/48k 不再需要手动指定 G/D——自动指向 assets/pretrained/f0G/f0D{sr}k.pth。
         G/D 只是收敛加速的可选底座：留空 = 从零训练（收敛慢、音质起步低）。
         """
         for widget, key in ((self.pretrain_g, "G"), (self.pretrain_d, "D")):
-            path = Path(f"assets/pretrained_v2/f0{key}{text}.pth")
+            path = Path(f"assets/pretrained/f0{key}{text}.pth")
             widget.setText(str(path) if path.exists() else "")
 
     def _start_step(self, step: str):

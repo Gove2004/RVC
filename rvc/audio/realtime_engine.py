@@ -17,6 +17,7 @@ from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
+from rvc.audio.wasapi import settings_builder
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ class RealtimeEngine:
             self.pipeline = None
             raise
 
-    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
+    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, exclusive=False):
         if self.stream is not None:
             self.stop()
         self.error_count = 0
@@ -138,7 +139,18 @@ class RealtimeEngine:
         self.warmup_inference(2)
 
         try:
-            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
+            extra = settings_builder(exclusive)
+            if exclusive and extra is not None:
+                # 独占模式要求设备原生采样率与流一致；失败（InvalidSampleRate）
+                # 时降级 shared 并提示，不让用户卡死在「打不开」
+                try:
+                    self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32", extra_settings=extra)
+                except Exception as e:
+                    logger.warning("WASAPI 独占打开失败（%s），降级共享模式", e)
+                    logger.info("独占模式要求输出设备默认格式与流采样率一致；可在系统声音设置里把设备默认格式设为 %s Hz", self.sr)
+                    self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
+            else:
+                self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
             self.stream.start()
             self.running = True
         except Exception as e:

@@ -50,14 +50,14 @@ python -m venv .venv
 训练功能需要以下模型：
 
 - `assets/rmvpe/rmvpe.pt` — RMVPE F0 提取器
-- `assets/hubert_base/` — HuBERT 特征提取器（transformers 模型目录，含 config.json + pytorch_model.bin）
+- `assets/hubert/` — HuBERT 特征提取器（transformers 模型目录，含 config.json + pytorch_model.bin）
 
 可选的预训练权重（加速训练收敛）：
 
-- `assets/pretrained_v2/f0G48k.pth` — 48k Generator
-- `assets/pretrained_v2/f0D48k.pth` — 48k Discriminator
-- `assets/pretrained_v2/f0G40k.pth` — 40k Generator（40k 训练时使用）
-- `assets/pretrained_v2/f0D40k.pth` — 40k Discriminator（40k 训练时使用）
+- `assets/pretrained/f0G48k.pth` — 48k Generator
+- `assets/pretrained/f0D48k.pth` — 48k Discriminator
+- `assets/pretrained/f0G40k.pth` — 40k Generator（40k 训练时使用）
+- `assets/pretrained/f0D40k.pth` — 40k Discriminator（40k 训练时使用）
 
 ## 使用
 
@@ -150,12 +150,12 @@ python -m venv .venv
      4. **训练** — GAN 训练（Generator + Discriminator）
 
 5. **导出模型**
-   - 训练完成（或早停触发）后，模型导出到 `assets/weights/<实验名>_e<epoch>.pth`
+   - 训练完成（或早停触发）后，模型导出到 `assets/models/<实验名>_e<epoch>.pth`
    - 训练日志 `logs/<实验名>/train.log` 记录每轮 loss（D/G/Mel/KL/FM），可复盘收敛曲线
    - 可选：在"工具" Tab 合并多个 checkpoint 或查看模型信息
 
 6. **使用训练的模型**
-   - 返回推理 GUI，加载 `assets/weights/<实验名>_e<epoch>.pth`
+   - 返回推理 GUI，加载 `assets/models/<实验名>_e<epoch>.pth`
 
 ### 训练注意事项
 
@@ -236,12 +236,13 @@ assets/
     save_state.json         # GUI 持久化状态
     48ktrain_config.json    # 48k 训练超参数
     40ktrain_config.json    # 40k 训练超参数
-  weights/                  # 推理模型
-  indices/                  # FAISS 索引
-  hubert_base/              # HuBERT 权重（transformers 模型目录）
+  models/                   # 推理模型
+  indexes/                  # FAISS 索引
+  hubert/                   # HuBERT 权重（transformers 模型目录）
   rmvpe/                    # RMVPE 权重
-  pretrained_v2/            # 预训练权重
+  pretrained/               # 预训练权重
   ffmpeg/                   # ffmpeg 二进制
+  resources/                # 图标等资源
 logs/                       # 训练实验目录
 ```
 

@@ -28,6 +28,7 @@ from gui.infer.config_manager import ConfigManager
 from gui.infer.device_manager import DeviceManager
 from gui.infer.offline_manager import OfflineManager
 from gui.infer.utils import format_error_message
+from rvc.audio.wasapi import is_exclusive_name
 from gui.styles import ButtonStyles, Layout
 
 logger = logging.getLogger(__name__)
@@ -223,6 +224,7 @@ class MainWindow(QMainWindow):
             block_time=_sl_value_as_float(self.block_time_slider),
             crossfade_time=_sl_value_as_float(self.crossfade_slider),
             extra_time=_sl_value_as_float(self.extra_time_slider),
+            wasapi_exclusive=is_exclusive_name(self.hostapi_combo.currentText()),
         )
 
     def _apply_model_params(self):

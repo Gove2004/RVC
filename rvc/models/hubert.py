@@ -26,7 +26,7 @@ class HubertModelWithFinalProj(HubertModel):
         self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
 
 
-HUBERT_MODEL_PATH = "assets/hubert_base"
+HUBERT_MODEL_PATH = "assets/hubert"
 
 
 def load_hubert(config, inference_cache=None):

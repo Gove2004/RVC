@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 logger = logging.getLogger(__name__)
 
-ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets" / "resources"
 ICON_IDLE_PATH = ASSETS_DIR / "icon_idle.png"      # 红：未运行
 ICON_ACTIVE_PATH = ASSETS_DIR / "icon_active.png"  # 绿：推理中
 

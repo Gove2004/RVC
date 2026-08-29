@@ -82,7 +82,7 @@ def _run_merge(win):
     if not Path(b).exists():
         QMessageBox.warning(win, "提示", "模型 B 不存在")
         return
-    out = str(Path("assets/weights") / f"{name}.pth")
+    out = str(Path("assets/models") / f"{name}.pth")
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())
@@ -98,6 +98,6 @@ def _on_merge_done(win, success, message):
     win.btn_merge.setStyleSheet("")
     if success:
         name = win.merge_name.text().strip()
-        QMessageBox.information(win, "完成", f"模型已保存到 assets/weights/{name}.pth")
+        QMessageBox.information(win, "完成", f"模型已保存到 assets/models/{name}.pth")
     else:
         QMessageBox.critical(win, "合并失败", message)

@@ -15,7 +15,7 @@ from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, k
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 
 # 导出模型目录：相对项目根，而非进程工作目录（防止从其他目录启动时写错位置）
-WEIGHTS_DIR = Path(__file__).resolve().parents[2] / "assets" / "weights"
+WEIGHTS_DIR = Path(__file__).resolve().parents[2] / "assets" / "models"
 
 
 @dataclass

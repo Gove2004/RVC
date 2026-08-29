@@ -13,12 +13,12 @@ __pycache__/
 .idea/
 
 # Model files (too large for git)
-assets/weights/*.pth
-assets/pretrained_v2/*.pth
+assets/models/*.pth
+assets/pretrained/*.pth
 assets/rmvpe/*.pt
 assets/rmvpe/*.onnx
-assets/hubert_base/
-assets/indices/*.index
+assets/hubert/
+assets/indexes/*.index
 assets/hubert_inputs.pth
 assets/rmvpe_inputs.pth
 
