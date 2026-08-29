@@ -7,7 +7,7 @@ from gui.infer.workers import OfflineWorker
 from rvc.inference.offline_config import OfflineConfig
 from gui.infer.utils import format_error_message
 from gui.infer.widgets import _sl_value_as_float
-from gui.infer.param_binding import collect_gui_state
+from gui.infer.param_binding import collect_gui_state, gender_to_formant
 
 if TYPE_CHECKING:
     from gui.infer.window import MainWindow
@@ -83,7 +83,9 @@ class OfflineManager:
             index_rate=_sl_value_as_float(card.index_rate_slider),
             rms_mix=state.rms_mix,
             protect=state.protect,
-            gender=_sl_value_as_float(card.gender_slider) * 5 - 2.5,  # [0,1] → [-2.5, 2.5]，与实时一致
+            gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
+            break_enable=state.break_enable,
+            break_src_hz=state.break_src_hz,
         )
         self.worker = OfflineWorker(config)
         self._converting = True

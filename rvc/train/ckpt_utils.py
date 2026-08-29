@@ -72,7 +72,7 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
         "weight": weights,
         "config": model_config,
         "info": name,
-        "sr": "48k",
+        "sr": f"{sr // 1000}k",  # 40k/48k，此前硬编码 48k 导致 40k 模型标注错误
         "f0": 1,
         "version": "v2",
     }

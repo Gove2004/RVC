@@ -41,16 +41,14 @@ class TrainWindow(QMainWindow):
     # ── 训练逻辑 ────────────────────────────────────────────
 
     def _on_sr_changed(self, text: str):
-        """采样率改变时自动填充预训练模型"""
-        sr = text
-        if not self.pretrain_g.text().strip():
-            path = Path(f"assets/pretrained_v2/f0G{sr}.pth")
-            if path.exists():
-                self.pretrain_g.setText(str(path))
-        if not self.pretrain_d.text().strip():
-            path = Path(f"assets/pretrained_v2/f0D{sr}.pth")
-            if path.exists():
-                self.pretrain_d.setText(str(path))
+        """采样率改变时自动匹配预训练 G/D（存在即填，不存在清空；用户可再手动改）。
+
+        选择 40k/48k 不再需要手动指定 G/D——自动指向 assets/pretrained_v2/f0G/f0D{sr}k.pth。
+        G/D 只是收敛加速的可选底座：留空 = 从零训练（收敛慢、音质起步低）。
+        """
+        for widget, key in ((self.pretrain_g, "G"), (self.pretrain_d, "D")):
+            path = Path(f"assets/pretrained_v2/f0{key}{text}.pth")
+            widget.setText(str(path) if path.exists() else "")
 
     def _start_step(self, step: str):
         try:
@@ -197,6 +195,11 @@ class TrainWindow(QMainWindow):
         self.epoch_label.setText(f"Epoch: {epoch} / {self.worker.options['epochs']} · Batch {batch}/{total} · {speed}{eta_text}")
 
     def on_loss(self, data: dict):
+        # 每 batch 都会收到信号，这里做 150ms 节流防止高频刷新 UI
+        now = time.monotonic()
+        if now - getattr(self, "_last_loss_t", 0.0) < 0.15:
+            return
+        self._last_loss_t = now
         text = (
             "Loss: "
             f"D {data['loss_d']:.4f} | G {data['loss_g']:.4f} | "

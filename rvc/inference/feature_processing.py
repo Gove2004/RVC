@@ -3,38 +3,19 @@ import torch
 import torch.nn.functional as F
 
 
-def cached_padding_mask(cache: dict, shape, device: str) -> tuple[torch.Tensor, bool]:
-    entry = cache.get(shape)
-    if entry is None:
-        if len(cache) >= 8:
-            cache.clear()
-        mask = torch.zeros(shape, dtype=torch.bool, device=device)
-        cache[shape] = (mask, False)  # (mask, has_nonzero)
-        return mask, False
-    mask, has_nonzero = entry
-    return mask, has_nonzero
-
-
-def extract_hubert_features(model, input_wav, device: str, is_half: bool, padding_mask_cache: dict) -> torch.Tensor:
+def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:
+    # 固定形状块不需要 padding mask：attention_mask=None（全 1）即为正确语义。
+    # 历史上曾有 has_nonzero 标记机制，恒为 False 从未触发过 mask 分支，已删。
     if not torch.is_tensor(input_wav):
         input_wav = torch.from_numpy(input_wav)
     feats = input_wav.to(device)
     feats = feats.half() if is_half else feats.float()
     feats = feats.view(1, -1)
-    padding_mask, _has_padding = cached_padding_mask(padding_mask_cache, feats.shape, device)
 
-    # For fixed-size realtime blocks the mask is pre-allocated zeros;
-    # _has_padding tracks changes without a GPU→CPU sync.
-    if not _has_padding:
-        feats_result = model(feats, attention_mask=None)
-    else:
-        attention_mask = (~padding_mask.bool()).long()
-        feats_result = model(feats, attention_mask=attention_mask)
-
-    # CUDA Graph replay 返回的已经是 clone，但边缘情况可能不走图
-    # Unpack tuple return (some models return (hidden,) not plain tensor)
-    if isinstance(feats_result, tuple):
-        feats_result = feats_result[0]
+    # transformers 模型返回 BaseModelOutput（return_dict=True），取 last_hidden_state；
+    # 兼容直接返回 tensor 的边缘模型。
+    feats_result = model(feats)
+    feats_result = getattr(feats_result, "last_hidden_state", feats_result)
     # Unconditional last-frame padding for feature alignment
     feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
     return feats_result

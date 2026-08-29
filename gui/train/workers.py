@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime import Config
-from rvc.train.extract_f0 import F0Extractor
+from rvc.train.extract_f0 import TrainF0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
 from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_diff_reason
 from rvc.train.trainer import TrainConfig, Trainer
@@ -100,7 +100,7 @@ class TrainWorker(QThread):
         self._check_stop()
         self.stage_changed.emit("提取 F0")
         self.log_message.emit("开始提取 F0")
-        extractor = F0Extractor(config.device, config.is_half)
+        extractor = TrainF0Extractor(config.device, config.is_half)
         if self._stop_requested:
             extractor.request_stop()
         extractor.run(str(exp_dir), self.progress.emit, stop_check=lambda: self._stop_requested)

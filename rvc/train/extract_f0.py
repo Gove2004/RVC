@@ -7,7 +7,13 @@ from rvc.inference.f0_extractor import F0_MEL_MAX, F0_MEL_MIN  # 复用推理侧
 from rvc.models.rmvpe import RMVPE
 
 
-class F0Extractor:
+class TrainF0Extractor:
+    """训练用 F0 提取器（批量处理切片 wav → 离散/连续 F0 npy）。
+
+    与推理侧 `rvc.inference.f0_extractor.F0Extractor`（抽象基类，RMVPE/FCPE 二选一）
+    职责不同，名字刻意区分，避免混淆。
+    """
+
     def __init__(self, device: str = "cuda:0", is_half: bool = True):
         self.device = device
         self.is_half = is_half

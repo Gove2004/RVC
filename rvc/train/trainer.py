@@ -50,7 +50,9 @@ class Trainer:
         self.json_config = load_train_json(self.cfg.sr)
         self.train_cfg = self.json_config["train"]
         self.data_cfg = self.json_config["data"]
+        # use_spectral_norm 只属于判别器，不能混进生成器构造参数（基类虽有 **kwargs 吞掉，但保持干净）
         self.model_cfg = self.json_config["model"].copy()
+        self.use_spectral_norm = bool(self.model_cfg.pop("use_spectral_norm", False))
         self.segment_size = self.train_cfg["segment_size"] // self.data_cfg["hop_length"]
         self.log_file = Path(self.cfg.exp_dir) / "train.log"
 
@@ -86,7 +88,7 @@ class Trainer:
             is_half=self.cfg.fp16_run,
             sr=self.cfg.sr,
         ).to(self.cfg.device)
-        self.net_d = MultiPeriodDiscriminatorV2(self.model_cfg.get("use_spectral_norm", False)).to(self.cfg.device)
+        self.net_d = MultiPeriodDiscriminatorV2(self.use_spectral_norm).to(self.cfg.device)
         self.optim_g = torch.optim.AdamW(self.synthesizer.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
@@ -128,7 +130,14 @@ class Trainer:
         for epoch in range(self.start_epoch, self.cfg.epochs + 1):
             if self.stop_requested:
                 break
-            loss_g, loss_mel, loss_kl, loss_fm, loss_d = self._train_epoch(epoch)
+            try:
+                loss_g, loss_mel, loss_kl, loss_fm, loss_d = self._train_epoch(epoch)
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                raise RuntimeError(
+                    f"显存不足（OOM）：请调小 Batch size（当前 {self.cfg.batch_size}）后重试。"
+                    f"已清空缓存；若反复出现可同时减小 segment（配置于 assets/configs/ 的 json）"
+                ) from None
             last_epoch = epoch
             self.scheduler_g.step()
             self.scheduler_d.step()
@@ -184,7 +193,7 @@ class Trainer:
             self.optim_d.zero_grad(set_to_none=True)
             self.scaler.scale(loss_disc).backward()
             self.scaler.unscale_(self.optim_d)
-            commons.clip_grad_value_(self.net_d.parameters(), 1.0)
+            commons.clip_grad_value_(self.net_d.parameters(), None)  # 与上游一致：不裁剪（scaler 已处理 fp16）
             self.scaler.step(self.optim_d)
 
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
@@ -198,11 +207,13 @@ class Trainer:
             self.optim_g.zero_grad(set_to_none=True)
             self.scaler.scale(loss_gen_all).backward()
             self.scaler.unscale_(self.optim_g)
-            commons.clip_grad_value_(self.synthesizer.parameters(), 1.0)
+            commons.clip_grad_value_(self.synthesizer.parameters(), None)  # 与上游一致：不裁剪
             self.scaler.step(self.optim_g)
             self.scaler.update()
 
-            if self.loss_callback and batch_idx % self.cfg.log_interval == 0:
+            if self.loss_callback:
+                # 每 batch 都上报（GUI 侧自会节流刷新），不再受 log_interval 门槛限制——
+                # 小数据集一个 epoch 可能不足 log_interval 个 batch，旧逻辑整个 epoch 都看不到 loss
                 self.loss_callback({
                     "epoch": epoch,
                     "batch": batch_idx,

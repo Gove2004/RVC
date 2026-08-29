@@ -34,10 +34,6 @@ def _clone_output(value):
         return value.clone()
     if isinstance(value, tuple):
         return tuple(_clone_output(item) for item in value)
-    if isinstance(value, list):
-        return [_clone_output(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _clone_output(item) for key, item in value.items()}
     return value
 
 

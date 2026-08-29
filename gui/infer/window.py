@@ -16,6 +16,7 @@ from gui.infer.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
     apply_gui_state as bridge_apply_gui_state,
     runtime_from_state,
+    gender_to_formant,
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
@@ -39,7 +40,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RVC 实时变声")
-        self.resize(200, 150)  # 窗口大小减半
+        self.resize(200, 150)
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.runtime_error.connect(self._handle_runtime_error)
@@ -47,7 +48,6 @@ class MainWindow(QMainWindow):
         self._lt = None
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
-        self._delay_ms = 0
         self._build_ui()
 
         # 初始化管理器
@@ -159,9 +159,10 @@ class MainWindow(QMainWindow):
         spacer1 = QSpacerItem(40, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         btn_group.addSpacerItem(spacer1)
 
-        # 右侧：延迟显示
+        # 右侧：延迟显示（硬件时间戳实测）
         self.delay_lbl = QLabel("延迟: -")
         self.delay_lbl.setMinimumWidth(100)
+        self.delay_lbl.setToolTip("端到端实测延迟（含声卡缓冲）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
         btn_group.addWidget(self.delay_lbl)
 
         ctrl.addLayout(btn_group)
@@ -203,7 +204,7 @@ class MainWindow(QMainWindow):
         return ModelConfig(
             pitch=card.pitch_slider.value(),
             index_rate=_sl_value_as_float(card.index_rate_slider),
-            gender=(_sl_value_as_float(card.gender_slider) - 0.5) * 4,
+            gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),
             protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
             f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
         )
@@ -326,7 +327,6 @@ class MainWindow(QMainWindow):
             self.model_manager.active_card.set_active(True)
         try:
             stats = self.controller.setup_engine(self.collect_engine_config())
-            self._delay_ms = stats.delay_ms
             self.sr_model_radio.setText(f"模型 {stats.sr_model}")
             self.sr_device_radio.setText(f"设备 {stats.sr_dev}")
             self._mark_running()

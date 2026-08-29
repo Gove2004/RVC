@@ -28,8 +28,14 @@ def fast_rms(wav: torch.Tensor, frame_length: int, hop_length: int) -> torch.Ten
     return torch.sqrt(torch.clamp(F.avg_pool1d(squared, frame_length, hop_length).squeeze(), min=1e-8))
 
 
-def apply_rms_mix(reference: torch.Tensor, converted: torch.Tensor, rms_mix: float, hz_per_centisecond: int) -> torch.Tensor:
-    """应用RMS音量包络混合。
+def apply_rms_mix(
+    reference: torch.Tensor,
+    converted: torch.Tensor,
+    rms_mix: float,
+    hz_per_centisecond: int,
+    ref_hz: int | None = None,
+) -> torch.Tensor:
+    """应用RMS音量包络混合（实时/离线共用）。
 
     计算参考音频和转换音频各自的RMS包络，通过线性插值对齐长度后，
     按公式: converted * (ref_rms / conv_rms)^(1 - rms_mix) 进行音量调整。
@@ -38,12 +44,14 @@ def apply_rms_mix(reference: torch.Tensor, converted: torch.Tensor, rms_mix: flo
         reference: 参考音频张量 [samples]
         converted: 转换后的音频张量 [samples]
         rms_mix: 混合比例 0~1，1表示完全跟随参考音量
-        hz_per_centisecond: 每百分秒的Hz数，用于RMS计算的时间尺度
+        hz_per_centisecond: 转换音频的厘秒 Hz（实时路径参考与转换同采样率，直接传 sr//100）
+        ref_hz: 参考音频的厘秒 Hz（离线路径源 16k ≠ 目标 sr 时传 160；None = 与转换侧相同）
 
     Returns:
         音量调整后的转换音频 [samples]
     """
-    r1 = fast_rms(reference[:converted.shape[0]], 4 * hz_per_centisecond, hz_per_centisecond)
+    r_hz = ref_hz if ref_hz is not None else hz_per_centisecond
+    r1 = fast_rms(reference[:converted.shape[0]], 4 * r_hz, r_hz)
     r1 = F.interpolate(r1[None, None], size=converted.shape[0] + 1, mode="linear", align_corners=True)[0, 0, :-1]
     r2 = fast_rms(converted, 4 * hz_per_centisecond, hz_per_centisecond)
     r2 = F.interpolate(r2[None, None], size=converted.shape[0] + 1, mode="linear", align_corners=True)[0, 0, :-1]

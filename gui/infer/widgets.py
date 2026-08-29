@@ -10,12 +10,38 @@ from PySide6.QtCore import Qt, QThread, Signal
 from gui.configs import load_config, save_config
 from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
 
-__all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_sl_value_as_float"]
+__all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_slrow", "_sl_value_as_float"]
 
 
 def _sl(mn, mx, st, dv):
     s = QSlider(Qt.Orientation.Horizontal)
     s.setRange(mn, mx); s.setSingleStep(st); s.setValue(dv)
+    return s
+
+
+def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=35):
+    """创建「滑杆 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
+
+    参数为**物理值**（工厂内部按 ×100 编码到 QSlider；运行时 QSlider.value()/100
+    即物理值，与 param_binding 的 X100 读写兼容）。fmt/unit 控制标签显示。
+    返回 slider。一处样板替换原先「建滑块 + 建 label + connect 格式化」三行。
+    """
+    s = QSlider(Qt.Orientation.Horizontal)
+    s.setRange(int(mn * 100), int(mx * 100))
+    s.setSingleStep(int(st * 100))
+    s.setValue(int(dv * 100))
+    lbl = QLabel()
+    lbl.setMinimumWidth(label_w)
+
+    def _fmt(v):
+        return f"{v / 100:{fmt}}{unit}"
+
+    lbl.setText(_fmt(s.value()))
+    s.valueChanged.connect(lambda v: lbl.setText(_fmt(v)))
+    setattr(win, attr, s)
+    # 约定：滑块属性 xxx_slider → 值标签属性 xxx_label
+    label_attr = attr[:-7] + "_label" if attr.endswith("_slider") else attr + "_label"
+    setattr(win, label_attr, lbl)
     return s
 
 
@@ -97,9 +123,10 @@ class ModelCard(QFrame):
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
 
-        gender_slider_val = int(((gender + 2.5) / 5.0) * 100)
+        # 滑杆 [0,1] ↔ formant shift [-2,+2]，换算必须与 param_binding.gender_to_formant 互逆
+        gender_slider_val = int(((gender / 4.0) + 0.5) * 100)
         self.gender_slider = _sl(0, 100, 1, gender_slider_val); self.gender_label = QLabel(f"{gender:+.2f}")
-        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{(v / 100 * 5 - 2.5):+.2f}"))
+        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{((v / 100 - 0.5) * 4):+.2f}"))
         bl.addWidget(QLabel("性别因子"), r, 0); bl.addWidget(self.gender_slider, r, 1); bl.addWidget(self.gender_label, r, 2); r += 1
 
         self.index_rate_slider = _sl(0, 100, 1, int(index_rate * 100)); self.index_rate_label = QLabel(f"{index_rate:.2f}")

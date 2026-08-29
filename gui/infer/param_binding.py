@@ -29,7 +29,7 @@ BINDINGS = [
     ("block_time", "block_time_slider", X100, "bl", 0.25),
     ("crossfade_time", "crossfade_slider", X100, "cf", 0.05),
     ("extra_time", "extra_time_slider", X100, "ex", 2.5),
-    ("protect", "protect_slider", X100, "protect", 0.25),
+    ("protect", "protect_slider", X100, "protect", 0.5),
     ("f0method", "f0_rmvp_btn", RADIO_F0, "f0", "fcpe"),
     ("sr_mode", "sr_model_radio", RADIO_SR, "sr_mode", "model"),
     ("rms_mix", "rms_mix_slider", X100, "rms", 0.0),
@@ -44,6 +44,11 @@ BINDINGS = [
     ("active_model", "", TEXT, "active_model", ""),
 ]
 
+# 需要按控件步长量化的字段：字段名 → 量化步长（状态值域单位，如 5.0 = 5Hz）。
+# 存储精度（浮点）高于控件精度（QSlider 离散步长）时，载入值会被 QSlider snap，
+# 造成「文件里的值 ≠ 界面上的值 ≠ 实际生效值」。载入时先量化到控件合法值，三者对齐。
+QUANTIZE = {"break_src_hz": 5.0}
+
 
 def _parse(kind, raw):
     """按读写方式把存储值转回状态字段类型"""
@@ -55,8 +60,14 @@ def _parse(kind, raw):
 
 
 def state_from_dict(data: dict) -> InferGuiState:
-    """持久化字典（短键）→ 状态对象"""
-    return InferGuiState(**{field: _parse(kind, data.get(key, default))
+    """持久化字典（短键）→ 状态对象（并按控件步长量化）"""
+
+    def value(field, kind, key, default):
+        v = _parse(kind, data.get(key, default))
+        step = QUANTIZE.get(field)
+        return round(v / step) * step if step else v
+
+    return InferGuiState(**{field: value(field, kind, key, default)
                             for field, _w, kind, key, default in BINDINGS})
 
 
@@ -141,3 +152,11 @@ def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
         break_enable=state.break_enable,
         break_src_hz=state.break_src_hz,
     )
+
+
+def gender_to_formant(v: float) -> float:
+    """性别滑杆值 [0,1] → formant shift [-2, +2]。
+
+    实时/离线共用此换算，禁止在别处另写一份（历史教训：离线曾用 v*5-2.5 导致两条路径不一致）。
+    """
+    return (v - 0.5) * 4

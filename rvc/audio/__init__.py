@@ -1,4 +1,4 @@
-"""音频处理模块 — 加载、流管理、工具函数、效果器基类
+"""音频处理模块 — 加载、流管理、工具函数、降噪
 
 注意：子模块（realtime_engine/denoise/sola 等）依赖 torch/librosa，属于重型模块。
 本包采用惰性导出，GUI 启动路径上只加载轻量子模块（device_query/sounddevice），
@@ -11,8 +11,6 @@ __all__ = [
     "load_audio_native",
     "RealtimeEngine",
     "get_audio_devices",
-    "match_rms",
-    "AudioEffect",
     "SpectralSubtraction",
 ]
 
@@ -21,8 +19,6 @@ _MODULE_MAP = {
     "load_audio_native": "rvc.audio.loader",
     "RealtimeEngine": "rvc.audio.realtime_engine",
     "get_audio_devices": "rvc.audio.device_query",
-    "match_rms": "rvc.audio.utils",
-    "AudioEffect": "rvc.audio.effects",
     "SpectralSubtraction": "rvc.audio.denoise",
 }
 

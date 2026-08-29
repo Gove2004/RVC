@@ -4,9 +4,11 @@ import torch
 from rvc.inference.f0_extractor import create_f0_extractor
 
 # 实时 pitch 缓存长度：必须 ≥ 最大可能 p_len（16k 缓冲总帧数）。
-# p_len = 总时长(extra_time+block+交叉淡化+SOLA搜索) × 100 帧/秒；
-# UI 允许 extra_time 最大 15s + block 1.0s → p_len_max ≈ 1616，取 2048 留余量。
+# p_len = 总时长(extra_time + block + 交叉淡化 + SOLA搜索) × 100 帧/秒；
+# UI 上限：extra_time 5.0s + block_time 1.0s + crossfade 0.15s + SOLA搜索 0.01s
+# → p_len_max ≈ 616，取 2048 留 3 倍余量。
 # 之前 1024 会在 extra_time 调大时截断 pitchf，导致 protect_blend 维度不匹配（1031 vs 1024）。
+# 改 UI 上限时必须同步复核此值。
 PITCH_CACHE_SIZE = 2048
 
 

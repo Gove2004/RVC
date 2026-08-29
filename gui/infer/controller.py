@@ -46,7 +46,6 @@ class EngineConfig:
 class EngineStats:
     sr_model: int
     sr_dev: int
-    delay_ms: int
 
 
 class InferController:
@@ -106,11 +105,8 @@ class InferController:
             except Exception:
                 self.engine.stop()  # 副输出失败时停掉主流，避免引擎失控
                 raise
-        # 延迟估算：弃用 stream.latency（PortAudio 报告各 API 差异巨大且普遍过估，
-        # 实测 WASAPI 报 800ms/MME 报 500ms 但听感一致）。
-        # 模型 = 输入攒块(block_time) + 输出播放一个块(block_time) + SOLA 交叉淡化 + 调度余量
-        delay = 2 * config.block_time + config.crossfade_time + 0.01
-        return EngineStats(self.engine.sr_model, self.engine.sr_dev, int(delay * 1000))
+        # 延迟显示已改用硬件时间戳实测（engine.measure_ms，见 _cb），此处不再估算。
+        return EngineStats(self.engine.sr_model, self.engine.sr_dev)
 
     def stop(self):
         self.engine.stop()

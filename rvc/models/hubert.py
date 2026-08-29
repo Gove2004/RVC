@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 class HubertModelWithFinalProj(HubertModel):
-    """Transformers HuBERT 加 RVC 需要的 final_proj 层。"""
+    """Transformers HuBERT 加 RVC 需要的 final_proj 层。
+
+    forward 直接可调用（transformers 约定，return_dict=True 默认返回
+    BaseModelOutput），特征提取层用 outputs.last_hidden_state 取值，
+    不再需要包装层。final_proj 是 RVC 导出模型的固定结构。
+    """
     def __init__(self, config):
         super().__init__(config)
         self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
@@ -45,44 +50,5 @@ def load_hubert(config, inference_cache=None):
     else:
         hubert_model = hubert_model.float()
 
-    wrapped = _HubertWrapper(hubert_model)
-    inference_cache.set_hubert(cache_key, wrapped)
-    return wrapped
-
-
-class _HubertWrapper:
-    """包装 transformers HuBERT，提供与 pipeline 兼容的 extract_features 接口。"""
-
-    def __init__(self, model):
-        self.model = model
-
-    def to(self, device):
-        self.model = self.model.to(device)
-        return self
-
-    def half(self):
-        self.model = self.model.half()
-        return self
-
-    def float(self):
-        self.model = self.model.float()
-        return self
-
-    def eval(self):
-        self.model = self.model.eval()
-        return self
-
-    def __call__(self, input_values, attention_mask=None):
-        """Callable forward — 供 feature_processing 直接调用。
-
-        返回 tensor（last_hidden_state）。
-        """
-        kwargs = {
-            "input_values": input_values,
-            "attention_mask": attention_mask,
-            "output_hidden_states": False,
-            "return_dict": True,
-        }
-        outputs = self.model(**kwargs)
-        return outputs.last_hidden_state
-
+    inference_cache.set_hubert(cache_key, hubert_model)
+    return hubert_model

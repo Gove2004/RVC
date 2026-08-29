@@ -41,6 +41,8 @@ class HuBERTExtractor:
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)
         with torch.no_grad():
-            feats_result = self.model(feats, attention_mask=None)
+            # transformers 模型返回 BaseModelOutput，取 last_hidden_state（与推理侧一致）
+            feats_result = self.model(feats)
+            feats_result = getattr(feats_result, "last_hidden_state", feats_result)
             feats = feats_result.squeeze(0).float().cpu().numpy()
         return feats.astype(np.float32)

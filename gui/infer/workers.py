@@ -23,7 +23,6 @@ class OfflineWorker(QThread):
     def run(self):
         import torch  # 惰性导入，避免 GUI 启动时加载 torch
 
-        vc = None
         try:
             self._do_run()
         except Exception:
@@ -32,8 +31,6 @@ class OfflineWorker(QThread):
             self.error.emit(tb.strip())
         finally:
             try:
-                if vc is not None:
-                    del vc
                 torch.cuda.empty_cache()
             except Exception:
                 pass
@@ -42,9 +39,10 @@ class OfflineWorker(QThread):
         import librosa
         import numpy as np
         import soundfile as sf
+        import torch
 
         from rvc.audio.loader import load_audio_native
-        from rvc.audio.utils import match_rms
+        from rvc.audio.realtime_mix import apply_rms_mix
 
         self.progress.emit(0, 100)
         wav, sr = load_audio_native(self.cfg.input_path)
@@ -64,9 +62,10 @@ class OfflineWorker(QThread):
         # 使用运行时配置（device, is_half 等）创建 pipeline
         vc = VCPipeline(Config(), self.cfg.model_path, self.cfg.index_path, self.cfg.index_rate)
         vc.load()
-        # 根据 gender 设置 formant shift（与实时推理保持一致；已是 [-2.5, 2.5]）
+        # 与实时路径一致的参数应用（性别 formant / 音高 / 破音保护）
         vc.change_formant(self.cfg.gender)
         vc.change_key(self.cfg.pitch)
+        vc.change_f0_proc(self.cfg.break_enable, self.cfg.break_src_hz)
         self.progress.emit(20, 100)
 
         tgt_sr = vc.target_sr
@@ -80,7 +79,10 @@ class OfflineWorker(QThread):
         audio1 = audio1[t_pad_tgt : -t_pad_tgt] if t_pad_tgt > 0 else audio1
 
         if self.cfg.rms_mix != 1:
-            audio1 = match_rms(wav, 16000, audio1, tgt_sr, self.cfg.rms_mix)
+            # 统一走 torch GPU 版 RMS（与实时路径同实现，ref_hz=160 因源 16k ≠ 目标 sr）
+            ref = torch.from_numpy(np.ascontiguousarray(wav, dtype=np.float32))
+            conv = torch.from_numpy(np.ascontiguousarray(audio1, dtype=np.float32))
+            audio1 = apply_rms_mix(ref, conv, self.cfg.rms_mix, tgt_sr // 100, ref_hz=160).numpy()
 
         audio_max = np.abs(audio1).max() / 0.99
         if audio_max > 1:

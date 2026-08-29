@@ -9,7 +9,7 @@ from rvc.inference.feature_processing import clone_protect_source, extract_huber
 from rvc.inference.index_retrieval import apply_faiss_index, load_index
 from rvc.inference.model_session import load_model_session
 from rvc.inference.pitch_tracker import create_pitch_cache, prepare_offline_pitch, update_realtime_pitch_cache
-from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_offline_audio, infer_realtime_audio
+from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +52,22 @@ class VCPipeline:
         self.model_rmvpe = None
         self.model_fcpe = None
         self._long_tensor_cache = {}
-        self._padding_mask_cache = {}
-        self._faiss_blend_counter = None
+        # FAISS 降频状态：每 4 块跑一次混合，中间块沿用上次混合结果。
+        # counter 必须初始化为 [0]（首块即混合）；cache 持有上次混合特征段。
+        self._faiss_blend_counter = [0]
+        self._faiss_blend_cache = [None]
 
     def _cached_long_tensor(self, value: int) -> torch.Tensor:
         return cached_long_tensor(self._long_tensor_cache, value, self.device)
 
     def load(self) -> None:
         session = load_model_session(self.config, self.pth_path, self.index_path, self.index_rate, self.inference_cache)
-        self.hubert_model = session["hubert"]
-        self.synthesizer = session["synthesizer"]
-        self.target_sr = session["target_sr"]
-        self.use_f0 = session["use_f0"]
-        self.index = session["index"]
-        self.index_vectors = session["index_vectors"]
+        self.hubert_model = session.hubert
+        self.synthesizer = session.synthesizer
+        self.target_sr = session.target_sr
+        self.use_f0 = session.use_f0
+        self.index = session.index
+        self.index_vectors = session.index_vectors
 
     def change_key(self, key: int) -> None:
         self.f0_semitones = key
@@ -87,17 +89,17 @@ class VCPipeline:
         self.index_rate = rate
 
     def _extract_hubert_features(self, input_wav):
-        return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half, self._padding_mask_cache)
+        return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
 
     def _clone_protect_source(self, feats, protect):
         return clone_protect_source(feats, self.use_f0, protect)
 
     def _apply_faiss_index(self, feats, skip_head=0):
-        feats, _ = apply_faiss_index(
+        return apply_faiss_index(
             feats, self.index, self.index_vectors, self.index_rate, self.is_half, self.device,
             skip_head, blend_every_n=4, blend_counter=self._faiss_blend_counter,
+            blend_cache=self._faiss_blend_cache,
         )
-        return feats
 
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
@@ -140,7 +142,7 @@ class VCPipeline:
         p_len_t = self._cached_long_tensor(p_len)
         sid = self._cached_long_tensor(0)
         with torch.no_grad():
-            result = infer_offline_audio(self.synthesizer, feats, p_len_t, pitch, pitchf, sid, self.use_f0, self.is_half)
+            result = infer_synth_audio(self.synthesizer, feats, p_len_t, pitch, pitchf, sid, self.use_f0, self.is_half)
 
         audio = result[0][0, 0].data.float()
         audio = apply_formant_resample(audio, factor, self.target_sr, self.resample_kernel, self.device)
@@ -215,18 +217,18 @@ class VCPipeline:
         """Synthesizer 实时推理，返回 [channels, frames] 音频"""
         p_len_t = self._cached_long_tensor(p_len)
         sid = self._cached_long_tensor(0)
-        infered_audio, _, _ = infer_realtime_audio(
+        infered_audio, _, _ = infer_synth_audio(
             self.synthesizer,
             feats,
             p_len_t,
             cache_pitch,
             cache_pitchf,
             sid,
-            skip_head,
-            return_length,
-            return_length2_val,
             self.use_f0,
             self.is_half,
+            skip_head=skip_head,
+            return_length=return_length,
+            return_length2=return_length2_val,
         )
         return infered_audio.squeeze(1).float()
 

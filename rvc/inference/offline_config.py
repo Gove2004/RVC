@@ -15,3 +15,5 @@ class OfflineConfig:
     rms_mix: float
     protect: float
     gender: float = 0.0
+    break_enable: bool = True   # 破音保护（与实时一致，GUI 源值）
+    break_src_hz: float = 300.0

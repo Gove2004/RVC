@@ -42,7 +42,8 @@ class SynthesizerLoader:
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
         target_sr = ckpt["config"][-1]
         use_f0 = ckpt.get("f0", 1)
-        n_speakers = ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
+        # 修正 config 中的说话人数：部分导出模型该位为 -1，必须与实际 emb_g 行数一致
+        ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
 
         from rvc.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
         if use_f0 == 1:

@@ -19,54 +19,41 @@ def cast_pitch_tensors(pitch: torch.Tensor, pitchf: torch.Tensor, is_half: bool)
     return pitch.long(), pitchf.float()
 
 
-def infer_offline_audio(synthesizer, feats, p_len_t, pitch, pitchf, sid, use_f0: int, is_half: bool):
-    """离线推理调用，走 CUDA Graph（如果启用）。"""
-    if use_f0 == 1:
-        pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
-        result = run_cuda_graph(
-            synthesizer, "synth-offline-f0",
-            lambda: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid),
-        )
-    else:
-        result = run_cuda_graph(
-            synthesizer, "synth-offline-no-f0",
-            lambda: synthesizer.infer(feats, p_len_t, None, None, sid),
-        )
-    return result
-
-
-def infer_realtime_audio(
+def infer_synth_audio(
     synthesizer,
     feats,
     p_len_t,
-    cache_pitch,
-    cache_pitchf,
+    pitch,
+    pitchf,
     sid,
-    skip_head: int,
-    return_length: int,
-    return_length2: int,
     use_f0: int,
     is_half: bool,
+    skip_head: int | None = None,
+    return_length: int | None = None,
+    return_length2: int | None = None,
 ):
-    """实时推理调用，走 CUDA Graph（如果启用）。"""
+    """Synthesizer 推理调用（实时/离线共用），走 CUDA Graph（如果启用）。
+
+    离线路径不传 skip_head/return_length/return_length2（synthesizer.infer 走 5 参签名）；
+    实时路径三者必传（8 参签名，含 skip_head/return_length/return_length2）。
+    """
+    realtime = skip_head is not None
     if use_f0 == 1:
-        cache_pitch, cache_pitchf = cast_pitch_tensors(cache_pitch, cache_pitchf, is_half)
-        result = run_cuda_graph(
-            synthesizer, "synth-realtime-f0",
-            lambda: synthesizer.infer(
-                feats, p_len_t, cache_pitch, cache_pitchf, sid,
-                skip_head, return_length, return_length2,
-            ),
-        )
+        pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
+        if realtime:
+            graph_key = "synth-realtime-f0"
+            call = lambda: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid, skip_head, return_length, return_length2)
+        else:
+            graph_key = "synth-offline-f0"
+            call = lambda: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid)
     else:
-        result = run_cuda_graph(
-            synthesizer, "synth-realtime-no-f0",
-            lambda: synthesizer.infer(
-                feats, p_len_t, None, None, sid,
-                skip_head, return_length, return_length2,
-            ),
-        )
-    return result
+        if realtime:
+            graph_key = "synth-realtime-no-f0"
+            call = lambda: synthesizer.infer(feats, p_len_t, None, None, sid, skip_head, return_length, return_length2)
+        else:
+            graph_key = "synth-offline-no-f0"
+            call = lambda: synthesizer.infer(feats, p_len_t, None, None, sid)
+    return run_cuda_graph(synthesizer, graph_key, call)
 
 
 def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, resample_kernel: dict, device: str) -> torch.Tensor:

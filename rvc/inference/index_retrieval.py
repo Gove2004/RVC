@@ -50,33 +50,46 @@ def apply_faiss_index(
     is_half: bool,
     device: str,
     skip_head: int = 0,
-    blend_every_n: int = 4,
+    blend_every_n: int = 1,
     blend_counter: list[int] | None = None,
-) -> tuple[torch.Tensor, int | None]:
+    blend_cache: list | None = None,
+) -> torch.Tensor:
     """Apply FAISS index blending with optional frequency reduction.
 
+    降频语义：每 blend_every_n 块真正跑一次 FAISS（含 GPU→CPU→GPU 同步，
+    回调内最贵的操作之一）；中间块**沿用上一次的混合结果**（而非原生特征），
+    避免音色每 N 块周期性跳动。blend_cache 由调用方持有（如 [None]）。
+
     Args:
-        blend_every_n: Run FAISS every Nth block (1 = every block). Reduces GPU-CPU-GPU sync overhead.
-        blend_counter: Mutable single-element list [count]. If None, FAISS runs every block.
+        blend_every_n: 每 N 块跑一次 FAISS（1 = 每块都跑）。
+        blend_counter: 单元素列表 [count]，必须初始化为 [0]（首块即混合）。
+        blend_cache: 单元素列表，缓存上次混合后的特征段。
 
     Returns:
-        (feats, blend_counter) — counter is None if blend_every_n <= 1 or no counter provided.
+        混合后的 feats（原地修改）。
     """
     if index is None or index_vectors is None or index_rate <= 0:
-        return feats, blend_counter
+        return feats
 
     should_blend = True
     if blend_counter is not None and blend_every_n > 1:
-        blend_counter[0] = (blend_counter[0] + 1) % blend_every_n
         should_blend = blend_counter[0] == 0
+        blend_counter[0] = (blend_counter[0] + 1) % blend_every_n
 
-    if not should_blend:
-        return feats, blend_counter
+    start = skip_head // 2
+    seg = feats[0][start:]
 
-    try:
-        npy = feats[0][skip_head // 2:].detach().cpu().numpy().astype("float32")
-        blended = faiss_blend(npy, index, index_vectors, index_rate, is_half)
-        feats[0][skip_head // 2:] = torch.from_numpy(blended).to(device)
-    except Exception as e:
-        logger.warning("FAISS 索引混合失败，使用原始特征: %s", e)
-    return feats, blend_counter
+    if should_blend:
+        try:
+            npy = seg.detach().cpu().numpy().astype("float32")
+            blended = faiss_blend(npy, index, index_vectors, index_rate, is_half)
+            feats[0][start:] = torch.from_numpy(blended).to(device)
+            if blend_cache is not None:
+                blend_cache[0] = feats[0][start:].clone()
+        except Exception as e:
+            logger.warning("FAISS 索引混合失败，使用原始特征: %s", e)
+    elif blend_cache is not None and blend_cache[0] is not None:
+        cached = blend_cache[0]
+        if cached.shape[0] == seg.shape[0]:
+            feats[0][start:] = cached
+    return feats
