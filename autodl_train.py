@@ -854,7 +854,7 @@ def step_train(log: TrainLogger, cfg: dict):
         keep_models=cfg["keep_models"],
     )
 
-    state = {"t_epoch": time.time(), "sum": None, "count": 0, "batches": 0, "samples": 0, "last_ckpt": 0}
+    state = {"t_epoch": time.time(), "sum": None, "count": 0, "batches": 0, "samples": 0, "last_ckpt": 0, "ema_secs": None}
 
     def _reset_epoch():
         state["sum"] = {"d": 0.0, "g": 0.0, "mel": 0.0, "kl": 0.0, "fm": 0.0}
@@ -874,18 +874,14 @@ def step_train(log: TrainLogger, cfg: dict):
         for key, field in (("d", "loss_d"), ("g", "loss_g"), ("mel", "loss_mel"), ("kl", "loss_kl"), ("fm", "loss_fm")):
             s[key] += info[field]
         state["count"] += 1
-        if info["batch"] % 20 == 0 or info["batch"] == 1:
-            log.log(
-                f"e{info['epoch']:>4} b{info['batch']:>5} | "
-                f"D {info['loss_d']:.4f} G {info['loss_g']:.4f} "
-                f"Mel {info['loss_mel']:.4f} KL {info['loss_kl']:.4f} FM {info['loss_fm']:.4f}",
-                "STEP",
-            )
 
     def on_epoch(epoch, total):
         s, n = state["sum"], max(state["count"], 1)
         secs = time.time() - state["t_epoch"]
-        left = secs * (total - epoch)
+        # ETA 用 EMA 平滑耗时，避免单轮波动（8.6→9.5→8.1s）让剩余时间来回跳
+        ema = secs if state["ema_secs"] is None else state["ema_secs"] * 0.7 + secs * 0.3
+        state["ema_secs"] = ema
+        left = ema * (total - epoch)
         eta = _human_dur(left) if left > 0 else "--"
         lr_now = ""
         if STOP.trainer is not None and hasattr(STOP.trainer, "optim_g") and STOP.trainer.optim_g is not None:
