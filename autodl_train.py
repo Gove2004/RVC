@@ -3,16 +3,28 @@
 交互式，无需记任何参数：
     python autodl_train.py
 
-流程：环境体检 → 逐项提问（全部带默认值，直接回车即可）→ 打印配置摘要 → 开始训练。
-自包含：不修改项目任何现有代码，只在运行时把 ffmpeg 路径重定向到系统 ffmpeg。
+流程：
+    1) 检查 Python 库环境（依赖 / GPU / 磁盘 / ffmpeg）
+    2) 检查预训练模型（HuBERT / RMVPE / 底模 / 训练配置）
+    3) 训练参数追问（全部带默认值，一路回车即可）
+    4) 开始训练（预处理 → F0 → 特征 → 训练，已完成步骤自动跳过）
 
-非交互场景（后台/脚本）也能用：答案从 stdin 逐行读取，EOF 自动取默认值
+产物默认落在数据盘（云上 = /root/autodl-tmp，避免撑爆 30G 系统盘）：
+    日志/切片/checkpoint : /root/autodl-tmp/logs/<实验名>/
+    导出模型             : /root/autodl-tmp/models/<实验名>/
+可用环境变量 RVC_OUT_ROOT 改输出根目录，RVC_FFMPEG 指定 ffmpeg。
+
+自包含：不修改项目任何现有代码，只在运行时重定向 ffmpeg 路径与导出目录。
+
+非交互场景（后台挂机）也能用：答案按行喂给 stdin，EOF 自动取默认值
     printf '/root/autodl-tmp/voice\\n\\n\\n' | nohup python autodl_train.py > run.log 2>&1 &
 数据集路径也可直接作为第一个参数传入（其余仍走问答）：
     python autodl_train.py /root/autodl-tmp/voice
+另有 --fresh 开关：删除已有 checkpoint 从头训练（默认检测到就续训）。
 """
 import importlib.util
 import os
+import platform
 import shutil
 import signal
 import sys
@@ -21,7 +33,7 @@ import warnings
 from pathlib import Path
 
 # ── 0. 控制台编码 + 工作目录 ──────────────────────────────────────────
-# 项目内大量路径是相对 cwd 的（assets/hubert、assets/rmvpe、logs、assets/configs），
+# 项目内大量路径是相对 cwd 的（assets/hubert、assets/rmvpe、assets/configs），
 # 统一切到脚本所在目录（=项目根）后全部自然生效，无需改动任何代码。
 PROJECT_ROOT = Path(__file__).resolve().parent
 os.chdir(PROJECT_ROOT)
@@ -33,6 +45,17 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+# 云上系统盘只有 30G，训练产物一律走数据盘；本地（无 /root/autodl-tmp）降级到项目内
+_DEFAULT_CLOUD_ROOT = Path("/root/autodl-tmp")
+if os.environ.get("RVC_OUT_ROOT", "").strip():
+    DATA_ROOT = Path(os.environ["RVC_OUT_ROOT"].strip()).expanduser()
+elif _DEFAULT_CLOUD_ROOT.is_dir():
+    DATA_ROOT = _DEFAULT_CLOUD_ROOT
+else:
+    DATA_ROOT = PROJECT_ROOT / "autodl-tmp"
+LOGS_ROOT = DATA_ROOT / "logs"
+MODELS_ROOT = DATA_ROOT / "models"
 
 # 环境检测用（纯元数据查询，不真正执行模块）
 REQUIRED_PACKAGES = [
@@ -56,7 +79,18 @@ NATIVE_EXTS = {".wav", ".flac", ".ogg"}
 
 EXIT_OK, EXIT_ENV, EXIT_RUNTIME = 0, 1, 2
 
-BAR = "─" * 62
+BAR = "─" * 66
+
+DEFAULTS = {
+    "exp": "test",
+    "sr": "48k",
+    "epochs": 100,
+    "lr": 1e-4,
+    "save_every": 20,
+    "early_stop": 30,
+    "per": 3.7,
+    "keep_models": 2,
+}
 
 
 class Cancelled(Exception):
@@ -69,7 +103,11 @@ class EnvFatal(Exception):
 
 # ── 1. 日志 ──────────────────────────────────────────────────────────
 class TrainLogger:
-    """控制台 + 日志文件。日志路径在实验名确定后才 attach，之前的行先缓冲。"""
+    """控制台 + 日志文件。
+
+    启动即写到引导日志（输出根/logs/autodl_train.log），实验名确定后 reattach 到
+    <实验目录>/autodl_train.log，并把引导阶段的内容原样搬到新文件头部，最终只留一份。
+    """
 
     def __init__(self):
         self.log_file = None
@@ -79,15 +117,36 @@ class TrainLogger:
 
     def attach(self, log_file: Path):
         self.log_file = log_file
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self._fp = self.log_file.open("a", encoding="utf-8")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        self._fp = log_file.open("a", encoding="utf-8")
         for level, msg in self._buffer:
             self._write(level, msg)
         self._buffer.clear()
 
+    def reattach(self, log_file: Path):
+        """把日志搬到新位置，旧内容搬到新文件头部。"""
+        old_file, old_fp = self.log_file, self._fp
+        carried = []
+        try:
+            if old_fp:
+                old_fp.close()
+            if old_file and old_file.exists() and old_file != log_file:
+                carried = old_file.read_text(encoding="utf-8").splitlines()
+                old_file.unlink()
+        except Exception:
+            pass
+        self._buffer.clear()
+        self.attach(log_file)
+        if carried:
+            self._fp.write("—— 以下为实验名确定前的体检记录 ——\n")
+            for line in carried:
+                self._fp.write(line + "\n")
+            self._fp.write("——————————————————\n")
+            self._fp.flush()
+
     @staticmethod
     def _stamp():
-        return time.strftime("%H:%M:%S")
+        return time.strftime("%m-%d %H:%M:%S")
 
     def _write(self, level, msg):
         self._fp.write(f"[{self._stamp()}] [{level:<5}] {msg}\n")
@@ -101,13 +160,20 @@ class TrainLogger:
         else:
             self._buffer.append((level, msg))
 
+    def file_only(self, msg: str, level: str = "INFO"):
+        """只写日志、不上屏（Trainer 自带的 epoch loss 行与下面的 EPOCH 行重复）。"""
+        if self._fp:
+            self._write(level, msg)
+        else:
+            self._buffer.append((level, msg))
+
     def plain(self, msg: str = ""):
         """只上屏、不进日志的分隔/提示行。"""
         print(msg, flush=True)
 
     def section(self, title: str):
         self.plain(BAR)
-        self.log(f"  {title}")
+        self.log(f"【{title}】")
         self.plain(BAR)
 
     def elapsed(self):
@@ -206,47 +272,100 @@ def _as_sr(raw):
     return f"{value // 1000}k" if value >= 1000 else f"{value}k"
 
 
+def _human_size(num_bytes: float) -> str:
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.1f}{unit}" if unit != "B" else f"{int(size)}B"
+        size /= 1024
+
+
+def _human_dur(seconds: float) -> str:
+    seconds = int(max(seconds, 0))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60:02d}s"
+    return f"{seconds // 3600}h{(seconds % 3600) // 60:02d}m"
+
+
 # ── 3. 环境体检 ──────────────────────────────────────────────────────
+def _probe_platform(log: TrainLogger):
+    mem_gb = 0.0
+    try:
+        import os as _os
+
+        if hasattr(_os, "sysconf") and "SC_PHYS_PAGES" in _os.sysconf_names:
+            mem_gb = _os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / 1024 ** 3
+    except Exception:
+        pass
+    log.log(f"系统        : {platform.system()} {platform.release()}")
+    log.log(f"Python      : {sys.version.split()[0]}  ({sys.executable})")
+    log.log(f"CPU / 内存  : {os.cpu_count()} 核 / {mem_gb:.1f} GB" if mem_gb else f"CPU         : {os.cpu_count()} 核")
+    log.log(f"项目根目录  : {PROJECT_ROOT}")
+    log.log(f"产物根目录  : {DATA_ROOT}")
+
+
+def _probe_disk(log: TrainLogger):
+    for label, path in (("系统盘", PROJECT_ROOT), ("产物盘", DATA_ROOT)):
+        try:
+            usage = shutil.disk_usage(path if path.exists() else Path(path.anchor))
+            log.log(f"{label}剩余   : {_human_size(usage.free)} / {_human_size(usage.total)}  ({path})")
+            if usage.free < 5 * 1024 ** 3:
+                log.log(f"{label}剩余不足 5GB，训练中途可能写满，建议先清理或扩容", "WARN")
+        except Exception as exc:
+            log.log(f"{label}空间查询失败: {exc}", "WARN")
+
+
 def _probe_packages(log: TrainLogger) -> list[str]:
     missing = []
+    rows = []
     for import_name, pip_name, desc in REQUIRED_PACKAGES:
-        if importlib.util.find_spec(import_name) is None:
+        spec = importlib.util.find_spec(import_name)
+        if spec is None:
             missing.append((pip_name, desc))
+            rows.append(f"{pip_name:<14} 缺失  {desc}")
+        else:
+            rows.append(f"{pip_name:<14} OK")
+    for row in rows:
+        log.log(f"  {row}")
+
     if missing:
         log.log("缺少以下必需依赖：", "ERROR")
         for pip_name, desc in missing:
             log.log(f"  · {pip_name:<14} {desc}", "ERROR")
         log.plain()
-        log.log("请先安装（AutoDL 镜像一般已带 torch，只补缺的即可）：", "ERROR")
+        log.log("安装命令（AutoDL 镜像一般已带 torch，只补缺的即可）：", "ERROR")
         log.log(f"  pip install {' '.join(p for p, _ in missing)}", "ERROR")
         log.plain()
-        log.log("注意：torch 必须与镜像 CUDA 版本匹配，重装前先确认", "ERROR")
+        log.log("注意：torch 必须与镜像 CUDA 版本匹配，重装前先确认：", "ERROR")
         log.log('  python -c "import torch; print(torch.__version__, torch.version.cuda)"', "ERROR")
-    else:
-        missing_optional = [pip for imp, pip, _ in OPTIONAL_PACKAGES if importlib.util.find_spec(imp) is None]
-        log.log("必需依赖齐全" + (f"（云端不需要的没装: {', '.join(missing_optional)}）" if missing_optional else ""))
-    return [p for p, _ in missing]
+        return [p for p, _ in missing]
+
+    absent = [pip for imp, pip, _ in OPTIONAL_PACKAGES if importlib.util.find_spec(imp) is None]
+    log.log("必需依赖齐全" + (f"（云端用不到的没装: {', '.join(absent)}）" if absent else ""))
+    return []
 
 
 def _probe_gpu(log: TrainLogger) -> tuple[str, bool, float]:
     """返回 (device, use_fp16, 显存GB)。"""
     import torch
 
-    log.log(f"PyTorch      : {torch.__version__}")
-    log.log(f"CUDA 编译版本: {torch.version.cuda or '无（CPU 版 torch）'}")
+    log.log(f"PyTorch     : {torch.__version__}")
+    log.log(f"CUDA 编译   : {torch.version.cuda or '无（CPU 版 torch）'}  |  cuDNN {torch.backends.cudnn.version()}")
 
     if not torch.cuda.is_available():
         log.log("未检测到可用 CUDA GPU —— 训练会退化到 CPU，速度极慢（不推荐）", "WARN")
-        log.log("  检查：nvidia-smi 是否能看到显卡；torch 是否为 CUDA 版", "WARN")
+        log.log("  检查：nvidia-smi 能否看到显卡；torch 是否为 CUDA 版", "WARN")
         return "cpu", False, 0.0
 
     idx = 0
     name = torch.cuda.get_device_name(idx)
-    total = torch.cuda.get_device_properties(idx).total_memory / 1024 ** 3
+    props = torch.cuda.get_device_properties(idx)
+    total = props.total_memory / 1024 ** 3
     cc = torch.cuda.get_device_capability(idx)
-    log.log(f"GPU          : {idx} {name}")
-    log.log(f"显存         : {total:.1f} GB")
-    log.log(f"算力         : sm_{cc[0]}{cc[1]}")
+    log.log(f"GPU         : #{idx} {name}")
+    log.log(f"显存 / 算力 : {total:.1f} GB / sm_{cc[0]}{cc[1]} / {props.multi_processor_count} SM")
 
     use_fp16 = True
     if cc[0] < 7:
@@ -255,13 +374,21 @@ def _probe_gpu(log: TrainLogger) -> tuple[str, bool, float]:
     return f"cuda:{idx}", use_fp16, total
 
 
-def _scan_audio(input_dir: Path) -> list[Path]:
-    if not input_dir.is_dir():
-        return []
-    return sorted(p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
+def _locate_ffmpeg() -> tuple[str, str]:
+    """返回 (路径, 来源)。"""
+    local_exe = PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
+    env_ffmpeg = os.environ.get("RVC_FFMPEG", "").strip()
+    if env_ffmpeg and Path(env_ffmpeg).exists():
+        return env_ffmpeg, "环境变量 RVC_FFMPEG"
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg, "系统 PATH"
+    if local_exe.exists():
+        return str(local_exe), "项目内 assets/ffmpeg/ffmpeg.exe"
+    return "", ""
 
 
-def _probe_ffmpeg(log: TrainLogger, files: list[Path]) -> None:
+def _probe_ffmpeg(log: TrainLogger) -> str:
     """定位 ffmpeg；找到系统 ffmpeg 就运行时重定向 loader 的硬编码路径。
 
     rvc/audio/loader.py 写死了 assets/ffmpeg/ffmpeg.exe（Windows 专用二进制），
@@ -269,76 +396,92 @@ def _probe_ffmpeg(log: TrainLogger, files: list[Path]) -> None:
     这里只改模块变量，不碰源文件。
     """
     local_exe = PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
-    system_ffmpeg = shutil.which("ffmpeg")
-    env_ffmpeg = os.environ.get("RVC_FFMPEG", "").strip()
+    chosen, source = _locate_ffmpeg()
+    if not chosen:
+        log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
+        log.log("  素材若含 mp3/m4a/aac 会直接失败，安装：apt install -y ffmpeg", "WARN")
+        return ""
+    log.log(f"ffmpeg      : {chosen}（来自 {source}）")
+    if Path(chosen).resolve() != local_exe.resolve():
+        try:
+            import rvc.audio.loader as _loader
 
-    if env_ffmpeg and Path(env_ffmpeg).exists():
-        chosen, source = env_ffmpeg, "环境变量 RVC_FFMPEG"
-    elif system_ffmpeg:
-        chosen, source = system_ffmpeg, "系统 PATH"
-    elif local_exe.exists():
-        chosen, source = str(local_exe), "项目内 assets/ffmpeg/ffmpeg.exe"
-    else:
-        chosen, source = "", ""
+            _loader._FFMPEG = Path(chosen)  # 函数体内是全局查找，改模块属性即生效
+            log.log("             → 已重定向 rvc.audio.loader 的 ffmpeg 路径")
+        except Exception as exc:
+            log.log(f"重定向 ffmpeg 路径失败（忽略）: {exc}", "WARN")
+    return chosen
 
+
+def _require_ffmpeg(log: TrainLogger, files: list[Path]):
+    """素材里有非原生格式却没有 ffmpeg → 直接失败（否则训练中途才炸）。"""
     foreign = [p for p in files if p.suffix.lower() not in NATIVE_EXTS]
-    if chosen:
-        log.log(f"ffmpeg       : {chosen}（来自 {source}）")
-        if Path(chosen).resolve() != local_exe.resolve():
-            try:
-                import rvc.audio.loader as _loader
-
-                _loader._FFMPEG = Path(chosen)  # 函数体内是全局查找，改模块属性即生效
-                log.log("             → 已重定向 rvc.audio.loader 的 ffmpeg 路径")
-            except Exception as exc:
-                log.log(f"重定向 ffmpeg 路径失败（忽略）: {exc}", "WARN")
+    if not foreign:
+        log.log(f"素材格式    : 全部为 wav/flac/ogg（libsndfile 可直接读取，{len(files)} 个）")
         return
-
-    log.log("未找到 ffmpeg（系统 PATH / assets/ffmpeg 都没有）", "WARN")
-    if foreign:
-        raise EnvFatal(
-            f"素材里有 {len(foreign)} 个非 wav/flac/ogg 文件（如 {foreign[0].name}），缺少 ffmpeg 会直接失败。\n"
-            "  安装：apt install -y ffmpeg   （或 conda install -c conda-forge ffmpeg）"
-        )
-    log.log("素材全是 wav/flac/ogg，libsndfile 可直接读取 —— 不影响训练", "WARN")
-    log.log("  后续若加入 mp3/m4a，先装 ffmpeg：apt install -y ffmpeg", "WARN")
+    if _locate_ffmpeg()[0]:
+        log.log(f"素材格式    : 含 {len(foreign)} 个需 ffmpeg 解码的文件（如 {foreign[0].name}），已定位 ffmpeg")
+        return
+    raise EnvFatal(
+        f"素材里有 {len(foreign)} 个非 wav/flac/ogg 文件（如 {foreign[0].name}），但没找到 ffmpeg。\n"
+        "  安装：apt install -y ffmpeg    （或 conda install -c conda-forge ffmpeg）"
+    )
 
 
-def _probe_assets(log: TrainLogger, sr_hz: int) -> None:
-    sr_k = sr_hz // 1000
+def _probe_assets(log: TrainLogger) -> dict:
+    """检查预训练权重与训练配置，返回 {'40k': bool, '48k': bool} 底模可用性。"""
     fatal, warns = [], []
+    assets = PROJECT_ROOT / "assets"
 
-    cfg = PROJECT_ROOT / "assets" / "configs" / f"{sr_k}ktrain_config.json"
-    if not cfg.exists():
-        fatal.append(f"训练配置缺失: assets/configs/{sr_k}ktrain_config.json（应随代码仓库一起上传）")
+    for sr_k in (40, 48):
+        cfg = assets / "configs" / f"{sr_k}ktrain_config.json"
+        if not cfg.exists():
+            fatal.append(f"训练配置缺失: assets/configs/{sr_k}ktrain_config.json（应随代码仓库一起上传）")
 
-    hubert_dir = PROJECT_ROOT / "assets" / "hubert"
-    for f in ("config.json", "pytorch_model.bin"):
-        if not (hubert_dir / f).exists():
+    hubert_dir = assets / "hubert"
+    for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin"):
+        path = hubert_dir / f
+        if not path.exists():
             fatal.append(f"HuBERT 权重缺失: assets/hubert/{f}")
+        else:
+            log.log(f"  HuBERT {f:<24} {_human_size(path.stat().st_size)}")
 
-    rmvpe = PROJECT_ROOT / "assets" / "rmvpe" / "rmvpe.pt"
+    rmvpe = assets / "rmvpe" / "rmvpe.pt"
     if not rmvpe.exists():
         fatal.append("RMVPE 权重缺失: assets/rmvpe/rmvpe.pt")
+    else:
+        log.log(f"  RMVPE  rmvpe.pt                {_human_size(rmvpe.stat().st_size)}")
 
-    for key in ("G", "D"):
-        p = PROJECT_ROOT / "assets" / "pretrained" / f"f0{key}{sr_k}k.pth"
-        if not p.exists():
-            warns.append(f"预训练底模缺失: assets/pretrained/f0{key}{sr_k}k.pth（将从零训练，收敛明显变慢）")
+    ready = {}
+    for sr_k in (40, 48):
+        ok = True
+        for key in ("G", "D"):
+            path = assets / "pretrained" / f"f0{key}{sr_k}k.pth"
+            if not path.exists():
+                ok = False
+                warns.append(f"底模缺失: assets/pretrained/f0{key}{sr_k}k.pth（{sr_k}k 将从零训练，收敛明显变慢）")
+            else:
+                log.log(f"  底模   f0{key}{sr_k}k.pth              {_human_size(path.stat().st_size)}")
+        ready[f"{sr_k}k"] = ok
 
     if fatal:
         for msg in fatal:
             log.log(msg, "ERROR")
         log.plain()
         log.log("以上权重都在 .gitignore 里，git clone 不会带下来，需要单独上传：", "ERROR")
-        log.log("  · assets/hubert/   （config.json + pytorch_model.bin + preprocessor_config.json）", "ERROR")
+        log.log("  · assets/hubert/   （config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
         log.log("  · assets/rmvpe/rmvpe.pt", "ERROR")
-        log.log("  上传方式：AutoDL 网盘 / scp / rsync，放到项目根对应目录", "ERROR")
+        log.log("  · assets/pretrained/f0G48k.pth + f0D48k.pth（可选，但强烈建议）", "ERROR")
+        log.log("  上传方式：AutoDL 网盘 / scp / rsync，放到项目根目录对应位置", "ERROR")
         raise EnvFatal("模型权重缺失")
 
     for msg in warns:
         log.log(msg, "WARN")
-    log.log("必需权重齐全")
+    log.log(f"预训练模型  : {'齐全' if all(ready.values()) else '底模有缺失（见上方 WARN）'}")
+
+    if not any(ready.values()):
+        log.log("两个采样率的底模都没有 → 完全从零训练，收敛会慢很多，建议先把权重传上来", "WARN")
+    return ready
 
 
 def _suggest_batch(vram_gb: float, sr_hz: int) -> int:
@@ -355,19 +498,43 @@ def _suggest_batch(vram_gb: float, sr_hz: int) -> int:
     return base + 2 if sr_hz == 40000 else base
 
 
+def _scan_audio(input_dir: Path) -> list[Path]:
+    if not input_dir.is_dir():
+        return []
+    return sorted(p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
+
+
 def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
-    total_mb = sum(p.stat().st_size for p in files) / 1024 ** 2
-    by_ext = {}
-    for p in files:
-        by_ext[p.suffix.lower()] = by_ext.get(p.suffix.lower(), 0) + 1
+    """统计素材：文件数、体积、总时长、采样率分布（超过 300 个只抽样后按比例外推）。"""
+    total_bytes = sum(p.stat().st_size for p in files)
     log.log(f"素材目录    : {input_dir.resolve()}")
-    log.log(f"音频文件    : {len(files)} 个，共 {total_mb:.1f} MB")
-    log.log("格式分布    : " + ", ".join(f"{k}={v}" for k, v in sorted(by_ext.items())))
+    log.log(f"音频文件    : {len(files)} 个，共 {_human_size(total_bytes)}")
+
+    import soundfile as sf
+
+    limit = 300
+    sample = files[:limit]
+    seconds, sr_dist, scanned = 0.0, {}, 0
+    for path in sample:
+        try:
+            info = sf.info(str(path))
+            seconds += info.frames / info.samplerate
+            sr_dist[info.samplerate] = sr_dist.get(info.samplerate, 0) + 1
+            scanned += 1
+        except Exception:
+            continue
+    if scanned:
+        if scanned < len(files):
+            seconds = seconds * len(files) / scanned
+        log.log(f"总时长      : 约 {_human_dur(seconds)}" + ("（抽样估算）" if scanned < len(files) else ""))
+        log.log("采样率分布  : " + ", ".join(f"{k}Hz×{v}" for k, v in sorted(sr_dist.items())))
     if len(files) < 10:
-        log.log("素材偏少（<10 个文件），音质与稳定性会明显下降，建议 30 分钟以上干净人声", "WARN")
+        log.log("素材文件偏少（<10 个），音质与稳定性会明显下降，建议 30 分钟以上干净人声", "WARN")
+    if scanned and seconds < 300:
+        log.log("总时长不足 5 分钟，容易过拟合，建议 30 分钟以上", "WARN")
 
 
-# ── 4. 问答向导 ──────────────────────────────────────────────────────
+# ── 4. 参数向导 ──────────────────────────────────────────────────────
 def _detect_ckpt_epoch(exp_dir: Path) -> int:
     from rvc.train.ckpt_utils import checkpoints_dir as _ckpt_dir
     from rvc.train.ckpt_utils import checkpoint_epoch, latest_checkpoint_path
@@ -395,75 +562,91 @@ def _clear_checkpoints(log: TrainLogger, exp_dir: Path):
         log.log(f"已删除旧 checkpoint: {removed} 个（从头开始训练）", "WARN")
 
 
-def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float) -> dict:
+def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_dir: str, fresh: bool) -> dict:
     cfg = {"device": device, "fp16": fp16}
-    argv_dir = sys.argv[1] if len(sys.argv) > 1 else ""
 
-    log.section("参数配置（直接回车 = 使用默认值）")
+    log.section("第 3 步 / 训练参数（直接回车 = 使用默认值）")
 
     # 1) 数据集路径
     def _dir_ok(text):
         path = Path(text).expanduser()
-        files = _scan_audio(path)
         if not path.is_dir():
             return False, f"目录不存在: {path}"
-        if not files:
+        if not _scan_audio(path):
             return False, f"目录里没有音频文件（支持 {', '.join(sorted(AUDIO_EXTS))}）: {path}"
         return True, ""
 
     input_dir = Path(ask("数据集路径", argv_dir, check=_dir_ok)).expanduser()
     files = _scan_audio(input_dir)
-
-    # 2) 实验名
-    exp_name = ask("实验名（权重与日志都放在 logs/<实验名>/ 下）", input_dir.name)
-    exp_dir = Path("logs") / exp_name
-    log.attach(exp_dir / "autodl_train.log")
-    log.log(f"日志文件    : {log.log_file.resolve()}")
     _probe_dataset(log, input_dir, files)
+    _require_ffmpeg(log, files)
 
-    # 3) 已有 checkpoint → 续训？
+    # 2) 实验名（决定产物落点，先拿到才好把日志搬过去）
+    exp_name = ask("实验名", DEFAULTS["exp"])
+    exp_dir = LOGS_ROOT / exp_name
+    model_dir = MODELS_ROOT / exp_name
+    log.reattach(exp_dir / "autodl_train.log")
+    log.log(f"实验目录    : {exp_dir}")
+    log.log(f"模型目录    : {model_dir}")
+    log.log(f"日志文件    : {log.log_file}")
+
+    # 3) 续训检测（不再单独提问：检测到就续训，--fresh 才重来）
     ckpt_epoch = _detect_ckpt_epoch(exp_dir)
-    fresh_start = False
-    if ckpt_epoch > 0:
-        log.log(f"发现已有 checkpoint：已训练到 epoch {ckpt_epoch}")
-        resume = ask_yes("继续训练（选 n 则删除旧 checkpoint 从头开始）？", default=True)
-        fresh_start = not resume
+    if fresh and ckpt_epoch:
+        log.log(f"--fresh：删除已有 checkpoint（已训练到 epoch {ckpt_epoch}）", "WARN")
+    elif ckpt_epoch:
+        log.log(f"检测到已有 checkpoint（已训练到 epoch {ckpt_epoch}）→ 自动续训")
+        log.log("  想从头训练请加 --fresh，或手动删掉 " + str(exp_dir / "4_checkpoints"))
     elif exp_dir.exists():
-        log.log(f"实验目录已存在（logs/{exp_name}）但无 checkpoint，将复用其中已有的切片/特征")
+        log.log("实验目录已存在但无 checkpoint，将复用其中已有的切片/特征")
 
-    # 4) 采样率（权重体检依赖它）
-    sr = ask("采样率 40k / 48k", "48k", cast=_as_sr, check=lambda v: (v in ("40k", "48k"), "只能填 40k 或 48k"))
+    # 4) 采样率
+    def _sr_ok(value):
+        if value not in ("40k", "48k"):
+            return False, "只能填 40k 或 48k"
+        return True, ""
+
+    sr = ask("采样率 40k / 48k", DEFAULTS["sr"], cast=_as_sr, check=_sr_ok)
     sr_hz = 48000 if sr == "48k" else 40000
+    if sr == "40k":
+        log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    log.section("环境体检 2/2：ffmpeg / 权重")
-    _probe_ffmpeg(log, files)
-    _probe_assets(log, sr_hz)
-
-    # 5) 训练轮次
+    # 5) 总轮次
     def _epochs_ok(value):
         if value < 1:
             return False, "至少 1 轮"
-        if ckpt_epoch and not fresh_start and value <= ckpt_epoch:
-            return False, f"已有 checkpoint 在 epoch {ckpt_epoch}，总轮次必须大于它（那是目标终点，不是新增轮数）"
+        if ckpt_epoch and not fresh and value <= ckpt_epoch:
+            return False, f"已训到 epoch {ckpt_epoch}，总轮次必须大于它（填的是目标终点，不是新增轮数）"
         return True, ""
 
-    epochs = ask("训练轮次（总轮次；中途 Ctrl+C 会保存后再退出）", "100", cast=_as_int, check=_epochs_ok)
+    epochs = ask("训练轮次", str(DEFAULTS["epochs"]), cast=_as_int, check=_epochs_ok)
 
     # 6) batch size
-    batch = ask(
-        "batch size",
-        str(_suggest_batch(vram_gb, sr_hz)),
-        cast=_as_int,
-        check=lambda v: (v >= 1, "至少 1"),
-    )
+    batch = ask("batch size", str(_suggest_batch(vram_gb, sr_hz)), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    log.plain()
-    log.plain("以下为进阶参数，不清楚就一路回车：")
-    save_every = ask("每多少轮保存一次", "20", cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
-    early_stop = ask("连续多少轮 loss 无改善就自动停止（0=关闭）", "30", cast=_as_int, check=lambda v: (v >= 0, "不能为负"))
-    per = ask("切片时长（秒）", "3.7", cast=_as_float, check=lambda v: (0.5 <= v <= 30, "建议 1~15 秒"))
-    keep_models = ask("assets/models 里保留最近几个导出模型", "2", cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
-    keep_ckpts = ask("保留最近几组 checkpoint（每组含 G+D+优化器状态，约 0.8GB）", "1", cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+    # 7) 学习率
+    lr = ask(
+        "学习率（1e-4=0.0001；太大易炸，太小收敛慢）",
+        f"{DEFAULTS['lr']:g}",
+        cast=_as_float,
+        check=lambda v: (0 < v <= 0.1, "需要在 0 ~ 0.1 之间"),
+    )
+    if lr > 5e-4:
+        log.log("学习率偏大，GAN 容易崩（loss 变 nan）；新手建议 1e-4 附近", "WARN")
+    elif lr < 1e-5:
+        log.log("学习率偏小，100 轮大概率训不出东西", "WARN")
+
+    # 8) 进阶（默认全部跳过，选 y 才展开）
+    if ask_yes("调整进阶参数？（保存间隔 / 早停 / 切片时长 / 保留模型数）", default=False):
+        save_every = ask("每多少轮保存一次", str(DEFAULTS["save_every"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+        early_stop = ask("连续多少轮 Mel loss 无改善就停止（0=关闭）", str(DEFAULTS["early_stop"]), cast=_as_int, check=lambda v: (v >= 0, "不能为负"))
+        per = ask("切片时长（秒）", str(DEFAULTS["per"]), cast=_as_float, check=lambda v: (0.5 <= v <= 30, "建议 1~15 秒"))
+        keep_models = ask("保留最近几个导出模型", str(DEFAULTS["keep_models"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+    else:
+        save_every = DEFAULTS["save_every"]
+        early_stop = DEFAULTS["early_stop"]
+        per = DEFAULTS["per"]
+        keep_models = DEFAULTS["keep_models"]
 
     sr_k = sr_hz // 1000
     pretrain_g = PROJECT_ROOT / "assets" / "pretrained" / f"f0G{sr_k}k.pth"
@@ -473,16 +656,18 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float) -> dic
         input_dir=str(input_dir),
         exp_name=exp_name,
         exp_dir=exp_dir,
+        model_dir=model_dir,
         sr=sr,
         sr_hz=sr_hz,
         epochs=epochs,
         batch_size=batch,
+        lr=lr,
         save_every=save_every,
         early_stop=early_stop,
         per=per,
         keep_models=keep_models,
-        keep_ckpts=keep_ckpts,
-        fresh_start=fresh_start,
+        keep_ckpts=1,
+        fresh=fresh,
         ckpt_epoch=ckpt_epoch,
         pretrain_g=str(pretrain_g) if pretrain_g.exists() else "",
         pretrain_d=str(pretrain_d) if pretrain_d.exists() else "",
@@ -492,12 +677,16 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float) -> dic
 
 def print_summary(log: TrainLogger, cfg: dict):
     log.section("配置确认")
+    ckpt = cfg["ckpt_epoch"]
     rows = [
         ("数据集", cfg["input_dir"]),
-        ("实验名", f"logs/{cfg['exp_name']}" + (f"（从 epoch {cfg['ckpt_epoch'] + 1} 续训）" if cfg["ckpt_epoch"] and not cfg["fresh_start"] else "")),
+        ("实验名", cfg["exp_name"]),
+        ("实验目录", str(cfg["exp_dir"])),
+        ("模型目录", str(cfg["model_dir"])),
         ("采样率", cfg["sr"]),
-        ("总轮次", cfg["epochs"]),
+        ("总轮次", str(cfg["epochs"]) + (f"（从 epoch {ckpt + 1} 续训）" if ckpt and not cfg["fresh"] else "")),
         ("batch size", cfg["batch_size"]),
+        ("学习率", f"{cfg['lr']:g}"),
         ("保存间隔", f"每 {cfg['save_every']} 轮"),
         ("早停", f"{cfg['early_stop']} 轮无改善" if cfg["early_stop"] else "关闭"),
         ("切片时长", f"{cfg['per']}s"),
@@ -507,7 +696,7 @@ def print_summary(log: TrainLogger, cfg: dict):
         ("底模", cfg["pretrain_g"] or "无（从零训练）"),
     ]
     for key, value in rows:
-        log.plain(f"  {key:<16} {value}")
+        log.plain(f"  {key:<14} {value}")
         log.log(f"配置 {key}: {value}")
     log.plain(BAR)
 
@@ -540,7 +729,7 @@ def _install_signal_handlers(log: TrainLogger):
 
 
 def _make_progress(log: TrainLogger, label: str):
-    state = {"last": -1}
+    state = {"last": -1, "t0": time.time()}
 
     def cb(done, total):
         if total <= 0:
@@ -548,7 +737,9 @@ def _make_progress(log: TrainLogger, label: str):
         pct = int(done * 100 / total)
         if pct != state["last"] and (pct % 5 == 0 or done == total):
             state["last"] = pct
-            log.log(f"{label}: {done}/{total} ({pct}%)", "进度")
+            speed = done / max(time.time() - state["t0"], 1e-6)
+            left = (total - done) / speed if speed > 0 else 0
+            log.log(f"{label}: {done}/{total} ({pct}%)  速度 {speed:.1f} 条/s  剩余 {_human_dur(left)}", "进度")
 
     return cb
 
@@ -556,14 +747,19 @@ def _make_progress(log: TrainLogger, label: str):
 def step_preprocess(log: TrainLogger, cfg: dict):
     from rvc.train.preprocess import PreProcessor
 
-    log.section("步骤 1/4 预处理音频（切片 + 重采样）")
+    log.section("步骤 1/4 预处理（切片 + 重采样）")
+    exp_dir = cfg["exp_dir"]
     log.log(f"切片时长 {cfg['per']}s，目标采样率 {cfg['sr_hz']} Hz")
     t0 = time.time()
-    processor = PreProcessor(cfg["input_dir"], str(cfg["exp_dir"]), cfg["sr_hz"], per=cfg["per"])
+    processor = PreProcessor(cfg["input_dir"], str(exp_dir), cfg["sr_hz"], per=cfg["per"])
     count = processor.run(_make_progress(log, "预处理"))
-    log.log(f"预处理完成：{count} 个源文件，用时 {time.time() - t0:.1f}s")
-    gt = sorted((cfg["exp_dir"] / "0_gt_wavs").glob("*.wav"))
-    log.log(f"生成切片：{len(gt)} 条")
+    secs = time.time() - t0
+    log.log(f"预处理完成：{count} 个源文件，用时 {_human_dur(secs)}")
+
+    gt = sorted((exp_dir / "0_gt_wavs").glob("*.wav"))
+    if gt:
+        bytes_total = sum(p.stat().st_size for p in gt)
+        log.log(f"生成切片：{len(gt)} 条，约 {_human_dur(bytes_total / 2 / cfg['sr_hz'])} 音频，{_human_size(bytes_total)}")
     if len(gt) < 50:
         log.log("切片数偏少（<50），训练容易过拟合，建议补充素材", "WARN")
 
@@ -575,7 +771,8 @@ def step_f0(log: TrainLogger, cfg: dict):
     t0 = time.time()
     extractor = TrainF0Extractor(cfg["device"], cfg["fp16"])
     n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, "F0"), stop_check=lambda: STOP.requested)
-    log.log(f"F0 提取完成：{n} 条，用时 {time.time() - t0:.1f}s")
+    secs = time.time() - t0
+    log.log(f"F0 提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
 
 
 def step_feature(log: TrainLogger, cfg: dict):
@@ -585,7 +782,8 @@ def step_feature(log: TrainLogger, cfg: dict):
     t0 = time.time()
     extractor = HuBERTExtractor(cfg["device"], cfg["fp16"])
     n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, "特征"), stop_check=lambda: STOP.requested)
-    log.log(f"特征提取完成：{n} 条，用时 {time.time() - t0:.1f}s")
+    secs = time.time() - t0
+    log.log(f"特征提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
 
 
 def _features_ready(exp_dir: Path) -> bool:
@@ -598,24 +796,42 @@ def _features_ready(exp_dir: Path) -> bool:
     return f0 >= gt and f0nsf >= gt and feat >= gt
 
 
-def _gpu_mem_used() -> float:
+def _gpu_mem() -> tuple[float, float]:
+    """(当前分配 GB, 峰值 GB)"""
     try:
         import torch
 
-        return torch.cuda.max_memory_allocated() / 1024 ** 3
+        return torch.cuda.memory_allocated() / 1024 ** 3, torch.cuda.max_memory_allocated() / 1024 ** 3
     except Exception:
-        return 0.0
+        return 0.0, 0.0
 
 
 def step_train(log: TrainLogger, cfg: dict):
     from rvc.train.preprocess import generate_filelist
     from rvc.train.trainer import TrainConfig, Trainer
+    import rvc.train.trainer as trainer_mod
 
     log.section("步骤 4/4 训练")
-    _, count = generate_filelist(str(cfg["exp_dir"]))
-    log.log(f"训练样本数: {count}")
+    exp_dir = cfg["exp_dir"]
+    model_dir = cfg["model_dir"]
+    model_dir.mkdir(parents=True, exist_ok=True)
+    # 导出目录重定向到数据盘（trainer 内 WEIGHTS_DIR 是模块级常量，改它即可，源文件不动）
+    trainer_mod.WEIGHTS_DIR = model_dir
+    log.log(f"导出模型目录已重定向到: {model_dir}")
+
+    # 从头训练时清掉同名旧模型：epoch 号会重新从 1 开始，
+    # 而淘汰是按 epoch 数值排的，不清理的话旧的 e5 会一直压住新训的 e1/e2
+    if _detect_ckpt_epoch(exp_dir) == 0:
+        stale = sorted(model_dir.glob(f"{exp_dir.name}_e*.pth"))
+        if stale:
+            for path in stale:
+                path.unlink()
+            log.log(f"本次从头训练，已删除旧的导出模型 {len(stale)} 个（epoch 号会重新计数）", "WARN")
+
+    _, count = generate_filelist(str(exp_dir))
+    log.log(f"训练样本数  : {count}")
     if count == 0:
-        raise RuntimeError("没有可训练样本（特征或 F0 缺失），请删除 logs/<实验名> 重跑")
+        raise RuntimeError(f"没有可训练样本（特征或 F0 缺失），请删除 {exp_dir} 后重跑")
 
     for name in ("pretrain_g", "pretrain_d"):
         path = cfg[name]
@@ -623,12 +839,12 @@ def step_train(log: TrainLogger, cfg: dict):
             raise RuntimeError(f"预训练模型不存在: {path}")
 
     train_config = TrainConfig(
-        exp_dir=str(cfg["exp_dir"]),
+        exp_dir=str(exp_dir),
         sr=cfg["sr_hz"],
         epochs=cfg["epochs"],
         batch_size=cfg["batch_size"],
         save_every_epoch=cfg["save_every"],
-        learning_rate=1e-4,
+        learning_rate=cfg["lr"],
         pretrain_g=cfg["pretrain_g"],
         pretrain_d=cfg["pretrain_d"],
         fp16_run=cfg["fp16"],
@@ -638,16 +854,26 @@ def step_train(log: TrainLogger, cfg: dict):
         keep_models=cfg["keep_models"],
     )
 
-    state = {"last": None, "t_epoch": time.time(), "batches": 0}
+    state = {"t_epoch": time.time(), "sum": None, "count": 0, "batches": 0, "samples": 0, "last_ckpt": 0}
+
+    def _reset_epoch():
+        state["sum"] = {"d": 0.0, "g": 0.0, "mel": 0.0, "kl": 0.0, "fm": 0.0}
+        state["count"] = 0
+        state["t_epoch"] = time.time()
+
+    _reset_epoch()
 
     def on_batch(epoch, batch, total):
         state["batches"] += 1
 
     def on_loss(info):
-        state["last"] = info
+        # 每个 epoch 的第一个 batch 重置统计与计时（首个 epoch 的 setup 时间不该算进速度）
         if info["batch"] == 1:
-            # 首个 epoch 的计时从 setup（加载底模）就开始了，重置一次，速度才准
-            state["t_epoch"] = time.time()
+            _reset_epoch()
+        s = state["sum"]
+        for key, field in (("d", "loss_d"), ("g", "loss_g"), ("mel", "loss_mel"), ("kl", "loss_kl"), ("fm", "loss_fm")):
+            s[key] += info[field]
+        state["count"] += 1
         if info["batch"] % 20 == 0 or info["batch"] == 1:
             log.log(
                 f"e{info['epoch']:>4} b{info['batch']:>5} | "
@@ -657,15 +883,33 @@ def step_train(log: TrainLogger, cfg: dict):
             )
 
     def on_epoch(epoch, total):
-        # loss 由 Trainer 自己按 epoch 平均值落盘 train.log，这里只报进度/速度/显存
+        s, n = state["sum"], max(state["count"], 1)
         secs = time.time() - state["t_epoch"]
-        state["t_epoch"] = time.time()
         left = secs * (total - epoch)
-        eta = time.strftime("%Hh%Mm", time.gmtime(left)) if left > 0 else "--"
-        mem = f" | 显存 {_gpu_mem_used():.1f}GB" if cfg["device"].startswith("cuda") else ""
-        log.log(f"epoch {epoch:>4}/{total} | {secs:.1f}s/epoch 剩余 {eta}{mem}", "EPOCH")
+        eta = _human_dur(left) if left > 0 else "--"
+        lr_now = ""
+        if STOP.trainer is not None and hasattr(STOP.trainer, "optim_g") and STOP.trainer.optim_g is not None:
+            lr_now = f"lr {STOP.trainer.optim_g.param_groups[0]['lr']:.2e} | "
+        cur, peak = _gpu_mem()
+        mem = f" | 显存 现{cur:.1f}/峰{peak:.1f}GB" if cfg["device"].startswith("cuda") else ""
+        speed = f"{state['count'] / max(secs, 1e-6):.1f} it/s"
+        log.log(
+            f"epoch {epoch:>4}/{total} | {lr_now}"
+            f"D {s['d'] / n:.4f} G {s['g'] / n:.4f} Mel {s['mel'] / n:.4f} "
+            f"KL {s['kl'] / n:.4f} FM {s['fm'] / n:.4f} | {secs:.1f}s {speed} 剩余 {eta}{mem}",
+            "EPOCH",
+        )
+        _reset_epoch()
 
-    trainer = Trainer(train_config, on_epoch, log.log, on_loss, on_batch)
+    def on_trainer_log(msg: str):
+        # Trainer 每轮会自己往 train.log 落一行 epoch loss，与上面的 EPOCH 行内容重复；
+        # 这里只留档不上屏，控制台保持单行可读
+        if msg.startswith("epoch "):
+            log.file_only(msg)
+        else:
+            log.log(msg)
+
+    trainer = Trainer(train_config, on_epoch, on_trainer_log, on_loss, on_batch)
     STOP.trainer = trainer
     t0 = time.time()
     try:
@@ -674,10 +918,10 @@ def step_train(log: TrainLogger, cfg: dict):
         trainer.cleanup()
         STOP.trainer = None
 
-    log.log(f"训练结束，总用时 {time.strftime('%Hh%Mm%Ss', time.gmtime(time.time() - t0))}")
+    log.log(f"训练结束，总用时 {_human_dur(time.time() - t0)}，共 {state['batches']} 个 batch")
     if cfg["device"].startswith("cuda"):
-        log.log(f"显存峰值  : {_gpu_mem_used():.2f} GB")
-    log.log(f"模型已导出: {output}")
+        log.log(f"显存峰值    : {_gpu_mem()[1]:.2f} GB")
+    log.log(f"最终模型    : {output}")
     return output
 
 
@@ -687,32 +931,42 @@ def main() -> int:
     # 属于原代码行为，这里只在脚本侧静音，不改源文件
     warnings.filterwarnings("ignore", message=r".*lr_scheduler\.step\(\).*")
 
+    argv_dir = ""
+    fresh = False
+    for arg in sys.argv[1:]:
+        if arg in ("--fresh", "-f"):
+            fresh = True
+        elif not arg.startswith("-"):
+            argv_dir = arg
+
     log = TrainLogger()
     try:
+        log.attach(DATA_ROOT / "logs" / "autodl_train.log")
         log.section("RVC 云 GPU 训练向导")
-        log.log(f"项目根目录  : {PROJECT_ROOT}")
-        log.log(f"Python      : {sys.version.split()[0]}")
 
-        log.section("环境体检 1/2：依赖 / GPU")
+        log.section("第 1 步 / 环境检查")
+        _probe_platform(log)
+        _probe_disk(log)
         if _probe_packages(log):
             return EXIT_ENV
         device, fp16, vram_gb = _probe_gpu(log)
-        log.log(f"最终使用   : device={device}  fp16={fp16}")
+        _probe_ffmpeg(log)
+        log.log(f"最终设备    : device={device}  fp16={fp16}")
 
-        cfg = run_wizard(log, device, fp16, vram_gb)
+        log.section("第 2 步 / 预训练模型检查")
+        _probe_assets(log)
+
+        cfg = run_wizard(log, device, fp16, vram_gb, argv_dir, fresh)
         print_summary(log, cfg)
 
-        log.plain("按 Enter 开始训练（Ctrl+C 取消；训练中 Ctrl+C = 本轮跑完保存后退出）")
-        try:
-            input("  ▶ ")
-        except (EOFError, KeyboardInterrupt):
-            log.log("已取消", "WARN")
+        if not ask_yes("开始训练？（训练中 Ctrl+C = 本轮跑完保存后退出）", default=True):
+            log.log("已取消，未开始训练", "WARN")
             return EXIT_OK
 
         _install_signal_handlers(log)
         exp_dir = cfg["exp_dir"]
         exp_dir.mkdir(parents=True, exist_ok=True)
-        if cfg["fresh_start"]:
+        if cfg["fresh"]:
             _clear_checkpoints(log, exp_dir)
 
         from rvc.train.preprocess import manifest_diff_reason
@@ -722,7 +976,7 @@ def main() -> int:
             log.log(f"需要重新预处理：{reason}")
             step_preprocess(log, cfg)
         else:
-            log.log("切片与素材一致，跳过预处理（要重建请删 logs/%s/manifest.json）" % cfg["exp_name"])
+            log.log(f"切片与素材一致，跳过预处理（要重建请删 {exp_dir / 'manifest.json'}）")
 
         if not STOP.requested:
             if _features_ready(exp_dir):
@@ -736,10 +990,15 @@ def main() -> int:
             step_train(log, cfg)
 
         log.section("全部完成")
-        log.log(f"总耗时 {log.elapsed()}")
-        log.log(f"导出模型: {(PROJECT_ROOT / 'assets' / 'models').resolve()}")
-        log.log(f"checkpoint: {(exp_dir / '4_checkpoints').resolve()}")
-        log.log(f"训练日志: {(exp_dir / 'train.log').resolve()}")
+        log.log(f"总耗时      : {log.elapsed()}")
+        models = sorted(cfg["model_dir"].glob("*.pth")) if cfg["model_dir"].is_dir() else []
+        if models:
+            log.log(f"导出模型目录: {cfg['model_dir']}")
+            for path in models:
+                log.log(f"  · {path.name}  {_human_size(path.stat().st_size)}")
+        log.log(f"checkpoint  : {exp_dir / '4_checkpoints'}")
+        log.log(f"训练日志    : {exp_dir / 'train.log'}")
+        log.log(f"向导日志    : {log.log_file}")
         return EXIT_OK
 
     except Cancelled:
