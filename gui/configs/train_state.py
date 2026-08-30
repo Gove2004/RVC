@@ -14,7 +14,6 @@ class TrainGuiState:
     learning_rate: str
     pretrain_g: str
     pretrain_d: str
-    early_stop: int = 30  # 早停耐心（轮），0 = 关闭
     # ── 人声提纯 Tab ──
     sep_input_dir: str = ""
     sep_output_dir: str = ""
@@ -36,7 +35,6 @@ class TrainGuiState:
             learning_rate=str(data.get("learning_rate", "0.0001")),
             pretrain_g=str(data.get("pretrain_g", "")),
             pretrain_d=str(data.get("pretrain_d", "")),
-            early_stop=int(data.get("early_stop", 30)),
             sep_input_dir=str(data.get("sep_input_dir", "")),
             sep_output_dir=str(data.get("sep_output_dir", "")),
             sep_model=str(data.get("sep_model", "htdemucs")),
@@ -57,7 +55,6 @@ class TrainGuiState:
             "learning_rate": self.learning_rate,
             "pretrain_g": self.pretrain_g,
             "pretrain_d": self.pretrain_d,
-            "early_stop": self.early_stop,
             "sep_input_dir": self.sep_input_dir,
             "sep_output_dir": self.sep_output_dir,
             "sep_model": self.sep_model,

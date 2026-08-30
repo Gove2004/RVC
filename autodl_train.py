@@ -9,6 +9,9 @@
     3) 训练参数追问（全部带默认值，一路回车即可）
     4) 开始训练（预处理 → F0 → 特征 → 训练，已完成步骤自动跳过）
 
+续训规则：检测到 checkpoint 就自动接着训；要重新开始，直接删掉
+/root/autodl-tmp/logs/<实验名>/4_checkpoints 即可。
+
 产物默认落在数据盘（云上 = /root/autodl-tmp，避免撑爆 30G 系统盘）：
     日志/切片/checkpoint : /root/autodl-tmp/logs/<实验名>/
     导出模型             : /root/autodl-tmp/models/<实验名>/
@@ -20,7 +23,6 @@
     printf '/root/autodl-tmp/voice\\n\\n\\n' | nohup python autodl_train.py > run.log 2>&1 &
 数据集路径也可直接作为第一个参数传入（其余仍走问答）：
     python autodl_train.py /root/autodl-tmp/voice
-另有 --fresh 开关：删除已有 checkpoint 从头训练（默认检测到就续训）。
 """
 import importlib.util
 import os
@@ -87,9 +89,9 @@ DEFAULTS = {
     "epochs": 100,
     "lr": 1e-4,
     "save_every": 20,
-    "early_stop": 30,
+    "keep_ckpts": 1,
     "per": 3.7,
-    "keep_models": 2,
+    "keep_models": 0,  # 导出模型保留数 0 = 全部保留（不淘汰，固定，不再暴露给用户）
 }
 
 
@@ -547,22 +549,7 @@ def _detect_ckpt_epoch(exp_dir: Path) -> int:
     return min(checkpoint_epoch(g), checkpoint_epoch(d))
 
 
-def _clear_checkpoints(log: TrainLogger, exp_dir: Path):
-    from rvc.train.ckpt_utils import checkpoints_dir as _ckpt_dir
-
-    removed = 0
-    for directory in (_ckpt_dir(exp_dir), exp_dir):
-        if not directory.is_dir():
-            continue
-        for pattern in ("G_*.pth", "D_*.pth"):
-            for path in directory.glob(pattern):
-                path.unlink()
-                removed += 1
-    if removed:
-        log.log(f"已删除旧 checkpoint: {removed} 个（从头开始训练）", "WARN")
-
-
-def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_dir: str, fresh: bool) -> dict:
+def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_dir: str) -> dict:
     cfg = {"device": device, "fp16": fp16}
 
     log.section("第 3 步 / 训练参数（直接回车 = 使用默认值）")
@@ -590,13 +577,11 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     log.log(f"模型目录    : {model_dir}")
     log.log(f"日志文件    : {log.log_file}")
 
-    # 3) 续训检测（不再单独提问：检测到就续训，--fresh 才重来）
+    # 3) 续训检测（不提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
     ckpt_epoch = _detect_ckpt_epoch(exp_dir)
-    if fresh and ckpt_epoch:
-        log.log(f"--fresh：删除已有 checkpoint（已训练到 epoch {ckpt_epoch}）", "WARN")
-    elif ckpt_epoch:
+    if ckpt_epoch:
         log.log(f"检测到已有 checkpoint（已训练到 epoch {ckpt_epoch}）→ 自动续训")
-        log.log("  想从头训练请加 --fresh，或手动删掉 " + str(exp_dir / "4_checkpoints"))
+        log.log(f"  要重新训练请先删掉: {exp_dir / '4_checkpoints'}")
     elif exp_dir.exists():
         log.log("实验目录已存在但无 checkpoint，将复用其中已有的切片/特征")
 
@@ -611,20 +596,10 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    # 5) 总轮次
-    def _epochs_ok(value):
-        if value < 1:
-            return False, "至少 1 轮"
-        if ckpt_epoch and not fresh and value <= ckpt_epoch:
-            return False, f"已训到 epoch {ckpt_epoch}，总轮次必须大于它（填的是目标终点，不是新增轮数）"
-        return True, ""
-
-    epochs = ask("训练轮次", str(DEFAULTS["epochs"]), cast=_as_int, check=_epochs_ok)
-
-    # 6) batch size
+    # 5) batch size
     batch = ask("batch size", str(_suggest_batch(vram_gb, sr_hz)), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    # 7) 学习率
+    # 6) 学习率
     lr = ask(
         "学习率（1e-4=0.0001；太大易炸，太小收敛慢）",
         f"{DEFAULTS['lr']:g}",
@@ -636,17 +611,21 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     elif lr < 1e-5:
         log.log("学习率偏小，100 轮大概率训不出东西", "WARN")
 
-    # 8) 进阶（默认全部跳过，选 y 才展开）
-    if ask_yes("调整进阶参数？（保存间隔 / 早停 / 切片时长 / 保留模型数）", default=False):
-        save_every = ask("每多少轮保存一次", str(DEFAULTS["save_every"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
-        early_stop = ask("连续多少轮 Mel loss 无改善就停止（0=关闭）", str(DEFAULTS["early_stop"]), cast=_as_int, check=lambda v: (v >= 0, "不能为负"))
-        per = ask("切片时长（秒）", str(DEFAULTS["per"]), cast=_as_float, check=lambda v: (0.5 <= v <= 30, "建议 1~15 秒"))
-        keep_models = ask("保留最近几个导出模型", str(DEFAULTS["keep_models"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
-    else:
-        save_every = DEFAULTS["save_every"]
-        early_stop = DEFAULTS["early_stop"]
-        per = DEFAULTS["per"]
-        keep_models = DEFAULTS["keep_models"]
+    # 7) 总轮次
+    def _epochs_ok(value):
+        if value < 1:
+            return False, "至少 1 轮"
+        if ckpt_epoch and value <= ckpt_epoch:
+            return False, f"已训到 epoch {ckpt_epoch}，总轮次必须大于它（填的是目标终点，不是新增轮数）"
+        return True, ""
+
+    epochs = ask("训练轮次", str(DEFAULTS["epochs"]), cast=_as_int, check=_epochs_ok)
+
+    # 8) 保存间隔
+    save_every = ask("每多少轮保存一次", str(DEFAULTS["save_every"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+
+    # 9) 保留 checkpoint 组数（G+D 各一组约 0.8GB，只留最新几组即可）
+    keep_ckpts = ask("保留最近几组 checkpoint", str(DEFAULTS["keep_ckpts"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
     sr_k = sr_hz // 1000
     pretrain_g = PROJECT_ROOT / "assets" / "pretrained" / f"f0G{sr_k}k.pth"
@@ -663,11 +642,9 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
         batch_size=batch,
         lr=lr,
         save_every=save_every,
-        early_stop=early_stop,
-        per=per,
-        keep_models=keep_models,
-        keep_ckpts=1,
-        fresh=fresh,
+        per=DEFAULTS["per"],
+        keep_models=DEFAULTS["keep_models"],
+        keep_ckpts=keep_ckpts,
         ckpt_epoch=ckpt_epoch,
         pretrain_g=str(pretrain_g) if pretrain_g.exists() else "",
         pretrain_d=str(pretrain_d) if pretrain_d.exists() else "",
@@ -684,13 +661,11 @@ def print_summary(log: TrainLogger, cfg: dict):
         ("实验目录", str(cfg["exp_dir"])),
         ("模型目录", str(cfg["model_dir"])),
         ("采样率", cfg["sr"]),
-        ("总轮次", str(cfg["epochs"]) + (f"（从 epoch {ckpt + 1} 续训）" if ckpt and not cfg["fresh"] else "")),
+        ("总轮次", str(cfg["epochs"]) + (f"（从 epoch {ckpt + 1} 续训）" if ckpt else "")),
         ("batch size", cfg["batch_size"]),
         ("学习率", f"{cfg['lr']:g}"),
         ("保存间隔", f"每 {cfg['save_every']} 轮"),
-        ("早停", f"{cfg['early_stop']} 轮无改善" if cfg["early_stop"] else "关闭"),
-        ("切片时长", f"{cfg['per']}s"),
-        ("保留导出模型", f"最近 {cfg['keep_models']} 个"),
+        ("切片时长", f"{cfg['per']}s（固定）"),
         ("保留 checkpoint", f"最近 {cfg['keep_ckpts']} 组"),
         ("设备", f"{cfg['device']}  fp16={cfg['fp16']}"),
         ("底模", cfg["pretrain_g"] or "无（从零训练）"),
@@ -849,7 +824,6 @@ def step_train(log: TrainLogger, cfg: dict):
         pretrain_d=cfg["pretrain_d"],
         fp16_run=cfg["fp16"],
         device=cfg["device"],
-        early_stop_patience=cfg["early_stop"],
         keep_ckpts=cfg["keep_ckpts"],
         keep_models=cfg["keep_models"],
     )
@@ -932,11 +906,8 @@ def main() -> int:
     warnings.filterwarnings("ignore", message=r".*lr_scheduler\.step\(\).*")
 
     argv_dir = ""
-    fresh = False
     for arg in sys.argv[1:]:
-        if arg in ("--fresh", "-f"):
-            fresh = True
-        elif not arg.startswith("-"):
+        if not arg.startswith("-"):
             argv_dir = arg
 
     log = TrainLogger()
@@ -956,7 +927,7 @@ def main() -> int:
         log.section("第 2 步 / 预训练模型检查")
         _probe_assets(log)
 
-        cfg = run_wizard(log, device, fp16, vram_gb, argv_dir, fresh)
+        cfg = run_wizard(log, device, fp16, vram_gb, argv_dir)
         print_summary(log, cfg)
 
         if not ask_yes("开始训练？（训练中 Ctrl+C = 本轮跑完保存后退出）", default=True):
@@ -966,8 +937,6 @@ def main() -> int:
         _install_signal_handlers(log)
         exp_dir = cfg["exp_dir"]
         exp_dir.mkdir(parents=True, exist_ok=True)
-        if cfg["fresh"]:
-            _clear_checkpoints(log, exp_dir)
 
         from rvc.train.preprocess import manifest_diff_reason
 

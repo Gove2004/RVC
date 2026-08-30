@@ -187,7 +187,6 @@ class TrainWindow(QMainWindow):
             "epochs": self.epochs.value(),
             "batch_size": self.batch_size.value(),
             "save_every_epoch": self.save_every.value(),
-            "early_stop_patience": self.early_stop.value(),
             "learning_rate": lr,
             "pretrain_g": self.pretrain_g.text().strip(),
             "pretrain_d": self.pretrain_d.text().strip(),
@@ -203,7 +202,7 @@ class TrainWindow(QMainWindow):
         else:
             self.stop_btn.setStyleSheet(ButtonStyles.muted())
             self.stage_label.setStyleSheet("")
-        for widget in [self.exp_name, self.input_dir, self.sample_rate, self.epochs, self.batch_size, self.save_every, self.early_stop, self.learning_rate, self.pretrain_g, self.pretrain_d]:
+        for widget in [self.exp_name, self.input_dir, self.sample_rate, self.epochs, self.batch_size, self.save_every, self.learning_rate, self.pretrain_g, self.pretrain_d]:
             widget.setEnabled(not running)
 
     # ── 配置持久化 ──────────────────────────────────────────
@@ -219,7 +218,6 @@ class TrainWindow(QMainWindow):
             learning_rate=self.learning_rate.text().strip(),
             pretrain_g=self.pretrain_g.text().strip(),
             pretrain_d=self.pretrain_d.text().strip(),
-            early_stop=self.early_stop.value(),
             sep_input_dir=self.sep_input.text().strip(),
             sep_output_dir=self.sep_output.text().strip(),
             sep_model=self.sep_model.currentData() or "htdemucs",
@@ -241,7 +239,6 @@ class TrainWindow(QMainWindow):
         self.epochs.setValue(state.epochs)
         self.batch_size.setValue(state.batch_size)
         self.save_every.setValue(state.save_every)
-        self.early_stop.setValue(state.early_stop)
         if state.learning_rate:
             self.learning_rate.setText(state.learning_rate)
         if state.pretrain_g:

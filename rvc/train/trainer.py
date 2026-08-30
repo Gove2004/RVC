@@ -40,16 +40,10 @@ class TrainConfig:
     fp16_run: bool = True
     device: str = "cuda:0"
     log_interval: int = 20
-    early_stop_patience: int = 0  # 连续多少轮 Mel loss 无改善则自动停止；0 = 关闭
-    early_stop_min_delta: float = 0.0015  # 视为「有改善」的最小相对提升（相对 best）
     # checkpoint 含 optimizer 状态（G+D 约 0.7~0.8 GB/次），长期训练会撑爆磁盘；
-    # 默认只留最新一组，够断点续训用。导出模型小得多，默认留最近 2 个供挑选。
+    # 默认只留最新一组，够断点续训用。导出模型小得多，默认全部保留（0 = 不淘汰）。
     keep_ckpts: int = 1
-    keep_models: int = 2
-
-
-# 早停保护：训练满该轮数后才开始判定（避免初始抖动误停）
-_EARLY_STOP_MIN_EPOCHS = 50
+    keep_models: int = 0
 
 
 class Trainer:
@@ -143,9 +137,6 @@ class Trainer:
     def train(self):
         self.setup()
         last_epoch = None
-        best_mel = float("inf")
-        no_improve = 0
-        early_stopped = False
         for epoch in range(self.start_epoch, self.cfg.epochs + 1):
             if self.stop_requested:
                 break
@@ -164,25 +155,10 @@ class Trainer:
             # 每轮 loss 落盘（挂机复盘用，train.log 末尾追加）
             self.log(f"epoch {epoch:4d} | D {loss_d:.4f} | G {loss_g:.4f} | Mel {loss_mel:.4f} | KL {loss_kl:.4f} | FM {loss_fm:.4f}")
 
-            # 早停：训练满保护轮数后，跟踪 Mel loss 平台期。
-            # 用 Mel（平滑、直接反映音质）而非 G（含对抗项、波动大易误判）
-            if self.cfg.early_stop_patience > 0 and epoch >= _EARLY_STOP_MIN_EPOCHS:
-                if loss_mel < best_mel * (1 - self.cfg.early_stop_min_delta):
-                    best_mel = loss_mel
-                    no_improve = 0
-                else:
-                    no_improve += 1
-                    if no_improve >= self.cfg.early_stop_patience:
-                        self.log(f"早停: 连续 {no_improve} 轮 Mel loss 无改善（当前 {loss_mel:.3f}），自动停止")
-                        early_stopped = True
-
-            if epoch % self.cfg.save_every_epoch == 0 or epoch == self.cfg.epochs or self.stop_requested or early_stopped:
+            if epoch % self.cfg.save_every_epoch == 0 or epoch == self.cfg.epochs or self.stop_requested:
                 self._save(epoch)
             if self.progress_callback:
                 self.progress_callback(epoch, self.cfg.epochs)
-            if early_stopped:
-                # 先保存再退出（上面的 _save 已执行）
-                break
         if last_epoch is None:
             raise RuntimeError("训练在首个 epoch 前已停止")
         # 最终模型路径（已在 _save 中导出）
@@ -280,7 +256,7 @@ class Trainer:
         self.log(f"导出模型: {output}")
 
         # 只清理本实验的 <exp>_e<N>.pth，不碰其他/合并出来的模型
-        keep_models = max(self.cfg.keep_models, 1)
-        gone = prune_keep_latest(WEIGHTS_DIR, f"{exp_name}_e*.pth", keep_models, epoch_of=exported_epoch)
-        if gone:
-            self.log(f"清理旧导出模型: {len(gone)} 个（保留最新 {keep_models} 个）")
+        if self.cfg.keep_models > 0:
+            gone = prune_keep_latest(WEIGHTS_DIR, f"{exp_name}_e*.pth", self.cfg.keep_models, epoch_of=exported_epoch)
+            if gone:
+                self.log(f"清理旧导出模型: {len(gone)} 个（保留最新 {self.cfg.keep_models} 个）")

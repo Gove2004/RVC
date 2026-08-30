@@ -145,7 +145,6 @@ class TrainWorker(QThread):
             pretrain_d=self.options.get("pretrain_d", ""),
             fp16_run=config.is_half,
             device=config.device,
-            early_stop_patience=self.options.get("early_stop_patience", 0),
         )
         self._trainer = Trainer(train_config, self.epoch_done.emit, self.log_message.emit, self.loss_update.emit, self.batch_done.emit)
         try:
