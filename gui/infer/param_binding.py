@@ -155,8 +155,10 @@ def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
 
 
 def gender_to_formant(v: float) -> float:
-    """性别滑杆值 [0,1] → formant shift [-2, +2]。
+    """性别滑杆值 [0,1] → formant shift [-2.5, +2.5]。
 
-    实时/离线共用此换算，禁止在别处另写一份（历史教训：离线曾用 v*5-2.5 导致两条路径不一致）。
+    实时/离线共用此换算，禁止在别处另写一份（历史教训：曾有两份不同换算
+    —— 离线用 v*5-2.5、实时用 v*4-2，导致两条路径区间不一致、保存值与界面值对不上）。
+    本函数即唯一来源，滑杆显示与 get_data 持久化均须与其互逆（×5，0↔-2.5，1↔+2.5）。
     """
-    return (v - 0.5) * 4
+    return (v - 0.5) * 5

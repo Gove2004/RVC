@@ -123,10 +123,10 @@ class ModelCard(QFrame):
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
 
-        # 滑杆 [0,1] ↔ formant shift [-2,+2]，换算必须与 param_binding.gender_to_formant 互逆
-        gender_slider_val = int(((gender / 4.0) + 0.5) * 100)
+        # 滑杆 [0,1] ↔ formant shift [-2.5,+2.5]，换算必须与 param_binding.gender_to_formant 互逆
+        gender_slider_val = int(((gender / 5.0) + 0.5) * 100)
         self.gender_slider = _sl(0, 100, 1, gender_slider_val); self.gender_label = QLabel(f"{gender:+.2f}")
-        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{((v / 100 - 0.5) * 4):+.2f}"))
+        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{((v / 100 - 0.5) * 5):+.2f}"))
         bl.addWidget(QLabel("性别因子"), r, 0); bl.addWidget(self.gender_slider, r, 1); bl.addWidget(self.gender_label, r, 2); r += 1
 
         self.index_rate_slider = _sl(0, 100, 1, int(index_rate * 100)); self.index_rate_label = QLabel(f"{index_rate:.2f}")
