@@ -29,6 +29,7 @@ import os
 import platform
 import shutil
 import signal
+import subprocess
 import sys
 import time
 import warnings
@@ -377,7 +378,11 @@ def _probe_gpu(log: TrainLogger) -> tuple[str, bool, float]:
 
 
 def _locate_ffmpeg() -> tuple[str, str]:
-    """返回 (路径, 来源)。"""
+    """返回 (路径, 来源)。非 Windows 平台跳过项目内的 Windows exe。
+
+    项目内 assets/ffmpeg/ffmpeg.exe 是 Windows 二进制：Linux/macOS 上
+    没有执行权限位，直接执行会 PermissionError（云上已踩过）。
+    """
     local_exe = PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
     env_ffmpeg = os.environ.get("RVC_FFMPEG", "").strip()
     if env_ffmpeg and Path(env_ffmpeg).exists():
@@ -385,13 +390,13 @@ def _locate_ffmpeg() -> tuple[str, str]:
     system_ffmpeg = shutil.which("ffmpeg")
     if system_ffmpeg:
         return system_ffmpeg, "系统 PATH"
-    if local_exe.exists():
+    if os.name == "nt" and local_exe.exists():
         return str(local_exe), "项目内 assets/ffmpeg/ffmpeg.exe"
     return "", ""
 
 
 def _probe_ffmpeg(log: TrainLogger) -> str:
-    """定位 ffmpeg；找到系统 ffmpeg 就运行时重定向 loader 的硬编码路径。
+    """定位 ffmpeg 并实际验证可执行；找到就重定向 loader 的硬编码路径。
 
     rvc/audio/loader.py 写死了 assets/ffmpeg/ffmpeg.exe（Windows 专用二进制），
     云端必须改指向系统 ffmpeg，否则 mp3/m4a 等格式无法解码。
@@ -402,6 +407,27 @@ def _probe_ffmpeg(log: TrainLogger) -> str:
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
         log.log("  素材若含 mp3/m4a/aac 会直接失败，安装：apt install -y ffmpeg", "WARN")
+        # 防御：把 loader 硬编码的 Windows exe 指空，让它报清晰的 FileNotFoundError
+        # 而不是在 Linux 上执行 .exe 报 PermissionError
+        try:
+            import rvc.audio.loader as _loader
+
+            _loader._FFMPEG = Path("")
+        except Exception:
+            pass
+        return ""
+    # 实际验证可执行（体检阶段就暴露问题，而不是训练中途才炸）
+    try:
+        probe = subprocess.run([chosen, "-version"], capture_output=True, timeout=15)
+        if probe.returncode != 0:
+            log.log(
+                f"ffmpeg      : {chosen} 存在但执行失败（rc={probe.returncode}）"
+                " → 请安装系统 ffmpeg：apt install -y ffmpeg",
+                "ERROR",
+            )
+            return ""
+    except OSError as exc:
+        log.log(f"ffmpeg      : {chosen} 无法执行（{exc}）→ 请安装系统 ffmpeg：apt install -y ffmpeg", "ERROR")
         return ""
     log.log(f"ffmpeg      : {chosen}（来自 {source}）")
     if Path(chosen).resolve() != local_exe.resolve():
