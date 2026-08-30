@@ -21,6 +21,10 @@ assets/hubert/
 assets/indexes/*.index
 assets/hubert_inputs.pth
 assets/rmvpe_inputs.pth
+# 人声提纯权重（手动下载，单文件最大 639MB）
+assets/separate/*.ckpt
+assets/separate/*.th
+assets/separate/*.pth
 
 # Runtime configs (migrated to assets/configs/)
 /configs/

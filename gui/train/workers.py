@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime import Config
+from rvc.tools.separate import AUDIO_EXTS, MODELS, POST_KEYS, missing
 from rvc.train.extract_f0 import TrainF0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
 from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_diff_reason
@@ -154,3 +155,106 @@ class TrainWorker(QThread):
             self._trainer.cleanup()
             self._trainer = None
         self.log_message.emit(f"模型已导出: {output}")
+
+
+class VocalExtractWorker(QThread):
+    """人声提纯批量处理。
+
+    进度条是文件级 + 单文件内进度的合并值：
+    总进度 = (已完成文件数 + 当前文件内进度) / 总文件数
+    取消点在每个文件开始前、以及单个文件内每级模型之间（长音频的取消会有延迟）。
+    """
+
+    progress = Signal(int, int)
+    log_message = Signal(str)
+    stage_changed = Signal(str)
+    cancelled = Signal(str)
+    finished = Signal(bool, str)
+    error = Signal(str)
+
+    def __init__(self, options: dict):
+        super().__init__()
+        self.options = options
+        self._stop_requested = False
+        self._separator = None
+
+    def request_stop(self):
+        self._stop_requested = True
+        self.stage_changed.emit("正在停止")
+        self.log_message.emit("收到停止请求，将在当前文件处理完后停止")
+
+    def _check_stop(self):
+        if self._stop_requested:
+            raise RuntimeError("已取消")
+
+    @staticmethod
+    def _parse_sr(text: str) -> int:
+        text = str(text).strip().lower()
+        if text.endswith("k"):
+            return int(float(text[:-1]) * 1000)
+        return int(float(text))
+
+    def run(self):
+        try:
+            self._run_impl()
+        except Exception:
+            if self._stop_requested:
+                self.cancelled.emit("已停止")
+                return
+            tb = traceback.format_exc()
+            self.error.emit(tb.strip().splitlines()[-1])
+            self.log_message.emit(tb)
+            self.finished.emit(False, "提纯失败")
+
+    def _run_impl(self):
+        # 重型导入放在线程内，避免拖慢 GUI 启动
+        from rvc.tools.separate import VocalSeparator
+
+        input_dir = Path(self.options["input_dir"])
+        output_dir = Path(self.options["output_dir"])
+        model_key = self.options["model"]
+        post_keys = [k for k in POST_KEYS if self.options.get(f"do_{k}")]
+        keys = [model_key] + post_keys
+        out_sr = self._parse_sr(self.options.get("out_sr", "44.1k"))
+
+        missing_models = missing(keys)
+        if missing_models:
+            names = "\n".join(f"  · {m.label}"
+                              f"\n      assets/separate/{m.filename}"
+                              for m in missing_models)
+            raise FileNotFoundError(f"以下模型还没有下载到 assets/separate/：\n{names}")
+
+        files = sorted(
+            p for p in input_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() in AUDIO_EXTS
+        )
+        if not files:
+            raise ValueError(f"输入文件夹里没有找到音频文件：{input_dir}")
+
+        self.log_message.emit(
+            f"待处理 {len(files)} 个文件 · 链路：{' → '.join(MODELS[k].label.split('（')[0] for k in keys)}"
+        )
+
+        self._separator = VocalSeparator()
+        total = len(files)
+        done = 0
+        for path in files:
+            self._check_stop()
+            rel = path.relative_to(input_dir)
+            out_path = output_dir / rel.with_suffix(".wav")
+            self.stage_changed.emit(f"处理 {rel.name}（{done + 1}/{total}）")
+
+            def file_progress(pos, total_pos, _done=done):
+                fraction = pos / max(total_pos, 1)
+                self.progress.emit(int((_done + fraction) * 100), total * 100)
+
+            self._separator.process_file(
+                path, out_path, keys, out_sr=out_sr,
+                progress=file_progress, stop_check=lambda: self._stop_requested,
+            )
+            done += 1
+            self.log_message.emit(f"完成：{out_path}")
+            self.progress.emit(done * 100, total * 100)
+
+        self.stage_changed.emit("完成")
+        self.finished.emit(True, f"提纯完成，共 {done} 个文件 → {output_dir}")

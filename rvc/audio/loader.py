@@ -28,7 +28,7 @@ def load_audio(path: str | Path, target_sr: int, mono: bool = True) -> tuple[np.
             return wav.astype(np.float32), sr
     except Exception:
         pass
-    return _load_via_ffmpeg(path, target_sr)
+    return _load_via_ffmpeg(path, target_sr, mono)
 
 
 def load_audio_native(path: str | Path, mono: bool = True) -> tuple[np.ndarray, int]:
@@ -49,19 +49,21 @@ def load_audio_native(path: str | Path, mono: bool = True) -> tuple[np.ndarray, 
     return _load_via_ffmpeg_native(path)
 
 
-def _load_via_ffmpeg(path: Path, target_sr: int) -> tuple[np.ndarray, int]:
-    """通过 ffmpeg 解码并重采样到 target_sr。"""
+def _load_via_ffmpeg(path: Path, target_sr: int, mono: bool = True) -> tuple[np.ndarray, int]:
+    """通过 ffmpeg 解码并重采样到 target_sr。mono=False 时输出 (2, N) 立体声。"""
     if not _FFMPEG.exists():
         raise FileNotFoundError(f"找不到 ffmpeg: {_FFMPEG}\n也无法用 librosa 加载: {path}")
     cmd = [
         str(_FFMPEG), "-i", str(path), "-vn",
         "-acodec", "pcm_f32le", "-f", "f32le",
-        "-ac", "1", "-ar", str(target_sr), "-",
+        "-ac", "1" if mono else "2", "-ar", str(target_sr), "-",
     ]
     proc = subprocess.run(cmd, capture_output=True, timeout=300)
     if proc.returncode:
         raise RuntimeError(f"ffmpeg 解码失败: {path}")
     raw = np.frombuffer(proc.stdout, dtype=np.float32)
+    if not mono:
+        raw = raw.reshape(-1, 2).T  # f32le 交织 LRLR… → (2, N)
     return raw.astype(np.float32), target_sr
 
 
