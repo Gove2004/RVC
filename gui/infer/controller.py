@@ -40,7 +40,6 @@ class EngineConfig:
     block_time: float
     crossfade_time: float
     extra_time: float
-    wasapi_exclusive: bool = False
 
 
 @dataclass
@@ -99,7 +98,6 @@ class InferController:
             config.block_time,
             config.crossfade_time,
             config.extra_time,
-            exclusive=config.wasapi_exclusive,
         )
         if self.runtime_params.enable_out2 and config.output2_device_pos >= 0:
             try:

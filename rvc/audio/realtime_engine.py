@@ -17,7 +17,6 @@ from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
-from rvc.audio.wasapi import settings_builder
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -48,7 +47,6 @@ class RealtimeEngine:
         self.input_wav = None; self.input_wav_res = None
         self.input_wav_work = None; self.input_wav_res_work = None
         self.sola_buffer = None
-        self.sola_last_offset = None  # SOLA 上一块 offset（GPU 0维 tensor），相邻块平滑用
         self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
         self.resampler = None; self.resampler2 = None
         # 效果器（setup 时创建）
@@ -80,7 +78,7 @@ class RealtimeEngine:
             self.pipeline = None
             raise
 
-    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, exclusive=False):
+    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
         if self.stream is not None:
             self.stop()
         self.error_count = 0
@@ -115,7 +113,6 @@ class RealtimeEngine:
         self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
 
         self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
-        self.sola_last_offset = None  # 新流：SOLA offset 平滑状态清零
 
         ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=config.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
@@ -139,18 +136,7 @@ class RealtimeEngine:
         self.warmup_inference(2)
 
         try:
-            extra = settings_builder(exclusive)
-            if exclusive and extra is not None:
-                # 独占模式要求设备原生采样率与流一致；失败（InvalidSampleRate）
-                # 时降级 shared 并提示，不让用户卡死在「打不开」
-                try:
-                    self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32", extra_settings=extra)
-                except Exception as e:
-                    logger.warning("WASAPI 独占打开失败（%s），降级共享模式", e)
-                    logger.info("独占模式要求输出设备默认格式与流采样率一致；可在系统声音设置里把设备默认格式设为 %s Hz", self.sr)
-                    self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
-            else:
-                self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
+            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
             self.stream.start()
             self.running = True
         except Exception as e:
@@ -294,15 +280,13 @@ class RealtimeEngine:
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
     def _apply_sola(self, infer):
-        """SOLA 时间拉伸对齐，输出块长度 = block_samples；记录 offset 供下一块平滑"""
-        chunk, offset = apply_sola(
+        """SOLA 时间拉伸对齐，输出块长度 = block_samples"""
+        return apply_sola(
             infer, self.sola_buffer, self.sola_norm_kernel,
             self.fade_in, self.fade_out,
             self.block_samples, self.sola_buffer_samples,
-            self.sola_search_samples, self.sola_last_offset,
+            self.sola_search_samples,
         )
-        self.sola_last_offset = offset
-        return chunk
 
     def _write_output(self, chunk, outdata, enable_out2):
         """主输出写入 + 副输出路由"""

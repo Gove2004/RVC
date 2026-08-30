@@ -11,17 +11,21 @@ SOLA (Short-time Overlap-Add) 是一种语音处理中的时域对齐算法，
 5. 更新sola_buffer为最新输出块的前部，用于下一帧对齐
 
 关键阈值：
-- SOLA_MIN_CORR (0.4): 最小相关系数，低于此值表示无可靠匹配（静音/过渡段不偏移，原样拼接）
-- SOLA_MIN_ENERGY (1e-3): 最小信号能量，避免在静音区域对齐
-- offset 相邻块平滑：offset 与上一块差 > 搜索窗一半时，沿用上一块 offset，
-  避免每块时值抖动（声母 20~50ms，±10ms 扰动会糊字）
+- SOLA_MIN_CORR (0.15): 最小相关系数（真实归一化相关，量纲 -1~1），
+  低于此值表示无可靠匹配（静音/极端过渡段不偏移，原样拼接）
+- SOLA_MIN_ENERGY (1e-4): 最小信号能量，避免在静音区域对齐
+
+注意：不要对 offset 做跨块「粘滞式平滑」（如上块差值过大就沿用上块值）。
+模型的块间时间偏移每块都在变（f0 周期相位、模型边界效应，幅度可达整个搜索窗），
+SOLA 必须每块独立跟踪；一旦沿用旧值，块边界就会重复或跳缺数毫秒——
+听感正是「某几个字带小混响/重影」。详见 .workbuddy/memory 2026-08-29 记录。
 """
 import torch
 import torch.nn.functional as F
 
 
-SOLA_MIN_CORR = 0.4
-SOLA_MIN_ENERGY = 1e-3
+SOLA_MIN_CORR = 0.15
+SOLA_MIN_ENERGY = 1e-4
 
 
 def apply_sola(
@@ -33,9 +37,7 @@ def apply_sola(
     block_samples: int,
     sola_buffer_samples: int,
     sola_search_samples: int,
-    last_offset: torch.Tensor | None = None,
-    corr_threshold: float = SOLA_MIN_CORR,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """执行单次 SOLA 对齐与交叉淡化。
 
     Args:
@@ -47,11 +49,9 @@ def apply_sola(
         block_samples: 当前输出块大小
         sola_buffer_samples: SOLA缓冲区大小（通常为跨帧长度）
         sola_search_samples: 搜索窗口大小
-        last_offset: 上一块的 offset（0 维 GPU tensor），用于相邻块平滑；None 则不平滑
-        corr_threshold: 相关性阈值（0~1），低于此值判无效匹配（静音/过渡不偏移）
 
     Returns:
-        (对齐后的音频块 [block_samples], 本块 offset) —— offset 供下一块平滑使用
+        对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer
     """
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
@@ -62,16 +62,8 @@ def apply_sola(
     cd = (energy * ref_energy + 1e-8).rsqrt()
     score = cn[0, 0] * cd[0, 0]
     best_score, offset = torch.max(score, dim=0)
-    valid_match = (torch.max(energy) >= SOLA_MIN_ENERGY) & (best_score >= corr_threshold)
+    valid_match = (torch.max(energy) >= SOLA_MIN_ENERGY) & (best_score >= SOLA_MIN_CORR)
     offset.masked_fill_(~valid_match, 0)  # 原地清零，避免每回调分配
-
-    # offset 相邻块平滑：变化超过搜索窗一半时沿用上一块，声母时值不跳变。
-    # 静音/无效匹配块：重置为 0（无延续性，重新开始），避免污染下一语音块的平滑状态。
-    # 全 GPU 张量操作，避免 CPU↔GPU 同步。第一块（last_offset=None）不平滑。
-    if last_offset is not None:
-        big_jump = (offset - last_offset).abs() > sola_search_samples // 2
-        reset = ~valid_match
-        offset = torch.where(reset, offset.new_zeros(()), torch.where(big_jump, last_offset, offset))
 
     infer = infer[offset:]
 
@@ -79,4 +71,4 @@ def apply_sola(
     infer[:sola_buffer_samples] += sola_buffer * fade_out
 
     sola_buffer[:] = infer[block_samples:block_samples + sola_buffer_samples]
-    return infer[:block_samples], offset
+    return infer[:block_samples]
