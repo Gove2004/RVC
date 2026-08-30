@@ -41,16 +41,60 @@ def load_checkpoint(path: str, model, optimizer=None):
     return checkpoint.get("learning_rate", 1e-4), checkpoint.get("iteration", 0)
 
 
+# checkpoint 统一存放目录（保存与恢复必须都用它，否则永远找不到）
+CHECKPOINT_DIR_NAME = "4_checkpoints"
+
+
+def checkpoints_dir(exp_dir: str | Path) -> Path:
+    """实验的 checkpoint 目录：<exp>/4_checkpoints。"""
+    return Path(exp_dir) / CHECKPOINT_DIR_NAME
+
+
+def _epoch_extractor(pattern: str):
+    regex = re.compile(pattern)
+
+    def extract(path):
+        match = regex.search(str(path))
+        return int(match.group(1)) if match else -1
+
+    return extract
+
+
+checkpoint_epoch = _epoch_extractor(r"_(\d+)\.pth$")  # G_12.pth / D_12.pth
+exported_epoch = _epoch_extractor(r"_e(\d+)\.pth$")  # <exp>_e12.pth
+
+
 def latest_checkpoint_path(dir_path: str, prefix: str):
     paths = glob.glob(os.path.join(dir_path, f"{prefix}_*.pth"))
     if not paths:
         return None
+    return max(paths, key=checkpoint_epoch)
 
-    def epoch_of(path):
-        match = re.search(rf"{prefix}_(\d+)\.pth$", path)
-        return int(match.group(1)) if match else -1
 
-    return max(paths, key=epoch_of)
+def prune_keep_latest(dir_path, pattern: str, keep: int, epoch_of=checkpoint_epoch, on_delete=None) -> list:
+    """只保留 epoch 号最大的 keep 个文件，删除其余。
+
+    keep >= 1。epoch 号解析不出来的文件一律不动（无法判断新旧 = 不删）。
+    返回被删除的路径列表。
+    """
+    if keep < 1:
+        return []
+    directory = Path(dir_path)
+    if not directory.is_dir():
+        return []
+    files = [p for p in directory.glob(pattern) if epoch_of(p) >= 0]
+    files.sort(key=epoch_of)
+    removed = files[:-keep]
+    deleted = []
+    for path in removed:
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        deleted.append(path)
+        if on_delete:
+            on_delete(path)
+    return deleted
 
 
 def load_train_json(sr: int):

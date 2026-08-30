@@ -9,7 +9,16 @@ from torch.utils.data import DataLoader
 from rvc.nn import commons
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
 from rvc.synthesizer import SynthesizerTrnMsNSFsid
-from rvc.train.ckpt_utils import export_model, latest_checkpoint_path, load_checkpoint, load_train_json, save_checkpoint
+from rvc.train.ckpt_utils import (
+    checkpoints_dir,
+    exported_epoch,
+    export_model,
+    latest_checkpoint_path,
+    load_checkpoint,
+    load_train_json,
+    prune_keep_latest,
+    save_checkpoint,
+)
 from rvc.train.data_utils import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
@@ -33,6 +42,10 @@ class TrainConfig:
     log_interval: int = 20
     early_stop_patience: int = 0  # 连续多少轮 Mel loss 无改善则自动停止；0 = 关闭
     early_stop_min_delta: float = 0.0015  # 视为「有改善」的最小相对提升（相对 best）
+    # checkpoint 含 optimizer 状态（G+D 约 0.7~0.8 GB/次），长期训练会撑爆磁盘；
+    # 默认只留最新一组，够断点续训用。导出模型小得多，默认留最近 2 个供挑选。
+    keep_ckpts: int = 1
+    keep_models: int = 2
 
 
 # 早停保护：训练满该轮数后才开始判定（避免初始抖动误停）
@@ -69,6 +82,9 @@ class Trainer:
         except Exception:
             pass
 
+    def checkpoints_dir(self) -> Path:
+        return checkpoints_dir(self.cfg.exp_dir)
+
     def log(self, message: str):
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         with self.log_file.open("a", encoding="utf-8") as f:
@@ -93,13 +109,16 @@ class Trainer:
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
 
-        latest_g = latest_checkpoint_path(self.cfg.exp_dir, "G")
-        latest_d = latest_checkpoint_path(self.cfg.exp_dir, "D")
+        # checkpoint 存在 <exp>/4_checkpoints/ 下（与 _save 一致）；
+        # 根目录再试一次只为兼容早期布局，不改写入位置
+        ckpt_dir = str(self.checkpoints_dir())
+        latest_g = latest_checkpoint_path(ckpt_dir, "G") or latest_checkpoint_path(self.cfg.exp_dir, "G")
+        latest_d = latest_checkpoint_path(ckpt_dir, "D") or latest_checkpoint_path(self.cfg.exp_dir, "D")
         if latest_g and latest_d:
             _, epoch_g = load_checkpoint(latest_g, self.synthesizer, self.optim_g)
             _, epoch_d = load_checkpoint(latest_d, self.net_d, self.optim_d)
             self.start_epoch = min(epoch_g, epoch_d) + 1
-            self.log(f"恢复训练: epoch {self.start_epoch}")
+            self.log(f"恢复训练: epoch {self.start_epoch}（G={Path(latest_g).name} D={Path(latest_d).name}）")
         else:
             if self.cfg.pretrain_g:
                 state = torch.load(self.cfg.pretrain_g, map_location="cpu", weights_only=False)
@@ -238,15 +257,30 @@ class Trainer:
         return g_sum / n, mel_sum / n, kl_sum / n, fm_sum / n, d_sum / n
 
     def _save(self, epoch: int):
-        """保存 checkpoint 并导出可用模型"""
-        ckpt_dir = Path(self.cfg.exp_dir) / "4_checkpoints"
-        ckpt_dir.mkdir(exist_ok=True)
+        """保存 checkpoint 并导出可用模型，随后按保留策略清理旧文件。"""
+        ckpt_dir = self.checkpoints_dir()
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         save_checkpoint(self.synthesizer, self.optim_g, self.cfg.learning_rate, epoch, str(ckpt_dir / f"G_{epoch}.pth"))
         save_checkpoint(self.net_d, self.optim_d, self.cfg.learning_rate, epoch, str(ckpt_dir / f"D_{epoch}.pth"))
         self.log(f"保存 checkpoint: epoch {epoch}")
 
-        # 同时导出可用模型到 weights/
-        output = WEIGHTS_DIR / f"{Path(self.cfg.exp_dir).name}_e{epoch}.pth"
+        # 只留最新 N 组（checkpoint 带 optimizer 状态，体积最大）
+        keep_ckpts = max(self.cfg.keep_ckpts, 1)
+        removed = []
+        for prefix in ("G", "D"):
+            removed += prune_keep_latest(ckpt_dir, f"{prefix}_*.pth", keep_ckpts)
+        if removed:
+            self.log(f"清理旧 checkpoint: {len(removed)} 个（每组保留最新 {keep_ckpts} 个）")
+
+        # 同时导出可用模型到 assets/models/
+        exp_name = Path(self.cfg.exp_dir).name
+        output = WEIGHTS_DIR / f"{exp_name}_e{epoch}.pth"
         export_model(self.synthesizer.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
         self.log(f"导出模型: {output}")
+
+        # 只清理本实验的 <exp>_e<N>.pth，不碰其他/合并出来的模型
+        keep_models = max(self.cfg.keep_models, 1)
+        gone = prune_keep_latest(WEIGHTS_DIR, f"{exp_name}_e*.pth", keep_models, epoch_of=exported_epoch)
+        if gone:
+            self.log(f"清理旧导出模型: {len(gone)} 个（保留最新 {keep_models} 个）")

@@ -11,6 +11,7 @@ import soundfile as sf
 from scipy import signal
 
 from rvc.audio.loader import load_audio as _load_audio_lib
+from rvc.train.ckpt_utils import CHECKPOINT_DIR_NAME
 
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"
@@ -161,9 +162,15 @@ def clear_exp_runtime(exp_dir: str | Path):
             shutil.rmtree(path)
         elif path.exists():
             path.unlink()
+    # 根目录与 4_checkpoints/ 都要清：素材变了旧 checkpoint 已经失效，
+    # 留下会让训练从错误的数据上续训
+    targets = [exp, exp / CHECKPOINT_DIR_NAME]
     for pattern in _CHECKPOINT_GLOBS:
-        for path in exp.glob(pattern):
-            path.unlink()
+        for directory in targets:
+            if not directory.is_dir():
+                continue
+            for path in directory.glob(pattern):
+                path.unlink()
 
 
 def manifest_matches(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float):
