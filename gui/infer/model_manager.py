@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 import os
 
 from gui.infer.widgets import ModelCard, ModelListData
+from rvc.runtime.paths import MODELS_DIR
 
 
 class ModelManager:
@@ -18,7 +19,7 @@ class ModelManager:
     def add_model_from_file(self) -> None:
         """从文件选择器添加模型"""
         path, _ = QFileDialog.getOpenFileName(
-            self.parent, "选择模型", "assets/models", "模型 (*.pth)"
+            self.parent, "选择模型", str(MODELS_DIR), "模型 (*.pth)"
         )
         if not path:
             return
@@ -32,13 +33,14 @@ class ModelManager:
         idx: str = "",
         pitch: int = 12,
         index_rate: float = 0.0,
-        gender: float = 0.0
+        gender: float = 0.0,
+        hubert: str = "base"
     ) -> ModelCard:
-        """添加模型卡片到列表"""
+        """添加模型卡片到列表（idx/index_rate 仅兼容旧持久化数据，卡片已无对应控件）"""
         card = ModelCard(
-            name, pth, idx, pitch,
-            index_rate=index_rate,
-            gender=gender
+            name, pth, pitch=pitch,
+            gender=gender,
+            hubert=hubert
         )
         card.load_requested.connect(self._handle_card_load)
         card._del.clicked.connect(lambda: self.remove_card(card))
@@ -59,10 +61,9 @@ class ModelManager:
         self,
         name: str,
         pth: str,
-        idx: str,
         pitch: int,
-        ir: float,
         gender: float,
+        hubert: str,
     ) -> None:
         """处理卡片加载请求"""
         if not pth:

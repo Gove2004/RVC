@@ -22,7 +22,8 @@ class VCPipeline:
         output = pipeline.infer(input_wav_tensor, block_samples_16k, skip_head, ret_len, "fcpe")
     """
 
-    def __init__(self, config, pth_path, index_path="", index_rate=0.0, inference_cache=None):
+    def __init__(self, config, pth_path, index_path="", index_rate=0.0, inference_cache=None,
+                 hubert: str = "base"):
         self.config = config
         self.device = config.device
         self.is_half = config.is_half
@@ -30,6 +31,7 @@ class VCPipeline:
         self.pth_path = pth_path
         self.index_path = index_path
         self.index_rate = index_rate
+        self.hubert_variant = hubert
 
         self.f0_semitones = 0
         self.formant_factor = 0.0
@@ -61,7 +63,8 @@ class VCPipeline:
         return cached_long_tensor(self._long_tensor_cache, value, self.device)
 
     def load(self) -> None:
-        session = load_model_session(self.config, self.pth_path, self.index_path, self.index_rate, self.inference_cache)
+        session = load_model_session(self.config, self.pth_path, self.index_path, self.index_rate,
+                                     self.inference_cache, hubert_variant=self.hubert_variant)
         self.hubert_model = session.hubert
         self.synthesizer = session.synthesizer
         self.target_sr = session.target_sr

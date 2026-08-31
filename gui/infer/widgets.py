@@ -2,7 +2,7 @@
 import os
 
 from PySide6.QtWidgets import (
-    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QVBoxLayout, QWidget, QSlider,
 )
 from PySide6.QtCore import Qt, QThread, Signal
@@ -65,14 +65,16 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片：始终展开，顶部一行 [使用] [模型名居中] [删除]"""
 
-    load_requested = Signal(str, str, str, float, float, float)  # name, pth, idx, pitch, index_rate, gender
+    # name, pth, pitch, gender, hubert（idx/index_rate 已从卡片移除，不再使用）
+    load_requested = Signal(str, str, int, float, str)
 
+    # idx/index_rate 参数仅用于兼容旧持久化数据（load_models 的 **m 会带这些键），已忽略
     def __init__(self, name="", pth="", idx="", pitch=12,
-                 index_rate=0.0, gender=0.0, parent=None):
+                 index_rate=0.0, gender=0.0, hubert="base", parent=None):
         super().__init__(parent)
-        self._build(name, pth, idx, pitch, index_rate, gender)
+        self._build(name, pth, pitch, gender, hubert)
 
-    def _build(self, name, pth, idx, pitch, index_rate, gender):
+    def _build(self, name, pth, pitch, gender, hubert):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(4)
 
         # ── 顶部栏 ──
@@ -114,11 +116,6 @@ class ModelCard(QFrame):
         _pbtn.clicked.connect(lambda: self._browse(self.pth_edit, "模型 (*.pth)"))
         r += 1
 
-        self.idx_edit = QLineEdit(idx); self.idx_edit.setMinimumHeight(24)
-        _ibtn = add_path_row("索引路径", self.idx_edit, "索引 (*.index)", r)
-        _ibtn.clicked.connect(lambda: self._browse(self.idx_edit, "索引 (*.index)"))
-        r += 1
-
         self.pitch_slider = _sl(-16, 16, 1, pitch); self.pitch_label = QLabel(str(pitch))
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
@@ -129,9 +126,16 @@ class ModelCard(QFrame):
         self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{((v / 100 - 0.5) * 5):+.2f}"))
         bl.addWidget(QLabel("性别因子"), r, 0); bl.addWidget(self.gender_slider, r, 1); bl.addWidget(self.gender_label, r, 2); r += 1
 
-        self.index_rate_slider = _sl(0, 100, 1, int(index_rate * 100)); self.index_rate_label = QLabel(f"{index_rate:.2f}")
-        self.index_rate_slider.valueChanged.connect(lambda v: self.index_rate_label.setText(f"{v / 100:.2f}"))
-        bl.addWidget(QLabel("索引占比"), r, 0); bl.addWidget(self.index_rate_slider, r, 1); bl.addWidget(self.index_rate_label, r, 2); r += 1
+        # HuBERT 特征器：base（原始 hubert_base）/ chinese（腾讯中文 hubert）。
+        # 硬约束：训练与推理必须用同一特征器——本模型训练时用的哪个，这里就要选哪个。
+        self.hubert_combo = QComboBox()
+        self.hubert_combo.addItems(["base", "chinese"])
+        self.hubert_combo.setMinimumHeight(24)
+        bi = self.hubert_combo.findText(hubert)
+        if bi >= 0:
+            self.hubert_combo.setCurrentIndex(bi)
+        self.hubert_combo.setToolTip("此模型训练时用的特征器（base=原版 hubert_base，chinese=腾讯中文 hubert）。训练与推理必须一致。")
+        bl.addWidget(QLabel("特征器"), r, 0); bl.addWidget(self.hubert_combo, r, 1, 1, 2); r += 1
 
         root.addWidget(body)
         self.setStyleSheet(f"ModelCard{{{CardStyles.default()}}}")
@@ -143,19 +147,19 @@ class ModelCard(QFrame):
 
     def _on_load(self):
         self.load_requested.emit(
-            self._name_label.text(), self.pth_edit.text().strip(), self.idx_edit.text().strip(),
-            self.pitch_slider.value(), _sl_value_as_float(self.index_rate_slider),
+            self._name_label.text(), self.pth_edit.text().strip(),
+            self.pitch_slider.value(),
             _sl_value_as_float(self.gender_slider),
+            self.hubert_combo.currentText(),
         )
 
     def get_data(self):
         return {
             "name": self._name_label.text(),
             "pth": self.pth_edit.text().strip(),
-            "idx": self.idx_edit.text().strip(),
             "pitch": self.pitch_slider.value(),
-            "index_rate": _sl_value_as_float(self.index_rate_slider),
             "gender": (self.gender_slider.value() / 100 * 5 - 2.5),
+            "hubert": self.hubert_combo.currentText(),
         }
 
     def set_active(self, active):
@@ -183,9 +187,9 @@ class ModelCard(QFrame):
 
 class LoadThread(QThread):
     ok = Signal(int); err = Signal(str)
-    def __init__(self, engine, pth, idx, idx_rate):
+    def __init__(self, engine, pth, hubert="base"):
         super().__init__()
-        self.engine = engine; self.pth = pth; self.idx = idx; self.rate = idx_rate
+        self.engine = engine; self.pth = pth; self.hubert = hubert
         self._stop_requested = False
     def request_stop(self):
         self._stop_requested = True
@@ -194,6 +198,7 @@ class LoadThread(QThread):
     def run(self):
         try:
             if not self.is_stopping():
-                self.ok.emit(self.engine.load_model(self.pth, self.idx, self.rate, True))
+                # index 已从 UI 移除，固定不加载（空路径 + 0 占比）
+                self.ok.emit(self.engine.load_model(self.pth, "", 0.0, True, self.hubert))
         except Exception as e:
             self.err.emit(str(e))

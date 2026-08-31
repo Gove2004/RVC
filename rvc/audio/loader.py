@@ -7,10 +7,12 @@ from pathlib import Path
 import librosa
 import numpy as np
 
+from rvc.runtime.paths import FFMPEG_EXE
+
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_FFMPEG = _PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
+# 保留模块级名字：云训练（autodl_train.py）靠运行时改 _FFMPEG 重定向
+_FFMPEG = FFMPEG_EXE
 
 
 def load_audio(path: str | Path, target_sr: int, mono: bool = True) -> tuple[np.ndarray, int]:

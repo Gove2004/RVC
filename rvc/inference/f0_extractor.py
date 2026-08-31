@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 
 import torch
 
+from rvc.runtime.paths import RMVPE_PATH
 from rvc.tools.cuda_graph import cuda_graph_enabled, run_cuda_graph
 
 logger = logging.getLogger(__name__)
@@ -246,7 +247,7 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
         cache_key = (device, is_half)
         cached = inference_cache.get_rmvpe(cache_key)
         if cached is None:
-            cached = RMVPEExtractor("assets/rmvpe/rmvpe.pt", device, is_half)
+            cached = RMVPEExtractor(str(RMVPE_PATH), device, is_half)
             inference_cache.set_rmvpe(cache_key, cached)
         return cached
     elif method == "fcpe":

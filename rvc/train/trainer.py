@@ -19,12 +19,14 @@ from rvc.train.ckpt_utils import (
     prune_keep_latest,
     save_checkpoint,
 )
+from rvc.runtime.paths import MODELS_DIR
 from rvc.train.data_utils import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 
-# 导出模型目录：相对项目根，而非进程工作目录（防止从其他目录启动时写错位置）
-WEIGHTS_DIR = Path(__file__).resolve().parents[2] / "assets" / "models"
+# 导出模型目录（统一来自 rvc.runtime.paths）；保留模块级名字，
+# 云训练（autodl_train.py）靠运行时改 WEIGHTS_DIR 重定向到数据盘
+WEIGHTS_DIR = MODELS_DIR
 
 
 @dataclass

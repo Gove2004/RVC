@@ -37,6 +37,9 @@ def _build_data_group(win) -> QGroupBox:
     win.sample_rate = QComboBox()
     win.sample_rate.addItems(["40k", "48k"])
     win.sample_rate.currentTextChanged.connect(win._on_sr_changed)
+    win.hubert = QComboBox()
+    win.hubert.addItems(["base", "chinese"])
+    win.hubert.setToolTip("HuBERT 特征器：base=原版 hubert_base，chinese=腾讯中文 hubert（中文音素更准）。\n训练后推理时模型卡牌上必须选同一种。")
 
     grid.addWidget(QLabel("实验名"), 0, 0)
     grid.addWidget(win.exp_name, 0, 1, 1, 2)
@@ -45,6 +48,8 @@ def _build_data_group(win) -> QGroupBox:
     grid.addWidget(browse, 1, 2)
     grid.addWidget(QLabel("采样率"), 2, 0)
     grid.addWidget(win.sample_rate, 2, 1, 1, 2)
+    grid.addWidget(QLabel("特征器"), 3, 0)
+    grid.addWidget(win.hubert, 3, 1, 1, 2)
     return group
 
 

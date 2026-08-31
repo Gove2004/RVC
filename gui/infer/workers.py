@@ -60,7 +60,8 @@ class OfflineWorker(QThread):
         from rvc.runtime import Config  # 需要导入 runtime 的 Config
         
         # 使用运行时配置（device, is_half 等）创建 pipeline
-        vc = VCPipeline(Config(), self.cfg.model_path, self.cfg.index_path, self.cfg.index_rate)
+        vc = VCPipeline(Config(), self.cfg.model_path, self.cfg.index_path, self.cfg.index_rate,
+                        hubert=self.cfg.hubert)
         vc.load()
         # 与实时路径一致的参数应用（性别 formant / 音高 / 破音保护）
         vc.change_formant(self.cfg.gender)

@@ -35,6 +35,9 @@ import time
 import warnings
 from pathlib import Path
 
+# assets 资产路径统一取自 rvc.runtime.paths（轻量，不触发 torch）
+from rvc.runtime.paths import ASSETS_ROOT, CONFIG_ROOT, FFMPEG_EXE, HUBERT_ROOT, PRETRAINED_ROOT, RMVPE_PATH
+
 # ── 0. 控制台编码 + 工作目录 ──────────────────────────────────────────
 # 项目内大量路径是相对 cwd 的（assets/hubert、assets/rmvpe、assets/configs），
 # 统一切到脚本所在目录（=项目根）后全部自然生效，无需改动任何代码。
@@ -93,6 +96,7 @@ DEFAULTS = {
     "keep_ckpts": 1,
     "per": 3.7,
     "keep_models": 0,  # 导出模型保留数 0 = 全部保留（不淘汰，固定，不再暴露给用户）
+    "hubert": "base",  # HuBERT 特征器: base / chinese
 }
 
 
@@ -383,7 +387,7 @@ def _locate_ffmpeg() -> tuple[str, str]:
     项目内 assets/ffmpeg/ffmpeg.exe 是 Windows 二进制：Linux/macOS 上
     没有执行权限位，直接执行会 PermissionError（云上已踩过）。
     """
-    local_exe = PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
+    local_exe = FFMPEG_EXE
     env_ffmpeg = os.environ.get("RVC_FFMPEG", "").strip()
     if env_ffmpeg and Path(env_ffmpeg).exists():
         return env_ffmpeg, "环境变量 RVC_FFMPEG"
@@ -398,11 +402,11 @@ def _locate_ffmpeg() -> tuple[str, str]:
 def _probe_ffmpeg(log: TrainLogger) -> str:
     """定位 ffmpeg 并实际验证可执行；找到就重定向 loader 的硬编码路径。
 
-    rvc/audio/loader.py 写死了 assets/ffmpeg/ffmpeg.exe（Windows 专用二进制），
+    rvc/audio/loader.py 的 ffmpeg 路径统一来自 rvc.runtime.paths（Windows 专用二进制），
     云端必须改指向系统 ffmpeg，否则 mp3/m4a 等格式无法解码。
     这里只改模块变量，不碰源文件。
     """
-    local_exe = PROJECT_ROOT / "assets" / "ffmpeg" / "ffmpeg.exe"
+    local_exe = FFMPEG_EXE
     chosen, source = _locate_ffmpeg()
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
@@ -459,22 +463,23 @@ def _require_ffmpeg(log: TrainLogger, files: list[Path]):
 def _probe_assets(log: TrainLogger) -> dict:
     """检查预训练权重与训练配置，返回 {'40k': bool, '48k': bool} 底模可用性。"""
     fatal, warns = [], []
-    assets = PROJECT_ROOT / "assets"
 
     for sr_k in (40, 48):
-        cfg = assets / "configs" / f"{sr_k}ktrain_config.json"
+        cfg = CONFIG_ROOT / f"{sr_k}ktrain_config.json"
         if not cfg.exists():
             fatal.append(f"训练配置缺失: assets/configs/{sr_k}ktrain_config.json（应随代码仓库一起上传）")
 
-    hubert_dir = assets / "hubert"
-    for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin"):
-        path = hubert_dir / f
-        if not path.exists():
-            fatal.append(f"HuBERT 权重缺失: assets/hubert/{f}")
-        else:
-            log.log(f"  HuBERT {f:<24} {_human_size(path.stat().st_size)}")
+    hubert_root = HUBERT_ROOT
+    for variant in ("base", "chinese"):
+        hubert_dir = hubert_root / variant
+        for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin"):
+            path = hubert_dir / f
+            if not path.exists():
+                fatal.append(f"HuBERT 权重缺失: assets/hubert/{variant}/{f}")
+            else:
+                log.log(f"  HuBERT {variant:<7} {f:<24} {_human_size(path.stat().st_size)}")
 
-    rmvpe = assets / "rmvpe" / "rmvpe.pt"
+    rmvpe = RMVPE_PATH
     if not rmvpe.exists():
         fatal.append("RMVPE 权重缺失: assets/rmvpe/rmvpe.pt")
     else:
@@ -484,7 +489,7 @@ def _probe_assets(log: TrainLogger) -> dict:
     for sr_k in (40, 48):
         ok = True
         for key in ("G", "D"):
-            path = assets / "pretrained" / f"f0{key}{sr_k}k.pth"
+            path = PRETRAINED_ROOT / f"f0{key}{sr_k}k.pth"
             if not path.exists():
                 ok = False
                 warns.append(f"底模缺失: assets/pretrained/f0{key}{sr_k}k.pth（{sr_k}k 将从零训练，收敛明显变慢）")
@@ -497,7 +502,7 @@ def _probe_assets(log: TrainLogger) -> dict:
             log.log(msg, "ERROR")
         log.plain()
         log.log("以上权重都在 .gitignore 里，git clone 不会带下来，需要单独上传：", "ERROR")
-        log.log("  · assets/hubert/   （config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
+        log.log("  · assets/hubert/base/ + assets/hubert/chinese/（各含 config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
         log.log("  · assets/rmvpe/rmvpe.pt", "ERROR")
         log.log("  · assets/pretrained/f0G48k.pth + f0D48k.pth（可选，但强烈建议）", "ERROR")
         log.log("  上传方式：AutoDL 网盘 / scp / rsync，放到项目根目录对应位置", "ERROR")
@@ -622,10 +627,21 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    # 5) batch size
+    # 5) HuBERT 特征器（决定特征分布，训练后推理必须用同一种）
+    def _hubert_ok(value):
+        if value not in ("base", "chinese"):
+            return False, "只能填 base 或 chinese"
+        return True, ""
+
+    hubert = ask("HuBERT 特征器 base / chinese", DEFAULTS["hubert"], check=_hubert_ok)
+    if hubert == "chinese":
+        log.log("chinese = 腾讯 chinese-hubert-base（WenetSpeech 中文预训练，中文音素/声调更准）", "WARN")
+        log.log("  推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
+
+    # 6) batch size
     batch = ask("batch size", str(_suggest_batch(vram_gb, sr_hz)), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    # 6) 学习率
+    # 7) 学习率
     lr = ask(
         "学习率（1e-4=0.0001；太大易炸，太小收敛慢）",
         f"{DEFAULTS['lr']:g}",
@@ -637,7 +653,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     elif lr < 1e-5:
         log.log("学习率偏小，100 轮大概率训不出东西", "WARN")
 
-    # 7) 总轮次
+    # 8) 总轮次
     def _epochs_ok(value):
         if value < 1:
             return False, "至少 1 轮"
@@ -647,15 +663,15 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
 
     epochs = ask("训练轮次", str(DEFAULTS["epochs"]), cast=_as_int, check=_epochs_ok)
 
-    # 8) 保存间隔
+    # 9) 保存间隔
     save_every = ask("每多少轮保存一次", str(DEFAULTS["save_every"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    # 9) 保留 checkpoint 组数（G+D 各一组约 0.8GB，只留最新几组即可）
+    # 10) 保留 checkpoint 组数（G+D 各一组约 0.8GB，只留最新几组即可）
     keep_ckpts = ask("保留最近几组 checkpoint", str(DEFAULTS["keep_ckpts"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
     sr_k = sr_hz // 1000
-    pretrain_g = PROJECT_ROOT / "assets" / "pretrained" / f"f0G{sr_k}k.pth"
-    pretrain_d = PROJECT_ROOT / "assets" / "pretrained" / f"f0D{sr_k}k.pth"
+    pretrain_g = PRETRAINED_ROOT / f"f0G{sr_k}k.pth"
+    pretrain_d = PRETRAINED_ROOT / f"f0D{sr_k}k.pth"
 
     cfg.update(
         input_dir=str(input_dir),
@@ -672,6 +688,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
         keep_models=DEFAULTS["keep_models"],
         keep_ckpts=keep_ckpts,
         ckpt_epoch=ckpt_epoch,
+        hubert=hubert,
         pretrain_g=str(pretrain_g) if pretrain_g.exists() else "",
         pretrain_d=str(pretrain_d) if pretrain_d.exists() else "",
     )
@@ -687,6 +704,7 @@ def print_summary(log: TrainLogger, cfg: dict):
         ("实验目录", str(cfg["exp_dir"])),
         ("模型目录", str(cfg["model_dir"])),
         ("采样率", cfg["sr"]),
+        ("特征器", cfg["hubert"]),
         ("总轮次", str(cfg["epochs"]) + (f"（从 epoch {ckpt + 1} 续训）" if ckpt else "")),
         ("batch size", cfg["batch_size"]),
         ("学习率", f"{cfg['lr']:g}"),
@@ -779,9 +797,11 @@ def step_f0(log: TrainLogger, cfg: dict):
 def step_feature(log: TrainLogger, cfg: dict):
     from rvc.train.extract_feature import HuBERTExtractor
 
-    log.section("步骤 3/4 提取 HuBERT 特征")
+    hubert = cfg.get("hubert", "base")
+    log.section(f"步骤 3/4 提取 HuBERT 特征（{hubert}）")
+    log.log("若实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 再重跑（已存在的特征文件会被跳过）", "WARN")
     t0 = time.time()
-    extractor = HuBERTExtractor(cfg["device"], cfg["fp16"])
+    extractor = HuBERTExtractor(cfg["device"], cfg["fp16"], hubert=hubert)
     n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, "特征"), stop_check=lambda: STOP.requested)
     secs = time.time() - t0
     log.log(f"特征提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")

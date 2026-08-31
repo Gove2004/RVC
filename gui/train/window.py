@@ -14,6 +14,7 @@ from gui.train.tabs.train_tab import build_train_tab
 from gui.train.tabs.tools_tab import build_tools_tab
 from gui.train.tabs.vocal_tab import build_vocal_tab
 from gui.styles import ButtonStyles, LabelStyles, Layout
+from rvc.runtime.paths import PRETRAINED_ROOT
 
 
 class TrainWindow(QMainWindow):
@@ -52,7 +53,7 @@ class TrainWindow(QMainWindow):
         G/D 只是收敛加速的可选底座：留空 = 从零训练（收敛慢、音质起步低）。
         """
         for widget, key in ((self.pretrain_g, "G"), (self.pretrain_d, "D")):
-            path = Path(f"assets/pretrained/f0{key}{text}.pth")
+            path = PRETRAINED_ROOT / f"f0{key}{text}.pth"
             widget.setText(str(path) if path.exists() else "")
 
     def _start_step(self, step: str):
@@ -190,6 +191,7 @@ class TrainWindow(QMainWindow):
             "learning_rate": lr,
             "pretrain_g": self.pretrain_g.text().strip(),
             "pretrain_d": self.pretrain_d.text().strip(),
+            "hubert": self.hubert.currentText(),
         }
 
     def _set_running(self, running: bool):
@@ -202,7 +204,7 @@ class TrainWindow(QMainWindow):
         else:
             self.stop_btn.setStyleSheet(ButtonStyles.muted())
             self.stage_label.setStyleSheet("")
-        for widget in [self.exp_name, self.input_dir, self.sample_rate, self.epochs, self.batch_size, self.save_every, self.learning_rate, self.pretrain_g, self.pretrain_d]:
+        for widget in [self.exp_name, self.input_dir, self.sample_rate, self.hubert, self.epochs, self.batch_size, self.save_every, self.learning_rate, self.pretrain_g, self.pretrain_d]:
             widget.setEnabled(not running)
 
     # ── 配置持久化 ──────────────────────────────────────────
@@ -218,6 +220,7 @@ class TrainWindow(QMainWindow):
             learning_rate=self.learning_rate.text().strip(),
             pretrain_g=self.pretrain_g.text().strip(),
             pretrain_d=self.pretrain_d.text().strip(),
+            hubert=self.hubert.currentText(),
             sep_input_dir=self.sep_input.text().strip(),
             sep_output_dir=self.sep_output.text().strip(),
             sep_model=self.sep_model.currentData() or "htdemucs",
@@ -245,6 +248,10 @@ class TrainWindow(QMainWindow):
             self.pretrain_g.setText(state.pretrain_g)
         if state.pretrain_d:
             self.pretrain_d.setText(state.pretrain_d)
+        if state.hubert:
+            idx = self.hubert.findText(state.hubert)
+            if idx >= 0:
+                self.hubert.setCurrentIndex(idx)
         # 人声提纯 Tab
         if state.sep_input_dir:
             self.sep_input.setText(state.sep_input_dir)

@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime import Config
+from rvc.runtime.paths import SEPARATE_DIR
 from rvc.tools.separate import AUDIO_EXTS, MODELS, POST_KEYS, missing
 from rvc.train.extract_f0 import TrainF0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
@@ -111,8 +112,10 @@ class TrainWorker(QThread):
     def _step_feature(self, config, exp_dir, sr):
         self._check_stop()
         self.stage_changed.emit("提取 HuBERT 特征")
-        self.log_message.emit("开始提取 HuBERT 特征")
-        extractor = HuBERTExtractor(config.device, config.is_half)
+        hubert = self.options.get("hubert", "base")
+        self.log_message.emit(f"开始提取 HuBERT 特征（{hubert}）")
+        self.log_message.emit("注意：若本实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 目录再重跑")
+        extractor = HuBERTExtractor(config.device, config.is_half, hubert=hubert)
         if self._stop_requested:
             extractor.request_stop()
         extractor.run(str(exp_dir), self.progress.emit, stop_check=lambda: self._stop_requested)
@@ -219,9 +222,9 @@ class VocalExtractWorker(QThread):
         missing_models = missing(keys)
         if missing_models:
             names = "\n".join(f"  · {m.label}"
-                              f"\n      assets/separate/{m.filename}"
+                              f"\n      {SEPARATE_DIR / m.filename}"
                               for m in missing_models)
-            raise FileNotFoundError(f"以下模型还没有下载到 assets/separate/：\n{names}")
+            raise FileNotFoundError(f"以下模型还没有下载到 {SEPARATE_DIR}/：\n{names}")
 
         files = sorted(
             p for p in input_dir.rglob("*")

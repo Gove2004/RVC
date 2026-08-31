@@ -9,10 +9,11 @@ stem 是要保留的那一路输出名。对 target_instrument 非空的模型�
 karaoke），模型本身只输出一路，stem 仅用于校验；htdemucs 输出四路，靠 stem 挑人声。
 """
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path  # 仅用于类型注解与路径拼接
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-MODEL_DIR = _PROJECT_ROOT / "assets" / "separate"
+from rvc.runtime.paths import SEPARATE_DIR
+
+MODEL_DIR = SEPARATE_DIR  # 统一来自 rvc.runtime.paths（assets/separate）
 
 MS_REPO = "baicai1145/pymss"
 HF_REPO = "baicai1145/pymss"

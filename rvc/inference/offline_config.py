@@ -17,3 +17,4 @@ class OfflineConfig:
     gender: float = 0.0
     break_enable: bool = True   # 破音保护（与实时一致，GUI 源值）
     break_src_hz: float = 300.0
+    hubert: str = "base"        # HuBERT 特征器: base / chinese（必须与训练时一致）

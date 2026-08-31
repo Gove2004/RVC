@@ -22,10 +22,11 @@ class ModelSession:
     index_vectors: object | None
 
 
-def load_model_session(config, pth_path: str, index_path: str, index_rate: float, inference_cache) -> ModelSession:
+def load_model_session(config, pth_path: str, index_path: str, index_rate: float, inference_cache,
+                       hubert_variant: str = "base") -> ModelSession:
     logger.info("加载 %s", os.path.basename(pth_path))
 
-    hubert = load_hubert(config, inference_cache)
+    hubert = load_hubert(config, inference_cache, variant=hubert_variant)
     loader = SynthesizerLoader(config, inference_cache)
     synth = loader.load(pth_path)
     synthesizer = synth["synthesizer"]

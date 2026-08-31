@@ -63,13 +63,13 @@ class RealtimeEngine:
         self.last_error = ""
         self.runtime_error_pending = False
 
-    def load_model(self, pth, idx, idx_rate, force=False):
+    def load_model(self, pth, idx, idx_rate, force=False, hubert="base"):
         if not force and self.pipeline and self.pth_path == pth and self.idx_path == idx:
             self.pipeline.change_index_rate(idx_rate)
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
         try:
-            self.pipeline = VCPipeline(config, pth, idx, idx_rate, self.inference_cache)
+            self.pipeline = VCPipeline(config, pth, idx, idx_rate, self.inference_cache, hubert=hubert)
             self.pipeline.load()
             self.pth_path = pth; self.idx_path = idx
             return self.pipeline.target_sr

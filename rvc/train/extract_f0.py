@@ -5,6 +5,7 @@ import numpy as np
 from rvc.audio.loader import load_audio
 from rvc.inference.f0_extractor import F0_MEL_MAX, F0_MEL_MIN  # 复用推理侧常量，避免算法漂移
 from rvc.models.rmvpe import RMVPE
+from rvc.runtime.paths import RMVPE_PATH
 
 
 class TrainF0Extractor:
@@ -17,7 +18,7 @@ class TrainF0Extractor:
     def __init__(self, device: str = "cuda:0", is_half: bool = True):
         self.device = device
         self.is_half = is_half
-        self.model = RMVPE("assets/rmvpe/rmvpe.pt", is_half=is_half, device=device)
+        self.model = RMVPE(str(RMVPE_PATH), is_half=is_half, device=device)
         self.stop_requested = False
 
     def request_stop(self):

@@ -203,7 +203,6 @@ class MainWindow(QMainWindow):
             return None
         return ModelConfig(
             pitch=card.pitch_slider.value(),
-            index_rate=_sl_value_as_float(card.index_rate_slider),
             gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),
             protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
             f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
@@ -277,8 +276,7 @@ class MainWindow(QMainWindow):
         if not pth:
             self._show_warning("模型文件路径为空")
             return
-        idx = self.model_manager.active_card.idx_edit.text().strip()
-        ir = _sl_value_as_float(self.model_manager.active_card.index_rate_slider)
+        hubert = self.model_manager.active_card.hubert_combo.currentText()
         self._apply_model_params()
         self._apply_runtime_params()
 
@@ -290,9 +288,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning("保存配置失败: %s", e)
 
-        self._start_engine(pth, idx, ir)
+        self._start_engine(pth, hubert)
 
-    def _start_engine(self, pth, idx, idx_rate):
+    def _start_engine(self, pth, hubert="base"):
         if self._loading:
             old = self._lt
             if old and old.isRunning():
@@ -310,7 +308,7 @@ class MainWindow(QMainWindow):
 
         self._loading = True
         self._mark_loading()
-        self._lt = LoadThread(self.engine, pth, idx, idx_rate)
+        self._lt = LoadThread(self.engine, pth, hubert)
         self._lt.ok.connect(self._on_loaded)
         self._lt.err.connect(self._on_err)
         self._lt.finished.connect(self._on_load_done)

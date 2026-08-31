@@ -9,10 +9,11 @@ from rvc.models.hubert import load_hubert
 
 
 class HuBERTExtractor:
-    def __init__(self, device: str = "cuda:0", is_half: bool = True):
+    def __init__(self, device: str = "cuda:0", is_half: bool = True, hubert: str = "base"):
         self.device = device
         self.is_half = is_half
-        self.model = load_hubert(SimpleNamespace(device=device, is_half=is_half))
+        self.hubert = hubert
+        self.model = load_hubert(SimpleNamespace(device=device, is_half=is_half), variant=hubert)
         self.stop_requested = False
 
     def request_stop(self):

@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     pitch: int
-    index_rate: float
     gender: float
     protect: float
     f0method: str
@@ -70,7 +69,7 @@ class InferController:
     def apply_model_config(self, config: ModelConfig):
         self.runtime_params.update(
             pitch=config.pitch,
-            index_rate=config.index_rate,
+            index_rate=0.0,  # index 已从 UI 移除，固定不启用 FAISS 混合
             gender=config.gender,
             protect=config.protect,
             f0method=config.f0method,

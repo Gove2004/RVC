@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from gui.train.widgets import ToolThread, browse_file
 from gui.styles import ButtonStyles, Layout
+from rvc.runtime.paths import MODELS_DIR
 
 
 def build_group(win) -> QGroupBox:
@@ -82,7 +83,7 @@ def _run_merge(win):
     if not Path(b).exists():
         QMessageBox.warning(win, "提示", "模型 B 不存在")
         return
-    out = str(Path("assets/models") / f"{name}.pth")
+    out = str(MODELS_DIR / f"{name}.pth")
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())

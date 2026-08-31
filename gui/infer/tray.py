@@ -11,11 +11,9 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-logger = logging.getLogger(__name__)
+from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
 
-ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets" / "resources"
-ICON_IDLE_PATH = ASSETS_DIR / "icon_idle.png"      # 红：未运行
-ICON_ACTIVE_PATH = ASSETS_DIR / "icon_active.png"  # 绿：推理中
+logger = logging.getLogger(__name__)
 
 
 def _draw_icon(base_color: QColor) -> QIcon:

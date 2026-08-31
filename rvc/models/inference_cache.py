@@ -33,8 +33,9 @@ class _LRU:
 class InferenceCache:
     def __init__(self):
         # 大对象少存：synthesizer/index 各留最近 2 个（切模型时当前+上一个）；
-        # hubert/rmvpe/fcpe 的 key 本来就是设备+精度组合（各 1 个），留 1 即可。
-        self._hubert = _LRU(1)
+        # hubert 的 key = 设备+精度+variant（base/chinese 各 1 个），留 2 避免来回切换重载；
+        # rmvpe/fcpe 的 key 是设备+精度组合（各 1 个），留 1 即可。
+        self._hubert = _LRU(2)
         self._rmvpe = _LRU(1)
         self._fcpe = _LRU(1)
         self._synthesizer = _LRU(2)  # key: pth_path
