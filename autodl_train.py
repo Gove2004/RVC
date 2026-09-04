@@ -96,7 +96,8 @@ DEFAULTS = {
     "keep_ckpts": 1,
     "per": 3.7,
     "keep_models": 0,  # 导出模型保留数 0 = 全部保留（不淘汰，固定，不再暴露给用户）
-    "hubert": "base",  # HuBERT 特征器: base / chinese
+    "hubert": "chinese",  # HuBERT 特征器: base / chinese（默认中文，中文内容更准）
+    "use_pretrained": True,  # 是否加载预训练底模（False = 随机初始化从头训）
 }
 
 
@@ -637,7 +638,6 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if hubert == "chinese":
         log.log("chinese = 腾讯 chinese-hubert-base（WenetSpeech 中文预训练，中文音素/声调更准）", "WARN")
         log.log("  推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
-
     # 6) batch size
     batch = ask("batch size", str(_suggest_batch(vram_gb, sr_hz)), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
@@ -669,6 +669,11 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     # 10) 保留 checkpoint 组数（G+D 各一组约 0.8GB，只留最新几组即可）
     keep_ckpts = ask("保留最近几组 checkpoint", str(DEFAULTS["keep_ckpts"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
+    # 11) 是否使用预训练底模（No = 生成器/判别器随机初始化，从头训练收敛明显变慢）
+    use_pretrained = ask_yes("是否使用预训练模型（No = 随机初始化）", DEFAULTS["use_pretrained"])
+    if not use_pretrained:
+        log.log("已选择不用预训练底模 → 从随机权重开始训练，需要更多轮次，效果通常不如用底模", "WARN")
+
     sr_k = sr_hz // 1000
     pretrain_g = PRETRAINED_ROOT / f"f0G{sr_k}k.pth"
     pretrain_d = PRETRAINED_ROOT / f"f0D{sr_k}k.pth"
@@ -689,8 +694,9 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
         keep_ckpts=keep_ckpts,
         ckpt_epoch=ckpt_epoch,
         hubert=hubert,
-        pretrain_g=str(pretrain_g) if pretrain_g.exists() else "",
-        pretrain_d=str(pretrain_d) if pretrain_d.exists() else "",
+        use_pretrained=use_pretrained,
+        pretrain_g=str(pretrain_g) if (use_pretrained and pretrain_g.exists()) else "",
+        pretrain_d=str(pretrain_d) if (use_pretrained and pretrain_d.exists()) else "",
     )
     return cfg
 
@@ -712,7 +718,7 @@ def print_summary(log: TrainLogger, cfg: dict):
         ("切片时长", f"{cfg['per']}s（固定）"),
         ("保留 checkpoint", f"最近 {cfg['keep_ckpts']} 组"),
         ("设备", f"{cfg['device']}  fp16={cfg['fp16']}"),
-        ("底模", cfg["pretrain_g"] or "无（从零训练）"),
+        ("底模", cfg["pretrain_g"] or ("无（随机初始化）" if not cfg.get("use_pretrained", True) else "无（未上传底模）")),
     ]
     for key, value in rows:
         log.plain(f"  {key:<14} {value}")
@@ -797,7 +803,7 @@ def step_f0(log: TrainLogger, cfg: dict):
 def step_feature(log: TrainLogger, cfg: dict):
     from rvc.train.extract_feature import HuBERTExtractor
 
-    hubert = cfg.get("hubert", "base")
+    hubert = cfg.get("hubert", "chinese")
     log.section(f"步骤 3/4 提取 HuBERT 特征（{hubert}）")
     log.log("若实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 再重跑（已存在的特征文件会被跳过）", "WARN")
     t0 = time.time()
@@ -1002,6 +1008,22 @@ def main() -> int:
 
         log.section("全部完成")
         log.log(f"总耗时      : {log.elapsed()}")
+
+        # 特征索引（.pt，纯 torch 无 faiss 依赖）：训练特征 3_feature768 → 归一化张量，
+        # 供推理侧 index_rate>0 时用。与模型同目录输出，随模型一起下载到本地即可用。
+        feat_dir = exp_dir / "3_feature768"
+        index_out = cfg["model_dir"] / f"{exp_dir.name}.index.pt"
+        if feat_dir.is_dir() and any(feat_dir.glob("*.npy")):
+            try:
+                from rvc.train.index_builder import build_index_from_features
+                n = build_index_from_features(str(feat_dir), str(index_out), log=log.log)
+                if n:
+                    log.log(f"特征索引    : {index_out.name}（{n} 帧，与模型同目录下载即可）")
+            except Exception as exc:
+                log.log(f"构建特征索引失败: {exc}", "WARN")
+        else:
+            log.log("无 3_feature768 特征，跳过索引构建（该模型推理时无法用 index_rate）", "WARN")
+
         models = sorted(cfg["model_dir"].glob("*.pth")) if cfg["model_dir"].is_dir() else []
         if models:
             log.log(f"导出模型目录: {cfg['model_dir']}")

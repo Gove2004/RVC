@@ -1,6 +1,7 @@
 """HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT"""
 import logging
 import os
+import sys
 
 import torch
 from torch import nn
@@ -61,6 +62,14 @@ def load_hubert(config, inference_cache=None, variant: str = "base"):
 
     dtype = torch.float16 if config.is_half else torch.float32
     logger.info("加载 HuBERT（transformers, %s, variant=%s）", dtype, variant)
+
+    # GUI 无控制台环境（pythonw / 打包 exe）下 sys.stdout / sys.stderr 为 None，
+    # transformers 打印 LOAD REPORT（chinese 有 MISSING 键必触发）会调 sys.stdout.isatty() 崩溃。
+    # 兜底为 devnull，杜绝任何 isatty()/write() 调用碰到 None。
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
 
     hubert_model = HubertModelWithFinalProj.from_pretrained(
         model_path,

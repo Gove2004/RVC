@@ -77,10 +77,10 @@ class OfflineManager:
             input_path=self.window.offline_input.text().strip(),
             output_path=self.window.offline_output.text().strip(),
             model_path=card.pth_edit.text().strip(),
-            index_path="",  # index 已从 UI 移除，固定不加载
+            index_path=card.idx_edit.text().strip(),
             pitch=card.pitch_slider.value(),
             f0method=state.f0method,
-            index_rate=0.0,
+            index_rate=card.index_slider.value() / 100,
             rms_mix=state.rms_mix,
             protect=state.protect,
             gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算

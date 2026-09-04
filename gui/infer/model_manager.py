@@ -34,11 +34,12 @@ class ModelManager:
         pitch: int = 12,
         index_rate: float = 0.0,
         gender: float = 0.0,
-        hubert: str = "base"
+        hubert: str = "chinese"
     ) -> ModelCard:
-        """添加模型卡片到列表（idx/index_rate 仅兼容旧持久化数据，卡片已无对应控件）"""
+        """添加模型卡片到列表（idx=特征索引 .pt，index_rate=混合比例）"""
         card = ModelCard(
-            name, pth, pitch=pitch,
+            name, pth, idx=idx, pitch=pitch,
+            index_rate=index_rate,
             gender=gender,
             hubert=hubert
         )

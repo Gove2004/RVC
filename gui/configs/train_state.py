@@ -15,7 +15,7 @@ class TrainGuiState:
     pretrain_g: str
     pretrain_d: str
     # HuBERT 特征器: base / chinese（与推理侧模型卡牌选择一致，训练推理必须同一种）
-    hubert: str = "base"
+    hubert: str = "chinese"
     # ── 人声提纯 Tab ──
     sep_input_dir: str = ""
     sep_output_dir: str = ""
@@ -37,7 +37,7 @@ class TrainGuiState:
             learning_rate=str(data.get("learning_rate", "0.0001")),
             pretrain_g=str(data.get("pretrain_g", "")),
             pretrain_d=str(data.get("pretrain_d", "")),
-            hubert=str(data.get("hubert", "base")),
+            hubert=str(data.get("hubert", "chinese")),
             sep_input_dir=str(data.get("sep_input_dir", "")),
             sep_output_dir=str(data.get("sep_output_dir", "")),
             sep_model=str(data.get("sep_model", "htdemucs")),

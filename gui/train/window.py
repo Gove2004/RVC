@@ -319,9 +319,12 @@ class TrainWindow(QMainWindow):
         self._last_loss_t = now
         text = (
             "Loss: "
-            f"D {data['loss_d']:.4f} | G {data['loss_g']:.4f} | "
+            f"D {data['loss_d']:.4f} | G(对抗) {data['loss_g']:.4f} | "
             f"Mel {data['loss_mel']:.4f} | KL {data['loss_kl']:.4f} | FM {data['loss_fm']:.4f}"
         )
+        total = data.get("loss_total")
+        if total is not None:
+            text += f" | 总 {total:.4f}"
         if text != self._last_loss_text:
             self.loss_label.setText(text)
             self._last_loss_text = text

@@ -112,7 +112,7 @@ class TrainWorker(QThread):
     def _step_feature(self, config, exp_dir, sr):
         self._check_stop()
         self.stage_changed.emit("提取 HuBERT 特征")
-        hubert = self.options.get("hubert", "base")
+        hubert = self.options.get("hubert", "chinese")
         self.log_message.emit(f"开始提取 HuBERT 特征（{hubert}）")
         self.log_message.emit("注意：若本实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 目录再重跑")
         extractor = HuBERTExtractor(config.device, config.is_half, hubert=hubert)
