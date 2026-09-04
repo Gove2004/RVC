@@ -19,6 +19,3 @@ class Params:
     def update(self, **kwargs):
         for key, value in kwargs.items():
             setattr(self, key, value)
-
-
-p = Params()

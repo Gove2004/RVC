@@ -326,11 +326,11 @@ class RealtimeEngine:
     def _run_inference(self):
         """执行语音转换推理或直通模式"""
         if self.function == "vc" and self.pipeline:
-            self.pipeline.change_key(self.runtime_params.pitch)
-            self.pipeline.change_formant(self.runtime_params.gender)
-            self.pipeline.change_f0_proc(
-                self.runtime_params.break_enable,
-                self.runtime_params.break_src_hz,
+            self.pipeline.configure(
+                pitch=self.runtime_params.pitch,
+                gender=self.runtime_params.gender,
+                break_enable=self.runtime_params.break_enable,
+                break_src_hz=self.runtime_params.break_src_hz,
             )
             infer = self.pipeline.infer(
                 self.input_wav_res, self.block_samples_16k,

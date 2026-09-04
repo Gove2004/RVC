@@ -62,10 +62,13 @@ class OfflineWorker(QThread):
         # 使用运行时配置（device, is_half 等）创建 pipeline
         vc = VCPipeline(Config(), self.cfg.model_path, hubert=self.cfg.hubert)
         vc.load()
-        # 与实时路径一致的参数应用（性别 formant / 音高 / 破音保护）
-        vc.change_formant(self.cfg.gender)
-        vc.change_key(self.cfg.pitch)
-        vc.change_f0_proc(self.cfg.break_enable, self.cfg.break_src_hz)
+        # 与实时路径一致的参数应用（统一走 VCPipeline.configure，保证实时/离线同源）
+        vc.configure(
+            pitch=self.cfg.pitch,
+            gender=self.cfg.gender,
+            break_enable=self.cfg.break_enable,
+            break_src_hz=self.cfg.break_src_hz,
+        )
         self.progress.emit(20, 100)
 
         tgt_sr = vc.target_sr

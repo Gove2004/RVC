@@ -75,6 +75,22 @@ class VCPipeline:
         self.formant_factor = shift
         self.formant_factor_pow = pow(2, shift / 12)
 
+    def configure(self, pitch=None, gender=None, break_enable=None, break_src_hz=None) -> None:
+        """统一参数应用入口（实时/离线共用，避免两处手写三连 change_* 漏改）。
+
+        只更新传入的非 None 字段；f0method/protect 是每次推理的入参，不在此缓存。
+        以后新增音质参数只需在 configure 里加一行，实时与离线自动同步。
+        """
+        if pitch is not None:
+            self.change_key(pitch)
+        if gender is not None:
+            self.change_formant(gender)
+        if break_enable is not None or break_src_hz is not None:
+            self.change_f0_proc(
+                break_enable if break_enable is not None else self.break_enable,
+                break_src_hz if break_src_hz is not None else self.break_src_hz,
+            )
+
     def _extract_hubert_features(self, input_wav):
         return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
 

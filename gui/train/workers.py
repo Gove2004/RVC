@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime import Config
-from rvc.runtime.paths import SEPARATE_DIR
+from rvc.runtime.paths import SEPARATE_DIR, parse_sr
 from rvc.tools.separate import AUDIO_EXTS, MODELS, POST_KEYS, missing
 from rvc.train.extract_f0 import TrainF0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
@@ -62,9 +62,8 @@ class TrainWorker(QThread):
         config = Config()
         exp_dir = Path("logs") / self.options["exp_name"]
         exp_dir.mkdir(parents=True, exist_ok=True)
-        # 采样率来自 GUI（"40k"/"48k"）
-        sr_text = str(self.options.get("sr", "48k")).strip().lower()
-        sr = int(float(sr_text[:-1]) * 1000) if sr_text.endswith("k") else int(float(sr_text))
+        # 采样率来自 GUI（"40k"/"48k"），统一走 parse_sr
+        sr = parse_sr(self.options.get("sr", "48k"))
 
         # 仅对「不含预处理」的单独步骤做一致性检查；一键全流程(all)第一步
         # 就是预处理，_prepare_exp_dir 内部会按需清理旧数据重建，无需提前拦截
@@ -189,13 +188,6 @@ class VocalExtractWorker(QThread):
         if self._stop_requested:
             raise RuntimeError("已取消")
 
-    @staticmethod
-    def _parse_sr(text: str) -> int:
-        text = str(text).strip().lower()
-        if text.endswith("k"):
-            return int(float(text[:-1]) * 1000)
-        return int(float(text))
-
     def run(self):
         try:
             self._run_impl()
@@ -217,7 +209,7 @@ class VocalExtractWorker(QThread):
         model_key = self.options["model"]
         post_keys = [k for k in POST_KEYS if self.options.get(f"do_{k}")]
         keys = [model_key] + post_keys
-        out_sr = self._parse_sr(self.options.get("out_sr", "44.1k"))
+        out_sr = parse_sr(self.options.get("out_sr", "44.1k"))
 
         missing_models = missing(keys)
         if missing_models:

@@ -32,8 +32,6 @@ PRETRAINED_ROOT = ASSETS_ROOT / "pretrained"
 MODELS_DIR = ASSETS_ROOT / "models"
 # 人声提纯权重（手动下载；yaml 清单随仓库跟踪）
 SEPARATE_DIR = ASSETS_ROOT / "separate"
-# FAISS 索引（推理 UI 已移除 index，保留目录定义）
-INDEXES_DIR = ASSETS_ROOT / "indexes"
 
 # ── ffmpeg（Windows 专用二进制，git 忽略）──
 FFMPEG_EXE = ASSETS_ROOT / "ffmpeg" / "ffmpeg.exe"
@@ -49,8 +47,11 @@ def config_path() -> Path:
     return STATE_FILE
 
 
-def _to_hz(sr) -> int:
-    """把 '40k'/'48000' 等统一成 Hz 整数"""
+def parse_sr(sr) -> int:
+    """把 '40k'/'48000' 等统一成 Hz 整数。
+
+    采样率解析的唯一入口：训练/推理/人声提纯各处都走这里，避免重复实现。
+    """
     s = str(sr).strip().lower()
     if s.endswith("k"):
         return int(float(s[:-1]) * 1000)
@@ -60,7 +61,7 @@ def _to_hz(sr) -> int:
 def train_config_path(sr=None) -> Path:
     """按采样率返回训练配置路径；sr 缺省或不受支持时回退到默认 48k。"""
     if sr is not None:
-        path = TRAIN_CONFIG_FILES.get(_to_hz(sr))
+        path = TRAIN_CONFIG_FILES.get(parse_sr(sr))
         if path is not None and path.exists():
             return path
     path = TRAIN_CONFIG_FILES[DEFAULT_TRAIN_SR]
