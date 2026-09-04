@@ -76,7 +76,6 @@ REQUIRED_PACKAGES = [
 OPTIONAL_PACKAGES = [
     ("PySide6", "PySide6", "GUI（云端不需要）"),
     ("sounddevice", "sounddevice", "实时音频 IO（云端不需要）"),
-    ("faiss", "faiss", "推理侧 index 检索（云端训练不需要）"),
 ]
 
 AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
@@ -1008,21 +1007,6 @@ def main() -> int:
 
         log.section("全部完成")
         log.log(f"总耗时      : {log.elapsed()}")
-
-        # 特征索引（.pt，纯 torch 无 faiss 依赖）：训练特征 3_feature768 → 归一化张量，
-        # 供推理侧 index_rate>0 时用。与模型同目录输出，随模型一起下载到本地即可用。
-        feat_dir = exp_dir / "3_feature768"
-        index_out = cfg["model_dir"] / f"{exp_dir.name}.index.pt"
-        if feat_dir.is_dir() and any(feat_dir.glob("*.npy")):
-            try:
-                from rvc.train.index_builder import build_index_from_features
-                n = build_index_from_features(str(feat_dir), str(index_out), log=log.log)
-                if n:
-                    log.log(f"特征索引    : {index_out.name}（{n} 帧，与模型同目录下载即可）")
-            except Exception as exc:
-                log.log(f"构建特征索引失败: {exc}", "WARN")
-        else:
-            log.log("无 3_feature768 特征，跳过索引构建（该模型推理时无法用 index_rate）", "WARN")
 
         models = sorted(cfg["model_dir"].glob("*.pth")) if cfg["model_dir"].is_dir() else []
         if models:

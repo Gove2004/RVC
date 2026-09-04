@@ -1,4 +1,4 @@
-"""实时语音转换管线 — HuBERT + 合成器 + FAISS + F0 提取"""
+"""实时语音转换管线 — HuBERT + 合成器 + F0 提取"""
 import logging
 
 import numpy as np
@@ -6,7 +6,6 @@ import torch
 
 from rvc.models.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
-from rvc.inference.index_retrieval import apply_faiss_index, load_index
 from rvc.inference.model_session import load_model_session
 from rvc.inference.pitch_tracker import create_pitch_cache, prepare_offline_pitch, update_realtime_pitch_cache
 from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
@@ -17,20 +16,18 @@ class VCPipeline:
     """实时语音转换管线。
 
     用法:
-        pipeline = VCPipeline(config, pth_path, index_path, index_rate)
+        pipeline = VCPipeline(config, pth_path)
         pipeline.load()  # 加载所有模型
         output = pipeline.infer(input_wav_tensor, block_samples_16k, skip_head, ret_len, "fcpe")
     """
 
-    def __init__(self, config, pth_path, index_path="", index_rate=0.0, inference_cache=None,
+    def __init__(self, config, pth_path, inference_cache=None,
                  hubert: str = "base"):
         self.config = config
         self.device = config.device
         self.is_half = config.is_half
         self.inference_cache = inference_cache or default_inference_cache
         self.pth_path = pth_path
-        self.index_path = index_path
-        self.index_rate = index_rate
         self.hubert_variant = hubert
 
         self.f0_semitones = 0
@@ -48,29 +45,21 @@ class VCPipeline:
         self.synthesizer = None       # Synthesizer model
         self.target_sr = None
         self.use_f0 = 1
-        self.index = None
-        self.index_vectors = None
         self.resample_kernel = {}
         self.model_rmvpe = None
         self.model_fcpe = None
         self._long_tensor_cache = {}
-        # FAISS 降频状态：每 4 块跑一次混合，中间块沿用上次混合结果。
-        # counter 必须初始化为 [0]（首块即混合）；cache 持有上次混合特征段。
-        self._faiss_blend_counter = [0]
-        self._faiss_blend_cache = [None]
 
     def _cached_long_tensor(self, value: int) -> torch.Tensor:
         return cached_long_tensor(self._long_tensor_cache, value, self.device)
 
     def load(self) -> None:
-        session = load_model_session(self.config, self.pth_path, self.index_path, self.index_rate,
+        session = load_model_session(self.config, self.pth_path,
                                      self.inference_cache, hubert_variant=self.hubert_variant)
         self.hubert_model = session.hubert
         self.synthesizer = session.synthesizer
         self.target_sr = session.target_sr
         self.use_f0 = session.use_f0
-        self.index = session.index
-        self.index_vectors = session.index_vectors
 
     def change_key(self, key: int) -> None:
         self.f0_semitones = key
@@ -86,23 +75,11 @@ class VCPipeline:
         self.formant_factor = shift
         self.formant_factor_pow = pow(2, shift / 12)
 
-    def change_index_rate(self, rate: float) -> None:
-        if rate > 0 and self.index is None:
-            self.index, self.index_vectors = load_index(self.index_path, self.inference_cache)
-        self.index_rate = rate
-
     def _extract_hubert_features(self, input_wav):
         return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
 
     def _clone_protect_source(self, feats, protect):
         return clone_protect_source(feats, self.use_f0, protect)
-
-    def _apply_faiss_index(self, feats, skip_head=0):
-        return apply_faiss_index(
-            feats, self.index, self.index_vectors, self.index_rate, self.is_half, self.device,
-            skip_head, blend_every_n=4, blend_counter=self._faiss_blend_counter,
-            blend_cache=self._faiss_blend_cache,
-        )
 
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
@@ -139,7 +116,6 @@ class VCPipeline:
             )
         feats = self._extract_hubert_features(input_wav)
         feats0 = self._clone_protect_source(feats, protect)
-        feats = self._apply_faiss_index(feats, 0)
         feats = self._upsample_features(feats, p_len, feats0, pitchf, protect)
 
         p_len_t = self._cached_long_tensor(p_len)
@@ -174,10 +150,9 @@ class VCPipeline:
         factor = self.formant_factor_pow
         return_length2_val = int(np.ceil(return_length * factor))
 
-        # 特征提取：HuBERT → 辅音保护克隆 → FAISS 混合
+        # 特征提取：HuBERT → 辅音保护克隆
         feats = self._extract_hubert_features(input_wav)
         feats0 = self._clone_protect_source(feats, protect)
-        feats = self._apply_faiss_index(feats, skip_head)
 
         # 音高（F0）缓存更新
         if self.use_f0 == 1:

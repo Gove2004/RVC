@@ -65,15 +65,15 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片：始终展开，顶部一行 [使用] [模型名居中] [删除]"""
 
-    # name, pth, pitch, gender, hubert, idx, index_rate
+    # name, pth, pitch, gender, hubert
     load_requested = Signal(str, str, int, float, str)
 
-    def __init__(self, name="", pth="", idx="", pitch=12,
-                 index_rate=0.0, gender=0.0, hubert="chinese", parent=None):
+    def __init__(self, name="", pth="", pitch=12,
+                 gender=0.0, hubert="chinese", parent=None):
         super().__init__(parent)
-        self._build(name, pth, idx, pitch, index_rate, gender, hubert)
+        self._build(name, pth, pitch, gender, hubert)
 
-    def _build(self, name, pth, idx, pitch, index_rate, gender, hubert):
+    def _build(self, name, pth, pitch, gender, hubert):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(4)
 
         # ── 顶部栏 ──
@@ -136,22 +136,6 @@ class ModelCard(QFrame):
         self.hubert_combo.setToolTip("此模型训练时用的特征器（base=原版 hubert_base，chinese=腾讯中文 hubert）。训练与推理必须一致。")
         bl.addWidget(QLabel("特征器"), r, 0); bl.addWidget(self.hubert_combo, r, 1, 1, 2); r += 1
 
-        # 特征索引 .pt（训练完成时云上自动生成，与模型同目录下载）。
-        # index_rate=0 关闭检索；>0 时按比例混合训练集最近邻音色特征，让声音更贴目标。
-        # 检索在 GPU 上跑（torch 暴力近邻），实时链路也扛得住。
-        self.idx_edit = QLineEdit(idx); self.idx_edit.setMinimumHeight(24)
-        self.idx_edit.setPlaceholderText("留空 = 不用索引")
-        _ibtn = add_path_row("特征索引", self.idx_edit, "特征索引 (*.pt *.npy)", r)
-        _ibtn.clicked.connect(lambda: self._browse(self.idx_edit, "特征索引 (*.pt *.npy)"))
-        r += 1
-
-        index_slider_val = max(0, min(100, int(round(index_rate * 100))))
-        self.index_slider = _sl(0, 100, 1, index_slider_val)
-        self.index_label = QLabel(f"{index_rate:.2f}")
-        self.index_slider.valueChanged.connect(lambda v: self.index_label.setText(f"{v / 100:.2f}"))
-        self.index_slider.setToolTip("索引混合比例：0 = 关闭；0.3~0.75 常用。越高音色越贴训练集，过高会吞咬字。")
-        bl.addWidget(QLabel("索引比例"), r, 0); bl.addWidget(self.index_slider, r, 1); bl.addWidget(self.index_label, r, 2); r += 1
-
         root.addWidget(body)
         self.setStyleSheet(f"ModelCard{{{CardStyles.default()}}}")
 
@@ -172,10 +156,8 @@ class ModelCard(QFrame):
         return {
             "name": self._name_label.text(),
             "pth": self.pth_edit.text().strip(),
-            "idx": self.idx_edit.text().strip(),
             "pitch": self.pitch_slider.value(),
             "gender": (self.gender_slider.value() / 100 * 5 - 2.5),
-            "index_rate": round(self.index_slider.value() / 100, 2),
             "hubert": self.hubert_combo.currentText(),
         }
 
@@ -204,10 +186,9 @@ class ModelCard(QFrame):
 
 class LoadThread(QThread):
     ok = Signal(int); err = Signal(str)
-    def __init__(self, engine, pth, hubert="chinese", index_path="", index_rate=0.0):
+    def __init__(self, engine, pth, hubert="chinese"):
         super().__init__()
         self.engine = engine; self.pth = pth; self.hubert = hubert
-        self.index_path = index_path; self.index_rate = index_rate
         self._stop_requested = False
     def request_stop(self):
         self._stop_requested = True
@@ -217,6 +198,6 @@ class LoadThread(QThread):
         try:
             if not self.is_stopping():
                 self.ok.emit(self.engine.load_model(
-                    self.pth, self.index_path, self.index_rate, True, self.hubert))
+                    self.pth, True, self.hubert))
         except Exception as e:
             self.err.emit(str(e))

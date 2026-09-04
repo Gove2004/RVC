@@ -91,12 +91,11 @@ python -m venv .venv
 
 1. **添加模型**
    - 在"模型" Tab 点击"+ 添加模型"
-   - 选择 `.pth` 模型文件（可选 `.index` 索引文件）
+   - 选择 `.pth` 模型文件
 
 2. **调节参数**
    - 展开模型卡片，调节以下参数：
      - **音调大小**：音高偏移（半音，-16 ~ +16）
-     - **索引率**：FAISS 混合比例（0.0 = 关闭，1.0 = 完全使用索引）
      - **响度**：RMS 响度混合（0.0 = 目标响度，1.0 = 源响度）
      - **性别**：formant shift（-50 ~ +50）
 3. **全局参数** — 在"参数" Tab 配置：
@@ -199,10 +198,9 @@ rvc/
   inference/
     pipeline.py             # VCPipeline facade（实时/离线推理编排）
     feature_processing.py   # HuBERT 特征、padding mask、protect blend
-    index_retrieval.py      # FAISS index 加载与特征混合
     pitch_tracker.py        # F0 提取窗口与实时 pitch cache
     synthesis.py            # Synthesizer 推理调用与 formant 重采样
-    model_session.py        # HuBERT/Synthesizer/Index session 加载
+    model_session.py        # HuBERT/Synthesizer session 加载
     model_loader.py         # SynthesizerLoader（PyTorch）
     offline_config.py       # OfflineConfig（离线推理配置）
     params.py               # Params（运行时参数单例）
@@ -237,7 +235,6 @@ assets/
     48ktrain_config.json    # 48k 训练超参数
     40ktrain_config.json    # 40k 训练超参数
   models/                   # 推理模型
-  indexes/                  # FAISS 索引
   hubert/                   # HuBERT 权重（transformers 模型目录）
   rmvpe/                    # RMVPE 权重
   pretrained/               # 预训练权重
@@ -254,8 +251,7 @@ logs/                       # 训练实验目录
 麦克风 → [降噪] → RealtimeEngine → VCPipeline → SOLA → 输出 → 扬声器
           ↓                 ↓
       sounddevice      HuBERT + Synthesizer
-      SOLA crossfade   FAISS blend (可选)
-                       protect_blend（辅音保护）
+      SOLA crossfade   protect_blend（辅音保护）
 ```
 
 ### 关键技术
@@ -338,9 +334,9 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 ### 核心实现规则
 
 - **采样率**：实时帧数学用 `zc = sr // 100` 对齐，禁止硬编码 `48000`；`sr_mode="model"` 与 `"device"` 都要工作
-- **模型精度**：模型可能 half/float，feature/index/protect 之后要恢复模型 dtype；pitch coarse 用 `long`
+- **模型精度**：模型可能 half/float，feature/protect 之后要恢复模型 dtype；pitch coarse 用 `long`
 - **实时回调安全**：sounddevice 回调内禁止阻塞 IO、模型加载、大分配、GPU 同步；禁止直接操作 Qt（运行时错误经 Signal 转发主线程）
-- **惰性导入**：GUI 启动路径禁止在模块顶层 import torch/transformers/librosa/faiss 或实例化 `Config()`；重型 import 只允许出现在「加载模型/开始/离线推理」路径；`rvc/*/__init__.py` 用模块级 `__getattr__` 惰性导出
+- **惰性导入**：GUI 启动路径禁止在模块顶层 import torch/transformers/librosa 或实例化 `Config()`；重型 import 只允许出现在「加载模型/开始/离线推理」路径；`rvc/*/__init__.py` 用模块级 `__getattr__` 惰性导出
 - **引擎访问**：判断引擎是否已构造用 `controller._engine`（勿触发惰性构造）；首次访问 `engine` 会加载 torch（~1.6s，已由后台预热覆盖）
 - **降噪**：输入侧谱减法（GPU 块级、零新增延迟），强度是每回调的标量快照
 - **配置**：`Config` 是单例，CUDA 不可用时直接退出；`use_cuda_graph` 默认关闭，运行时探测启用

@@ -3,7 +3,6 @@ import logging
 import os
 from dataclasses import dataclass
 
-from rvc.inference.index_retrieval import load_index
 from rvc.inference.model_loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
 from rvc.tools.cuda_graph import clear_cuda_graph_cache
@@ -13,16 +12,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelSession:
-    """一个模型文件的完整推理会话（HuBERT/Synthesizer/FAISS 均为共享缓存实例）。"""
+    """一个模型文件的完整推理会话（HuBERT/Synthesizer 均为共享缓存实例）。"""
     hubert: object
     synthesizer: object
     target_sr: int
     use_f0: int
-    index: object | None
-    index_vectors: object | None
 
 
-def load_model_session(config, pth_path: str, index_path: str, index_rate: float, inference_cache,
+def load_model_session(config, pth_path: str, inference_cache,
                        hubert_variant: str = "base") -> ModelSession:
     logger.info("加载 %s", os.path.basename(pth_path))
 
@@ -42,15 +39,9 @@ def load_model_session(config, pth_path: str, index_path: str, index_rate: float
     clear_cuda_graph_cache(synthesizer)
     clear_cuda_graph_cache(hubert)
 
-    index = index_vectors = None
-    if index_rate > 0:
-        index, index_vectors = load_index(index_path, inference_cache)
-
     return ModelSession(
         hubert=hubert,
         synthesizer=synthesizer,
         target_sr=synth["target_sr"],
         use_f0=synth["use_f0"],
-        index=index,
-        index_vectors=index_vectors,
     )

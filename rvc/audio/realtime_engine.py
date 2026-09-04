@@ -55,7 +55,7 @@ class RealtimeEngine:
         # 降噪参数缓存（用于检测变化）
         self._last_nr_params = None
 
-        self.pth_path = ""; self.idx_path = ""
+        self.pth_path = ""
         self.infer_ms = 0.0
         self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（EMA 平滑）
         self.error_count = 0
@@ -63,15 +63,14 @@ class RealtimeEngine:
         self.last_error = ""
         self.runtime_error_pending = False
 
-    def load_model(self, pth, idx, idx_rate, force=False, hubert="base"):
-        if not force and self.pipeline and self.pth_path == pth and self.idx_path == idx:
-            self.pipeline.change_index_rate(idx_rate)
+    def load_model(self, pth, force=False, hubert="base"):
+        if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
         try:
-            self.pipeline = VCPipeline(config, pth, idx, idx_rate, self.inference_cache, hubert=hubert)
+            self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
-            self.pth_path = pth; self.idx_path = idx
+            self.pth_path = pth
             return self.pipeline.target_sr
         except Exception as e:
             logger.error(f"模型加载失败: {e}", exc_info=True)
@@ -328,7 +327,6 @@ class RealtimeEngine:
         """执行语音转换推理或直通模式"""
         if self.function == "vc" and self.pipeline:
             self.pipeline.change_key(self.runtime_params.pitch)
-            self.pipeline.change_index_rate(self.runtime_params.index_rate)
             self.pipeline.change_formant(self.runtime_params.gender)
             self.pipeline.change_f0_proc(
                 self.runtime_params.break_enable,

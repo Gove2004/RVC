@@ -1,6 +1,6 @@
 """推理模块 — VC 管线、运行时参数、F0 提取器、模型加载器
 
-子模块（pipeline/f0_extractor/model_loader 等）依赖 torch/faiss，属重型模块，惰性导出；
+子模块（pipeline/f0_extractor/model_loader 等）依赖 torch，属重型模块，惰性导出；
 params/offline_config 轻量。
 """
 import importlib

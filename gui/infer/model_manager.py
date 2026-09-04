@@ -30,16 +30,13 @@ class ModelManager:
         self,
         name: str = "",
         pth: str = "",
-        idx: str = "",
         pitch: int = 12,
-        index_rate: float = 0.0,
         gender: float = 0.0,
         hubert: str = "chinese"
     ) -> ModelCard:
-        """添加模型卡片到列表（idx=特征索引 .pt，index_rate=混合比例）"""
+        """添加模型卡片到列表"""
         card = ModelCard(
-            name, pth, idx=idx, pitch=pitch,
-            index_rate=index_rate,
+            name, pth, pitch=pitch,
             gender=gender,
             hubert=hubert
         )
