@@ -18,13 +18,16 @@ logger = logging.getLogger(__name__)
 _TOP_K = 8
 # 余弦距离 1-sim 的下限，防止最近邻权重发散
 _DIST_FLOOR = 1e-4
+# 检索分块帧数：sim = (块帧 × N) 中间矩阵按块算，避免整段×全库一次性
+# 撑爆显存（离线转换整段特征可达数万帧 × 几十万帧索引）。
+_BLEND_CHUNK = 512
 
 
 def load_index(index_path: str, inference_cache):
     """加载特征索引（.pt 张量，L2 归一化后缓存）。
 
     Returns:
-        (refs, None): refs 为 (N, D) fp32 CPU tensor；文件缺失/为空时返回 (None, None)。
+        (refs, None): refs 为 (N, D) CPU tensor（fp16 或 fp32）；文件缺失/为空时返回 (None, None)。
         第二项保留 None 仅为兼容旧调用签名。
     """
     if not index_path or not os.path.exists(index_path):
@@ -66,19 +69,25 @@ def _torch_blend(seg: torch.Tensor, refs: torch.Tensor, index_rate: float, is_ha
     返回 : 与 seg 同 dtype 的 (T, D)
     """
     orig_dtype = seg.dtype
-    q = F.normalize(seg.float(), dim=1)          # (T, D)
+    q = F.normalize(seg.float(), dim=1)          # (T, D)，仅用于相似度
     refs_d = refs.to(device=seg.device)          # 同卡时 no-op
+    if refs_d.dtype == torch.float16:
+        q = q.half()  # matmul 要求同 dtype；fp16 索引走 fp16 matmul（精度实测无损）
     k = min(_TOP_K, refs_d.shape[0])
 
-    sim = q @ refs_d.t()                         # (T, N) cos-sim
-    sim_top, ix = sim.topk(k, dim=1)             # 越近 → sim 越大
-    if not torch.isfinite(sim_top).all():
-        return seg
-
-    # 距离反比权重：dist = 1 - sim，近邻 dist→0 权重发散，clamp 保底
-    w = torch.reciprocal((1.0 - sim_top).clamp(min=_DIST_FLOOR))
-    w = w / w.sum(dim=1, keepdim=True)
-    blended = (refs_d[ix] * w.unsqueeze(-1)).sum(dim=1)  # (T, D)
+    # 分块检索：sim 中间矩阵只保留 (块帧, N)，整段 T 很大时避免一次性
+    # 分配 (T, N)（离线整段特征 × 几十万帧索引可达数十 GB）。
+    pieces = []
+    for qi in q.split(_BLEND_CHUNK, dim=0):
+        sim = qi @ refs_d.t()                    # (块, N) cos-sim
+        sim_top, ix = sim.topk(k, dim=1)         # 越近 → sim 越大
+        if not torch.isfinite(sim_top).all():
+            return seg
+        # 距离反比权重：dist = 1 - sim，近邻 dist→0 权重发散，clamp 保底
+        w = torch.reciprocal((1.0 - sim_top).clamp(min=_DIST_FLOOR))
+        w = w / w.sum(dim=1, keepdim=True)
+        pieces.append((refs_d[ix] * w.unsqueeze(-1)).sum(dim=1))  # (块, D)
+    blended = torch.cat(pieces, dim=0)           # (T, D)
 
     result = blended * index_rate + seg.float() * (1.0 - index_rate)
     return result.to(orig_dtype)
