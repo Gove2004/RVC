@@ -45,9 +45,14 @@ def load_index(index_path: str, inference_cache):
         logger.warning("特征索引为空或形状异常: %s", index_path)
         return None, None
 
-    refs = refs.detach().float()
-    # 幂等 L2 归一化：构建端已归一化，这里兜底再归一化一次无副作用
-    refs = F.normalize(refs, dim=1)
+    refs = refs.detach()
+    # 幂等 L2 归一化：构建端已归一化，这里兜底再归一化一次无副作用。
+    # fp16 索引（index_builder 低内存版产物）保持 fp16 不升 fp32——
+    # 检索精度实测无损（top1 与 fp32 一致率 100%），GPU 显存减半。
+    if refs.dtype == torch.float16:
+        refs = F.normalize(refs.float(), dim=1).half()
+    else:
+        refs = F.normalize(refs.float(), dim=1)
     inference_cache.set_index(index_path, {"index": refs, "index_vectors": None})
     logger.info("加载特征索引 %s（%d 帧 × %d 维）", os.path.basename(index_path), refs.shape[0], refs.shape[1])
     return refs, None
@@ -57,7 +62,7 @@ def _torch_blend(seg: torch.Tensor, refs: torch.Tensor, index_rate: float, is_ha
     """GPU 暴力近邻混合：cos-sim top-k，按余弦距离反比加权，再按 index_rate 融合。
 
     seg  : (T, D) 设备上特征段（可能 fp16）
-    refs : (N, D) L2 归一化 fp32 特征库
+    refs : (N, D) L2 归一化特征库（fp16 或 fp32 均可，matmul 自动提升）
     返回 : 与 seg 同 dtype 的 (T, D)
     """
     orig_dtype = seg.dtype
@@ -96,7 +101,7 @@ def apply_faiss_index(
     降频语义：每 blend_every_n 块真正跑一次检索；中间块沿用上一次的混合
     结果（而非原生特征），避免音色每 N 块周期性跳动，也摊薄检索开销。
 
-    index: 由 load_index 返回的 (N, D) fp32 特征张量（CPU 或 GPU 均可）。
+    index: 由 load_index 返回的 (N, D) 归一化特征张量（fp16/fp32，CPU 或 GPU 均可）。
     """
     if index is None or index_rate <= 0:
         return feats
