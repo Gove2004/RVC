@@ -61,7 +61,7 @@ class VCPipeline:
         self.target_sr = session.target_sr
         self.use_f0 = session.use_f0
 
-    def change_key(self, key: float) -> None:
+    def change_key(self, key: int) -> None:
         self.f0_semitones = key
 
     def change_f0_proc(self, enable: bool, break_src_hz: float) -> None:

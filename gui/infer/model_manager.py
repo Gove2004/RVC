@@ -30,7 +30,7 @@ class ModelManager:
         self,
         name: str = "",
         pth: str = "",
-        pitch: float = 12.0,
+        pitch: int = 12,
         gender: float = 0.0,
         hubert: str = "chinese"
     ) -> ModelCard:
@@ -59,7 +59,7 @@ class ModelManager:
         self,
         name: str,
         pth: str,
-        pitch: float,
+        pitch: int,
         gender: float,
         hubert: str,
     ) -> None:

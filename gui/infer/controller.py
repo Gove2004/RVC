@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelConfig:
-    pitch: float
+    pitch: int
     gender: float
     protect: float
     f0method: str
