@@ -100,7 +100,8 @@ class VCPipeline:
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
 
-    def infer_offline(self, input_wav, f0method="fcpe", protect=0.0):
+    @torch.no_grad()
+    def infer_offline(self, input_wav, f0method="rmvpe", protect=0.0):
         """离线推理（完整音频）。
 
         Args:
@@ -144,7 +145,7 @@ class VCPipeline:
 
         return audio.cpu().numpy()
 
-    def infer(self, input_wav: torch.Tensor, block_frame_16k: int, skip_head: int, return_length: int, f0method: str = "fcpe", protect: float = 0.0) -> torch.Tensor:
+    def infer(self, input_wav: torch.Tensor, block_frame_16k: int, skip_head: int, return_length: int, f0method: str = "rmvpe", protect: float = 0.0) -> torch.Tensor:
         """实时推理一个音频块。
 
         Args:

@@ -30,7 +30,7 @@ BINDINGS = [
     ("crossfade_time", "crossfade_slider", X100, "cf", 0.05),
     ("extra_time", "extra_time_slider", X100, "ex", 2.5),
     ("protect", "protect_slider", X100, "protect", 0.5),
-    ("f0method", "f0_rmvp_btn", RADIO_F0, "f0", "fcpe"),
+    ("f0method", "f0_rmvp_btn", RADIO_F0, "f0", "rmvpe"),
     ("sr_mode", "sr_model_radio", RADIO_SR, "sr_mode", "model"),
     ("rms_mix", "rms_mix_slider", X100, "rms", 0.0),
     ("nr_enable", "nr_enable_checkbox", CHECK, "nr_en", False),

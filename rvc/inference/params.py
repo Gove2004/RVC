@@ -8,7 +8,7 @@ class Params:
     rms_mix: float = 0.0
     gender: float = 0.0
     protect: float = 0.5
-    f0method: str = "fcpe"
+    f0method: str = "rmvpe"
     nr_enable: bool = False
     nr_strength: float = 0.5
     enable_out2: bool = False

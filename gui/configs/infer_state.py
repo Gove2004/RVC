@@ -12,7 +12,7 @@ class InferGuiState:
     crossfade_time: float = 0.05
     extra_time: float = 2.5
     protect: float = 0.5
-    f0method: str = "fcpe"
+    f0method: str = "rmvpe"
     sr_mode: str = "model"
     rms_mix: float = 0.0
     nr_enable: bool = False
