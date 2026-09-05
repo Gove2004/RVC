@@ -25,8 +25,8 @@ def load_model_session(config, pth_path: str, inference_cache,
 
     hubert = load_hubert(config, inference_cache, variant=hubert_variant)
     loader = SynthesizerLoader(config, inference_cache)
-    synth = loader.load(pth_path)
-    synthesizer = synth["synthesizer"]
+    syn = loader.load(pth_path)
+    synthesizer = syn.synthesizer
 
     # 所有 Synthesizer 变体都继承 _SynthesizerTrnMsBase.remove_weight_norm（非死分支）；
     # 仅保留异常兜底（权重可能已是移除状态，二次移除会抛 ValueError）
@@ -42,6 +42,6 @@ def load_model_session(config, pth_path: str, inference_cache,
     return ModelSession(
         hubert=hubert,
         synthesizer=synthesizer,
-        target_sr=synth["target_sr"],
-        use_f0=synth["use_f0"],
+        target_sr=syn.target_sr,
+        use_f0=syn.use_f0,
     )

@@ -41,31 +41,19 @@ def infer_synth_audio(
     # call 必须接受位置参数 — CUDA Graph fallback (`capture 失败 / 探测失败`)
     # 会用 `function(*inputs)` 调用它，把 tensor inputs 透传过去。
     # 我们用 lambda 接住后忽略，由闭包捕获 feats/p_len_t/... 这些外层 tensor。
+    # `tail` 区分实时（多 3 个裁剪参数）与离线（5 参签名），避免重复分支。
+    tail = (skip_head, return_length, return_length2) if realtime else ()
+    mode = "realtime" if realtime else "offline"
+
     if use_f0 == 1:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
-        if realtime:
-            graph_key = "synth-realtime-f0"
-            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
-            call = lambda *_: synthesizer.infer(
-                feats, p_len_t, pitch, pitchf, sid,
-                skip_head, return_length, return_length2,
-            )
-        else:
-            graph_key = "synth-offline-f0"
-            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
-            call = lambda *_: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid)
+        graph_key = f"synth-{mode}-f0"
+        tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
+        call = lambda *_: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid, *tail)
     else:
-        if realtime:
-            graph_key = "synth-realtime-no-f0"
-            tensor_inputs = (feats, p_len_t, sid)
-            call = lambda *_: synthesizer.infer(
-                feats, p_len_t, None, None, sid,
-                skip_head, return_length, return_length2,
-            )
-        else:
-            graph_key = "synth-offline-no-f0"
-            tensor_inputs = (feats, p_len_t, sid)
-            call = lambda *_: synthesizer.infer(feats, p_len_t, None, None, sid)
+        graph_key = f"synth-{mode}-no-f0"
+        tensor_inputs = (feats, p_len_t, sid)
+        call = lambda *_: synthesizer.infer(feats, p_len_t, None, None, sid, *tail)
     # 必须把 tensor inputs 传到 run_cuda_graph 里——否则 cache 不认识 tensor shape，
     # synthesize 实际从未进 graph，每次都走 eager，Python 调度开销白白浪费。
     return run_cuda_graph(synthesizer, graph_key, call, *tensor_inputs)

@@ -62,7 +62,7 @@ class InferenceCache:
         """获取缓存的 Synthesizer（LRU 命中即刷新）。
 
         Returns:
-            dict or None: {"synthesizer": model, "target_sr": int, "use_f0": int}
+            SynthesizerBundle or None
         """
         return self._synthesizer.get(key)
 
@@ -70,7 +70,7 @@ class InferenceCache:
         """缓存 Synthesizer。
 
         Args:
-            value: dict: {"synthesizer": model, "target_sr": int, "use_f0": int}
+            value: SynthesizerBundle
         """
         self._synthesizer.set(key, value)
 

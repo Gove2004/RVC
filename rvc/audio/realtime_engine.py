@@ -38,7 +38,9 @@ class RealtimeEngine:
         self.function = "vc"
         self.out2_q = queue.Queue(maxsize=10)
 
-        self.sr = None; self.hz_centis = None; self.channels = 1
+        # ── 处理状态（setup()/process_file() 经 _init_processing 填充）──
+        self.sr = None; self.sr_dev = None; self.sr_model = None
+        self.hz_centis = None; self.channels = 1
         self.block_samples = 0; self.block_samples_16k = 0
         self.crossfade_samples = 0; self.sola_buffer_samples = 0
         self.sola_search_samples = 0; self.extra_samples = 0
@@ -48,12 +50,10 @@ class RealtimeEngine:
         self.input_wav_work = None; self.input_wav_res_work = None
         self.sola_buffer = None
         self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
-        self.resampler = None; self.resampler2 = None
-        # 效果器（setup 时创建）
-        self.nr_ss = None
-
-        # 降噪参数缓存（用于检测变化）
-        self._last_nr_params = None
+        self.resampler = None; self.resampler_model2dev = None
+        self._in_pin = None          # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用）
+        self.nr_ss = None            # 效果器（setup 时创建）
+        self._last_nr_params = None  # 降噪参数缓存（用于检测变化）
 
         self.pth_path = ""
         self.infer_ms = 0.0
@@ -246,19 +246,11 @@ class RealtimeEngine:
         Returns:
             输出 wav 完整数组 (float32, target_sr 采样率)
         """
-        import librosa
-        import numpy as np
-        import soundfile as sf
-
-        from rvc.audio.loader import load_audio_native
         from rvc.inference.params import Params
 
-        wav, src_sr = load_audio_native(input_path)
         self.sr_model = self.pipeline.target_sr
         tgt_sr = self.sr_model
-        if src_sr != tgt_sr:
-            wav = librosa.resample(wav, orig_sr=src_sr, target_sr=tgt_sr)
-        wav = np.ascontiguousarray(wav, dtype=np.float32)
+        wav = self._load_audio_at_sr(input_path, tgt_sr)
 
         if params is None:
             params = Params()
@@ -272,8 +264,28 @@ class RealtimeEngine:
         self._init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1)
         self.warmup_inference(2)
 
-        block = self.block_samples
-        pad = int(tgt_sr * pad_sec)
+        result = self._infer_stream(wav, self.block_samples, int(tgt_sr * pad_sec), progress_cb)
+        self._write_output_wav(result, output_path, tgt_sr)
+        return result
+
+    def _load_audio_at_sr(self, input_path, tgt_sr):
+        """加载音频并重采样到目标采样率（float32, 单声道）。"""
+        import librosa
+        import numpy as np
+
+        from rvc.audio.loader import load_audio_native
+        wav, src_sr = load_audio_native(input_path)
+        if src_sr != tgt_sr:
+            wav = librosa.resample(wav, orig_sr=src_sr, target_sr=tgt_sr)
+        return np.ascontiguousarray(wav, dtype=np.float32)
+
+    def _infer_stream(self, wav, block, pad, progress_cb):
+        """把整段音频按块走实时 `_cb_impl`，返回裁剪掉 pad 的输出。
+
+        前后补 pad（reflect）、末尾补零到块整数倍，逐块推理后裁掉 pad。
+        """
+        import numpy as np
+
         padded = np.pad(wav, (pad, pad), mode="reflect")
         if len(padded) % block:
             padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
@@ -287,15 +299,16 @@ class RealtimeEngine:
             out_chunks.append(outdata[:, 0])
             if progress_cb:
                 progress_cb(i + 1, total_blocks)
+        return np.concatenate(out_chunks)[pad: pad + len(wav)]
 
-        result = np.concatenate(out_chunks)
-        result = result[pad: pad + len(wav)]
+    def _write_output_wav(self, result, output_path, tgt_sr):
+        """峰值归一化（防削波）后写出 wav。"""
+        import soundfile as sf
 
         audio_max = np.abs(result).max() / 0.99
         if audio_max > 1:
             result = result / audio_max
         sf.write(output_path, result, tgt_sr, subtype="FLOAT")
-        return result
 
     def _cb(self, indata, outdata, frames, times, status):
         try:

@@ -110,6 +110,31 @@ BREAK_PROTECT_DEFAULT_SRC_HZ = 300.0  # 破音临界（源 Hz）：超过开始�
 BREAK_PROTECT_OVER = 0.25             # 渐近上限 = 临界×(1+OVER)（超临界保留 25% 动态区）
 
 
+def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf)。
+
+    RMVPE / FCPE 共用，避免两份重复实现：
+    音高偏移 ×2^(key/12) → 转 GPU tensor → 破音保护 → 离散化。
+
+    Args:
+        f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
+        f0_up_key: 音高偏移（半音）
+        device: 目标设备
+        f0_proc: (破音保护开关, 破音临界[源Hz]) 或 None
+
+    Returns:
+        (pitch_coarse, pitchf): 离散 pitch 和连续 pitch
+    """
+    f0 = f0 * pow(2, f0_up_key / 12)
+    if not torch.is_tensor(f0):
+        f0 = torch.from_numpy(f0)
+    f0 = f0.float().to(device).squeeze()
+    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz])，内部换算变声后
+    if f0_proc and f0_proc[0]:
+        f0 = apply_f0_break_protect(f0, f0_proc[1] * pow(2, f0_up_key / 12))
+    return _normalize_f0_to_coarse(f0), f0
+
+
 def apply_f0_break_protect(f0: torch.Tensor, critical_hz: float) -> torch.Tensor:
     """破音保护（软收敛/动态音调）：≤临界完全原样，>临界渐近收敛不抹平。
 
@@ -176,17 +201,7 @@ class RMVPEExtractor(F0Extractor):
 
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         f0 = self.model.infer_from_audio(audio, thred=0.03)
-        f0 *= pow(2, f0_up_key / 12)
-
-        if not torch.is_tensor(f0):
-            f0 = torch.from_numpy(f0)
-        f0 = f0.float().to(self.device).squeeze()
-        # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz])，内部换算变声后
-        if f0_proc and f0_proc[0]:
-            f0 = apply_f0_break_protect(f0, f0_proc[1] * pow(2, f0_up_key / 12))
-        pitch_coarse = _normalize_f0_to_coarse(f0)
-
-        return pitch_coarse, f0
+        return postprocess_f0(f0, f0_up_key, self.device, f0_proc)
 
 
 class FCPEExtractor(F0Extractor):
@@ -255,21 +270,7 @@ class FCPEExtractor(F0Extractor):
                     threshold=FCPE_CONFIDENCE_THRESHOLD,
                 )
 
-        f0 *= pow(2, f0_up_key / 12)
-
-        # 转换为 Tensor
-        if not torch.is_tensor(f0):
-            f0 = torch.from_numpy(f0)
-        f0 = f0.float().to(self.device).squeeze()
-
-        # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz])，内部换算变声后
-        if f0_proc and f0_proc[0]:
-            f0 = apply_f0_break_protect(f0, f0_proc[1] * pow(2, f0_up_key / 12))
-
-        # Mel 归一化
-        pitch_coarse = _normalize_f0_to_coarse(f0)
-
-        return pitch_coarse, f0
+        return postprocess_f0(f0, f0_up_key, self.device, f0_proc)
 
 
 def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache) -> F0Extractor:
