@@ -91,6 +91,30 @@ class RealtimeEngine:
         in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
         self.channels = min(int(in_info["max_input_channels"]), int(out_info["max_output_channels"]), 2)
 
+        self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
+
+        # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
+        # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
+        # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
+        self.warmup_inference(2)
+
+        try:
+            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
+            self.stream.start()
+            self.running = True
+        except Exception as e:
+            if "Invalid sample rate" in str(e) or "-9997" in str(e):
+                raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
+            raise
+
+    def _init_processing(self, sr, block_t, cf_t, extra_t, channels):
+        """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/降噪）。
+
+        setup() 与离线文件流式推理 process_file() 共用，保证两条路径算法完全一致。
+        需先设置 self.sr_model（= pipeline.target_sr），用于判断是否需模型→设备重采样。
+        """
+        self.sr = sr
+        self.channels = channels
         zc = self.sr // 100
         self.block_samples = int(np.round(block_t * self.sr / zc)) * zc
         self.crossfade_samples = int(np.round(cf_t * self.sr / zc)) * zc
@@ -128,20 +152,6 @@ class RealtimeEngine:
         self.nr_ss = SpectralSubtraction(self.sr)
         self.nr_ss.reset()
         self._last_nr_params = None
-
-        # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
-        # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
-        # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
-        self.warmup_inference(2)
-
-        try:
-            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
-            self.stream.start()
-            self.running = True
-        except Exception as e:
-            if "Invalid sample rate" in str(e) or "-9997" in str(e):
-                raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
-            raise
 
     def warmup_inference(self, n: int = 2):
         """开流前用静音数据跑 n 次完整回调，完成 CUDA Graph 捕获以及
@@ -213,6 +223,79 @@ class RealtimeEngine:
                 except Exception as e:
                     logger.debug("关闭流时出错: %s", e)
         self.stream = self.stream2 = None
+
+    def process_file(self, input_path, output_path, *, params=None,
+                     block_t=0.25, cf_t=0.05, extra_t=2.5,
+                     f0method=None, protect=None, pad_sec=3.0,
+                     progress_cb=None):
+        """离线文件流式推理：「模拟播放→转换→写录」。
+
+        把整段音频当作持续输入流，逐块走实时 `_cb_impl`（降噪/RMS/SOLA/缓存轮换），
+        与实时完全同一算法。显存封顶（~400MB，不再随音频长度线性增长），音质 = 实时音质。
+        输出采样率 = 模型 target_sr。
+
+        Args:
+            input_path: 输入音频路径（任意格式）
+            output_path: 输出 wav 路径
+            params: 运行时参数（rvc.inference.params.Params），缺省用默认
+            block_t/cf_t/extra_t: 块时长/交叉淡化/上下文（秒）
+            f0method/protect: 可覆盖 params 对应的推理参数
+            pad_sec: 前后上下文 pad（秒），保证首尾块上下文充足
+            progress_cb: 可选回调 (completed_blocks, total_blocks)
+
+        Returns:
+            输出 wav 完整数组 (float32, target_sr 采样率)
+        """
+        import librosa
+        import numpy as np
+        import soundfile as sf
+
+        from rvc.audio.loader import load_audio_native
+        from rvc.inference.params import Params
+
+        wav, src_sr = load_audio_native(input_path)
+        self.sr_model = self.pipeline.target_sr
+        tgt_sr = self.sr_model
+        if src_sr != tgt_sr:
+            wav = librosa.resample(wav, orig_sr=src_sr, target_sr=tgt_sr)
+        wav = np.ascontiguousarray(wav, dtype=np.float32)
+
+        if params is None:
+            params = Params()
+        self.runtime_params = params
+        if f0method is not None:
+            self.runtime_params.f0method = f0method
+        if protect is not None:
+            self.runtime_params.protect = protect
+        self.function = "vc"
+
+        self._init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1)
+        self.warmup_inference(2)
+
+        block = self.block_samples
+        pad = int(tgt_sr * pad_sec)
+        padded = np.pad(wav, (pad, pad), mode="reflect")
+        if len(padded) % block:
+            padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
+
+        total_blocks = len(padded) // block
+        out_chunks = []
+        for i in range(total_blocks):
+            seg = padded[i * block: (i + 1) * block]
+            outdata = np.zeros((block, self.channels), dtype=np.float32)
+            self._cb_impl(seg, outdata, block, None, None)
+            out_chunks.append(outdata[:, 0])
+            if progress_cb:
+                progress_cb(i + 1, total_blocks)
+
+        result = np.concatenate(out_chunks)
+        result = result[pad: pad + len(wav)]
+
+        audio_max = np.abs(result).max() / 0.99
+        if audio_max > 1:
+            result = result / audio_max
+        sf.write(output_path, result, tgt_sr, subtype="FLOAT")
+        return result
 
     def _cb(self, indata, outdata, frames, times, status):
         try:
