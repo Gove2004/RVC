@@ -130,19 +130,18 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz], 压缩比, 膝宽)，内部换算变声后
+    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz])，内部换算变声后。
+    # 压缩比/膝宽为内部固定默认值（用户无需调节；感觉高音压得不够就把临界 Hz 调低）。
     if f0_proc and f0_proc[0]:
         critical = f0_proc[1] * pow(2, f0_up_key / 12)
-        ratio = f0_proc[2] if len(f0_proc) > 2 else BREAK_PROTECT_DEFAULT_RATIO
-        knee = f0_proc[3] if len(f0_proc) > 3 else BREAK_PROTECT_DEFAULT_KNEE
-        f0 = apply_f0_break_protect(f0, critical, ratio, knee)
+        f0 = apply_f0_break_protect(f0, critical)
     return _normalize_f0_to_coarse(f0), f0
 
 
 def apply_f0_break_protect(f0: torch.Tensor, critical_hz: float,
                            ratio: float = BREAK_PROTECT_DEFAULT_RATIO,
                            knee: float = BREAK_PROTECT_DEFAULT_KNEE) -> torch.Tensor:
-    """破音保护（方案 A：可调压缩比 + 平滑膝）。
+    """破音保护（方案 A：压缩比 + 平滑膝）。
 
     作用在变声后的 F0（Hz）上。三段映射：
       x ≤ C-k        → 原样 y = x（说话/低音区动态 100% 保留）
@@ -151,16 +150,16 @@ def apply_f0_break_protect(f0: torch.Tensor, critical_hz: float,
     其中 C=临界、k=C·knee（膝半宽，相对临界）、ratio=压缩比。
 
     与旧版「单指数渐近到 C×1.25」相比：高音区不再被压到一个固定顶，
-    而是按 ratio 收窄、仍保留相对旋律；ratio/knee 可调，听感更自然，
-    更贴近人声带的动态收敛。
+    而是按 ratio 收窄、仍保留相对旋律，听感更自然。
+    ratio/knee 为内部固定默认值（用户只调 critical_hz，保证自动生效）。
 
-    满足：连续 + 一阶连续 + 单调 + 压缩可控（ratio/knee 可调）。
+    满足：连续 + 一阶连续 + 单调 + 压缩可控。
 
     Args:
         f0: 变声后的连续 F0 值 (Hz, GPU tensor)
         critical_hz: 破音临界（变声后 Hz）
-        ratio: 高音区压缩比（越小越狠；1.0 = 不压缩）
-        knee: 平滑膝宽（相对临界比例，0 = 硬拐）
+        ratio: 高音区压缩比（内部默认 0.4）
+        knee: 平滑膝宽（内部默认 0.12，相对临界比例）
     """
     if critical_hz <= 0 or f0 is None:
         return f0

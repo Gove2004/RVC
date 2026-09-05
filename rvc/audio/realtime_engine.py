@@ -427,8 +427,6 @@ class RealtimeEngine:
                 gender=self.runtime_params.gender,
                 break_enable=self.runtime_params.break_enable,
                 break_src_hz=self.runtime_params.break_src_hz,
-                break_ratio=self.runtime_params.break_ratio,
-                break_knee=self.runtime_params.break_knee,
             )
             infer = self.pipeline.infer(
                 self.input_wav_res, self.block_samples_16k,

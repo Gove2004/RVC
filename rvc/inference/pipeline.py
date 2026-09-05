@@ -35,11 +35,10 @@ class VCPipeline:
         self.formant_factor_pow = 1.0  # pow(2, formant/12)，change_formant 时缓存，避免每块重算
         # 破音保护（用户核心瑕疵）：f0_proc=(开关, 破音临界[源Hz])，
         # extractor 内按 key 换算成变声后临界。源 ≤临界 → ×2 天然安全，原样保留。
+        # 压缩比/膝宽为内部固定默认值，用户只调开关 + 临界 Hz。
         self.break_enable = True
         self.break_src_hz = 300.0
-        self.break_ratio = 0.4
-        self.break_knee = 0.12
-        self._f0_proc = (self.break_enable, self.break_src_hz, self.break_ratio, self.break_knee)
+        self._f0_proc = (self.break_enable, self.break_src_hz)
 
         self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
 
@@ -63,8 +62,7 @@ class VCPipeline:
         self.target_sr = session.target_sr
         self.use_f0 = session.use_f0
 
-    def configure(self, pitch=None, gender=None, break_enable=None, break_src_hz=None,
-                  break_ratio=None, break_knee=None) -> None:
+    def configure(self, pitch=None, gender=None, break_enable=None, break_src_hz=None) -> None:
         """统一参数应用入口（实时/离线共用，避免多处手写 change_* 漏改）。
 
         只更新传入的非 None 字段；f0method/protect 是每次推理的入参，不在此缓存。
@@ -74,29 +72,25 @@ class VCPipeline:
             self.f0_semitones = pitch
         if gender is not None:
             self._set_formant(gender)
-        if break_enable is not None or break_src_hz is not None or break_ratio is not None or break_knee is not None:
+        if break_enable is not None or break_src_hz is not None:
             self._set_break(
                 break_enable if break_enable is not None else self.break_enable,
                 break_src_hz if break_src_hz is not None else self.break_src_hz,
-                break_ratio if break_ratio is not None else self.break_ratio,
-                break_knee if break_knee is not None else self.break_knee,
             )
 
     def _set_formant(self, shift: float) -> None:
         self.formant_factor = shift
         self.formant_factor_pow = pow(2, shift / 12)
 
-    def _set_break(self, enable: bool, break_src_hz: float, break_ratio: float = 0.4, break_knee: float = 0.12) -> None:
+    def _set_break(self, enable: bool, break_src_hz: float) -> None:
         """更新破音保护参数（破音临界用源赫兹，extractor 内换算变声后）。
 
-        方案 A（可调压缩比 + 平滑膝）：高音区按 break_ratio 压缩但保留旋律相对关系，
-        膝宽 break_knee（相对临界比例）控制拐点多平滑。
+        方案 A（压缩比 + 平滑膝，内部固定默认值）：高音区按固定压缩比收窄但仍保留旋律，
+        膝宽固定。用户只需调「临界 Hz」（超过开始收敛）与开关。
         """
         self.break_enable = bool(enable)
         self.break_src_hz = max(50.0, float(break_src_hz))
-        self.break_ratio = float(break_ratio)
-        self.break_knee = float(break_knee)
-        self._f0_proc = (self.break_enable, self.break_src_hz, self.break_ratio, self.break_knee)
+        self._f0_proc = (self.break_enable, self.break_src_hz)
 
     def _extract_hubert_features(self, input_wav):
         return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)

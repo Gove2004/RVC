@@ -27,8 +27,6 @@ class RuntimeConfig:
     nr_strength: float = 0.5
     break_enable: bool = True
     break_src_hz: float = 300.0
-    break_ratio: float = 0.4
-    break_knee: float = 0.12
 
 
 @dataclass
@@ -84,8 +82,6 @@ class InferController:
             nr_strength=config.nr_strength,
             break_enable=config.break_enable,
             break_src_hz=config.break_src_hz,
-            break_ratio=config.break_ratio,
-            break_knee=config.break_knee,
         )
 
     def setup_engine(self, config: EngineConfig):

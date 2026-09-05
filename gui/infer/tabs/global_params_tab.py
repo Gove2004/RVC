@@ -34,14 +34,10 @@ def build_global_params_tab(win):
     win.nr_strength_slider = _slrow(win, "nr_strength_slider", 0.0, 1.0, 0.01, 0.5)
     g.addWidget(win.nr_strength_slider, r, 1); g.addWidget(win.nr_strength_label, r, 2); r += 1
 
-    # ── 破音保护（核心：高音破音/沙哑。源音高超过临界后按压缩比软收敛） ──
+    # ── 破音保护（核心：高音破音/沙哑。源音高超过临界后自动软收敛，无需调压缩比/膝宽） ──
     win.break_enable_checkbox = QCheckBox("破音保护")
     g.addWidget(win.break_enable_checkbox, r, 0)
     win.break_src_hz_slider = _slrow(win, "break_src_hz_slider", 200.0, 400.0, 5.0, 300.0, fmt=".0f", unit="Hz", label_w=45)
     g.addWidget(win.break_src_hz_slider, r, 1); g.addWidget(win.break_src_hz_label, r, 2); r += 1
-    win.break_ratio_slider = _slrow(win, "break_ratio_slider", 0.1, 1.0, 0.01, 0.4, fmt=".2f", label_w=45)
-    g.addWidget(QLabel("压缩比"), r, 0); g.addWidget(win.break_ratio_slider, r, 1); g.addWidget(win.break_ratio_label, r, 2); r += 1
-    win.break_knee_slider = _slrow(win, "break_knee_slider", 0.0, 0.3, 0.01, 0.12, fmt=".2f", label_w=45)
-    g.addWidget(QLabel("平滑膝宽"), r, 0); g.addWidget(win.break_knee_slider, r, 1); g.addWidget(win.break_knee_label, r, 2); r += 1
 
     return w
