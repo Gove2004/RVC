@@ -202,7 +202,7 @@ class MainWindow(QMainWindow):
         if not card:
             return None
         return ModelConfig(
-            pitch=card.pitch_slider.value(),
+            pitch=card.pitch_slider.value() / 10,
             gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),
             protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
             f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",

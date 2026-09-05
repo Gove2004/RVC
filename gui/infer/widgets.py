@@ -65,8 +65,8 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片：始终展开，顶部一行 [使用] [模型名居中] [删除]"""
 
-    # name, pth, pitch, gender, hubert
-    load_requested = Signal(str, str, int, float, str)
+    # name, pth, pitch, gender, hubert   (pitch 为浮点半音，支持 1 位小数)
+    load_requested = Signal(str, str, float, float, str)
 
     def __init__(self, name="", pth="", pitch=12,
                  gender=0.0, hubert="chinese", parent=None):
@@ -115,8 +115,11 @@ class ModelCard(QFrame):
         _pbtn.clicked.connect(lambda: self._browse(self.pth_edit, "模型 (*.pth)"))
         r += 1
 
-        self.pitch_slider = _sl(-16, 16, 1, pitch); self.pitch_label = QLabel(str(pitch))
-        self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
+        # 音调：滑杆按 0.1 半音步进编码（-160..160 → /10 = -16.0..+16.0 半音），
+        # 显示 1 位小数（如 +12.5）。读出值 = pitch_slider.value() / 10。
+        self.pitch_slider = _sl(-160, 160, 1, int(round(float(pitch) * 10)))
+        self.pitch_label = QLabel(f"{float(pitch):+.1f}")
+        self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(f"{v / 10:+.1f}"))
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
 
         # 滑杆 [0,1] ↔ formant shift [-2.5,+2.5]，换算必须与 param_binding.gender_to_formant 互逆
@@ -147,7 +150,7 @@ class ModelCard(QFrame):
     def _on_load(self):
         self.load_requested.emit(
             self._name_label.text(), self.pth_edit.text().strip(),
-            self.pitch_slider.value(),
+            self.pitch_slider.value() / 10,
             _sl_value_as_float(self.gender_slider),
             self.hubert_combo.currentText(),
         )
@@ -156,7 +159,7 @@ class ModelCard(QFrame):
         return {
             "name": self._name_label.text(),
             "pth": self.pth_edit.text().strip(),
-            "pitch": self.pitch_slider.value(),
+            "pitch": self.pitch_slider.value() / 10,
             "gender": (self.gender_slider.value() / 100 * 5 - 2.5),
             "hubert": self.hubert_combo.currentText(),
         }

@@ -8,7 +8,7 @@ class OfflineConfig:
     input_path: str
     output_path: str
     model_path: str
-    pitch: int
+    pitch: float
     f0method: str
     rms_mix: float
     protect: float

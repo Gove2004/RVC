@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Params:
-    pitch: int = 0
+    pitch: float = 0.0
     rms_mix: float = 0.0
     gender: float = 0.0
     protect: float = 0.5
