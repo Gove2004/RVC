@@ -19,6 +19,8 @@ class InferGuiState:
     nr_strength: float = 0.5
     break_enable: bool = True
     break_src_hz: float = 300.0
+    break_ratio: float = 0.4
+    break_knee: float = 0.12
     hostapi: str = ""
     input_device: str = ""
     output_device: str = ""

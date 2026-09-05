@@ -37,6 +37,8 @@ BINDINGS = [
     ("nr_strength", "nr_strength_slider", X100, "nr_str", 0.5),
     ("break_enable", "break_enable_checkbox", CHECK, "brk_en", True),
     ("break_src_hz", "break_src_hz_slider", X100, "brk_hz", 300.0),
+    ("break_ratio", "break_ratio_slider", X100, "brk_ratio", 0.4),
+    ("break_knee", "break_knee_slider", X100, "brk_knee", 0.12),
     ("hostapi", "hostapi_combo", COMBO, "ha", ""),
     ("input_device", "input_combo", COMBO, "in_dev", ""),
     ("output_device", "output_combo", COMBO, "out_dev", ""),
@@ -151,6 +153,8 @@ def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
         nr_strength=state.nr_strength,
         break_enable=state.break_enable,
         break_src_hz=state.break_src_hz,
+        break_ratio=state.break_ratio,
+        break_knee=state.break_knee,
     )
 
 

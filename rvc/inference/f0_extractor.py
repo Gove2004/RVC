@@ -107,7 +107,8 @@ def _normalize_f0_to_coarse(f0: torch.Tensor) -> torch.Tensor:
 # 保留不同高音之间的相对起伏（动态音调），同时渐近收敛不冲爆。
 # 用户直觉参照是源赫兹（"我唱到 300Hz 就破"），GUI 填源值，内部换算变声后。
 BREAK_PROTECT_DEFAULT_SRC_HZ = 300.0  # 破音临界（源 Hz）：超过开始收敛
-BREAK_PROTECT_OVER = 0.25             # 渐近上限 = 临界×(1+OVER)（超临界保留 25% 动态区）
+BREAK_PROTECT_DEFAULT_RATIO = 0.4     # 高音区压缩比（越小压越狠；1.0 = 不压缩）
+BREAK_PROTECT_DEFAULT_KNEE = 0.12     # 平滑膝宽（相对临界比例：膝范围 = 临界×(1±knee)）
 
 
 def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
@@ -129,38 +130,55 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz])，内部换算变声后
+    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz], 压缩比, 膝宽)，内部换算变声后
     if f0_proc and f0_proc[0]:
-        f0 = apply_f0_break_protect(f0, f0_proc[1] * pow(2, f0_up_key / 12))
+        critical = f0_proc[1] * pow(2, f0_up_key / 12)
+        ratio = f0_proc[2] if len(f0_proc) > 2 else BREAK_PROTECT_DEFAULT_RATIO
+        knee = f0_proc[3] if len(f0_proc) > 3 else BREAK_PROTECT_DEFAULT_KNEE
+        f0 = apply_f0_break_protect(f0, critical, ratio, knee)
     return _normalize_f0_to_coarse(f0), f0
 
 
-def apply_f0_break_protect(f0: torch.Tensor, critical_hz: float) -> torch.Tensor:
-    """破音保护（软收敛/动态音调）：≤临界完全原样，>临界渐近收敛不抹平。
+def apply_f0_break_protect(f0: torch.Tensor, critical_hz: float,
+                           ratio: float = BREAK_PROTECT_DEFAULT_RATIO,
+                           knee: float = BREAK_PROTECT_DEFAULT_KNEE) -> torch.Tensor:
+    """破音保护（方案 A：可调压缩比 + 平滑膝）。
 
-    作用在【变声后】音高上（pitch 平移之后）——用户方案：正常说话 115、
-    破音临界 300（源）→ 变声 +12 后正常 230、破音 600。变声后 ≤600 的
-    部分完全原样（说话/唱歌动态 100% 保留）。
+    作用在变声后的 F0（Hz）上。三段映射：
+      x ≤ C-k        → 原样 y = x（说话/低音区动态 100% 保留）
+      C-k ≤ x ≤ C+k  → smoothstep 过渡，斜率从 1 平滑降到 ratio（膝部软拐）
+      x > C+k        → y = C + ratio·(x - C)，高音区按比例收窄但仍跟随旋律
+    其中 C=临界、k=C·knee（膝半宽，相对临界）、ratio=压缩比。
 
-    >600 的部分：指数软收敛 `y = U - K·exp(-(f0-C)/K)`，U=C×1.25 为渐近
-    上限、K=U-C。f0=C 处 y=C 且斜率 =1（与左侧原样段无缝衔接），之后
-    斜率平滑降到 0——**不同高音仍拉开差距（720→683、800→710），不会像
-    硬切那样全锁成一个音（唱歌高音一个调）**，同时输出有界（永不超
-    C×1.25），模型收到的音高远低于原始冲爆值，不再沙哑。
+    与旧版「单指数渐近到 C×1.25」相比：高音区不再被压到一个固定顶，
+    而是按 ratio 收窄、仍保留相对旋律；ratio/knee 可调，听感更自然，
+    更贴近人声带的动态收敛。
 
-    单调 + 连续（一阶导数也连续）+ 有界 + 保留动态，四者全部满足。
+    满足：连续 + 一阶连续 + 单调 + 压缩可控（ratio/knee 可调）。
 
     Args:
         f0: 变声后的连续 F0 值 (Hz, GPU tensor)
         critical_hz: 破音临界（变声后 Hz）
+        ratio: 高音区压缩比（越小越狠；1.0 = 不压缩）
+        knee: 平滑膝宽（相对临界比例，0 = 硬拐）
     """
     if critical_hz <= 0 or f0 is None:
         return f0
-    U = critical_hz * (1.0 + BREAK_PROTECT_OVER)
-    K = U - critical_hz
-    x = (f0 - critical_hz) / K          # >0 的帧才收敛（mask 过滤）
-    y_hi = U - K * torch.exp(-x)
-    return torch.where(f0 > critical_hz, y_hi, f0)
+    r = max(1e-3, float(ratio))
+    C = float(critical_hz)
+    if r >= 1.0:
+        return f0  # ratio=1：不压缩，原样
+    k = max(0.0, float(knee)) * C
+    if k <= 1e-6:
+        # 膝宽 0：分段线性硬折，斜率 1 → r
+        return torch.where(f0 <= C, f0, C + r * (f0 - C))
+    lower = C - k
+    upper = C + k
+    T = (f0 - lower) / (2 * k)          # 膝内 0..1
+    intS = T ** 3 - T ** 4 / 2          # ∫ smoothstep
+    y_knee = lower + 2 * k * (T + (r - 1) * intS)
+    y_hi = C + r * (f0 - C)             # 高音区线性收窄（右段）
+    return torch.where(f0 <= lower, f0, torch.where(f0 < upper, y_knee, y_hi))
 
 
 class F0Extractor(ABC):

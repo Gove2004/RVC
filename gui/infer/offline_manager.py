@@ -84,6 +84,8 @@ class OfflineManager:
             gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
             break_enable=state.break_enable,
             break_src_hz=state.break_src_hz,
+            break_ratio=state.break_ratio,
+            break_knee=state.break_knee,
             hubert=card.hubert_combo.currentText(),
         )
         self.worker = OfflineWorker(config)
