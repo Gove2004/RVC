@@ -4,6 +4,7 @@ import logging
 import math
 import sys
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import torch
 
@@ -11,6 +12,10 @@ from rvc.runtime.paths import RMVPE_PATH
 from rvc.tools.cuda_graph import cuda_graph_enabled, run_cuda_graph
 
 logger = logging.getLogger(__name__)
+
+# UV 判定的 confidence 阈值：FCPE 默认 0.006 在低电平底噪（麦克风底噪/呼吸/气声）100%
+# 误判浊音给合成器喂假音高，与 RMVPE 的 thred=0.03 拉到同档（RMVPE 在该档底噪全判 uv）。
+FCPE_CONFIDENCE_THRESHOLD = 0.025
 
 # F0 范围常量
 F0_MIN = 50.0  # Hz - 人声最低基频
@@ -43,6 +48,24 @@ class _FilteredStream:
         return getattr(self.stream, name)
 
 
+# torchfcpe.MelModule 在 |x|>1 时直接 print（不是 logger 调用，无法用 logging 拦截），
+# 项目用 _FilteredStream 重定向 sys.stdout/sys.stderr：
+#   - prefixes: 行首匹配 → 整行吞掉；
+#   - contains: 行内任意位置匹配 → 整行吞掉。
+# MelModule 的 print 都是 `[error with torchfcpe.mel_extractor.MelModule]min/max value is ...`，
+# 用一行 prefix 即可。MelExtractor（旧版，被某些 torchfcpe 版本调用）的 print 是 `min/max value is ...`
+# 不含 `>`，extra-prefix `"min value is "`/`"max value is "` 兼容。
+_TORCHFCPE_OUT_PREFIXES = (
+    "[INF0]", "[INFO]", "[WARN]",
+    "[error with torchfcpe.mel_extractor.MelModule]",
+    "min value is ", "max value is ",
+)
+_TORCHFCPE_OUT_CONTAINS = (
+    "torchfcpe.mel_tools.nv_mel_extractor",
+    "Librosa not found",
+)
+
+
 @contextlib.contextmanager
 def _suppress_third_party_output(*prefixes, contains=()):
     stdout, stderr = sys.stdout, sys.stderr
@@ -52,6 +75,13 @@ def _suppress_third_party_output(*prefixes, contains=()):
         yield
     finally:
         sys.stdout, sys.stderr = stdout, stderr
+
+
+def _suppress_torchfcpe_output():
+    """包裹整个 FCPE 加载+提取阶段用的上下文，吞掉 MelModule 的 print 噪声。"""
+    return _suppress_third_party_output(
+        *_TORCHFCPE_OUT_PREFIXES, contains=_TORCHFCPE_OUT_CONTAINS,
+    )
 
 
 def _normalize_f0_to_coarse(f0: torch.Tensor) -> torch.Tensor:
@@ -132,8 +162,16 @@ class RMVPEExtractor(F0Extractor):
 
     def __init__(self, model_path: str, device: torch.device, is_half: bool) -> None:
         from rvc.models.rmvpe import RMVPE
+        mp = Path(model_path)
+        if not mp.exists():
+            # 缺权重时立即抛出明确错误，而不是让 torch.load 在奇怪的 traceback 里炸。
+            raise FileNotFoundError(
+                f"RMVPE 权重文件不存在: {mp}\n"
+                f"请将 rmvpe.pt 放到 {RMVPE_PATH.parent}/ 下，"
+                f"或参考 assets/README/RVC.md 中的指引。"
+            )
         logger.info("加载 RMVPE")
-        self.model = RMVPE(model_path, is_half=is_half, device=device)
+        self.model = RMVPE(mp, is_half=is_half, device=device)
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
@@ -162,13 +200,7 @@ class FCPEExtractor(F0Extractor):
         saved_level = fcpe_logger.level
         fcpe_logger.setLevel(logging.ERROR)
         try:
-            with _suppress_third_party_output(
-                "[INFO]",
-                "[INF0]",
-                "[WARN]",
-                ">",
-                contains=("torchfcpe.mel_tools.nv_mel_extractor", "Librosa not found"),
-            ):
+            with _suppress_torchfcpe_output():
                 self.model = spawn_bundled_infer_model(device)
         finally:
             fcpe_logger.setLevel(saved_level)
@@ -183,36 +215,45 @@ class FCPEExtractor(F0Extractor):
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
-        if cuda_graph_enabled(self.device):
-            # CUDA Graph-safe FCPE infer: skip Wav2MelModule (has tensor-dependent conditionals),
-            # capture only the stable-shape neural net + decoder.
-            mel = self.model.wav2mel(wav_t, sr)
+        # 整个推理包一层 stdout 抑制：wav2mel 内部 MelModule 会在 |x|>1 时 print，
+        # 那是高频路径，每帧触发一次。spawn 时只能挡加载期，推理期必须重新拦截。
+        with _suppress_torchfcpe_output():
+            if cuda_graph_enabled(self.device):
+                # CUDA Graph-safe FCPE infer: skip Wav2MelModule (has tensor-dependent conditionals),
+                # capture only the stable-shape neural net + decoder.
+                mel = self.model.wav2mel(wav_t, sr)
 
-            def graphable_infer(mel_input):
-                model = self.model.model
-                latent = model(mel_input)
-                batch, frames, _ = latent.shape
-                cents = model.cent_table[None, None, :].expand(batch, frames, -1)
+                def graphable_infer(mel_input):
+                    model = self.model.model
+                    latent = model(mel_input)
+                    batch, frames, _ = latent.shape
+                    cents = model.cent_table[None, None, :].expand(batch, frames, -1)
 
-                confidence, max_index = torch.max(latent, dim=-1, keepdim=True)
-                local_index = self.local_offsets + (max_index - 4)
-                local_index = local_index.clamp(0, model.out_dims - 1)
-                local_cents = torch.gather(cents, -1, local_index)
-                local_latent = torch.gather(latent, -1, local_index)
-                decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
+                    confidence, max_index = torch.max(latent, dim=-1, keepdim=True)
+                    local_index = self.local_offsets + (max_index - 4)
+                    local_index = local_index.clamp(0, model.out_dims - 1)
+                    local_cents = torch.gather(cents, -1, local_index)
+                    local_latent = torch.gather(latent, -1, local_index)
+                    decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
 
-                confidence_mask = torch.ones_like(confidence)
-                confidence_mask.masked_fill_(confidence <= 0.006, float("-inf"))
-                decoded = decoded * confidence_mask
-                return 10.0 * torch.pow(2.0, decoded / 1200.0)
+                    confidence_mask = torch.ones_like(confidence)
+                    # FCPE_CONFIDENCE_THRESHOLD（默认 0.025）= RMVPE thred=0.03 同档：
+                    # 0.006（torchfcpe 默认）在低电平底噪（麦克风底噪/呼吸/气声）100% 误判浊音，
+                    # 给合成器喂假音高。提到 0.025 后底噪全判 uv，与 RMVPE 行为一致。
+                    confidence_mask.masked_fill_(confidence <= FCPE_CONFIDENCE_THRESHOLD, float("-inf"))
+                    decoded = decoded * confidence_mask
+                    return 10.0 * torch.pow(2.0, decoded / 1200.0)
 
-            f0 = run_cuda_graph(
-                self.model.model, "fcpe-core-local_argmax-0.006", graphable_infer, mel
-            )
-        else:
-            f0 = self.model.infer(
-                wav_t, sr=sr, decoder_mode="local_argmax", threshold=0.006,
-            )
+                f0 = run_cuda_graph(
+                    self.model.model,
+                    f"fcpe-core-local_argmax-{FCPE_CONFIDENCE_THRESHOLD}",
+                    graphable_infer, mel,
+                )
+            else:
+                f0 = self.model.infer(
+                    wav_t, sr=sr, decoder_mode="local_argmax",
+                    threshold=FCPE_CONFIDENCE_THRESHOLD,
+                )
 
         f0 *= pow(2, f0_up_key / 12)
 

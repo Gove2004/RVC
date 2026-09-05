@@ -40,6 +40,8 @@ class TrainF0Extractor:
             if not out_coarse.exists() or not out_cont.exists():
                 wav, _ = load_audio(path, 16000)
                 f0 = self.model.infer_from_audio(wav, thred=0.03)
+                # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
+                f0 = f0.detach().float().cpu().numpy()
                 np.save(out_cont, f0.astype(np.float32), allow_pickle=False)
                 np.save(out_coarse, coarse_f0(f0), allow_pickle=False)
             if progress_callback:

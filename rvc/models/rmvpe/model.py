@@ -28,7 +28,10 @@ class RMVPE:
 
         self.model = self._load_model(model_path, is_half)
         cents_mapping = 20 * np.arange(360) + 1997.3794084376191
-        self.cents_mapping = np.pad(cents_mapping, (4, 4))
+        # cents 表与局部窗口偏移都常驻 GPU：解码必须在设备端完成，
+        # 否则逐帧回 CPU 会在 sounddevice 回调里引入隐式同步（音频 glitch 源）。
+        self.cents_mapping = torch.from_numpy(np.pad(cents_mapping, (4, 4))).float().to(self.device)
+        self.local_offsets = torch.arange(9, device=self.device, dtype=torch.long)
 
     def _load_model(self, model_path: str, is_half: bool):
         model = E2E(4, 1, (2, 2))
@@ -51,12 +54,17 @@ class RMVPE:
             return hidden[:, :n_frames, :]
 
     def decode(self, hidden, thred=0.03):
+        """设备端解码 → f0 (T,) tensor。全程无 CPU 同步。"""
         cents_pred = self.to_local_average_cents(hidden, thred=thred)
-        f0 = 10 * (2 ** (cents_pred / 1200))
-        f0[f0 == 10] = 0
-        return f0
+        f0 = 10 * torch.pow(2.0, cents_pred / 1200.0)
+        # cents==0 即被判为清音的帧（旧版靠 f0==10 反查置零）
+        return torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
 
     def infer_from_audio(self, audio, thred=0.03):
+        """返回设备端 f0 tensor (T,) float32。
+
+        调用方若需要 numpy（训练侧落盘）自行 .cpu().numpy()；推理侧全程留在 GPU。
+        """
         if not torch.is_tensor(audio):
             audio = torch.from_numpy(audio)
         audio_t = audio.float().to(self.device).unsqueeze(0)
@@ -64,30 +72,37 @@ class RMVPE:
             self.mel_extractor, "rmvpe-mel-extractor",
             lambda a: self.mel_extractor(a, center=True), audio_t
         )
-        hidden = self.mel2hidden(mel)
-        hidden = hidden.squeeze(0).cpu().numpy()
-        if self.is_half:
-            hidden = hidden.astype("float32")
-
-        f0 = self.decode(hidden, thred=thred)
-        return f0
+        hidden = self.mel2hidden(mel).squeeze(0)
+        # 解码是十几个小张量 kernel，launch 开销（0.3ms）远大于计算，
+        # 单独包一层 CUDA Graph 后降到 0.06ms。thred 作为常量被捕获，故入 key。
+        return run_cuda_graph(
+            self.model, "rmvpe-decode-%s" % thred,
+            lambda h: self.decode(h, thred=thred), hidden,
+        )
 
     def to_local_average_cents(self, salience, thred=0.05):
-        center = np.argmax(salience, axis=1)
-        salience = np.pad(salience, ((0, 0), (4, 4)))
-        center += 4
-        todo_salience = []
-        todo_cents_mapping = []
-        starts = center - 4
-        ends = center + 5
-        for idx in range(salience.shape[0]):
-            todo_salience.append(salience[:, starts[idx] : ends[idx]][idx])
-            todo_cents_mapping.append(self.cents_mapping[starts[idx] : ends[idx]])
-        todo_salience = np.array(todo_salience)
-        todo_cents_mapping = np.array(todo_cents_mapping)
-        product_sum = np.sum(todo_salience * todo_cents_mapping, 1)
-        weight_sum = np.sum(todo_salience, 1)
-        divided = product_sum / weight_sum
-        maxx = np.max(salience, axis=1)
-        divided[maxx <= thred] = 0
-        return divided
+        """局部加权平均解码（设备端，与旧 numpy 逐帧实现等价）。
+
+        Args:
+            salience: (T, 360) 网络输出（可 half/float）
+            thred: 置信度阈值，峰值 ≤ 该值的帧判为清音
+
+        Returns:
+            cents: (T,) float32
+        """
+        if not torch.is_tensor(salience):
+            salience = torch.from_numpy(salience)
+        # 解码必须在 fp32 下做：cents 量级 2000~9000，half 的相对精度只有 ~1 音分
+        salience = salience.to(self.device).float()
+        n_frames = salience.shape[0]
+
+        center = torch.argmax(salience, dim=1)                  # (T,)
+        padded = F.pad(salience, (4, 4))                        # (T, 368)
+        index = center.unsqueeze(1) + self.local_offsets        # (T, 9)
+        local_salience = torch.gather(padded, 1, index)
+        local_cents = torch.gather(
+            self.cents_mapping.unsqueeze(0).expand(n_frames, -1), 1, index
+        )
+        divided = (local_salience * local_cents).sum(1) / local_salience.sum(1)
+        maxx = salience.max(dim=1).values
+        return torch.where(maxx > thred, divided, torch.zeros_like(divided))

@@ -38,22 +38,37 @@ def infer_synth_audio(
     实时路径三者必传（8 参签名，含 skip_head/return_length/return_length2）。
     """
     realtime = skip_head is not None
+    # call 必须接受位置参数 — CUDA Graph fallback (`capture 失败 / 探测失败`)
+    # 会用 `function(*inputs)` 调用它，把 tensor inputs 透传过去。
+    # 我们用 lambda 接住后忽略，由闭包捕获 feats/p_len_t/... 这些外层 tensor。
     if use_f0 == 1:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
         if realtime:
             graph_key = "synth-realtime-f0"
-            call = lambda: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid, skip_head, return_length, return_length2)
+            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
+            call = lambda *_: synthesizer.infer(
+                feats, p_len_t, pitch, pitchf, sid,
+                skip_head, return_length, return_length2,
+            )
         else:
             graph_key = "synth-offline-f0"
-            call = lambda: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid)
+            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
+            call = lambda *_: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid)
     else:
         if realtime:
             graph_key = "synth-realtime-no-f0"
-            call = lambda: synthesizer.infer(feats, p_len_t, None, None, sid, skip_head, return_length, return_length2)
+            tensor_inputs = (feats, p_len_t, sid)
+            call = lambda *_: synthesizer.infer(
+                feats, p_len_t, None, None, sid,
+                skip_head, return_length, return_length2,
+            )
         else:
             graph_key = "synth-offline-no-f0"
-            call = lambda: synthesizer.infer(feats, p_len_t, None, None, sid)
-    return run_cuda_graph(synthesizer, graph_key, call)
+            tensor_inputs = (feats, p_len_t, sid)
+            call = lambda *_: synthesizer.infer(feats, p_len_t, None, None, sid)
+    # 必须把 tensor inputs 传到 run_cuda_graph 里——否则 cache 不认识 tensor shape，
+    # synthesize 实际从未进 graph，每次都走 eager，Python 调度开销白白浪费。
+    return run_cuda_graph(synthesizer, graph_key, call, *tensor_inputs)
 
 
 def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, resample_kernel: dict, device: str) -> torch.Tensor:
