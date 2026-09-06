@@ -1,53 +1,17 @@
-"""推理控制器 — 管理运行时参数、引擎启动和设备绑定。"""
+"""推理控制器 — 管理运行时参数、引擎启动和设备绑定。
+
+配置统一使用 rvc.config.AppConfig 的子配置：
+- runtime_params: InferenceConfig（推理参数）
+- engine setup: 由调用方传入设备索引（设备名称→索引的转换在 window/device_manager 层完成）
+"""
 import logging
 import threading
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 
-# 注意：RealtimeEngine 依赖 torch，惰性构造（见 self.engine property），
-# 避免 GUI 窗口出现前就加载重型依赖。
+from rvc.config import InferenceConfig
 from rvc.models import default_inference_cache
-from rvc.inference import Params
 
 logger = logging.getLogger(__name__)
-
-
-def _config_to_kwargs(config) -> dict:
-    """dataclass → Params.update kwargs（按字段名泛化拷贝）。
-
-    ModelConfig/RuntimeConfig 是 Params 的子集视图，字段名必须与 Params 对齐；
-    新增音质参数时只改 dataclass 定义本身，无需再手写逐字段搬运。
-    """
-    return {f.name: getattr(config, f.name) for f in fields(config)}
-
-
-@dataclass
-class ModelConfig:
-    pitch: int
-    gender: float
-    protect: float
-    f0method: str
-
-
-@dataclass
-class RuntimeConfig:
-    enable_out2: bool
-    rms_mix: float
-    nr_enable: bool = False
-    nr_strength: float = 0.5
-    break_enable: bool = True
-    break_src_hz: float = 300.0
-
-
-@dataclass
-class EngineConfig:
-    hostapi_name: str
-    input_device_pos: int
-    output_device_pos: int
-    output2_device_pos: int
-    sr_mode: str
-    block_time: float
-    crossfade_time: float
-    extra_time: float
 
 
 @dataclass
@@ -57,8 +21,9 @@ class EngineStats:
 
 
 class InferController:
-    def __init__(self, runtime_params=None, engine=None, inference_cache=None, on_runtime_error=None):
-        self.runtime_params = runtime_params or Params()
+    def __init__(self, runtime_params: InferenceConfig | None = None,
+                 engine=None, inference_cache=None, on_runtime_error=None):
+        self.runtime_params = runtime_params or InferenceConfig()
         self.inference_cache = inference_cache or default_inference_cache
         self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
         self._engine_lock = threading.Lock()  # 防预热线程与主线程并发构造双实例
@@ -71,36 +36,47 @@ class InferController:
                 if self._engine is None:
                     from rvc.audio import RealtimeEngine
                     self._engine = RealtimeEngine(
-                        self.runtime_params, self.inference_cache, on_runtime_error=self.on_runtime_error
+                        self.runtime_params, self.inference_cache,
+                        on_runtime_error=self.on_runtime_error,
                     )
         return self._engine
 
-    def apply_model_config(self, config: ModelConfig):
-        self.runtime_params.update(**_config_to_kwargs(config))
+    def apply_model_params(self, pitch: int, formant: float, protect: float, f0_method: str):
+        """应用模型卡片的推理参数（音高/音色/保护/F0方法）。"""
+        self.runtime_params.pitch = pitch
+        self.runtime_params.formant = formant
+        self.runtime_params.protect = protect
+        self.runtime_params.f0_method = f0_method
 
-    def apply_runtime_config(self, config: RuntimeConfig):
-        self.runtime_params.update(**_config_to_kwargs(config))
+    def apply_runtime_params(self, rms_mix: float, enable_out2: bool,
+                             denoise_enable: bool, denoise_strength: float,
+                             break_enable: bool, break_src_hz: float):
+        """应用运行时参数（响度混合/副输出/降噪/破音保护）。"""
+        self.runtime_params.rms_mix = rms_mix
+        self.runtime_params.denoise.enable = denoise_enable
+        self.runtime_params.denoise.strength = denoise_strength
+        self.runtime_params.break_protect.enable = break_enable
+        self.runtime_params.break_protect.src_hz = break_src_hz
+        # enable_out2 属于引擎配置，由 engine 直接读取，这里不设置
 
-    def setup_engine(self, config: EngineConfig):
-        from rvc.audio import get_audio_devices  # 惰性导入（device_query，轻量）
+    def setup_engine(self, sr_mode: str, input_device_idx: int, output_device_idx: int,
+                     output2_device_idx: int, block_time: float, crossfade_time: float,
+                     extra_time: float, enable_out2: bool):
+        """配置并启动音频引擎。
 
-        _, _, _, in_idx, out_idx = get_audio_devices(config.hostapi_name)
-        sr_type = "sr_model" if config.sr_mode == "model" else "sr_device"
+        设备索引由调用方（window/device_manager）从设备名称转换而来。
+        """
+        sr_type = "sr_model" if sr_mode == "model" else "sr_device"
         self.engine.setup(
-            sr_type,
-            in_idx[config.input_device_pos],
-            out_idx[config.output_device_pos],
-            config.block_time,
-            config.crossfade_time,
-            config.extra_time,
+            sr_type, input_device_idx, output_device_idx,
+            block_time, crossfade_time, extra_time,
         )
-        if self.runtime_params.enable_out2 and config.output2_device_pos >= 0:
+        if enable_out2 and output2_device_idx >= 0:
             try:
-                self.engine.setup_out2(out_idx[config.output2_device_pos])
+                self.engine.setup_out2(output2_device_idx)
             except Exception:
                 self.engine.stop()  # 副输出失败时停掉主流，避免引擎失控
                 raise
-        # 延迟显示已改用硬件时间戳实测（engine.measure_ms，见 _cb），此处不再估算。
         return EngineStats(self.engine.sr_model, self.engine.sr_dev)
 
     def stop(self):

@@ -1,81 +1,96 @@
-"""GUI 控件 ↔ InferGuiState 字段绑定。
+"""GUI 控件 ↔ AppConfig 字段绑定（嵌套路径版）。
 
-把「控件读值 → 状态对象」和「状态对象 → 控件写值」的重复搬运集中到这里，
+把「控件读值 → 配置对象」和「配置对象 → 控件写值」的重复搬运集中到这里，
 由 BINDINGS 表驱动，window.py 的 collect/apply 只需一行委托。
 
-新增参数时改动点（替代原先 7 处手写）：
-1. InferGuiState 加字段（gui/configs/infer_state.py）
-2. BINDINGS 加一行（本文件）
-3. from_dict/to_dict 短键（gui/configs/infer_state.py）—— 存储格式层
-4. Tab 里建控件
+路径用点号分隔（如 "inference.pitch"、"engine.block_time"），
+支持 AppConfig 的任意嵌套层级。
 
-f0method / sr_mode 是互斥 radio，active_model 来自模型卡片，均走特例。
+新增参数时改动点：
+1. rvc/config.py 对应 dataclass 加字段
+2. BINDINGS 加一行（路径 + 控件 + 读写方式 + 存储短键 + 默认值）
+3. Tab 里建控件
 """
-from gui.configs.infer_state import InferGuiState
-from gui.infer.controller import RuntimeConfig
+from rvc.config import AppConfig, EngineConfig, InferenceConfig
 
 # 读写方式
 CHECK = "check"      # QCheckBox / bool
 X100 = "x100"        # QSlider，值 /100
+INT = "int"          # QSlider，整数值（不除 100）
 COMBO = "combo"      # QComboBox currentText / findText
 TEXT = "text"        # QLineEdit text
 RADIO_F0 = "radio_f0"  # RMVPE/FCPE 互斥
 RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 
-# 状态字段 schema：一条记录同时驱动 控件同步（collect/apply）、持久化（from/to_dict）、
-# 类型转换（kind → bool/float/str）。
-# (InferGuiState 字段名, window 控件属性名, 读写方式, 存储短键, 缺省默认值)
+# 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 存储短键, 缺省默认值)
 BINDINGS = [
-    ("block_time", "block_time_slider", X100, "bl", 0.25),
-    ("crossfade_time", "crossfade_slider", X100, "cf", 0.05),
-    ("extra_time", "extra_time_slider", X100, "ex", 2.5),
-    ("protect", "protect_slider", X100, "protect", 0.5),
-    ("f0method", "f0_rmvp_btn", RADIO_F0, "f0", "rmvpe"),
-    ("sr_mode", "sr_model_radio", RADIO_SR, "sr_mode", "model"),
-    ("rms_mix", "rms_mix_slider", X100, "rms", 0.0),
-    ("nr_enable", "nr_enable_checkbox", CHECK, "nr_en", False),
-    ("nr_strength", "nr_strength_slider", X100, "nr_str", 0.5),
-    ("break_enable", "break_enable_checkbox", CHECK, "brk_en", True),
-    ("break_src_hz", "break_src_hz_slider", X100, "brk_hz", 300.0),
-    ("hostapi", "hostapi_combo", COMBO, "ha", ""),
-    ("input_device", "input_combo", COMBO, "in_dev", ""),
-    ("output_device", "output_combo", COMBO, "out_dev", ""),
-    ("output2_device", "output2_combo", COMBO, "out2_dev", ""),
+    # ── 推理参数（inference.*）──
+    ("inference.pitch", "pitch_slider", INT, "pitch", 0),
+    ("inference.formant", "gender_slider", X100, "gender", 0.0),
+    ("inference.protect", "protect_slider", X100, "protect", 0.5),
+    ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "f0", "rmvpe"),
+    ("inference.rms_mix", "rms_mix_slider", X100, "rms", 0.0),
+    ("inference.denoise.enable", "nr_enable_checkbox", CHECK, "nr_en", False),
+    ("inference.denoise.strength", "nr_strength_slider", X100, "nr_str", 0.5),
+    ("inference.break_protect.enable", "break_enable_checkbox", CHECK, "brk_en", True),
+    ("inference.break_protect.src_hz", "break_src_hz_slider", X100, "brk_hz", 300.0),
+    # ── 引擎参数（engine.*）──
+    ("engine.block_time", "block_time_slider", X100, "bl", 0.25),
+    ("engine.crossfade_time", "crossfade_slider", X100, "cf", 0.05),
+    ("engine.extra_time", "extra_time_slider", X100, "ex", 2.5),
+    ("engine.sr_mode", "sr_model_radio", RADIO_SR, "sr_mode", "model"),
+    ("engine.hostapi", "hostapi_combo", COMBO, "ha", ""),
+    ("engine.input_device", "input_combo", COMBO, "in_dev", ""),
+    ("engine.output_device", "output_combo", COMBO, "out_dev", ""),
+    ("engine.output2_device", "output2_combo", COMBO, "out2_dev", ""),
+    # ── 顶层 ──
     ("active_model", "", TEXT, "active_model", ""),
 ]
 
-# 需要按控件步长量化的字段：字段名 → 量化步长（状态值域单位，如 5.0 = 5Hz）。
-# 存储精度（浮点）高于控件精度（QSlider 离散步长）时，载入值会被 QSlider snap，
-# 造成「文件里的值 ≠ 界面上的值 ≠ 实际生效值」。载入时先量化到控件合法值，三者对齐。
-QUANTIZE = {"break_src_hz": 5.0}
+# 需要按控件步长量化的字段：字段路径 → 量化步长
+QUANTIZE = {"inference.break_protect.src_hz": 5.0}
+
+
+def _get_nested(obj, path: str):
+    """按点号路径递归读取嵌套字段。"""
+    for part in path.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _set_nested(obj, path: str, value):
+    """按点号路径递归写入嵌套字段。"""
+    parts = path.split(".")
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    setattr(obj, parts[-1], value)
 
 
 def _parse(kind, raw):
-    """按读写方式把存储值转回状态字段类型"""
     if kind == CHECK:
         return bool(raw)
-    if kind == X100:
-        return float(raw)
+    if kind in (X100, INT):
+        return float(raw) if kind == X100 else int(raw)
     return str(raw)
 
 
-def state_from_dict(data: dict) -> InferGuiState:
-    """持久化字典（短键）→ 状态对象（并按控件步长量化）"""
+def state_from_dict(data: dict) -> AppConfig:
+    """持久化字典（短键）→ AppConfig（并按控件步长量化）。"""
+    cfg = AppConfig()
+    for path, _w, kind, key, default in BINDINGS:
+        raw = data.get(key, default)
+        val = _parse(kind, raw)
+        step = QUANTIZE.get(path)
+        if step:
+            val = round(val / step) * step
+        _set_nested(cfg, path, val)
+    return cfg
 
-    def value(field, kind, key, default):
-        v = _parse(kind, data.get(key, default))
-        step = QUANTIZE.get(field)
-        return round(v / step) * step if step else v
 
-    return InferGuiState(**{field: value(field, kind, key, default)
-                            for field, _w, kind, key, default in BINDINGS})
-
-
-def state_to_dict(state: InferGuiState) -> dict:
-    """状态对象 → 持久化字典（短键）"""
-    d = {key: getattr(state, field)
-         for field, _w, _k, key, _d in BINDINGS}
-    return d
+def state_to_dict(state: AppConfig) -> dict:
+    """AppConfig → 持久化字典（短键）。"""
+    return {key: _get_nested(state, path)
+            for path, _w, _k, key, _d in BINDINGS}
 
 
 def _get(win, widget, kind):
@@ -84,6 +99,8 @@ def _get(win, widget, kind):
         return w.isChecked()
     if kind == X100:
         return w.value() / 100.0
+    if kind == INT:
+        return w.value()
     if kind == COMBO:
         return w.currentText()
     if kind == TEXT:
@@ -99,7 +116,9 @@ def _set(win, widget, kind, value):
     if kind == CHECK:
         getattr(win, widget).setChecked(bool(value))
     elif kind == X100:
-        getattr(win, widget).setValue(int(round(value * 100)))
+        getattr(win, widget).setValue(int(round(float(value) * 100)))
+    elif kind == INT:
+        getattr(win, widget).setValue(int(value))
     elif kind == COMBO:
         idx = getattr(win, widget).findText(str(value))
         if idx >= 0:
@@ -116,23 +135,25 @@ def _set(win, widget, kind, value):
         raise ValueError(f"未知读写方式: {kind}")
 
 
-def collect_gui_state(win) -> InferGuiState:
-    """从控件收集完整 GUI 状态（含 active_model 特例）"""
-    kw = {field: _get(win, widget, kind) for field, widget, kind, _k, _d in BINDINGS
-          if widget}
+def collect_gui_state(win) -> AppConfig:
+    """从控件收集完整配置（含 active_model 特例）。"""
+    cfg = AppConfig()
+    for path, widget, kind, _k, _d in BINDINGS:
+        if widget:
+            _set_nested(cfg, path, _get(win, widget, kind))
     active = ""
     card = win.model_manager.active_card
     if card is not None:
         active = card.pth_edit.text().strip()
-    kw["active_model"] = active
-    return InferGuiState(**kw)
+    cfg.active_model = active
+    return cfg
 
 
-def apply_gui_state(win, state: InferGuiState) -> None:
-    """将状态写回控件（含 active_model 特例）"""
-    for field, widget, kind, _k, _d in BINDINGS:
+def apply_gui_state(win, state: AppConfig) -> None:
+    """将配置写回控件（含 active_model 特例）。"""
+    for path, widget, kind, _k, _d in BINDINGS:
         if widget:
-            _set(win, widget, kind, getattr(state, field))
+            _set(win, widget, kind, _get_nested(state, path))
     if state.active_model:
         for card in win.model_manager.cards:
             if card.pth_edit.text().strip() == state.active_model:
@@ -141,32 +162,25 @@ def apply_gui_state(win, state: InferGuiState) -> None:
                 break
 
 
-def runtime_from_state(state: InferGuiState) -> RuntimeConfig:
-    """状态对象 → 运行时参数（engine 消费的子集）"""
-    return RuntimeConfig(
-        # output2_combo 首项为「不使用」；combo 为空（无设备）时旧逻辑 index=-1 视为未启用
-        enable_out2=state.output2_device not in ("", "不使用"),
-        rms_mix=state.rms_mix,
-        nr_enable=state.nr_enable,
-        nr_strength=state.nr_strength,
-        break_enable=state.break_enable,
-        break_src_hz=state.break_src_hz,
-    )
+def runtime_from_state(state: AppConfig) -> InferenceConfig:
+    """从 AppConfig 提取推理参数（engine 消费的配置）。
+
+    注意：副输出 enable_out2 属于 EngineConfig，推理时由 engine 直接读取，
+    此处只返回 InferenceConfig。
+    """
+    return state.inference
+
+
+def engine_from_state(state: AppConfig) -> EngineConfig:
+    """从 AppConfig 提取引擎参数。"""
+    return state.engine
 
 
 def gender_to_formant(v: float) -> float:
-    """性别滑杆值 [0,1] → formant shift [-2.5, +2.5]。
-
-    实时/离线共用此换算，禁止在别处另写一份（历史教训：曾有两份不同换算
-    —— 离线用 v*5-2.5、实时用 v*4-2，导致两条路径区间不一致、保存值与界面值对不上）。
-    本函数即唯一来源，滑杆显示与 get_data 持久化均须与其互逆（×5，0↔-2.5，1↔+2.5）。
-    """
+    """性别滑杆值 [0,1] → formant shift [-2.5, +2.5]。唯一换算来源。"""
     return (v - 0.5) * 5
 
 
 def formant_to_gender(f: float) -> float:
-    """gender_to_formant 的反函数：formant shift [-2.5, +2.5] → 滑杆值 [0,1]。
-
-    滑杆初始化/持久化反推必须走这里，禁止内联手写公式（曾内联三份）。
-    """
+    """gender_to_formant 的反函数。"""
     return f / 5.0 + 0.5

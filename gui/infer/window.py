@@ -11,11 +11,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer, Qt, Signal
 
 from gui.configs.infer_state import InferGuiState
-from gui.infer.controller import InferController, ModelConfig, RuntimeConfig, EngineConfig
+from gui.infer.controller import InferController
 from gui.infer.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
     apply_gui_state as bridge_apply_gui_state,
-    runtime_from_state,
     gender_to_formant,
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
@@ -198,40 +197,30 @@ class MainWindow(QMainWindow):
 
     # ── 引擎参数应用 ──
 
-    def collect_model_config(self) -> ModelConfig | None:
+    def _apply_model_params(self):
+        """从模型卡片 + 全局参数 Tab 收集推理参数，应用到 controller。"""
         card = self.model_manager.active_card
         if not card:
-            return None
-        return ModelConfig(
+            return
+        self.controller.apply_model_params(
             pitch=card.pitch_slider.value(),
-            gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),
-            protect=_sl_value_as_float(self.protect_slider),  # 从全局参数 Tab 读取
-            f0method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
+            formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),
+            protect=_sl_value_as_float(self.protect_slider),
+            f0_method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
         )
-
-    def collect_runtime_config(self) -> RuntimeConfig:
-        # 从完整 GUI 状态派生运行时参数（字段绑定见 param_binding.py）
-        return runtime_from_state(self.collect_gui_state())
-
-    def collect_engine_config(self) -> EngineConfig:
-        return EngineConfig(
-            hostapi_name=self.hostapi_combo.currentText(),
-            input_device_pos=self.input_combo.currentIndex(),
-            output_device_pos=self.output_combo.currentIndex(),
-            output2_device_pos=self.output2_combo.currentIndex() - 1,
-            sr_mode="model" if self.sr_model_radio.isChecked() else "device",
-            block_time=_sl_value_as_float(self.block_time_slider),
-            crossfade_time=_sl_value_as_float(self.crossfade_slider),
-            extra_time=_sl_value_as_float(self.extra_time_slider),
-        )
-
-    def _apply_model_params(self):
-        config = self.collect_model_config()
-        if config:
-            self.controller.apply_model_config(config)
 
     def _apply_runtime_params(self):
-        self.controller.apply_runtime_config(self.collect_runtime_config())
+        """从 GUI 状态收集运行时参数，应用到 controller。"""
+        state = self.collect_gui_state()
+        inf = state.inference
+        self.controller.apply_runtime_params(
+            rms_mix=inf.rms_mix,
+            enable_out2=state.engine.enable_out2,
+            denoise_enable=inf.denoise.enable,
+            denoise_strength=inf.denoise.strength,
+            break_enable=inf.break_protect.enable,
+            break_src_hz=inf.break_protect.src_hz,
+        )
 
     # ── UI 状态管理 ──
 
@@ -330,7 +319,18 @@ class MainWindow(QMainWindow):
         if self.model_manager.active_card:
             self.model_manager.active_card.set_active(True)
         try:
-            stats = self.controller.setup_engine(self.collect_engine_config())
+            state = self.collect_gui_state()
+            eng = state.engine
+            stats = self.controller.setup_engine(
+                sr_mode=eng.sr_mode,
+                input_device_idx=self.input_combo.currentIndex(),
+                output_device_idx=self.output_combo.currentIndex(),
+                output2_device_idx=self.output2_combo.currentIndex() - 1,
+                block_time=eng.block_time,
+                crossfade_time=eng.crossfade_time,
+                extra_time=eng.extra_time,
+                enable_out2=eng.enable_out2,
+            )
             self.sr_model_radio.setText(f"模型 {stats.sr_model}")
             self.sr_device_radio.setText(f"设备 {stats.sr_dev}")
             self._mark_running()
