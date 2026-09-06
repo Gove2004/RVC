@@ -23,17 +23,17 @@ class VCPipeline:
     """实时语音转换管线。
 
     用法:
-        pipeline = VCPipeline(device_config, pth_path, hubert_variant="chinese")
+        pipeline = VCPipeline(device_config, pth_path, hubert="chinese")
         pipeline.load()
         output = pipeline.infer(input_wav, inference_config, block_16k, skip_head, ret_len)
     """
 
-    def __init__(self, device_config, pth_path, inference_cache=None, hubert_variant: str = "chinese"):
+    def __init__(self, device_config, pth_path, inference_cache=None, hubert: str = "chinese"):
         self.device = device_config.device
         self.is_half = device_config.is_half
         self.inference_cache = inference_cache or default_inference_cache
         self.pth_path = pth_path
-        self.hubert_variant = hubert_variant
+        self.hubert_variant = hubert
 
         # 仅缓存状态，不持有推理参数（参数每次 infer 从 config 传入）
         self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)

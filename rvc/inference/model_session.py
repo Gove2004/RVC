@@ -21,7 +21,7 @@ class ModelSession:
 
 
 def load_model_session(config, pth_path: str, inference_cache,
-                       hubert_variant: str = "base") -> ModelSession:
+                       hubert_variant: str = "chinese") -> ModelSession:
     logger.info("加载 %s", os.path.basename(pth_path))
     try:
         hubert = load_hubert(config, inference_cache, variant=hubert_variant)

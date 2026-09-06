@@ -36,12 +36,12 @@ class HubertModelWithFinalProj(HubertModel):
 HUBERT_VARIANTS = ("base", "chinese")
 
 
-def hubert_path(variant: str = "base") -> str:
+def hubert_path(variant: str = "chinese") -> str:
     """返回指定 HuBERT 变体的模型目录（不校验存在性，由 load_hubert 统一报错）。"""
     return str(HUBERT_ROOT / variant)
 
 
-def load_hubert(config, inference_cache=None, variant: str = "base"):
+def load_hubert(config, inference_cache=None, variant: str = "chinese"):
     inference_cache = inference_cache or default_inference_cache
     if variant not in HUBERT_VARIANTS:
         raise ValueError(f"未知 HuBERT 变体: {variant!r}（可选 {HUBERT_VARIANTS}）")
