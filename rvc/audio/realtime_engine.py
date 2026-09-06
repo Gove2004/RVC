@@ -18,6 +18,7 @@ from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
 from rvc.config import InferenceConfig
+from rvc.inference.runner import InferenceRunner
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class RealtimeEngine:
         self.inference_cache = inference_cache
         self.on_runtime_error = on_runtime_error
         self.pipeline = None
+        self.runner = None  # InferenceRunner（load_model 后创建）
         self.stream = None
         self.stream2 = None
         self.running = False
@@ -70,11 +72,13 @@ class RealtimeEngine:
         try:
             self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
+            self.runner = InferenceRunner(self.pipeline)
             self.pth_path = pth
             return self.pipeline.target_sr
         except Exception as e:
             logger.error(f"模型加载失败: {e}", exc_info=True)
             self.pipeline = None
+            self.runner = None
             raise
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
@@ -256,6 +260,8 @@ class RealtimeEngine:
         if params is None:
             params = InferenceConfig()
         self.runtime_params = params
+        if self.runner:
+            self.runner.reset()  # 重置 pitch 缓存，避免跨文件污染
         if f0method is not None:
             self.runtime_params.f0_method = f0method
         if protect is not None:
@@ -427,8 +433,8 @@ class RealtimeEngine:
 
     def _run_inference(self):
         """执行语音转换推理或直通模式。参数从 InferenceConfig 传入，pipeline 无状态。"""
-        if self.function == "vc" and self.pipeline:
-            infer = self.pipeline.infer(
+        if self.function == "vc" and self.runner:
+            infer = self.runner.process_block(
                 self.input_wav_res, self.runtime_params,
                 self.block_samples_16k, self.skip_head, self.return_length,
             )
