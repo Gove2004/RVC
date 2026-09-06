@@ -532,13 +532,24 @@ def _suggest_batch(vram_gb: float, sr_hz: int) -> int:
 
 
 def _scan_audio(input_dir: Path) -> list[Path]:
+    """扫描目录下所有音频文件。用 os.walk 替代 rglob（大目录更快，减少 Path 对象创建）。"""
     if not input_dir.is_dir():
         return []
-    return sorted(p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
+    result = []
+    for root, _dirs, files in os.walk(input_dir):
+        for name in files:
+            if Path(name).suffix.lower() in AUDIO_EXTS:
+                result.append(Path(root) / name)
+    return sorted(result)
 
 
 def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
-    """统计素材：文件数、体积、总时长、采样率分布（超过 300 个只抽样后按比例外推）。"""
+    """统计素材：文件数、体积、总时长、采样率分布（超过 300 个只抽样后按比例外推）。
+
+    用 ThreadPoolExecutor 并行读取 soundfile.info（IO 密集型，并行显著加速）。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     total_bytes = sum(p.stat().st_size for p in files)
     log.log(f"素材目录    : {input_dir.resolve()}")
     log.log(f"音频文件    : {len(files)} 个，共 {_human_size(total_bytes)}")
@@ -548,14 +559,22 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
     limit = 300
     sample = files[:limit]
     seconds, sr_dist, scanned = 0.0, {}, 0
-    for path in sample:
+
+    def _probe_one(path: Path):
         try:
             info = sf.info(str(path))
-            seconds += info.frames / info.samplerate
-            sr_dist[info.samplerate] = sr_dist.get(info.samplerate, 0) + 1
-            scanned += 1
+            return info.frames / info.samplerate, info.samplerate
         except Exception:
-            continue
+            return None, None
+
+    # 并行读取（IO 密集，线程池足够；max_workers 限制避免文件句柄耗尽）
+    with ThreadPoolExecutor(max_workers=min(8, len(sample) or 1)) as pool:
+        for dur, sr in pool.map(_probe_one, sample):
+            if dur is not None:
+                seconds += dur
+                sr_dist[sr] = sr_dist.get(sr, 0) + 1
+                scanned += 1
+
     if scanned:
         if scanned < len(files):
             seconds = seconds * len(files) / scanned
@@ -788,28 +807,43 @@ def step_preprocess(log: TrainLogger, cfg: dict):
         log.log("切片数偏少（<50），训练容易过拟合，建议补充素材", "WARN")
 
 
+def _run_extraction_step(log: TrainLogger, cfg: dict, title: str, label: str,
+                         make_extractor, warn: str | None = None) -> int:
+    """通用提取步骤：创建 extractor → run → 统计时间 → 日志。
+
+    减少 step_f0/step_feature 的重复代码（创建→运行→计时→日志 四步完全同构）。
+    """
+    log.section(title)
+    if warn:
+        log.log(warn, "WARN")
+    t0 = time.time()
+    extractor = make_extractor(cfg)
+    n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, label), stop_check=lambda: STOP.requested)
+    secs = time.time() - t0
+    log.log(f"{label}提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
+    return n
+
+
 def step_f0(log: TrainLogger, cfg: dict):
     from rvc.train.extract_f0 import TrainF0Extractor
-
-    log.section("步骤 2/4 提取 F0（RMVPE）")
-    t0 = time.time()
-    extractor = TrainF0Extractor(cfg["device"], cfg["fp16"])
-    n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, "F0"), stop_check=lambda: STOP.requested)
-    secs = time.time() - t0
-    log.log(f"F0 提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
+    _run_extraction_step(
+        log, cfg,
+        title="步骤 2/4 提取 F0（RMVPE）",
+        label="F0",
+        make_extractor=lambda c: TrainF0Extractor(c["device"], c["fp16"]),
+    )
 
 
 def step_feature(log: TrainLogger, cfg: dict):
     from rvc.train.extract_feature import HuBERTExtractor
-
     hubert = cfg.get("hubert", "chinese")
-    log.section(f"步骤 3/4 提取 HuBERT 特征（{hubert}）")
-    log.log("若实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 再重跑（已存在的特征文件会被跳过）", "WARN")
-    t0 = time.time()
-    extractor = HuBERTExtractor(cfg["device"], cfg["fp16"], hubert=hubert)
-    n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, "特征"), stop_check=lambda: STOP.requested)
-    secs = time.time() - t0
-    log.log(f"特征提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
+    _run_extraction_step(
+        log, cfg,
+        title=f"步骤 3/4 提取 HuBERT 特征（{hubert}）",
+        label="特征",
+        make_extractor=lambda c: HuBERTExtractor(c["device"], c["fp16"], hubert=hubert),
+        warn="若实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 再重跑（已存在的特征文件会被跳过）",
+    )
 
 
 def _features_ready(exp_dir: Path) -> bool:

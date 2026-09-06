@@ -169,6 +169,7 @@ python -m venv .venv
 
 ```
 app.py                      # 统一入口（--infer / --train）
+autodl_train.py             # 云 GPU 训练向导（AutoDL/恒源云，交互式零参数）
 gui/
   styles/                   # 模块化 UI 设计系统
     colors.py               # 颜色调色板
@@ -186,6 +187,8 @@ gui/
     window.py               # 训练窗口
     tabs/                   # 设置、训练、工具 Tab
 rvc/
+  config.py                 # 统一配置体系（InferenceConfig/EngineConfig/AppConfig/ModelEntry/OfflineTask）
+  errors.py                 # 统一错误类型（RVCError/ModelLoadError/AudioDeviceError/...）
   audio/
     realtime_engine.py      # RealtimeEngine（音频流管理 + 回调编排 + 开流前预热）
     device_query.py         # 音频设备枚举（轻量，仅依赖 sounddevice）
@@ -194,17 +197,18 @@ rvc/
     output_router.py        # 主输出写入与副输出路由
     loader.py               # 音频加载（librosa + ffmpeg fallback）
     utils.py                # RMS 响度匹配
-    effects.py              # 效果器基类（AudioEffect 抽象接口）
+    effects.py              # 效果器抽象（AudioEffect 基类 + Denoise/RMS/SOLA 实现 + EffectChain）
     denoise.py              # 谱减法降噪（GPU 块级）
   inference/
-    pipeline.py             # VCPipeline facade（实时/离线推理编排）
+    pipeline.py             # VCPipeline（无状态：infer 接收 InferenceConfig，只持缓存）
+    runner.py               # InferenceRunner（实时/离线统一推理入口，pitch 缓存隔离）
     feature_processing.py   # HuBERT 特征、padding mask、protect blend
     pitch_tracker.py        # F0 提取窗口与实时 pitch cache
     synthesis.py            # Synthesizer 推理调用与 formant 重采样
     model_session.py        # HuBERT/Synthesizer session 加载
     model_loader.py         # SynthesizerLoader（PyTorch）
     offline_config.py       # OfflineConfig（离线推理配置）
-    params.py               # Params（运行时参数单例）
+    params.py               # Params 兼容层（旧字段名 property 映射到 InferenceConfig）
     f0_extractor.py         # F0 提取器抽象层（RMVPE/FCPE）
   models/
     inference_cache.py      # InferenceCache（线程安全模型缓存）
@@ -230,6 +234,9 @@ rvc/
     extract_f0.py           # F0 提取
     extract_feature.py      # HuBERT 特征提取
     ckpt_utils.py           # Checkpoint 工具
+tests/                      # 单元测试（unittest，无需额外依赖）
+  test_config.py            # 配置体系测试
+  test_errors.py            # 错误类型测试
 assets/
   configs/                  # 配置数据
     save_state.json         # GUI 持久化状态
@@ -330,7 +337,8 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 - `rvc/` = 核心运行时（推理/音频/模型/训练），**严禁 import `gui` 或 PySide6**
 - `gui/` = PySide6 窗口、控件、管理器、QThread worker
 - 运行时设备/路径配置来自 `rvc.runtime`；GUI 状态持久化来自 `gui.configs`
-- GUI 状态同步与持久化由 `gui/infer/param_binding.py` 的 BINDINGS 表驱动（加参数 = dataclass 字段 + BINDINGS 一行 + Tab 控件）
+- 配置体系统一为 `rvc/config.py` 的 `AppConfig`（嵌套 inference/engine/active_model/models），新增参数 = dataclass 字段 + `param_binding.BINDINGS` 一行 + Tab 控件
+- VCPipeline 无状态化：`infer(input_wav, config: InferenceConfig, ...)`，参数每次传入，pipeline 只持缓存（pitch_cache/resample_kernel）；实时/离线统一走 `InferenceRunner.process_block()`
 
 ### 核心实现规则
 
@@ -358,9 +366,21 @@ git -C "Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main
 ```bash
 python -m py_compile <file>             # 单文件语法检查
 python -m compileall -q app.py rvc gui # 全量语法检查
+python -m unittest tests.test_config tests.test_errors -v  # 单元测试
 ```
 
-无自动化测试，运行时验证靠手动启动 GUI（`python app.py --infer` / `python app.py --train`）。
+运行时验证靠手动启动 GUI（`python app.py --infer` / `python app.py --train`）。
+
+### 最近架构改进（2026-09-06）
+
+- ✅ **统一配置体系** — 新建 `rvc/config.py`，定义 `InferenceConfig`（嵌套 `BreakProtectConfig`/`DenoiseConfig`）、`EngineConfig`、`AppConfig`、`ModelEntry`、`OfflineTask`，消除历史 6 套配置和 7 层转换链；`param_binding.py` 重写为嵌套路径绑定（点号路径如 `inference.pitch`）
+- ✅ **VCPipeline 无状态化** — 删除 `configure()`/`set_formant()`/`set_break()` 系列方法，`infer()` 每次接收 `InferenceConfig`，pipeline 只持缓存状态；`f0_proc` 扩展为四元组 `(enable, src_hz, ratio, knee)`
+- ✅ **InferenceRunner 统一实时/离线** — 新建 `rvc/inference/runner.py`，唯一推理入口 `process_block()`；`process_file` 开始时调 `runner.reset()`，**解决历史 pitch 缓存跨文件污染问题**（批量处理短音频 NaN）
+- ✅ **统一错误类型体系** — 新建 `rvc/errors.py`，`RVCError` 基类 + 5 个子类（`ModelLoadError`/`AudioDeviceError`/`InferenceError`/`ConfigError`/`FeatureExtractError`）+ `format_error_message()` 友好消息格式化
+- ✅ **效果器抽象** — 新建 `rvc/audio/effects.py`，`AudioEffect` 抽象基类 + `DenoiseEffect`/`RmsMixEffect`/`SolaEffect` + `EffectChain` 组合器
+- ✅ **测试基础设施** — 新建 `tests/` 目录，21 个单元测试（配置体系 15 + 错误体系 6），使用内置 `unittest` 无需额外依赖
+- ✅ **train 窗口秒启动** — `gui/train/workers.py` 顶层 import 的 `rvc.train.*`（extract_f0/extract_feature/preprocess/trainer）和 `Config` 改为 `_run_impl()` 内惰性导入，TrainWindow import 0.35s，与 infer 窗口一致
+- ✅ **主题** — Windows 11 标准深色（#202020/#1a1a1a/#2a2a2a + Windows 蓝 #0078D4）
 
 ### 最近架构改进（2026-09-05）
 
