@@ -39,6 +39,7 @@ class RealtimeEngine:
         self.running = False
         self.function = "vc"
         self.out2_q = queue.Queue(maxsize=10)
+        self.enable_out2 = False  # 副输出开关（setup_out2 时设 True，stop 时重置；不依赖 InferenceConfig）
 
         # ── 处理状态（setup()/process_file() 经 _init_processing 填充）──
         self.sr = None; self.sr_dev = None; self.sr_model = None
@@ -204,6 +205,7 @@ class RealtimeEngine:
                 dtype="float32", blocksize=self.block_samples, callback=out2_callback
             )
             self.stream2.start()
+            self.enable_out2 = True
             logger.info(f"副输出流已启动: 采样率={self.sr}, 声道={self.channels}, blocksize={self.block_samples}")
             while not self.out2_q.empty():
                 try:
@@ -231,6 +233,7 @@ class RealtimeEngine:
                 except Exception as e:
                     logger.debug("关闭流时出错: %s", e)
         self.stream = self.stream2 = None
+        self.enable_out2 = False
 
     def process_file(self, input_path, output_path, *, params=None,
                      block_t=0.25, cf_t=0.05, extra_t=2.5,
@@ -352,7 +355,7 @@ class RealtimeEngine:
 
         # 快照本回调内多次使用的参数（推理相关参数由 _run_inference 直接读 runtime_params）
         p_rms_mix = params.rms_mix
-        p_enable_out2 = params.enable_out2
+        p_enable_out2 = self.enable_out2  # 引擎自身状态，不依赖 InferenceConfig
         p_nr_enable = params.denoise.enable
         p_nr_strength = params.denoise.strength
 
