@@ -37,10 +37,10 @@ class SynthesizerLoader:
         """
         cached = self.inference_cache.get_synthesizer(pth_path)
         if cached:
-            logger.info("加载 Synthesizer（缓存）")
+            logger.info("  · Synthesizer（缓存）")
             return cached
 
-        logger.info("加载 Synthesizer")
+        logger.info("  · Synthesizer")
         result = self._load_pytorch(pth_path)
         self.inference_cache.set_synthesizer(pth_path, result)
         return result
@@ -50,8 +50,6 @@ class SynthesizerLoader:
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
         target_sr = ckpt["config"][-1]
         use_f0 = ckpt.get("f0", 1)
-        # 修正 config 中的说话人数：部分导出模型该位为 -1，必须与实际 emb_g 行数一致
-        ckpt["config"][-3] = ckpt["weight"]["emb_g.weight"].shape[0]
 
         from rvc.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
         if use_f0 == 1:
@@ -59,7 +57,7 @@ class SynthesizerLoader:
         else:
             synthesizer = SynthesizerTrnMsNSFsid_nono(*ckpt["config"])
 
-        synthesizer.load_state_dict(ckpt["weight"], strict=False)
+        synthesizer.load_state_dict(ckpt["weight"], strict=True)
         synthesizer.eval().to(self.device)
         if self.is_half:
             synthesizer.half()

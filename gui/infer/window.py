@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         def _do():
             try:
                 self.engine  # 触发惰性构造
-                logger.info("引擎预热完成（torch 已加载）")
+                logger.info("引擎预热完成")
             except Exception:
                 logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
 
@@ -274,7 +274,7 @@ class MainWindow(QMainWindow):
         try:
             self.config_manager.save_config()
             self.model_manager.save_models()
-            logger.info("配置已保存")
+            logger.debug("配置已保存")
         except Exception as e:
             logger.warning("保存配置失败: %s", e)
 

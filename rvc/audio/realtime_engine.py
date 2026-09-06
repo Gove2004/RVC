@@ -108,9 +108,8 @@ class RealtimeEngine:
                 f"索引 {out_dev}「{out_info.get('name', '?')}」。请在设备设置中选择支持输出的设备。"
             )
         self.channels = min(in_max, out_max, 2)
-        logger.info("音频设备: 输入 #%d「%s」(max %d ch), 输出 #%d「%s」(max %d ch), 使用 %d ch",
-                    in_dev, in_info.get('name', '?'), in_max,
-                    out_dev, out_info.get('name', '?'), out_max, self.channels)
+        logger.info("音频设备: %s → %s [%dch]",
+                    in_info.get('name', '?'), out_info.get('name', '?'), self.channels)
 
         self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
 
@@ -211,7 +210,7 @@ class RealtimeEngine:
             dev_name = sd.query_devices(dev_idx)["name"]
         except Exception:
             pass
-        logger.info(f"设置副输出设备: {dev_idx}（{dev_name}）" if dev_name else f"设置副输出设备: {dev_idx}")
+        logger.info("  · 副输出: %s", dev_name or f"#{dev_idx}")
         def out2_callback(outdata, frames, time_info, status):
             try:
                 if not self.out2_q.empty():
@@ -235,7 +234,7 @@ class RealtimeEngine:
             )
             self.stream2.start()
             self.enable_out2 = True
-            logger.info(f"副输出流已启动: 采样率={self.sr}, 声道={self.channels}, blocksize={self.block_samples}")
+            logger.debug("副输出流已启动: sr=%d, ch=%d, block=%d", self.sr, self.channels, self.block_samples)
             while not self.out2_q.empty():
                 try:
                     self.out2_q.get_nowait()

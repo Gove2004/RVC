@@ -57,11 +57,11 @@ def load_hubert(config, inference_cache=None, variant: str = "chinese"):
     cache_key = (config.device, config.is_half, variant)
     cached = inference_cache.get_hubert(cache_key)
     if cached is not None:
-        logger.info("加载 HuBERT（缓存, %s）", variant)
+        logger.info("  · HuBERT（缓存, %s）", variant)
         return cached
 
     dtype = torch.float16 if config.is_half else torch.float32
-    logger.info("加载 HuBERT（transformers, %s, variant=%s）", dtype, variant)
+    logger.info("  · HuBERT（%s, variant=%s）", dtype, variant)
 
     # GUI 无控制台环境（pythonw / 打包 exe）下 sys.stdout / sys.stderr 为 None，
     # transformers 打印 LOAD REPORT（chinese 有 MISSING 键必触发）会调 sys.stdout.isatty() 崩溃。

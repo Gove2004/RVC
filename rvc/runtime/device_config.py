@@ -34,9 +34,9 @@ class Config:
         # CUDA Graph 探测 — 初始化时就跑，之后所有推理路径都生效
         if configure_cuda_graph(self.device):
             self.use_cuda_graph = True
-            logger.info("CUDA Graph 已启用（GPU: %s）", self.gpu_name)
+            logger.info("CUDA Graph: 已启用")
         else:
-            logger.info("CUDA Graph 不支持，已禁用")
+            logger.info("CUDA Graph: 不支持，已禁用")
 
     def _init_device(self) -> None:
         if not torch.cuda.is_available():

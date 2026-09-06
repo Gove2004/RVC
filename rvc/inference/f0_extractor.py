@@ -214,7 +214,7 @@ class RMVPEExtractor(F0Extractor):
                 f"请将 rmvpe.pt 放到 {RMVPE_PATH.parent}/ 下，"
                 f"或参考 assets/README/RVC.md 中的指引。"
             )
-        logger.info("加载 RMVPE")
+        logger.info("  · RMVPE")
         self.model = RMVPE(mp, is_half=is_half, device=device)
         self.device = device
 
