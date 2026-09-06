@@ -89,7 +89,7 @@ BAR = "─" * 66
 DEFAULTS = {
     "exp": "test",
     "sr": "48k",
-    "epochs": 500,
+    "epochs": 250,
     "lr": 1e-4,
     "save_every": 20,
     "keep_ckpts": 1,

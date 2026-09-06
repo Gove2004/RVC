@@ -31,7 +31,7 @@ class ModelManager:
         self,
         name: str = "",
         pth: str = "",
-        pitch: int = 12,
+        pitch: int = 24,
         gender: float = 0.0,
         hubert: str = HUBERT_DEFAULT
     ) -> ModelCard:

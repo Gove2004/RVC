@@ -70,7 +70,7 @@ class ModelCard(QFrame):
     # name, pth, pitch, gender, hubert
     load_requested = Signal(str, str, int, float, str)
 
-    def __init__(self, name="", pth="", pitch=12,
+    def __init__(self, name="", pth="", pitch=24,
                  gender=0.0, hubert=HUBERT_DEFAULT, parent=None):
         super().__init__(parent)
         self._build(name, pth, pitch, gender, hubert)
@@ -117,7 +117,7 @@ class ModelCard(QFrame):
         _pbtn.clicked.connect(lambda: self._browse(self.pth_edit, "模型 (*.pth)"))
         r += 1
 
-        self.pitch_slider = _sl(-16, 16, 1, pitch); self.pitch_label = QLabel(str(pitch))
+        self.pitch_slider = _sl(-36, 36, 1, pitch); self.pitch_label = QLabel(str(pitch))
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
 
