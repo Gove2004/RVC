@@ -95,7 +95,22 @@ class RealtimeEngine:
         self.sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
 
         in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
-        self.channels = min(int(in_info["max_input_channels"]), int(out_info["max_output_channels"]), 2)
+        in_max = int(in_info["max_input_channels"])
+        out_max = int(out_info["max_output_channels"])
+        if in_max <= 0:
+            raise RuntimeError(
+                f"输入设备不支持录音（max_input_channels={in_max}）："
+                f"索引 {in_dev}「{in_info.get('name', '?')}」。请在设备设置中选择支持输入的设备。"
+            )
+        if out_max <= 0:
+            raise RuntimeError(
+                f"输出设备不支持播放（max_output_channels={out_max}）："
+                f"索引 {out_dev}「{out_info.get('name', '?')}」。请在设备设置中选择支持输出的设备。"
+            )
+        self.channels = min(in_max, out_max, 2)
+        logger.info("音频设备: 输入 #%d「%s」(max %d ch), 输出 #%d「%s」(max %d ch), 使用 %d ch",
+                    in_dev, in_info.get('name', '?'), in_max,
+                    out_dev, out_info.get('name', '?'), out_max, self.channels)
 
         self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
 
@@ -109,8 +124,15 @@ class RealtimeEngine:
             self.stream.start()
             self.running = True
         except Exception as e:
-            if "Invalid sample rate" in str(e) or "-9997" in str(e):
+            msg = str(e)
+            if "Invalid sample rate" in msg or "-9997" in msg:
                 raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
+            if "Invalid number of channels" in msg or "-9998" in msg:
+                raise RuntimeError(
+                    f"通道数 {self.channels} 不被设备支持。输入「{in_info.get('name', '?')}」支持 {in_max} 通道，"
+                    f"输出「{out_info.get('name', '?')}」支持 {out_max} 通道。"
+                    f"请尝试切换输入/输出设备，或在 Windows 声音设置中确认设备配置。"
+                ) from e
             raise
 
     def _init_processing(self, sr, block_t, cf_t, extra_t, channels):
@@ -200,6 +222,13 @@ class RealtimeEngine:
             except Exception:
                 outdata[:] = 0
         try:
+            out2_info = sd.query_devices(dev_idx)
+            out2_max = int(out2_info["max_output_channels"])
+            if out2_max < self.channels:
+                raise RuntimeError(
+                    f"副输出设备「{out2_info.get('name', '?')}」只支持 {out2_max} 通道，"
+                    f"但主输出使用 {self.channels} 通道。请选择支持至少 {self.channels} 通道的副输出设备。"
+                )
             self.stream2 = sd.OutputStream(
                 device=dev_idx, samplerate=self.sr, channels=self.channels,
                 dtype="float32", blocksize=self.block_samples, callback=out2_callback

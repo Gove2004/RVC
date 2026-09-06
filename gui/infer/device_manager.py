@@ -11,6 +11,11 @@ class DeviceManager:
 
     def __init__(self, window: 'MainWindow'):
         self.window = window
+        # PortAudio 全局设备索引映射（下拉框位置 → PortAudio 索引）
+        # get_audio_devices 返回的 in_idx/out_idx 是 PortAudio 全局索引，
+        # 下拉框 currentIndex() 只是过滤后的位置，必须通过映射转换。
+        self._input_indices: List[int] = []
+        self._output_indices: List[int] = []
 
     def reload_devices(self) -> None:
         """刷新按钮：强制 PortAudio 重新枚举（支持设备热插拔），再刷新列表。"""
@@ -33,6 +38,8 @@ class DeviceManager:
         """内部：刷新所有设备相关下拉框，并尽量保留当前选择。"""
         hostapi_name = self.window.hostapi_combo.currentText()
         ha_names, ins, outs, in_idx, out_idx = get_audio_devices(hostapi_name)
+        self._input_indices = list(in_idx)
+        self._output_indices = list(out_idx)
         prev_ha = self.window.hostapi_combo.currentText()
         prev_in = self.window.input_combo.currentText()
         prev_out = self.window.output_combo.currentText()
@@ -58,6 +65,8 @@ class DeviceManager:
     def load_hostapis(self) -> None:
         """加载可用的音频驱动"""
         ha_names, ins, outs, in_idx, out_idx = get_audio_devices()
+        self._input_indices = list(in_idx)
+        self._output_indices = list(out_idx)
         self.window.hostapi_combo.clear()
         self.window.hostapi_combo.addItems(ha_names)
         self._populate_device_combos(ins, outs)
@@ -71,3 +80,15 @@ class DeviceManager:
         self.window.output2_combo.clear()
         self.window.output2_combo.addItem("不使用")
         self.window.output2_combo.addItems(outs)
+
+    def get_input_device_index(self, combo_idx: int) -> int:
+        """下拉框位置 → PortAudio 全局设备索引。越界时回退到 combo_idx（兼容旧行为）。"""
+        if 0 <= combo_idx < len(self._input_indices):
+            return self._input_indices[combo_idx]
+        return combo_idx
+
+    def get_output_device_index(self, combo_idx: int) -> int:
+        """下拉框位置 → PortAudio 全局设备索引。越界时回退到 combo_idx（兼容旧行为）。"""
+        if 0 <= combo_idx < len(self._output_indices):
+            return self._output_indices[combo_idx]
+        return combo_idx
