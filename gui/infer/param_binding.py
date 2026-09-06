@@ -25,8 +25,8 @@ RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 # 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 存储短键, 缺省默认值)
 BINDINGS = [
     # ── 推理参数（inference.*）──
-    ("inference.pitch", "pitch_slider", INT, "pitch", 0),
-    ("inference.formant", "gender_slider", X100, "gender", 0.0),
+    # 注意：pitch/formant 是模型卡片级参数（card.pitch_slider/card.gender_slider），
+    # 不在全局 BINDINGS 表中，由 model_manager 管理持久化。
     ("inference.protect", "protect_slider", X100, "protect", 0.5),
     ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "f0", "rmvpe"),
     ("inference.rms_mix", "rms_mix_slider", X100, "rms", 0.0),
