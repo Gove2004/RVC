@@ -1,11 +1,16 @@
-"""实时语音转换管线 — HuBERT + 合成器 + F0 提取"""
+"""实时语音转换管线 — HuBERT + 合成器 + F0 提取。
+
+无状态设计：推理参数通过 InferenceConfig 每次传入，pipeline 只持有缓存状态
+（pitch_cache / resample_kernel / long_tensor_cache）。消除历史上 configure()
+同步链导致的参数双份源问题。
+"""
 import logging
 
 import numpy as np
 import torch
 
+from rvc.config import InferenceConfig
 from rvc.models.inference_cache import default_inference_cache
-from rvc.inference.params import HUBERT_DEFAULT
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.model_session import load_model_session
 from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
@@ -13,85 +18,60 @@ from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, 
 
 logger = logging.getLogger(__name__)
 
+
 class VCPipeline:
     """实时语音转换管线。
 
     用法:
-        pipeline = VCPipeline(config, pth_path)
-        pipeline.load()  # 加载所有模型
-        output = pipeline.infer(input_wav_tensor, block_samples_16k, skip_head, ret_len, "fcpe")
+        pipeline = VCPipeline(device_config, pth_path, hubert_variant="chinese")
+        pipeline.load()
+        output = pipeline.infer(input_wav, inference_config, block_16k, skip_head, ret_len)
     """
 
-    def __init__(self, config, pth_path, inference_cache=None,
-                 hubert: str = HUBERT_DEFAULT):
-        self.config = config
-        self.device = config.device
-        self.is_half = config.is_half
+    def __init__(self, device_config, pth_path, inference_cache=None, hubert_variant: str = "chinese"):
+        self.device = device_config.device
+        self.is_half = device_config.is_half
         self.inference_cache = inference_cache or default_inference_cache
         self.pth_path = pth_path
-        self.hubert_variant = hubert
+        self.hubert_variant = hubert_variant
 
-        self.f0_semitones = 0
-        self.formant_factor = 0.0
-        self.formant_factor_pow = 1.0  # pow(2, formant/12)，change_formant 时缓存，避免每块重算
-        # 破音保护（用户核心瑕疵）：f0_proc=(开关, 破音临界[源Hz])，
-        # extractor 内按 key 换算成变声后临界。源 ≤临界 → ×2 天然安全，原样保留。
-        # 压缩比/膝宽为内部固定默认值，用户只调开关 + 临界 Hz。
-        self.break_enable = True
-        self.break_src_hz = 300.0
-        self._f0_proc = (self.break_enable, self.break_src_hz)
-
+        # 仅缓存状态，不持有推理参数（参数每次 infer 从 config 传入）
         self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
-
-        self.hubert_model = None       # HuBERT
-        self.synthesizer = None       # Synthesizer model
-        self.target_sr = None
-        self.use_f0 = 1
         self.resample_kernel = {}
-        self.model_rmvpe = None
-        self.model_fcpe = None
         self._long_tensor_cache = {}
 
-    def _cached_long_tensor(self, value: int) -> torch.Tensor:
-        return cached_long_tensor(self._long_tensor_cache, value, self.device)
+        # 模型引用（load 后填充）
+        self.hubert_model = None
+        self.synthesizer = None
+        self.target_sr = None
+        self.use_f0 = 1
 
     def load(self) -> None:
-        session = load_model_session(self.config, self.pth_path,
-                                     self.inference_cache, hubert_variant=self.hubert_variant)
+        session = load_model_session(
+            self._device_config_proxy(), self.pth_path,
+            self.inference_cache, hubert_variant=self.hubert_variant,
+        )
         self.hubert_model = session.hubert
         self.synthesizer = session.synthesizer
         self.target_sr = session.target_sr
         self.use_f0 = session.use_f0
 
-    def configure(self, pitch=None, gender=None, break_enable=None, break_src_hz=None) -> None:
-        """统一参数应用入口（实时/离线共用，避免多处手写 change_* 漏改）。
+    def _device_config_proxy(self):
+        """load_model_session 需要 device+is_half，用轻量代理对象。"""
+        class _Proxy:
+            pass
+        p = _Proxy()
+        p.device = self.device
+        p.is_half = self.is_half
+        return p
 
-        只更新传入的非 None 字段；f0method/protect 是每次推理的入参，不在此缓存。
-        以后新增音质参数只需在 configure 里加一行，实时与离线自动同步。
-        """
-        if pitch is not None:
-            self.f0_semitones = pitch
-        if gender is not None:
-            self._set_formant(gender)
-        if break_enable is not None or break_src_hz is not None:
-            self._set_break(
-                break_enable if break_enable is not None else self.break_enable,
-                break_src_hz if break_src_hz is not None else self.break_src_hz,
-            )
+    def reset_pitch_cache(self) -> None:
+        """重置音高缓存（切换模型/文件时调用，避免跨上下文污染）。"""
+        self.pitch_cache.zero_()
+        self.pitchf_cache.zero_()
 
-    def _set_formant(self, shift: float) -> None:
-        self.formant_factor = shift
-        self.formant_factor_pow = pow(2, shift / 12)
-
-    def _set_break(self, enable: bool, break_src_hz: float) -> None:
-        """更新破音保护参数（破音临界用源赫兹，extractor 内换算变声后）。
-
-        方案 A（压缩比 + 平滑膝，内部固定默认值）：高音区按固定压缩比收窄但仍保留旋律，
-        膝宽固定。用户只需调「临界 Hz」（超过开始收敛）与开关。
-        """
-        self.break_enable = bool(enable)
-        self.break_src_hz = max(50.0, float(break_src_hz))
-        self._f0_proc = (self.break_enable, self.break_src_hz)
+    def _cached_long_tensor(self, value: int) -> torch.Tensor:
+        return cached_long_tensor(self._long_tensor_cache, value, self.device)
 
     def _extract_hubert_features(self, input_wav):
         return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
@@ -102,43 +82,53 @@ class VCPipeline:
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
 
-    def infer(self, input_wav: torch.Tensor, block_frame_16k: int, skip_head: int, return_length: int, f0method: str = "rmvpe", protect: float = 0.0) -> torch.Tensor:
+    @torch.no_grad()
+    def infer(self, input_wav: torch.Tensor, config: InferenceConfig,
+              block_frame_16k: int, skip_head: int, return_length: int) -> torch.Tensor:
         """实时推理一个音频块。
 
         Args:
-            input_wav: torch.Tensor, 滚动缓冲区 (16kHz, GPU)
-            block_frame_16k: int, 本块新增的16kHz采样数
-            skip_head: int, 跳过的10ms帧数（上下文）
-            return_length: int, 需要返回的10ms帧数
-            f0method: str, "rmvpe" 或 "fcpe"
-            protect: float, 辅音保护强度 [0, 1.0]，值越大保护越强
+            input_wav: 滚动缓冲区 (16kHz, GPU)
+            config: 推理参数（音高/音色/保护/降噪/破音）
+            block_frame_16k: 本块新增的 16kHz 采样数
+            skip_head: 跳过的 10ms 帧数（上下文）
+            return_length: 需要返回的 10ms 帧数
 
         Returns:
-            torch.Tensor: 合成音频 (target_sr 采样率)
+            合成音频 (target_sr 采样率)
         """
-        with torch.no_grad():
-            return self._infer_impl(input_wav, block_frame_16k, skip_head, return_length, f0method, protect)
+        return self._infer_impl(input_wav, config, block_frame_16k, skip_head, return_length)
 
-    def _infer_impl(self, input_wav, block_frame_16k, skip_head, return_length, f0method, protect):
+    def _infer_impl(self, input_wav, config: InferenceConfig, block_frame_16k, skip_head, return_length):
         p_len = input_wav.shape[0] // 160
-        factor = self.formant_factor_pow
+        formant_factor = config.formant
+        factor = pow(2, formant_factor / 12)
         return_length2_val = int(np.ceil(return_length * factor))
+
+        # f0_proc = (开关, 源临界Hz, 压缩比, 膝宽) — 全部从 config 读取
+        bp = config.break_protect
+        f0_proc = (bp.enable, bp.src_hz, bp.ratio, bp.knee)
 
         # 特征提取：HuBERT → 辅音保护克隆
         feats = self._extract_hubert_features(input_wav)
-        feats0 = self._clone_protect_source(feats, protect)
+        feats0 = self._clone_protect_source(feats, config.protect)
 
         # 音高（F0）缓存更新
         if self.use_f0 == 1:
-            cache_pitch, cache_pitchf = self._update_realtime_pitch(
+            cache_pitch, cache_pitchf = update_realtime_pitch_cache(
                 input_wav, block_frame_16k, p_len,
-                return_length, return_length2_val, f0method,
+                return_length, return_length2_val,
+                config.pitch - formant_factor,  # f0_up_key
+                config.f0_method,
+                self.pitch_cache, self.pitchf_cache,
+                self.device, self.is_half,
+                self.inference_cache, f0_proc,
             )
         else:
             cache_pitch = cache_pitchf = None
 
         # 特征上采样（含辅音保护混合）
-        feats = self._upsample_features(feats, p_len, feats0, cache_pitchf, protect)
+        feats = self._upsample_features(feats, p_len, feats0, cache_pitchf, config.protect)
 
         # 合成 + 后处理（formant 重采样）
         infered_audio = self._synthesize_realtime(
@@ -147,52 +137,22 @@ class VCPipeline:
         )
         return self._postprocess_realtime(infered_audio, factor, return_length)
 
-    def _update_realtime_pitch(self, input_wav, block_frame_16k, p_len, return_length, return_length2_val, f0method):
-        """更新实时音高缓存（滑动窗口 + 尾部重算）"""
-        return update_realtime_pitch_cache(
-            input_wav,
-            block_frame_16k,
-            p_len,
-            return_length,
-            return_length2_val,
-            self.f0_semitones - self.formant_factor,
-            f0method,
-            self.pitch_cache,
-            self.pitchf_cache,
-            self.device,
-            self.is_half,
-            self.inference_cache,
-            self._f0_proc,
-        )
-
     def _synthesize_realtime(self, feats, p_len, cache_pitch, cache_pitchf, skip_head, return_length, return_length2_val):
-        """Synthesizer 实时推理，返回 [channels, frames] 音频"""
         p_len_t = self._cached_long_tensor(p_len)
         sid = self._cached_long_tensor(0)
         infered_audio, _, _ = infer_synth_audio(
-            self.synthesizer,
-            feats,
-            p_len_t,
-            cache_pitch,
-            cache_pitchf,
-            sid,
-            self.use_f0,
-            self.is_half,
-            skip_head=skip_head,
-            return_length=return_length,
-            return_length2=return_length2_val,
+            self.synthesizer, feats, p_len_t,
+            cache_pitch, cache_pitchf, sid,
+            self.use_f0, self.is_half,
+            skip_head=skip_head, return_length=return_length, return_length2=return_length2_val,
         )
         return infered_audio.squeeze(1).float()
 
     def _postprocess_realtime(self, infered_audio, factor, return_length):
-        """formant 重采样（factor≠1 时）"""
         upp_res = int(np.floor(factor * self.target_sr // 100))
         if upp_res != self.target_sr // 100:
             infered_audio = apply_formant_resample(
                 infered_audio[:, : return_length * upp_res],
-                factor,
-                self.target_sr,
-                self.resample_kernel,
-                self.device,
+                factor, self.target_sr, self.resample_kernel, self.device,
             )
         return infered_audio.squeeze()

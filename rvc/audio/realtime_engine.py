@@ -17,7 +17,7 @@ from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
-from rvc.inference.params import HUBERT_DEFAULT
+from rvc.config import InferenceConfig
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class RealtimeEngine:
         self.last_error = ""
         self.runtime_error_pending = False
 
-    def load_model(self, pth, force=False, hubert=HUBERT_DEFAULT):
+    def load_model(self, pth, force=False, hubert="chinese"):
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
@@ -249,17 +249,15 @@ class RealtimeEngine:
         Returns:
             输出 wav 完整数组 (float32, target_sr 采样率)
         """
-        from rvc.inference.params import Params
-
         self.sr_model = self.pipeline.target_sr
         tgt_sr = self.sr_model
         wav = self._load_audio_at_sr(input_path, tgt_sr)
 
         if params is None:
-            params = Params()
+            params = InferenceConfig()
         self.runtime_params = params
         if f0method is not None:
-            self.runtime_params.f0method = f0method
+            self.runtime_params.f0_method = f0method
         if protect is not None:
             self.runtime_params.protect = protect
         self.function = "vc"
@@ -348,8 +346,8 @@ class RealtimeEngine:
         # 快照本回调内多次使用的参数（推理相关参数由 _run_inference 直接读 runtime_params）
         p_rms_mix = params.rms_mix
         p_enable_out2 = params.enable_out2
-        p_nr_enable = params.nr_enable
-        p_nr_strength = params.nr_strength
+        p_nr_enable = params.denoise.enable
+        p_nr_strength = params.denoise.strength
 
         with torch.no_grad():
             # ── 阶段1-2: 输入准备 + 降噪 + 缓存轮换 ─────────────────
@@ -428,18 +426,11 @@ class RealtimeEngine:
         self.input_wav_res[-target_len:] = resampler_out
 
     def _run_inference(self):
-        """执行语音转换推理或直通模式"""
+        """执行语音转换推理或直通模式。参数从 InferenceConfig 传入，pipeline 无状态。"""
         if self.function == "vc" and self.pipeline:
-            self.pipeline.configure(
-                pitch=self.runtime_params.pitch,
-                gender=self.runtime_params.gender,
-                break_enable=self.runtime_params.break_enable,
-                break_src_hz=self.runtime_params.break_src_hz,
-            )
             infer = self.pipeline.infer(
-                self.input_wav_res, self.block_samples_16k,
-                self.skip_head, self.return_length,
-                self.runtime_params.f0method, self.runtime_params.protect
+                self.input_wav_res, self.runtime_params,
+                self.block_samples_16k, self.skip_head, self.return_length,
             )
             if self.resampler_model2dev:
                 infer = self.resampler_model2dev(infer)

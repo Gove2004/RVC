@@ -130,11 +130,13 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz])，内部换算变声后。
-    # 压缩比/膝宽为内部固定默认值（用户无需调节；感觉高音压得不够就把临界 Hz 调低）。
+    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz], 压缩比, 膝宽)。
+    # 兼容二元组 (enable, src_hz) — 缺省 ratio/knee 用内部默认。
     if f0_proc and f0_proc[0]:
         critical = f0_proc[1] * pow(2, f0_up_key / 12)
-        f0 = apply_f0_break_protect(f0, critical)
+        ratio = f0_proc[2] if len(f0_proc) > 2 else BREAK_PROTECT_DEFAULT_RATIO
+        knee = f0_proc[3] if len(f0_proc) > 3 else BREAK_PROTECT_DEFAULT_KNEE
+        f0 = apply_f0_break_protect(f0, critical, ratio, knee)
     return _normalize_f0_to_coarse(f0), f0
 
 

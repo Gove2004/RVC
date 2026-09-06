@@ -1,26 +1,68 @@
-"""运行时参数容器 — GUI 线程写、音频回调线程读（依赖简单标量更新）"""
-from dataclasses import dataclass
+"""运行时参数容器 — 兼容层。
 
-# HuBERT 特征器默认档（base=原版 hubert_base / chinese=腾讯中文 hubert）。
-# 全项目默认值的唯一来源：pipeline / realtime_engine / offline_config / GUI 均引用此常量，
-# 禁止再各自写死 "base"/"chinese" 字面量（曾两套默认并存）。
+新配置体系在 rvc/config.py（InferenceConfig 嵌套结构）。
+本模块提供旧字段名（gender/f0method/nr_enable/break_enable 等）到新字段的
+属性映射，供过渡阶段使用。最终目标是全部引用直接用 InferenceConfig，
+删除本兼容层。
+"""
+from rvc.config import InferenceConfig
+
 HUBERT_DEFAULT = "chinese"
 
 
-@dataclass
-class Params:
-    pitch: int = 0
-    rms_mix: float = 0.0
-    gender: float = 0.0
-    protect: float = 0.5
-    f0method: str = "rmvpe"
-    nr_enable: bool = False
-    nr_strength: float = 0.5
-    enable_out2: bool = False
-    # 破音保护（核心瑕疵：高音破音/沙哑）——源赫兹临界，超过后按压缩比软收敛
-    break_enable: bool = True
-    break_src_hz: float = 300.0          # 破音临界（源 Hz，extractor 内按 key 换算变声后）
+class Params(InferenceConfig):
+    """旧字段名兼容层 — 扁平字段映射到 InferenceConfig 的嵌套字段。"""
 
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    # gender → formant
+    @property
+    def gender(self):
+        return self.formant
+
+    @gender.setter
+    def gender(self, v):
+        self.formant = v
+
+    # f0method → f0_method
+    @property
+    def f0method(self):
+        return self.f0_method
+
+    @f0method.setter
+    def f0method(self, v):
+        self.f0_method = v
+
+    # nr_enable → denoise.enable
+    @property
+    def nr_enable(self):
+        return self.denoise.enable
+
+    @nr_enable.setter
+    def nr_enable(self, v):
+        self.denoise.enable = v
+
+    # nr_strength → denoise.strength
+    @property
+    def nr_strength(self):
+        return self.denoise.strength
+
+    @nr_strength.setter
+    def nr_strength(self, v):
+        self.denoise.strength = v
+
+    # break_enable → break_protect.enable
+    @property
+    def break_enable(self):
+        return self.break_protect.enable
+
+    @break_enable.setter
+    def break_enable(self, v):
+        self.break_protect.enable = v
+
+    # break_src_hz → break_protect.src_hz
+    @property
+    def break_src_hz(self):
+        return self.break_protect.src_hz
+
+    @break_src_hz.setter
+    def break_src_hz(self, v):
+        self.break_protect.src_hz = v
