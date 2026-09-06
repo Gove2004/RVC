@@ -84,6 +84,8 @@ def state_from_dict(data: dict) -> AppConfig:
         if step:
             val = round(val / step) * step
         _set_nested(cfg, path, val)
+    # enable_out2 不在 BINDINGS 表（无独立控件），根据是否选择了副输出设备自动推导
+    cfg.engine.enable_out2 = bool(cfg.engine.output2_device) and cfg.engine.output2_device != "不使用"
     return cfg
 
 
@@ -141,6 +143,9 @@ def collect_gui_state(win) -> AppConfig:
     for path, widget, kind, _k, _d in BINDINGS:
         if widget:
             _set_nested(cfg, path, _get(win, widget, kind))
+    # enable_out2 无独立控件，根据 output2_combo 是否选了"不使用"自动推导
+    out2_text = win.output2_combo.currentText()
+    cfg.engine.enable_out2 = bool(out2_text) and out2_text != "不使用"
     active = ""
     card = win.model_manager.active_card
     if card is not None:
