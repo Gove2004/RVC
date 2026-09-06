@@ -296,7 +296,12 @@ class MainWindow(QMainWindow):
             old = self._lt
             if old and old.isRunning():
                 old.request_stop()
-                old.wait(3000)  # 超时后旧线程可能仍在跑
+                # load_model 是阻塞调用（torch.load + CUDA 加载），request_stop 只设标志，
+                # 无法中断正在执行的 load_model。wait 返回 False 表示超时：此时断开信号
+                # （防止旧线程稍后的回调误触发）+ deleteLater（QThread 在线程结束后才删对象），
+                # 旧线程自然结束后由 Qt 清理。双线程同时 force load_model 的竞态极罕见。
+                if not old.wait(3000):
+                    logger.warning("旧模型加载线程 3s 内未结束（load_model 阻塞中），断开信号后继续")
             # 无论旧线程是否结束，先断开其信号：防止它稍后发的 finished
             # 触发 _on_load_done 误删新线程（self._lt 已被替换）
             for sig in (old.ok, old.err, old.finished):

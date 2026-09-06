@@ -21,7 +21,6 @@ from rvc.inference.params import HUBERT_DEFAULT
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
-config = Config()
 
 # 实时推理错误容忍配置
 MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
@@ -114,6 +113,8 @@ class RealtimeEngine:
         setup() 与离线文件流式推理 process_file() 共用，保证两条路径算法完全一致。
         需先设置 self.sr_model（= pipeline.target_sr），用于判断是否需模型→设备重采样。
         """
+        cfg = Config()  # 单例，函数内获取避免模块导入时触发 CUDA 探测
+        self._device = cfg.device
         self.sr = sr
         self.channels = channels
         zc = self.sr // 100
@@ -128,24 +129,24 @@ class RealtimeEngine:
         self.return_length = (self.block_samples + self.sola_buffer_samples + self.sola_search_samples) // zc
 
         n = self.extra_samples + self.crossfade_samples + self.sola_search_samples + self.block_samples
-        self.input_wav = torch.zeros(n, device=config.device)
-        self.input_wav_res = torch.zeros(160 * n // zc, device=config.device)
+        self.input_wav = torch.zeros(n, device=cfg.device)
+        self.input_wav_res = torch.zeros(160 * n // zc, device=cfg.device)
         self.input_wav_work = torch.empty_like(self.input_wav)
         self.input_wav_res_work = torch.empty_like(self.input_wav_res)
         self.hz_centis = zc
         # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用，避免每块分配）
         self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
 
-        self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=config.device)
+        self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=cfg.device)
 
-        ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=config.device)
+        ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=cfg.device)
         self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
         self.fade_out = 1 - self.fade_in
-        self.sola_norm_kernel = torch.ones(1, 1, self.sola_buffer_samples, device=config.device)
+        self.sola_norm_kernel = torch.ones(1, 1, self.sola_buffer_samples, device=cfg.device)
 
-        self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(config.device)
+        self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(cfg.device)
         if self.sr_model != self.sr:
-            self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(config.device)
+            self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(cfg.device)
         else:
             self.resampler_model2dev = None
 
@@ -357,7 +358,7 @@ class RealtimeEngine:
             # 预分配 pinned buffer + 非阻塞拷贝，避免每块重复分配临时张量。
             src = torch.from_numpy(mono)
             self._in_pin[: src.shape[0]].copy_(src, non_blocking=True)
-            mono = self._in_pin[: src.shape[0]].to(config.device, non_blocking=True)
+            mono = self._in_pin[: src.shape[0]].to(self._device, non_blocking=True)
             mono = self._apply_denoise(mono, p_nr_enable, p_nr_strength)
             self._update_input_buffers(mono)
 
@@ -419,7 +420,12 @@ class RealtimeEngine:
         self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
         self.input_wav_res_work[-self.block_samples_16k:].zero_()
         self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
-        self.input_wav_res[-160*(mono.shape[0]//self.hz_centis+1):] = self.resampler(self.input_wav[-mono.shape[0]-2*self.hz_centis:])[160:]
+        # 取额外 2*hz_centis 上下文喂 resampler（抵消重采样延迟），输出跳过前 160 样本
+        # （resampler 预热延迟），写入 16k 缓存尾部
+        resampler_in = self.input_wav[-mono.shape[0] - 2 * self.hz_centis:]
+        resampler_out = self.resampler(resampler_in)[160:]
+        target_len = 160 * (mono.shape[0] // self.hz_centis + 1)
+        self.input_wav_res[-target_len:] = resampler_out
 
     def _run_inference(self):
         """执行语音转换推理或直通模式"""

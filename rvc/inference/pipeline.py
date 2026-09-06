@@ -8,7 +8,7 @@ from rvc.models.inference_cache import default_inference_cache
 from rvc.inference.params import HUBERT_DEFAULT
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.model_session import load_model_session
-from rvc.inference.pitch_tracker import create_pitch_cache, prepare_offline_pitch, update_realtime_pitch_cache
+from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
 from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
 
 logger = logging.getLogger(__name__)
@@ -101,51 +101,6 @@ class VCPipeline:
 
     def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
         return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
-
-    @torch.no_grad()
-    def infer_offline(self, input_wav, f0method="rmvpe", protect=0.0):
-        """离线推理（完整音频）。
-
-        Args:
-            input_wav: np.ndarray or torch.Tensor, 输入音频 (16kHz)
-            f0method: str, F0 提取方法
-            protect: float, 辅音保护强度 [0, 1.0]
-
-        Returns:
-            np.ndarray: 合成音频 (target_sr 采样率)
-        """
-        if not torch.is_tensor(input_wav):
-            input_wav = torch.from_numpy(input_wav).float()
-        p_len = input_wav.shape[0] // 160
-
-        # 计算 formant 因子
-        factor = self.formant_factor_pow
-
-        pitch = pitchf = None
-        if self.use_f0 == 1:
-            pitch, pitchf = prepare_offline_pitch(
-                input_wav,
-                p_len,
-                self.f0_semitones - self.formant_factor,
-                f0method,
-                self.device,
-                self.is_half,
-                self.inference_cache,
-                self._f0_proc,
-            )
-        feats = self._extract_hubert_features(input_wav)
-        feats0 = self._clone_protect_source(feats, protect)
-        feats = self._upsample_features(feats, p_len, feats0, pitchf, protect)
-
-        p_len_t = self._cached_long_tensor(p_len)
-        sid = self._cached_long_tensor(0)
-        with torch.no_grad():
-            result = infer_synth_audio(self.synthesizer, feats, p_len_t, pitch, pitchf, sid, self.use_f0, self.is_half)
-
-        audio = result[0][0, 0].data.float()
-        audio = apply_formant_resample(audio, factor, self.target_sr, self.resample_kernel, self.device)
-
-        return audio.cpu().numpy()
 
     def infer(self, input_wav: torch.Tensor, block_frame_16k: int, skip_head: int, return_length: int, f0method: str = "rmvpe", protect: float = 0.0) -> torch.Tensor:
         """实时推理一个音频块。

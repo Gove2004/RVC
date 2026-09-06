@@ -26,11 +26,6 @@ def extract_f0(x, f0_up_key: float, method: str, device: str, is_half: bool, inf
     return extractor.extract(x, 16000, f0_up_key, f0_proc)
 
 
-def prepare_offline_pitch(input_wav, p_len: int, f0_up_key: float, method: str, device: str, is_half: bool, inference_cache, f0_proc: tuple | None = None):
-    pitch, pitchf = extract_f0(input_wav, f0_up_key, method, device, is_half, inference_cache, f0_proc)
-    return pitch[:p_len].unsqueeze(0).contiguous(), pitchf[:p_len].unsqueeze(0).contiguous()
-
-
 def realtime_f0_window(block_frame_16k: int, method: str) -> int:
     frames = block_frame_16k + 800
     if method == "rmvpe":
@@ -61,6 +56,8 @@ def update_realtime_pitch_cache(
     shift = block_frame_16k // 160
     cache_pitch[:-shift] = cache_pitch[shift:].clone()
     cache_pitchf[:-shift] = cache_pitchf[shift:].clone()
+    # 帧对齐：F0 提取器输出与 HuBERT 特征帧存在固定偏移（下采样 320 + 上采样 x2），
+    # pitch[3:-1] 去掉首尾边缘帧（提取器有限窗口导致的不准确帧），按偏移 4 写入缓存尾部。
     cache_pitch[4 - pitch.shape[0]:] = pitch[3:-1]
     cache_pitchf[4 - pitch.shape[0]:] = pitchf[3:-1]
     return cache_pitch[None, -p_len:], cache_pitchf[None, -p_len:] * return_length2_val / return_length

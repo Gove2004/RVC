@@ -21,6 +21,6 @@ class Layout:
     BTN_WIDTH_SMALL = 48          # 小按钮宽度（浏览等）
     BTN_WIDTH_NORMAL = 60         # 标准按钮宽度（开始/停止）
 
-    # 圆角
-    RADIUS_NORMAL = 3             # 标准圆角
-    RADIUS_LARGE = 4              # 大圆角
+    # 圆角（Windows 11 风格）
+    RADIUS_NORMAL = 4             # 标准圆角
+    RADIUS_LARGE = 8              # 大圆角

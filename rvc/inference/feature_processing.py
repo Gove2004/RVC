@@ -28,10 +28,10 @@ def clone_protect_source(feats: torch.Tensor, use_f0: int, protect: float) -> to
 
 
 def protect_blend(feats_converted: torch.Tensor, feats_original: torch.Tensor, pitchf: torch.Tensor, protect: float) -> torch.Tensor:
-    pitchff = pitchf.clone()
-    pitchff[pitchf > 0] = 1
-    pitchff[pitchf < 1] = 1 - protect
-    pitchff = pitchff.unsqueeze(-1)
+    # 浊音（pitchf > 0）→ 全转换；清音（pitchf = 0）→ 按 protect 混合原特征。
+    # 用 torch.where 替代索引赋值，避免 [pitchf > 0] = 1 / [pitchf < 1] = 1-p 两行
+    # 在 0 < f < 1 区间表面重叠造成的误解（实际 pitchf 是 Hz 值，不会落在此区间）。
+    pitchff = torch.where(pitchf > 0, 1.0, 1.0 - protect).unsqueeze(-1)
     return feats_converted * pitchff + feats_original * (1 - pitchff)
 
 
