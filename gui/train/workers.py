@@ -1,16 +1,15 @@
-"""训练 GUI 线程 worker。"""
+"""训练 GUI 线程 worker。
+
+注意：rvc.train.* 模块顶层 import torch/librosa，必须惰性导入（在 run() 内），
+否则 train 窗口启动时就要加载重型依赖，导致启动慢（infer 窗口已遵守此约定）。
+"""
 import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from rvc.runtime import Config
 from rvc.runtime.paths import SEPARATE_DIR, TRAIN_LOGS_ROOT, parse_sr
 from rvc.tools.separate import AUDIO_EXTS, MODELS, POST_KEYS, missing
-from rvc.train.extract_f0 import TrainF0Extractor
-from rvc.train.extract_feature import HuBERTExtractor
-from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_diff_reason
-from rvc.train.trainer import TrainConfig, Trainer
 
 
 class TrainWorker(QThread):
@@ -59,6 +58,13 @@ class TrainWorker(QThread):
             self.finished.emit(False, "训练失败")
 
     def _run_impl(self):
+        # 惰性导入：rvc.train.* 顶层 import torch/librosa，放在线程内避免拖慢 GUI 启动
+        from rvc.runtime import Config
+        from rvc.train.extract_f0 import TrainF0Extractor
+        from rvc.train.extract_feature import HuBERTExtractor
+        from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_diff_reason
+        from rvc.train.trainer import TrainConfig, Trainer
+
         config = Config()
         exp_dir = TRAIN_LOGS_ROOT / self.options["exp_name"]
         exp_dir.mkdir(parents=True, exist_ok=True)
