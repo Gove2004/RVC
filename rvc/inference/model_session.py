@@ -3,6 +3,7 @@ import logging
 import os
 from dataclasses import dataclass
 
+from rvc.errors import ModelLoadError
 from rvc.inference.model_loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
 from rvc.tools.cuda_graph import clear_cuda_graph_cache
@@ -22,11 +23,13 @@ class ModelSession:
 def load_model_session(config, pth_path: str, inference_cache,
                        hubert_variant: str = "base") -> ModelSession:
     logger.info("加载 %s", os.path.basename(pth_path))
-
-    hubert = load_hubert(config, inference_cache, variant=hubert_variant)
-    loader = SynthesizerLoader(config, inference_cache)
-    syn = loader.load(pth_path)
-    synthesizer = syn.synthesizer
+    try:
+        hubert = load_hubert(config, inference_cache, variant=hubert_variant)
+        loader = SynthesizerLoader(config, inference_cache)
+        syn = loader.load(pth_path)
+        synthesizer = syn.synthesizer
+    except Exception as e:
+        raise ModelLoadError(f"模型加载失败 [{os.path.basename(pth_path)}]: {e}") from e
 
     # 所有 Synthesizer 变体都继承 _SynthesizerTrnMsBase.remove_weight_norm（非死分支）；
     # 仅保留异常兜底（权重可能已是移除状态，二次移除会抛 ValueError）
