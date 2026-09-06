@@ -162,3 +162,11 @@ def gender_to_formant(v: float) -> float:
     本函数即唯一来源，滑杆显示与 get_data 持久化均须与其互逆（×5，0↔-2.5，1↔+2.5）。
     """
     return (v - 0.5) * 5
+
+
+def formant_to_gender(f: float) -> float:
+    """gender_to_formant 的反函数：formant shift [-2.5, +2.5] → 滑杆值 [0,1]。
+
+    滑杆初始化/持久化反推必须走这里，禁止内联手写公式（曾内联三份）。
+    """
+    return f / 5.0 + 0.5

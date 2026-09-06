@@ -17,6 +17,7 @@ from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.realtime_mix import apply_rms_mix
 from rvc.audio.sola import apply_sola
+from rvc.inference.params import HUBERT_DEFAULT
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class RealtimeEngine:
         self.last_error = ""
         self.runtime_error_pending = False
 
-    def load_model(self, pth, force=False, hubert="base"):
+    def load_model(self, pth, force=False, hubert=HUBERT_DEFAULT):
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
@@ -170,7 +171,8 @@ class RealtimeEngine:
             with torch.no_grad():
                 for _ in range(n):
                     self._cb_impl(indata, outdata, frames, None, None)
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         except Exception as e:
             logger.warning("推理预热失败（不影响运行）: %s", e)
 

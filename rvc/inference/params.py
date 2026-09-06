@@ -1,6 +1,11 @@
 """运行时参数容器 — GUI 线程写、音频回调线程读（依赖简单标量更新）"""
 from dataclasses import dataclass
 
+# HuBERT 特征器默认档（base=原版 hubert_base / chinese=腾讯中文 hubert）。
+# 全项目默认值的唯一来源：pipeline / realtime_engine / offline_config / GUI 均引用此常量，
+# 禁止再各自写死 "base"/"chinese" 字面量（曾两套默认并存）。
+HUBERT_DEFAULT = "chinese"
+
 
 @dataclass
 class Params:

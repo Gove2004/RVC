@@ -119,7 +119,7 @@ class OfflineManager:
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
         self.window.offline_status.setText("错误")
-        if self.worker:
-            self.worker.deleteLater()
-            self.worker = None
+        # 与 _on_finished 保持一致：不 deleteLater / 不置 None——自定义 finished/error
+        # 信号在 run() 内发出，此刻线程可能尚未真正退出，提前析构有竞态。
+        # 引用保留到下次 start_conversion 时被新 worker 覆盖，一次只多占一个对象。
         self.window._show_error(f"离线推理错误: {format_error_message(msg)}")

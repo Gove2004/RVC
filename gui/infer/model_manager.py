@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 import os
 
 from gui.infer.widgets import ModelCard, ModelListData
+from rvc.inference.params import HUBERT_DEFAULT
 from rvc.runtime.paths import MODELS_DIR
 
 
@@ -32,7 +33,7 @@ class ModelManager:
         pth: str = "",
         pitch: int = 12,
         gender: float = 0.0,
-        hubert: str = "chinese"
+        hubert: str = HUBERT_DEFAULT
     ) -> ModelCard:
         """添加模型卡片到列表"""
         card = ModelCard(

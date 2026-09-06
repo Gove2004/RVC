@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from rvc.models.inference_cache import default_inference_cache
+from rvc.inference.params import HUBERT_DEFAULT
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.model_session import load_model_session
 from rvc.inference.pitch_tracker import create_pitch_cache, prepare_offline_pitch, update_realtime_pitch_cache
@@ -22,7 +23,7 @@ class VCPipeline:
     """
 
     def __init__(self, config, pth_path, inference_cache=None,
-                 hubert: str = "base"):
+                 hubert: str = HUBERT_DEFAULT):
         self.config = config
         self.device = config.device
         self.is_half = config.is_half

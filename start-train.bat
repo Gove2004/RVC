@@ -1,1 +1,6 @@
+@echo off
+cd /d "%~dp0"
 .venv\Scripts\python.exe app.py --train
+echo.
+echo ==== exited, code: %errorlevel% (non-zero = see errors above) ====
+pause

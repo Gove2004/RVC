@@ -30,6 +30,8 @@ RMVPE_PATH = ASSETS_ROOT / "rmvpe" / "rmvpe.pt"
 PRETRAINED_ROOT = ASSETS_ROOT / "pretrained"
 # 训练导出的可用模型
 MODELS_DIR = ASSETS_ROOT / "models"
+# 本地训练工作目录（切片/特征/ckpt/导出中间产物），基于项目根、与启动 cwd 无关
+TRAIN_LOGS_ROOT = PROJECT_ROOT / "logs"
 # 人声提纯权重（手动下载；yaml 清单随仓库跟踪）
 SEPARATE_DIR = ASSETS_ROOT / "separate"
 

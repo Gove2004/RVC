@@ -6,7 +6,7 @@
 """
 from dataclasses import dataclass
 
-from rvc.inference.params import Params
+from rvc.inference.params import HUBERT_DEFAULT, Params
 
 
 @dataclass
@@ -15,4 +15,4 @@ class OfflineConfig(Params):
     input_path: str = ""
     output_path: str = ""
     model_path: str = ""
-    hubert: str = "base"  # HuBERT 特征器: base / chinese（必须与训练时一致）
+    hubert: str = HUBERT_DEFAULT  # HuBERT 特征器: base / chinese（必须与训练时一致）

@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime import Config
-from rvc.runtime.paths import SEPARATE_DIR, parse_sr
+from rvc.runtime.paths import SEPARATE_DIR, TRAIN_LOGS_ROOT, parse_sr
 from rvc.tools.separate import AUDIO_EXTS, MODELS, POST_KEYS, missing
 from rvc.train.extract_f0 import TrainF0Extractor
 from rvc.train.extract_feature import HuBERTExtractor
@@ -60,7 +60,7 @@ class TrainWorker(QThread):
 
     def _run_impl(self):
         config = Config()
-        exp_dir = Path("logs") / self.options["exp_name"]
+        exp_dir = TRAIN_LOGS_ROOT / self.options["exp_name"]
         exp_dir.mkdir(parents=True, exist_ok=True)
         # 采样率来自 GUI（"40k"/"48k"），统一走 parse_sr
         sr = parse_sr(self.options.get("sr", "48k"))

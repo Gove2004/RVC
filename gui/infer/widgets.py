@@ -9,6 +9,8 @@ from PySide6.QtCore import Qt, QThread, Signal
 
 from gui.configs import load_config, save_config
 from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
+from gui.infer.param_binding import formant_to_gender, gender_to_formant
+from rvc.inference.params import HUBERT_DEFAULT
 
 __all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_slrow", "_sl_value_as_float"]
 
@@ -69,7 +71,7 @@ class ModelCard(QFrame):
     load_requested = Signal(str, str, int, float, str)
 
     def __init__(self, name="", pth="", pitch=12,
-                 gender=0.0, hubert="chinese", parent=None):
+                 gender=0.0, hubert=HUBERT_DEFAULT, parent=None):
         super().__init__(parent)
         self._build(name, pth, pitch, gender, hubert)
 
@@ -119,10 +121,11 @@ class ModelCard(QFrame):
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
 
-        # 滑杆 [0,1] ↔ formant shift [-2.5,+2.5]，换算必须与 param_binding.gender_to_formant 互逆
-        gender_slider_val = int(((gender / 5.0) + 0.5) * 100)
+        # 滑杆 [0,1] ↔ formant shift [-2.5,+2.5]，换算唯一来源在 param_binding
+        # （gender_to_formant / formant_to_gender），此处禁止内联手写公式
+        gender_slider_val = int(round(formant_to_gender(gender) * 100))
         self.gender_slider = _sl(0, 100, 1, gender_slider_val); self.gender_label = QLabel(f"{gender:+.2f}")
-        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{((v / 100 - 0.5) * 5):+.2f}"))
+        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{gender_to_formant(v / 100):+.2f}"))
         bl.addWidget(QLabel("性别因子"), r, 0); bl.addWidget(self.gender_slider, r, 1); bl.addWidget(self.gender_label, r, 2); r += 1
 
         # HuBERT 特征器：base（原始 hubert_base）/ chinese（腾讯中文 hubert）。
@@ -157,7 +160,7 @@ class ModelCard(QFrame):
             "name": self._name_label.text(),
             "pth": self.pth_edit.text().strip(),
             "pitch": self.pitch_slider.value(),
-            "gender": (self.gender_slider.value() / 100 * 5 - 2.5),
+            "gender": gender_to_formant(self.gender_slider.value() / 100),
             "hubert": self.hubert_combo.currentText(),
         }
 
@@ -186,7 +189,7 @@ class ModelCard(QFrame):
 
 class LoadThread(QThread):
     ok = Signal(int); err = Signal(str)
-    def __init__(self, engine, pth, hubert="chinese"):
+    def __init__(self, engine, pth, hubert=HUBERT_DEFAULT):
         super().__init__()
         self.engine = engine; self.pth = pth; self.hubert = hubert
         self._stop_requested = False

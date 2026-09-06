@@ -19,6 +19,7 @@ from gui.infer.param_binding import (
     gender_to_formant,
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
+from rvc.inference.params import HUBERT_DEFAULT
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab
@@ -290,7 +291,7 @@ class MainWindow(QMainWindow):
 
         self._start_engine(pth, hubert)
 
-    def _start_engine(self, pth, hubert="chinese"):
+    def _start_engine(self, pth, hubert=HUBERT_DEFAULT):
         if self._loading:
             old = self._lt
             if old and old.isRunning():
@@ -328,7 +329,6 @@ class MainWindow(QMainWindow):
             self.sr_model_radio.setText(f"模型 {stats.sr_model}")
             self.sr_device_radio.setText(f"设备 {stats.sr_dev}")
             self._mark_running()
-            self._timer.start(200)
             if self.tray is not None:
                 self.tray.update_status()
             self.config_manager.save_config()

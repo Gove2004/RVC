@@ -30,8 +30,8 @@ def _configure_logging():
 
 _configure_logging()
 
-now_dir = os.getcwd()
-sys.path.append(now_dir)
+now_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, now_dir)
 
 
 def _set_dark(app):

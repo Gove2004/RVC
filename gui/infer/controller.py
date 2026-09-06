@@ -1,7 +1,7 @@
 """推理控制器 — 管理运行时参数、引擎启动和设备绑定。"""
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 # 注意：RealtimeEngine 依赖 torch，惰性构造（见 self.engine property），
 # 避免 GUI 窗口出现前就加载重型依赖。
@@ -9,6 +9,15 @@ from rvc.models import default_inference_cache
 from rvc.inference import Params
 
 logger = logging.getLogger(__name__)
+
+
+def _config_to_kwargs(config) -> dict:
+    """dataclass → Params.update kwargs（按字段名泛化拷贝）。
+
+    ModelConfig/RuntimeConfig 是 Params 的子集视图，字段名必须与 Params 对齐；
+    新增音质参数时只改 dataclass 定义本身，无需再手写逐字段搬运。
+    """
+    return {f.name: getattr(config, f.name) for f in fields(config)}
 
 
 @dataclass
@@ -67,22 +76,10 @@ class InferController:
         return self._engine
 
     def apply_model_config(self, config: ModelConfig):
-        self.runtime_params.update(
-            pitch=config.pitch,
-            gender=config.gender,
-            protect=config.protect,
-            f0method=config.f0method,
-        )
+        self.runtime_params.update(**_config_to_kwargs(config))
 
     def apply_runtime_config(self, config: RuntimeConfig):
-        self.runtime_params.update(
-            enable_out2=config.enable_out2,
-            rms_mix=config.rms_mix,
-            nr_enable=config.nr_enable,
-            nr_strength=config.nr_strength,
-            break_enable=config.break_enable,
-            break_src_hz=config.break_src_hz,
-        )
+        self.runtime_params.update(**_config_to_kwargs(config))
 
     def setup_engine(self, config: EngineConfig):
         from rvc.audio import get_audio_devices  # 惰性导入（device_query，轻量）
