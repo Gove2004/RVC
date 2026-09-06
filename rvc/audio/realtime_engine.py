@@ -69,6 +69,7 @@ class RealtimeEngine:
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
+        config = Config()  # load_model 在 _init_processing 之前调用，需单独获取 Config
         try:
             self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
