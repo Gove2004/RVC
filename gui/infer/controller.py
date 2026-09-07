@@ -67,9 +67,10 @@ class InferController:
         设备索引由调用方（window/device_manager）从设备名称转换而来。
         """
         sr_type = "sr_model" if sr_mode == "model" else "sr_device"
+        out2_idx = output2_device_idx if (enable_out2 and output2_device_idx >= 0) else None
         self.engine.setup(
             sr_type, input_device_idx, output_device_idx,
-            block_time, crossfade_time, extra_time,
+            block_time, crossfade_time, extra_time, out2_idx,
         )
         if enable_out2 and output2_device_idx >= 0:
             try:
