@@ -146,8 +146,19 @@ def run_cuda_graph(owner, namespace, function, *inputs):
 
 
 def clear_cuda_graph_cache(owner):
-    """切换模型时清除 CUDA Graph 缓存。"""
+    """切换模型时清除 CUDA Graph 缓存。
+
+    必须强制 GC + GPU 同步：旧的 _CapturedCall 对象持有 CUDA Graph 实例
+    和静态输入/输出张量。仅 delattr 不会立即释放这些 GPU 资源，Python GC
+    可能延迟回收。此时新捕获的 CUDA Graph 可能复用旧静态张量的内存地址，
+    导致新旧图数据竞争，表现为快速 stop/start 后声音沙哑或输出全零（没声音）。
+    """
+    import gc
     cache = getattr(owner, "_rvc_cuda_graph_cache", None)
     if cache is not None:
         cache.entries.clear()
         delattr(owner, "_rvc_cuda_graph_cache")
+        # 强制回收旧的 _CapturedCall（含 CUDAGraph 对象和静态张量）
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()

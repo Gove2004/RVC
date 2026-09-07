@@ -18,7 +18,7 @@ from gui.infer.param_binding import (
     gender_to_formant,
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
-from rvc.inference.params import HUBERT_DEFAULT
+from rvc.config import HUBERT_DEFAULT
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab

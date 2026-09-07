@@ -66,6 +66,70 @@ def _set_nested(obj, path: str, value):
     setattr(obj, parts[-1], value)
 
 
+def _has_nested(obj, path: str) -> bool:
+    """检查 dict 嵌套路径是否存在。"""
+    for part in path.split("."):
+        if not isinstance(obj, dict) or part not in obj:
+            return False
+        obj = obj[part]
+    return True
+
+
+def _get_nested_dict(obj, path: str):
+    """从 dict 按点号路径递归读取。"""
+    for part in path.split("."):
+        obj = obj[part]
+    return obj
+
+
+def _set_nested_dict(obj, path: str, value):
+    """向 dict 按点号路径递归写入（自动创建中间 dict）。"""
+    parts = path.split(".")
+    for part in parts[:-1]:
+        if part not in obj:
+            obj[part] = {}
+        obj = obj[part]
+    obj[parts[-1]] = value
+
+
+# 旧短键格式 → 新嵌套路径的映射（用于一次性迁移）
+_OLD_KEY_MAPPING = {
+    "protect": "inference.protect",
+    "f0": "inference.f0_method",
+    "rms": "inference.rms_mix",
+    "nr_en": "inference.denoise.enable",
+    "nr_str": "inference.denoise.strength",
+    "brk_en": "inference.break_protect.enable",
+    "brk_hz": "inference.break_protect.src_hz",
+    "bl": "engine.block_time",
+    "cf": "engine.crossfade_time",
+    "ex": "engine.extra_time",
+    "sr_mode": "engine.sr_mode",
+    "ha": "engine.hostapi",
+    "in_dev": "engine.input_device",
+    "out_dev": "engine.output_device",
+    "out2_dev": "engine.output2_device",
+    "active_model": "active_model",
+}
+
+
+def _migrate_old_format(data: dict) -> dict:
+    """检测旧短键格式，自动转换成嵌套结构。已经是新格式则原样返回。
+
+    判断标准：同时存在多个旧短键（如 nr_en + bl）才认为是旧格式，
+    避免新格式里的 active_model 单独触发误迁移。
+    """
+    old_keys_present = [k for k in _OLD_KEY_MAPPING if k in data]
+    # 旧格式至少有 3 个以上短键（新格式只有 active_model 一个顶层键可能重合）
+    if len(old_keys_present) < 3:
+        return data
+    result = dict(data)  # 先复制所有键，避免丢失非配置字段
+    for old_key, new_path in _OLD_KEY_MAPPING.items():
+        if old_key in result:
+            _set_nested_dict(result, new_path, result.pop(old_key))
+    return result
+
+
 def _parse(kind, raw):
     if kind == CHECK:
         return bool(raw)
@@ -75,10 +139,14 @@ def _parse(kind, raw):
 
 
 def state_from_dict(data: dict) -> AppConfig:
-    """持久化字典（短键）→ AppConfig（并按控件步长量化）。"""
+    """从持久化字典（嵌套结构）构造 AppConfig（并按控件步长量化）。
+
+    自动检测旧短键格式并迁移到嵌套结构。
+    """
+    data = _migrate_old_format(data)
     cfg = AppConfig()
-    for path, _w, kind, key, default in BINDINGS:
-        raw = data.get(key, default)
+    for path, _w, kind, _key, default in BINDINGS:
+        raw = _get_nested_dict(data, path) if _has_nested(data, path) else default
         val = _parse(kind, raw)
         step = QUANTIZE.get(path)
         if step:
@@ -90,9 +158,11 @@ def state_from_dict(data: dict) -> AppConfig:
 
 
 def state_to_dict(state: AppConfig) -> dict:
-    """AppConfig → 持久化字典（短键）。"""
-    return {key: _get_nested(state, path)
-            for path, _w, _k, key, _d in BINDINGS}
+    """AppConfig → 持久化字典（嵌套结构）。"""
+    result = {}
+    for path, _w, _k, _key, _d in BINDINGS:
+        _set_nested_dict(result, path, _get_nested(state, path))
+    return result
 
 
 def _get(win, widget, kind):

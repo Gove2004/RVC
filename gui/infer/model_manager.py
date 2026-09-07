@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 import os
 
 from gui.infer.widgets import ModelCard, ModelListData
-from rvc.inference.params import HUBERT_DEFAULT
+from rvc.config import HUBERT_DEFAULT
 from rvc.runtime.paths import MODELS_DIR
 
 

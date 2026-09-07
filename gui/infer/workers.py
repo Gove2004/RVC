@@ -48,13 +48,6 @@ class OfflineWorker(QThread):
             self.progress.emit(int(cur * 100 / total), 100)
 
         # 逐块流式处理（内部已完成读音频/重采样/pad/裁剪/RMS/归一化/写录）
-        engine.process_file(
-            self.cfg.input_path,
-            self.cfg.output_path,
-            params=self.cfg,
-            f0method=self.cfg.f0method,
-            protect=self.cfg.protect,
-            progress_cb=_progress,
-        )
+        engine.process_file(self.cfg, progress_cb=_progress)
         self.progress.emit(100, 100)
         self.finished.emit(self.cfg.output_path)

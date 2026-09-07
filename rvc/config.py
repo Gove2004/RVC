@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+HUBERT_DEFAULT = "chinese"
+
 
 @dataclass
 class BreakProtectConfig:

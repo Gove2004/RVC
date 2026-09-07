@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from gui.configs import load_config, save_config
 from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
 from gui.infer.param_binding import formant_to_gender, gender_to_formant
-from rvc.inference.params import HUBERT_DEFAULT
+from rvc.config import HUBERT_DEFAULT
 
 __all__ = ["ModelCard", "ModelListData", "LoadThread", "_sl", "_slrow", "_sl_value_as_float"]
 

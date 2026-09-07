@@ -1,14 +1,13 @@
-"""推理模块 — VC 管线、运行时参数、F0 提取器、模型加载器
+"""推理模块 — VC 管线、F0 提取器、模型加载器
 
 子模块（pipeline/f0_extractor/model_loader 等）依赖 torch，属重型模块，惰性导出；
-params/offline_config 轻量。
+offline_config 轻量。
 """
 import importlib
 
 __all__ = [
     "VCPipeline",
     "OfflineConfig",
-    "Params",
     "F0Extractor",
     "RMVPEExtractor",
     "FCPEExtractor",
@@ -19,7 +18,6 @@ __all__ = [
 _MODULE_MAP = {
     "VCPipeline": "rvc.inference.pipeline",
     "OfflineConfig": "rvc.inference.offline_config",
-    "Params": "rvc.inference.params",
     "F0Extractor": "rvc.inference.f0_extractor",
     "RMVPEExtractor": "rvc.inference.f0_extractor",
     "FCPEExtractor": "rvc.inference.f0_extractor",
