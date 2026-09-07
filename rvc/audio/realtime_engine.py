@@ -62,16 +62,10 @@ class RealtimeEngine:
         self.runtime_error_pending = False
 
     def load_model(self, pth, force=False, hubert="chinese"):
-        if False and not force and self.pipeline and self.pth_path == pth:
+        if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
         config = Config()  # load_model 在 _init_processing 之前调用，需单独获取 Config
-        # 诊断：清除所有模型缓存，每次都重新加载。
-        # 若清除后快速重启不再沙哑，说明根因在模型缓存层。
-        self.inference_cache.clear()
-        # 诊断：禁用 CUDA Graph
-        import os as _os
-        _os.environ[chr(82)+chr(86)+chr(67)+chr(95)+chr(67)+chr(85)+chr(68)+chr(65)+chr(95)+chr(71)+chr(82)+chr(65)+chr(80)+chr(72)] = chr(48)
         try:
             self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
