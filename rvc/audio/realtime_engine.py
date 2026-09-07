@@ -58,18 +58,16 @@ class RealtimeEngine:
         self.max_error_count = MAX_CONSECUTIVE_ERRORS
         self.last_error = ""
         self.runtime_error_pending = False
+        self._cfg = Config()  # 单例缓存，避免多处重复获取
 
     def load_model(self, pth, force=False, hubert="chinese"):
-        # 模型加载前清除 f0 提取器（RMVPE/FCPE）的旧 CUDA Graph 缓存。
-        # synthesizer/hubert 的 CUDA Graph 在 load_model_session 中清除，
-        # 但 f0 提取器通过 inference_cache 独立缓存，旧图残留可能导致沙哑。
+        # 切换模型时清除 f0 提取器的旧 CUDA Graph 缓存（独立于 synthesizer/hubert）。
         self.inference_cache.clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
-        config = Config()  # load_model 在 _init_processing 之前调用，需单独获取 Config
         try:
-            self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
+            self.pipeline = VCPipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
             self.pth_path = pth
             return self.pipeline.target_sr
@@ -89,6 +87,16 @@ class RealtimeEngine:
         self.sr_model = self.pipeline.target_sr
         self.sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
 
+        self._validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
+        self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
+        self._warmup_and_reset_buffers()
+
+        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
+        self.stream.start()
+        self.running = True
+
+    def _validate_and_log_devices(self, in_dev, out_dev, out2_dev_idx):
+        """校验输入/输出设备通道数，设置 channels，打印设备日志。"""
         in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
         in_max = int(in_info["max_input_channels"])
         out_max = int(out_info["max_output_channels"])
@@ -110,29 +118,18 @@ class RealtimeEngine:
             out2_info = sd.query_devices(out2_dev_idx)
             logger.info("  · 副输出：%s", out2_info.get('name', f"#{out2_dev_idx}"))
 
-        self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
+    def _warmup_and_reset_buffers(self):
+        """开流前用静音数据预热推理（捕获 CUDA Graph），然后重置所有被污染的缓冲区。
 
-        # 重置 pitch 缓存：多次 stop/setup 后旧 pitch 数据会污染新会话，导致声音沙哑/失真
-        if self.pipeline is not None:
-            self.pipeline.reset_pitch_cache()
-
-        # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
-        # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
-        # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
+        warmup 会污染 pitch/sola/输入缓存，必须在之后彻底重置，
+        确保首次真实推理从干净状态开始。
+        """
         self.warmup_inference(2)
-
-        # warmup 用静音数据跑推理会污染所有缓冲区（pitch/sola/输入缓存），
-        # 静音段 f0 提取可能输出随机值，SOLA 缓冲区会残留静音段的交叉淡化状态。
-        # 必须在 warmup 后彻底重置所有运行时缓冲区，确保首次真实推理从干净状态开始。
         if self.pipeline is not None:
             self.pipeline.reset_pitch_cache()
         self.processor.reset()
         self.input_wav.zero_()
         self.input_wav_res.zero_()
-
-        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
-        self.stream.start()
-        self.running = True
 
     def _init_processing(self, sr, block_t, cf_t, extra_t, channels):
         """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/降噪）。
@@ -140,7 +137,7 @@ class RealtimeEngine:
         setup() 与离线文件流式推理 process_file() 共用，保证两条路径算法完全一致。
         需先设置 self.sr_model（= pipeline.target_sr），用于判断是否需模型→设备重采样。
         """
-        cfg = Config()  # 单例，函数内获取避免模块导入时触发 CUDA 探测
+        cfg = self._cfg
         self._device = cfg.device
         self.sr = sr
         self.channels = channels
@@ -221,20 +218,26 @@ class RealtimeEngine:
 
 
 
+    @staticmethod
+    def _safe_close_stream(stream):
+        """安全中止并关闭 sounddevice 流，忽略所有异常。"""
+        if stream is None:
+            return
+        try:
+            stream.abort()
+        except Exception:
+            pass
+        try:
+            stream.close()
+        except Exception:
+            pass
+
     def stop(self):
         self.running = False
         self.error_count = 0
         self.runtime_error_pending = False
-        for s in (self.stream2, self.stream):
-            if s:
-                try:
-                    s.abort()
-                except Exception:
-                    pass
-                try:
-                    s.close()
-                except Exception:
-                    pass
+        self._safe_close_stream(self.stream2)
+        self._safe_close_stream(self.stream)
         self.stream = self.stream2 = None
         self.enable_out2 = False
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
@@ -354,9 +357,9 @@ class RealtimeEngine:
             mono = self._prepare_input(indata)
             # 输入一次性上 GPU（降噪/推理/输出共用，避免 CPU↔GPU 往返）。
             # 预分配 pinned buffer + 非阻塞拷贝，避免每块重复分配临时张量。
-            src = torch.from_numpy(mono)
-            self._in_pin[: src.shape[0]].copy_(src, non_blocking=True)
-            mono = self._in_pin[: src.shape[0]].to(self._device, non_blocking=True)
+            n = mono.shape[0]
+            self._in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
+            mono = self._in_pin[:n].to(self._device, non_blocking=True)
             mono = self.processor.process_input(mono, p_nr_enable, p_nr_strength)
             self._update_input_buffers(mono)
 
