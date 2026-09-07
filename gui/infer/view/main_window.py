@@ -1,4 +1,4 @@
-"""推理 GUI 主窗口 — View 层，负责 UI 构建和信号连接。
+﻿"""推理 GUI 主窗口 — View 层，负责 UI 构建和信号连接。
 
 GUI 分层后，本类承担 View 职责：
 - UI 构建（_build_ui, tabs, 控制栏）
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer, Qt, Signal
 
 from rvc.core.config import AppConfig
-from gui.infer.controller.infer_controller import InferController
+from gui.infer.controller.main_controller import InferController
 from gui.infer.viewmodel.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
     apply_gui_state as bridge_apply_gui_state,
@@ -402,3 +402,4 @@ class MainWindow(QMainWindow):
         self.hide()
         if self.tray is not None:
             self.tray.notify_minimized()
+

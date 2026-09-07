@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QMessageBox,
 )
 
-from gui.train.tabs.tools_inspect import _run_inspect
-from gui.train.widgets import ToolThread, browse_file
+from gui.train.view.tabs.tools_inspect import _run_inspect
+from gui.train.view.widgets import ToolThread, browse_file
 from gui.styles import ButtonStyles, Layout
 
 

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QTextEdit, QMessageBox,
 )
 
-from gui.train.widgets import ToolThread, browse_file
+from gui.train.view.widgets import ToolThread, browse_file
 from gui.styles import ButtonStyles, Layout
 
 

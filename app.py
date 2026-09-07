@@ -51,7 +51,7 @@ def main():
         from gui.infer.view.main_window import MainWindow
         win = MainWindow()
     else:
-        from gui.train.window import TrainWindow
+        from gui.train.view.main_window import TrainWindow
         win = TrainWindow()
 
     win.show()

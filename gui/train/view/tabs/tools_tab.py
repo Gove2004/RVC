@@ -1,7 +1,7 @@
 """训练工具 Tab — 聚合入口（模型合并 / 模型信息 / 修正真名 三个独立模块）"""
 from PySide6.QtWidgets import QWidget, QVBoxLayout
 
-from gui.train.tabs import tools_merge, tools_inspect, tools_fixinfo
+from gui.train.view.tabs import tools_merge, tools_inspect, tools_fixinfo
 
 
 def build_tools_tab(win) -> QWidget:

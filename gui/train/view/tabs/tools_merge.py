@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QSlider, QMessageBox,
 )
 
-from gui.train.widgets import ToolThread, browse_file
+from gui.train.view.widgets import ToolThread, browse_file
 from gui.styles import ButtonStyles, Layout
 from rvc.runtime.paths import MODELS_DIR
 

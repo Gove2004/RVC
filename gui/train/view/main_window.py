@@ -7,11 +7,11 @@ from PySide6.QtWidgets import (
 )
 
 from gui.configs import TrainGuiState, load_config, save_config
-from gui.train.workers import TrainWorker
-from gui.train.widgets import ToolThread
-from gui.train.tabs.settings_tab import build_settings_tab
-from gui.train.tabs.train_tab import build_train_tab
-from gui.train.tabs.tools_tab import build_tools_tab
+from gui.train.controller.workers import TrainWorker
+from gui.train.view.widgets import ToolThread
+from gui.train.view.tabs.settings_tab import build_settings_tab
+from gui.train.view.tabs.train_tab import build_train_tab
+from gui.train.view.tabs.tools_tab import build_tools_tab
 from gui.styles import ButtonStyles, LabelStyles, Layout
 from rvc.runtime.paths import PRETRAINED_ROOT
 

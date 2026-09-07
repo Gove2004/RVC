@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 
-from gui.train.widgets import browse_directory, browse_file
+from gui.train.view.widgets import browse_directory, browse_file
 from gui.styles import ButtonStyles, Layout
 
 
