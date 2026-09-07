@@ -122,6 +122,12 @@ class RealtimeEngine:
         # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
         self.warmup_inference(2)
 
+        # warmup 用静音数据跑推理会污染 pitch 缓存（静音上 f0 提取可能输出随机值），
+        # 必须在 warmup 后再次重置，否则首次真实推理会继承静音段的异常 pitch 状态，
+        # 表现为多次 stop/start 后声音沙哑/失真。
+        if self.runner is not None:
+            self.runner.reset()
+
         self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
         self.running = True
