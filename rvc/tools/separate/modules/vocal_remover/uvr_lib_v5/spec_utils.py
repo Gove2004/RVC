@@ -1,16 +1,11 @@
 import math
-import platform
-import traceback
 
 import librosa
 import numpy as np
 import torch
 
 
-ARM = "arm"
-wav_resolution = (
-    "polyphase" if platform.system() == "Darwin" and (platform.processor() == ARM or ARM in platform.platform()) else "soxr_hq"
-)
+wav_resolution = "soxr_hq"
 
 
 _HANN_WINDOW_CACHE = {}
@@ -32,41 +27,7 @@ def resample_audio(wave, orig_sr, target_sr, res_type=None):
     target_sr = int(target_sr)
     if orig_sr == target_sr:
         return np.asfortranarray(wave)
-
-    last_error = None
-    for candidate in dict.fromkeys(([res_type] if res_type else []) + ["soxr_hq", "polyphase"]):
-        try:
-            return librosa.resample(wave, orig_sr=orig_sr, target_sr=target_sr, res_type=candidate)
-        except (ImportError, ModuleNotFoundError) as exc:
-            last_error = exc
-
-    try:
-        return _linear_resample(wave, orig_sr, target_sr)
-    except Exception:
-        if last_error is not None:
-            raise last_error
-        raise
-
-
-def _linear_resample(wave, orig_sr, target_sr):
-    wave = np.asarray(wave)
-    original_length = wave.shape[-1]
-    target_length = max(1, int(round(original_length * target_sr / orig_sr)))
-    if original_length == target_length:
-        return np.asfortranarray(wave)
-
-    old_x, new_x = np.linspace(0.0, 1.0, original_length, endpoint=False), np.linspace(0.0, 1.0, target_length, endpoint=False)
-    if wave.ndim == 1:
-        return np.asfortranarray(np.interp(new_x, old_x, wave).astype(wave.dtype, copy=False))
-    return np.asfortranarray(
-        np.stack(
-            [
-                np.interp(new_x, old_x, channel).astype(wave.dtype, copy=False)
-                for channel in wave.reshape((-1, original_length))
-            ],
-            axis=0,
-        ).reshape(wave.shape[:-1] + (target_length,))
-    )
+    return librosa.resample(wave, orig_sr=orig_sr, target_sr=target_sr, res_type=res_type or wav_resolution)
 
 
 def crop_center(h1, h2):
@@ -90,39 +51,36 @@ def make_padding(width, cropsize, offset):
 
 def merge_artifacts(y_mask, thres=0.01, min_range=64, fade_size=32):
     mask = y_mask
-    try:
-        if min_range < fade_size * 2:
-            raise ValueError("min_range must be >= fade_size * 2")
+    if min_range < fade_size * 2:
+        raise ValueError("min_range must be >= fade_size * 2")
 
-        idx = np.where(y_mask.min(axis=(0, 1)) > thres)[0]
-        if len(idx) == 0:
-            return mask
-        start_idx = np.insert(idx[np.where(np.diff(idx) != 1)[0] + 1], 0, idx[0])
-        end_idx = np.append(idx[np.where(np.diff(idx) != 1)[0]], idx[-1])
-        artifact_idx = np.where(end_idx - start_idx > min_range)[0]
-        weight = np.zeros_like(y_mask)
-        if len(artifact_idx) > 0:
-            start_idx = start_idx[artifact_idx]
-            end_idx = end_idx[artifact_idx]
-            old_e = None
-            for s, e in zip(start_idx, end_idx):
-                if old_e is not None and s - old_e < fade_size:
-                    s = old_e - fade_size * 2
-                if s != 0:
-                    weight[:, :, s : s + fade_size] = np.linspace(0, 1, fade_size)
-                else:
-                    s -= fade_size
-                if e != y_mask.shape[2]:
-                    weight[:, :, e - fade_size : e] = np.linspace(1, 0, fade_size)
-                else:
-                    e += fade_size
-                weight[:, :, s + fade_size : e - fade_size] = 1
-                old_e = e
+    idx = np.where(y_mask.min(axis=(0, 1)) > thres)[0]
+    if len(idx) == 0:
+        return mask
+    start_idx = np.insert(idx[np.where(np.diff(idx) != 1)[0] + 1], 0, idx[0])
+    end_idx = np.append(idx[np.where(np.diff(idx) != 1)[0]], idx[-1])
+    artifact_idx = np.where(end_idx - start_idx > min_range)[0]
+    weight = np.zeros_like(y_mask)
+    if len(artifact_idx) > 0:
+        start_idx = start_idx[artifact_idx]
+        end_idx = end_idx[artifact_idx]
+        old_e = None
+        for s, e in zip(start_idx, end_idx):
+            if old_e is not None and s - old_e < fade_size:
+                s = old_e - fade_size * 2
+            if s != 0:
+                weight[:, :, s : s + fade_size] = np.linspace(0, 1, fade_size)
+            else:
+                s -= fade_size
+            if e != y_mask.shape[2]:
+                weight[:, :, e - fade_size : e] = np.linspace(1, 0, fade_size)
+            else:
+                e += fade_size
+            weight[:, :, s + fade_size : e - fade_size] = 1
+            old_e = e
 
-        y_mask += weight * (1 - y_mask)
-        mask = y_mask
-    except Exception as exc:
-        print(f'Post Process Failed: {type(exc).__name__}: "{exc}"\n{"".join(traceback.format_tb(exc.__traceback__))}"')
+    y_mask += weight * (1 - y_mask)
+    mask = y_mask
     return mask
 
 
@@ -185,19 +143,12 @@ def wave_to_spectrogram(wave, hop_length, n_fft, mp, band, is_v51_model=False, t
             )
 
     spec = _torch_stft(np.asfortranarray([left, right]), n_fft, hop_length, torch_device)
-    if spec is None:
-        spec = np.asfortranarray(
-            [
-                librosa.stft(left, n_fft=n_fft, hop_length=hop_length),
-                librosa.stft(right, n_fft=n_fft, hop_length=hop_length),
-            ]
-        )
     return convert_channels(spec, mp, band) if is_v51_model else spec
 
 
 def _torch_stft(wave, n_fft, hop_length, device):
-    if device is None or torch.device(device).type != "cuda":
-        return None
+    if device is None:
+        device = "cuda:0"
     wave_t = torch.from_numpy(np.ascontiguousarray(wave)).to(device)
     window = _hann_window(n_fft, wave_t.dtype, device)
     spec = torch.stft(
@@ -213,8 +164,8 @@ def _torch_stft(wave, n_fft, hop_length, device):
 
 
 def _torch_istft(spec, hop_length, device):
-    if device is None or torch.device(device).type != "cuda":
-        return None
+    if device is None:
+        device = "cuda:0"
     n_fft = (spec.shape[1] - 1) * 2
     spec_t = torch.from_numpy(np.ascontiguousarray(spec)).to(device)
     window = _hann_window(n_fft, spec_t.real.dtype, device)
@@ -224,11 +175,7 @@ def _torch_istft(spec, hop_length, device):
 
 def spectrogram_to_wave(spec, hop_length=1024, mp=None, band=0, is_v51_model=True, torch_device=None):
     wave = _torch_istft(spec, hop_length, torch_device)
-    if wave is None:
-        left = librosa.istft(np.asfortranarray(spec[0]), hop_length=hop_length, dtype=np.float64)
-        right = librosa.istft(np.asfortranarray(spec[1]), hop_length=hop_length, dtype=np.float64)
-    else:
-        left, right = wave[0], wave[1]
+    left, right = wave[0], wave[1]
 
     if is_v51_model:
         mode = mp.param["band"][band].get("convert_channels")

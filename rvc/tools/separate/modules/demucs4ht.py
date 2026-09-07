@@ -19,8 +19,6 @@ from ..config import to_plain
 
 
 class HTDemucs(nn.Module):
-    mps_model_backend = "torch"
-    mps_model_compute_dtype = torch.float16
 
     def __init__(
         self,

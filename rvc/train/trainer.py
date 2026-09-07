@@ -71,12 +71,8 @@ class Trainer:
     def cleanup(self):
         """释放 GPU 资源（用于训练停止后回收显存）"""
         for attr in ("synthesizer", "net_d", "optim_g", "optim_d", "scheduler_g", "scheduler_d"):
-            if hasattr(self, attr):
-                setattr(self, attr, None)
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
+            setattr(self, attr, None)
+        torch.cuda.empty_cache()
 
     def checkpoints_dir(self) -> Path:
         return checkpoints_dir(self.cfg.exp_dir)

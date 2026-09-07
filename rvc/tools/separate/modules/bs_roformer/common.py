@@ -37,8 +37,6 @@ class SpectralContext(NamedTuple):
     freq_bins: int
     audio_length: int
     stft_window: torch.Tensor
-    x_is_mps: bool
-    x_is_dml: bool
 
 
 class RotaryEmbedding(nn.Module):
@@ -176,9 +174,6 @@ def init_roformer_stft(module, stft_n_fft, stft_hop_length, stft_win_length, stf
 
 
 def roformer_stft_freq_bins(module, window_length):
-    # The original training code computed this shape through torch.stft on a
-    # random probe tensor during model construction. Preserve that RNG-consuming
-    # behavior so scratch initialization remains seed-compatible.
     return torch.stft(
         torch.randn(1, 4096),
         **module.stft_kwargs,
@@ -222,34 +217,6 @@ def init_roformer_band_modules(
 
 
 class RoformerRuntimeMixin:
-    mps_model_backend = "torch"
-    mps_model_compute_dtype = torch.float16
-
-    def set_mps_model_backend(self, backend=None, compute_dtype=None):
-        backend = (backend or "torch").lower()
-        if backend not in ("torch", "mlx_full"):
-            raise ValueError("mps_model_backend must be 'torch' or 'mlx_full'")
-        self.mps_model_backend = backend
-        if compute_dtype is not None:
-            if isinstance(compute_dtype, str):
-                compute_dtype = {
-                    "float16": torch.float16,
-                    "fp16": torch.float16,
-                    "float32": torch.float32,
-                    "fp32": torch.float32,
-                }.get(compute_dtype.lower(), compute_dtype)
-            if compute_dtype not in (torch.float16, torch.float32):
-                raise ValueError("mps_model_compute_dtype must be 'float16' or 'float32'")
-            self.mps_model_compute_dtype = compute_dtype
-
-    def _use_mlx_full_forward(self, raw_audio):
-        return not self.training and self.mps_model_backend == "mlx_full" and raw_audio.device.type == "mps"
-
-    def mlx_forward_mx(self, raw_audio):
-        from .mlx_roformer import mlx_forward_roformer_mx
-
-        return mlx_forward_roformer_mx(self, raw_audio, self.mps_model_compute_dtype)
-
     def stft_window(self, device):
         key = (device.type, device.index, torch.float32)
         window = self._stft_window_cache.get(key)
@@ -300,10 +267,6 @@ class RoformerRuntimeMixin:
     def _mask_stft_repr(self, stft_repr, context):
         self._warm_group_cache(stft_repr)
         mask = self._forward_mask_core(stft_repr)
-        if context.x_is_dml:
-            stft_repr = torch.view_as_complex(stft_repr.float().cpu().unsqueeze(1).contiguous())
-            mask = torch.view_as_complex(mask.float().cpu().contiguous()).to(dtype=stft_repr.dtype)
-            return stft_repr * mask
         stft_repr = torch.view_as_complex(stft_repr.unsqueeze(1))
         mask = torch.view_as_complex(mask).type(stft_repr.dtype)
         return stft_repr * mask
@@ -324,8 +287,6 @@ def forward_roformer_mask_core(module, stft_repr):
 
 def stft_roformer(module, raw_audio):
     device = raw_audio.device
-    x_is_mps = device.type == "mps"
-    x_is_dml = device.type == "privateuseone"
 
     if raw_audio.ndim == 2:
         raw_audio = raw_audio.unsqueeze(1)
@@ -336,42 +297,19 @@ def stft_roformer(module, raw_audio):
     )
 
     stft_audio = raw_audio.reshape(batch * audio_channels, audio_length)
-    spectral_device = torch.device("cpu") if x_is_dml else device
-    stft_window = module.stft_window(spectral_device)
-
-    if x_is_dml:
-        stft_repr = torch.stft(
-            stft_audio.float().cpu(),
-            **module.stft_kwargs,
-            window=stft_window,
-            return_complex=True,
-        )
-    else:
-        try:
-            stft_repr = torch.stft(stft_audio, **module.stft_kwargs, window=stft_window, return_complex=True)
-        except RuntimeError:
-            stft_repr = torch.stft(
-                stft_audio.cpu() if x_is_mps else stft_audio,
-                **module.stft_kwargs,
-                window=stft_window.cpu() if x_is_mps else stft_window,
-                return_complex=True,
-            ).to(device)
+    stft_window = module.stft_window(device)
+    stft_repr = torch.stft(stft_audio, **module.stft_kwargs, window=stft_window, return_complex=True)
 
     stft_repr = torch.view_as_real(stft_repr).reshape(batch, audio_channels, -1, stft_repr.shape[-1], 2)
 
     b, s, f, t, c = stft_repr.shape
     stft_repr = stft_repr.permute(0, 2, 1, 3, 4).reshape(b, f * s, t, c)
-    if x_is_dml:
-        model_dtype = next(module.parameters()).dtype
-        stft_repr = stft_repr.to(device=device, dtype=model_dtype)
     return stft_repr, SpectralContext(
         batch=batch,
         channels=audio_channels,
         freq_bins=f,
         audio_length=audio_length,
         stft_window=stft_window,
-        x_is_mps=x_is_mps,
-        x_is_dml=x_is_dml,
     )
 
 
@@ -385,27 +323,9 @@ def istft_roformer(module, stft_repr, context, length):
     if getattr(module, "zero_dc", False):
         stft_repr = stft_repr.index_fill(1, torch.tensor(0, device=stft_repr.device), 0.0)
 
-    if context.x_is_dml:
-        recon_audio = torch.istft(
-            stft_repr.cpu(),
-            **module.stft_kwargs,
-            window=context.stft_window.cpu(),
-            return_complex=False,
-            length=length,
-        )
-    else:
-        try:
-            recon_audio = torch.istft(
-                stft_repr, **module.stft_kwargs, window=context.stft_window, return_complex=False, length=length
-            )
-        except RuntimeError:
-            recon_audio = torch.istft(
-                stft_repr.cpu() if context.x_is_mps else stft_repr,
-                **module.stft_kwargs,
-                window=context.stft_window.cpu() if context.x_is_mps else context.stft_window,
-                return_complex=False,
-                length=length,
-            ).to(context.stft_window.device)
+    recon_audio = torch.istft(
+        stft_repr, **module.stft_kwargs, window=context.stft_window, return_complex=False, length=length
+    )
 
     recon_audio = recon_audio.reshape(context.batch, n, context.channels, recon_audio.shape[-1])
     return recon_audio[:, 0] if n == 1 else recon_audio

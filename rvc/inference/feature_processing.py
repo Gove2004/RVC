@@ -14,8 +14,7 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
 
     # transformers 模型返回 BaseModelOutput（return_dict=True），取 last_hidden_state；
     # 兼容直接返回 tensor 的边缘模型。
-    feats_result = model(feats)
-    feats_result = getattr(feats_result, "last_hidden_state", feats_result)
+    feats_result = model(feats).last_hidden_state
     # Unconditional last-frame padding for feature alignment
     feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
     return feats_result

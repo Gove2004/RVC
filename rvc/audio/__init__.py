@@ -8,7 +8,6 @@ import importlib
 
 __all__ = [
     "load_audio",
-    "load_audio_native",
     "RealtimeEngine",
     "get_audio_devices",
     "SpectralSubtraction",
@@ -16,7 +15,6 @@ __all__ = [
 
 _MODULE_MAP = {
     "load_audio": "rvc.audio.loader",
-    "load_audio_native": "rvc.audio.loader",
     "RealtimeEngine": "rvc.audio.realtime_engine",
     "get_audio_devices": "rvc.audio.device_query",
     "SpectralSubtraction": "rvc.audio.denoise",

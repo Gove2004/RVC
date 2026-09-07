@@ -143,5 +143,4 @@ class EffectChain:
     def reset(self):
         """重置所有有状态的效果器。"""
         for effect in self._effects:
-            if hasattr(effect, "reset"):
-                effect.reset()
+            effect.reset()

@@ -33,13 +33,10 @@ def _fuse_sequential_conv_bn(module):
                     and isinstance(current, nn.Conv2d)
                     and isinstance(child_items[i + 1][1], nn.BatchNorm2d)
                 ):
-                    try:
-                        new_children.append((child_name, fuse_conv_bn_eval(current, child_items[i + 1][1])))
-                        fused += 1
-                        i += 2
-                        continue
-                    except Exception:
-                        pass
+                    new_children.append((child_name, fuse_conv_bn_eval(current, child_items[i + 1][1])))
+                    fused += 1
+                    i += 2
+                    continue
                 child_fused = _fuse_sequential_conv_bn(current)
                 fused += child_fused
                 new_children.append((child_name, current))
@@ -87,52 +84,6 @@ class VRSeparator(CommonSeparator):
         }
         self.model_samplerate = self.model_params.param["sr"]
         self.model_run = None
-        self.mps_model_backend = str(arch_config.get("mps_model_backend", "torch")).lower()
-        self.mps_model_compute_dtype = self._parse_mps_model_compute_dtype(
-            arch_config.get("mps_model_compute_dtype", torch.float16)
-        )
-        if self.mps_model_backend not in ("torch", "mlx_full"):
-            raise ValueError("mps_model_backend must be 'torch' or 'mlx_full'")
-
-    @staticmethod
-    def _parse_mps_model_compute_dtype(compute_dtype):
-        if isinstance(compute_dtype, str):
-            compute_dtype = {
-                "float16": torch.float16,
-                "fp16": torch.float16,
-                "float32": torch.float32,
-                "fp32": torch.float32,
-            }.get(compute_dtype.lower(), compute_dtype)
-        if compute_dtype not in (torch.float16, torch.float32):
-            raise ValueError("mps_model_compute_dtype must be 'float16' or 'float32'")
-        return compute_dtype
-
-    def set_mps_model_backend(self, backend=None, compute_dtype=None):
-        backend = (backend or "torch").lower()
-        if backend not in ("torch", "mlx_full"):
-            raise ValueError("mps_model_backend must be 'torch' or 'mlx_full'")
-        self.mps_model_backend = backend
-        if compute_dtype is not None:
-            self.mps_model_compute_dtype = self._parse_mps_model_compute_dtype(compute_dtype)
-
-    def _use_mlx_full_forward(self, device):
-        return (
-            self.mps_model_backend == "mlx_full"
-            and torch.device(device).type == "mps"
-            and self.model_run is not None
-            and not self.model_run.training
-        )
-
-    def _store_torch_model_on_cpu_for_mlx(self):
-        return self.mps_model_backend == "mlx_full" and torch.device(self.torch_device).type == "mps"
-
-    def _predict_mask_mlx(self, x_batch_cpu):
-        import mlx.core as mx
-
-        from .vr_mlx import mlx_predict_mask_vr_mx
-
-        x_mx = mx.array(x_batch_cpu.to(dtype=self.mps_model_compute_dtype).numpy())
-        return mlx_predict_mask_vr_mx(self.model_run, x_mx, self.mps_model_compute_dtype)
 
     def load_model(self):
         nn_arch_sizes = [31191, 33966, 56817, 123821, 123812, 129605, 218409, 537238, 537227]
@@ -152,19 +103,13 @@ class VRSeparator(CommonSeparator):
         else:
             self.model_run = determine_model_capacity(self.model_params.param["bins"] * 2, nn_arch_size)
 
-        try:
-            state_dict = torch.load(self.model_path, map_location="cpu", weights_only=True)
-        except TypeError:
-            state_dict = torch.load(self.model_path, map_location="cpu")
-        except Exception:
-            state_dict = torch.load(self.model_path, map_location="cpu", weights_only=False)
+        state_dict = torch.load(self.model_path, map_location="cpu", weights_only=False)
         self.model_run.load_state_dict(state_dict)
         self.model_run.eval()
         if self.fuse_conv_bn:
             fused = _fuse_sequential_conv_bn(self.model_run)
             self.logger.debug(f"Fused {fused} VR Conv2d+BatchNorm2d pairs")
-        target_device = "cpu" if self._store_torch_model_on_cpu_for_mlx() else self.torch_device
-        self.model_run.to(target_device)
+        self.model_run.to(self.torch_device)
         if self.use_channels_last:
             self.model_run.to(memory_format=torch.channels_last)
         self.model_run.eval()
@@ -172,7 +117,7 @@ class VRSeparator(CommonSeparator):
     def to(self, device):
         self.torch_device = device
         if self.model_run is not None:
-            self.model_run.to("cpu" if self._store_torch_model_on_cpu_for_mlx() else device)
+            self.model_run.to(device)
             if self.use_channels_last:
                 self.model_run.to(memory_format=torch.channels_last)
         return self
@@ -217,7 +162,7 @@ class VRSeparator(CommonSeparator):
         iterator = tqdm(range(bands_n, 0, -1), leave=False, desc="Processing VR bands") if self.debug else range(bands_n, 0, -1)
         for d in iterator:
             bp = self.model_params.param["band"][d]
-            wav_resolution = "polyphase" if self.torch_device_mps is not None else bp["res_type"]
+            wav_resolution = bp["res_type"]
             if d == bands_n:
                 x_wave[d] = self._resample_wave(base_wave, sample_rate, bp["sr"], wav_resolution)
                 x_spec_s[d] = spec_utils.wave_to_spectrogram(
@@ -286,20 +231,6 @@ class VRSeparator(CommonSeparator):
             process_batches = tqdm(batch_starts, leave=False, desc="Processing VR batches") if self.debug else batch_starts
             if self.progress_callback:
                 self.progress_callback(0, patches, "Processing VR batches")
-            if self._use_mlx_full_forward(device):
-                import mlx.core as mx
-
-                mask_batches = []
-                for i in process_batches:
-                    batch_count = min(self.batch_size, patches - i)
-                    pred = self._predict_mask_mlx(torch.from_numpy(x_dataset[i : i + batch_count]))
-                    pred = pred.astype(mx.float32).transpose(1, 2, 0, 3).reshape(pred.shape[1], pred.shape[2], -1)
-                    mask_batches.append(pred)
-                    write_pos += pred.shape[2]
-                    if self.progress_callback:
-                        self.progress_callback(i + batch_count, patches, "Processing VR batches")
-                return mx.concatenate(mask_batches, axis=2)[:, :, :write_pos]
-
             with torch.inference_mode():
                 for i in process_batches:
                     batch_count = min(self.batch_size, patches - i)
@@ -309,9 +240,8 @@ class VRSeparator(CommonSeparator):
                         if self.use_channels_last
                         else x_batch_cpu.to(device=device, non_blocking=True)
                     )
-                    device_type = torch.device(device).type
-                    use_amp = self.use_amp and device_type in ("cuda", "mps")
-                    with torch.amp.autocast(device_type, dtype=torch.float16, enabled=use_amp):
+                    use_amp = self.use_amp
+                    with torch.amp.autocast("cuda", dtype=torch.float16, enabled=use_amp):
                         pred = self.model_run.predict_mask(x_batch)
                     if not pred.size()[3] > 0:
                         raise ValueError("Window size error: h1_shape[3] must be greater than h2_shape[3]")
@@ -348,48 +278,15 @@ class VRSeparator(CommonSeparator):
             mask[:, split_bin:] = torch.pow(mask[:, split_bin:], 1 + aggr[:, None, None])
             return mask
 
-        def adjust_aggr_mlx(mask, is_non_accom_stem):
-            import mlx.core as mx
-
-            aggr = aggressiveness["value"] * 2
-            if aggr == 0:
-                return mask
-            if is_non_accom_stem:
-                aggr = 1 - aggr
-            if aggr > 10 or aggr < -10:
-                print(f"Warning: Extreme aggressiveness values detected: {aggr}")
-
-            aggr = mx.array([aggr, aggr], dtype=mask.dtype)
-            if (correction := aggressiveness["aggr_correction"]) is not None:
-                correction_arr = mx.array([correction["left"], correction["right"]], dtype=mask.dtype)
-                aggr = aggr + correction_arr
-
-            split_bin = aggressiveness["split_bin"]
-            low = mx.power(mask[:, :split_bin], 1 + aggr[:, None, None] / 3)
-            high = mx.power(mask[:, split_bin:], 1 + aggr[:, None, None])
-            return mx.concatenate((low, high), axis=1)
-
         def postprocess(mask, x_spec):
             is_non_accom_stem = self.primary_stem_name in CommonSeparator.NON_ACCOM_STEMS
             if self.enable_post_process:
-                if not isinstance(mask, torch.Tensor):
-                    mask = np.array(mask, copy=False)
-                else:
-                    mask = mask.cpu().numpy()
+                mask = mask.cpu().numpy()
                 mask = spec_utils.adjust_aggr(mask, is_non_accom_stem, aggressiveness)
                 mask = spec_utils.merge_artifacts(mask, thres=self.post_process_threshold)
                 y_spec = mask * x_spec
                 v_spec = (1 - mask) * x_spec
                 return y_spec, v_spec
-
-            if not isinstance(mask, torch.Tensor):
-                import mlx.core as mx
-
-                mask = adjust_aggr_mlx(mask, is_non_accom_stem)
-                x_spec_mx = mx.array(x_spec)
-                y_spec = mask * x_spec_mx
-                v_spec = (1 - mask) * x_spec_mx
-                return np.array(y_spec, copy=False), np.array(v_spec, copy=False)
 
             mask = adjust_aggr_torch(mask, is_non_accom_stem)
             x_spec_t = torch.from_numpy(x_spec).to(device)

@@ -245,23 +245,12 @@ def _fit_tensor_length(x, length):
 
 
 def _autocast(device, enabled):
-    """Implement the autocast helper.
-
-    Args:
-        device (Any): Device value.
-        enabled (Any): Enabled value.
-
-    Returns:
-        Any: Computed result."""
-    device_type = torch.device(device).type
-    if enabled and device_type in ("cuda", "mps"):
-        return torch.amp.autocast(device_type, dtype=torch.float16)
+    if enabled:
+        return torch.amp.autocast("cuda", dtype=torch.float16)
     return nullcontext()
 
 
 def _inference_context(device):
-    if torch.device(device).type == "privateuseone":
-        return torch.no_grad()
     return torch.inference_mode()
 
 
@@ -769,33 +758,6 @@ def demix(
     Returns:
         Any: Computed result."""
     mix = torch.tensor(mix, dtype=torch.float32)
-    if model_type in {"demucs", "tasnet", "legacy_demucs", "legacy_tasnet"}:
-        from .modules.legacy_demucs import apply_legacy_model
-
-        sample_rate = int(config.training.samplerate)
-        progress = _ProgressContext(
-            callback=progress_callback,
-            total=mix.shape[1],
-            sample_rate=sample_rate,
-            message="Processing audio",
-        )
-        progress.emit(0)
-        with _autocast(device, config.training.get("use_amp", True)):
-            with _inference_context(device):
-                estimates = (
-                    apply_legacy_model(
-                        model,
-                        mix.to(device),
-                        shifts=int(config.inference.get("shifts", 0)),
-                        split=bool(config.inference.get("split", True)),
-                        overlap=float(config.inference.get("overlap", 0.25)),
-                        progress=pbar,
-                    )
-                    .cpu()
-                    .numpy()
-                )
-        progress.emit(mix.shape[1])
-        return dict(zip(config.training.instruments, estimates))
     if model_type == "htdemucs":
         return demix_track_demucs(
             config, model, mix, device, pbar=pbar, source_indices=source_indices, progress_callback=progress_callback

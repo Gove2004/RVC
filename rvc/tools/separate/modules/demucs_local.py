@@ -27,8 +27,6 @@ def pad1d(x, paddings, mode="constant", value=0.0):
 
 def spectro(x, n_fft=512, hop_length=None, pad=0):
     *other, length = x.shape
-    if x.device.type == "mps":
-        x = x.cpu()
     z = torch.stft(
         x.reshape(-1, length),
         n_fft * (1 + pad),
@@ -47,8 +45,6 @@ def ispectro(z, hop_length=None, length=None, pad=0):
     *other, freqs, frames = z.shape
     n_fft = 2 * freqs - 2
     win_length = n_fft // (1 + pad)
-    if z.device.type == "mps":
-        z = z.cpu()
     x = torch.istft(
         z.reshape(-1, freqs, frames),
         n_fft,

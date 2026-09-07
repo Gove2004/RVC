@@ -57,7 +57,7 @@ class SynthesizerLoader:
         else:
             synthesizer = SynthesizerTrnMsNSFsid_nono(*ckpt["config"])
 
-        synthesizer.load_state_dict(ckpt["weight"], strict=True)
+        synthesizer.load_state_dict(ckpt["weight"], strict=False)
         synthesizer.eval().to(self.device)
         if self.is_half:
             synthesizer.half()

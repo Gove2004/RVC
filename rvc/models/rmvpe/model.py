@@ -17,14 +17,12 @@ class RMVPE:
         self.resample_kernel = {}
         self.is_half = is_half
         if device is None:
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            device = "cuda:0"
         self.device = device
         self.mel_extractor = MelSpectrogram(
             is_half, 128, 16000, 1024, 160, None, 30, 8000
         ).to(device)
 
-        if str(self.device) == "cuda":
-            self.device = torch.device("cuda:0")
 
         self.model = self._load_model(model_path, is_half)
         cents_mapping = 20 * np.arange(360) + 1997.3794084376191

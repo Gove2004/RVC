@@ -6,62 +6,36 @@ import torch.nn.functional as F
 from .attend import Attend
 
 
-_CUDA_ATTENTION_BACKEND_ALIASES = {
-    "auto": "auto",
-    "torch": "default",
-    "default": "default",
-    "sdpa": "default",
-    "flash": "flash",
-    "flash_attention": "flash",
-    "cudnn": "cudnn",
-    "cudnn_attn": "cudnn",
-    "cudnn_attention": "cudnn",
-    "efficient": "efficient",
-    "mem_efficient": "efficient",
-    "memory_efficient": "efficient",
-    "math": "math",
-    "xformers": "xformers",
-}
-
-_SDPA_BACKEND_ENUM_NAMES = {
-    "flash": "FLASH_ATTENTION",
-    "cudnn": "CUDNN_ATTENTION",
-    "efficient": "EFFICIENT_ATTENTION",
-    "math": "MATH",
-}
+def qkv_to_bnhd(qkv, heads):
+    return qkv.reshape(qkv.shape[0], qkv.shape[1], 3, heads, qkv.shape[-1] // (3 * heads)).unbind(dim=2)
 
 
-def normalize_cuda_attention_backend(backend):
-    backend = str(backend or "cudnn").lower().replace("-", "_")
-    if backend not in _CUDA_ATTENTION_BACKEND_ALIASES:
-        raise ValueError("cuda_attention_backend must be one of: auto, default, flash, cudnn, efficient, math, xformers")
-    return _CUDA_ATTENTION_BACKEND_ALIASES[backend]
+class RMSNorm(Module):
+    def __init__(self, dim, scale=True):
+        super().__init__()
+        self.scale = dim ** 0.5
+        self.gamma = nn.Parameter(torch.ones(dim)) if scale else 1
+
+    def forward(self, x):
+        return F.normalize(x, dim=-1) * self.scale * self.gamma
 
 
-def _sdpa_backend_enum(backend):
-    attention = getattr(torch.nn, "attention", None)
-    enum_cls = getattr(attention, "SDPBackend", None)
-    enum_name = _SDPA_BACKEND_ENUM_NAMES.get(backend)
-    return None if enum_cls is None or enum_name is None else getattr(enum_cls, enum_name, None)
+class FeedForward(Module):
+    def __init__(self, dim, mult=4, dropout=0.0):
+        super().__init__()
+        inner_dim = int(dim * mult)
+        self.norm = RMSNorm(dim)
+        self.linear1 = nn.Linear(dim, inner_dim, bias=False)
+        self.linear2 = nn.Linear(inner_dim, dim, bias=False)
+        self.dropout = nn.Dropout(dropout)
 
-
-def default_cuda_attention_backend():
-    return "cudnn" if _sdpa_backend_enum("cudnn") is not None else "default"
-
-
-def _sdpa_with_backend(q, k, v, dropout_p, backend):
-    kernel = getattr(getattr(torch.nn, "attention", None), "sdpa_kernel", None)
-    enum = _sdpa_backend_enum(backend)
-    if kernel is None or enum is None:
-        raise RuntimeError(f"SDPA backend {backend!r} is not available in this PyTorch build")
-    with kernel(enum):
-        return F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
-
-
-def _xformers_attention(q, k, v, dropout_p):
-    import xformers.ops as xops
-
-    return xops.memory_efficient_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), p=dropout_p).transpose(1, 2)
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.linear1(x)
+        x = F.silu(x)
+        x = self.dropout(x)
+        x = self.linear2(x)
+        return x
 
 
 def apply_rotary_emb_fast(cos, sin, t):
@@ -100,167 +74,47 @@ def rotate_qk_fast_bnhd(rotary_embed, q, k):
     return apply_rotary_emb_fast(cos, sin, q), apply_rotary_emb_fast(cos, sin, k)
 
 
-def qkv_to_bnhd(qkv, heads):
-    b, n, _ = qkv.shape
-    return qkv.view(b, n, 3, heads, -1).unbind(dim=2)
-
-
-class RMSNorm(Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.scale = dim**0.5
-        self.gamma = nn.Parameter(torch.ones(dim))
-        self._gamma_dtype_cache = {}
-
-    def forward(self, x):
-        if not self.training and x.dtype in (torch.float16, torch.bfloat16):
-            # DirectML PrivateUseOne tensors do not expose storage/data_ptr.
-            gamma_id = id(self.gamma) if x.device.type == "privateuseone" else self.gamma.data_ptr()
-            key = (x.device.type, x.device.index, x.dtype, gamma_id, self.gamma._version)
-            gamma = self._gamma_dtype_cache.get(key)
-            if gamma is None:
-                gamma = self.gamma.detach().to(device=x.device, dtype=x.dtype)
-                self._gamma_dtype_cache.clear()
-                self._gamma_dtype_cache[key] = gamma
-            return F.rms_norm(x, (x.shape[-1],), gamma, eps=1e-12)
-        return F.normalize(x, dim=-1) * self.scale * self.gamma
-
-
-class FeedForward(Module):
-    def __init__(self, dim, mult=4, dropout=0.0):
-        super().__init__()
-        dim_inner = int(dim * mult)
-        self.net = nn.Sequential(
-            RMSNorm(dim),
-            nn.Linear(dim, dim_inner),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(dim_inner, dim),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
 class Attention(Module):
     def __init__(
         self,
+        *,
         dim,
-        heads=8,
         dim_head=64,
+        heads=8,
         dropout=0.0,
+        flash=False,
+        rotary_embed=None,
         shared_qkv_bias=None,
         shared_out_bias=None,
-        rotary_embed=None,
-        flash=True,
     ):
         super().__init__()
+        inner_dim = dim_head * heads
         self.heads = heads
-        dim_inner = heads * dim_head
-        self.flash = flash
+        self.dim_head = dim_head
         self.dropout = dropout
+        self.flash = flash
         self.rotary_embed = rotary_embed
-        self.mps_attention_backend = "torch"
-        self.mps_mlx_min_tokens = 128
-        self.cuda_attention_backend = default_cuda_attention_backend()
-        self._disabled_cuda_attention_backends = set()
-        self.attend = Attend(flash=False, dropout=dropout)
-        self.norm = RMSNorm(dim)
-        self.to_qkv = nn.Linear(dim, dim_inner * 3, bias=(shared_qkv_bias is not None))
+
         if shared_qkv_bias is not None:
+            self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
             self.to_qkv.bias = shared_qkv_bias
+        else:
+            self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
 
-        self.to_gates = nn.Linear(dim, heads)
-        self.to_out = nn.Sequential(nn.Linear(dim_inner, dim, bias=(shared_out_bias is not None)), nn.Dropout(dropout))
         if shared_out_bias is not None:
-            self.to_out[0].bias = shared_out_bias
+            self.to_out = nn.Linear(inner_dim, dim, bias=False)
+            self.to_out.bias = shared_out_bias
+        else:
+            self.to_out = nn.Linear(inner_dim, dim, bias=False)
 
-    def set_mps_attention_backend(self, backend=None, min_tokens=128):
-        backend = (backend or "torch").lower()
-        if backend not in ("torch", "mlx", "mlx_attention", "mlx_transformer"):
-            raise ValueError("mps_attention_backend must be 'torch', 'mlx', 'mlx_attention', or 'mlx_transformer'")
-        self.mps_attention_backend = "torch" if backend == "mlx_transformer" else backend
-        self.mps_mlx_min_tokens = 128 if min_tokens is None else int(min_tokens)
-
-    def set_cuda_attention_backend(self, backend=None):
-        self.cuda_attention_backend = normalize_cuda_attention_backend(backend)
-        self._disabled_cuda_attention_backends.clear()
-
-    def _use_mlx_attention_layer(self, x):
-        return (
-            self.flash
-            and not self.training
-            and self.mps_attention_backend == "mlx_attention"
-            and x.device.type == "mps"
-            and (x.dtype == torch.float16 or torch.is_autocast_enabled("mps"))
-            and x.shape[-2] >= self.mps_mlx_min_tokens
-        )
-
-    def _use_mlx_sdpa(self, q):
-        return (
-            self.flash
-            and not self.training
-            and self.mps_attention_backend == "mlx"
-            and q.device.type == "mps"
-            and q.dtype == torch.float16
-            and q.shape[-2] >= self.mps_mlx_min_tokens
-        )
+        self.to_gates = nn.Linear(dim, heads, bias=False)
+        self.norm = RMSNorm(dim)
 
     def _attention(self, q, k, v):
-        if self._use_mlx_sdpa(q):
-            try:
-                from .mlx_attention import mlx_bridge_sdpa
-
-                return mlx_bridge_sdpa(q, k, v)
-            except Exception as exc:
-                self._pymss_mlx_backend_error = repr(exc)
-                self.mps_attention_backend = "torch"
-
-        if self.flash:
-            return self._cuda_or_default_attention(q, k, v)
-        return self.attend(q, k, v)
-
-    def _cuda_or_default_attention(self, q, k, v):
         dropout_p = self.dropout if self.training else 0.0
-        backend = self.cuda_attention_backend
-        if not q.is_cuda or backend == "default":
-            return F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
-
-        if backend == "auto":
-            for candidate in ("cudnn", "efficient"):
-                if candidate in self._disabled_cuda_attention_backends:
-                    continue
-                try:
-                    return _sdpa_with_backend(q, k, v, dropout_p, candidate)
-                except torch.cuda.OutOfMemoryError:
-                    raise
-                except Exception as exc:
-                    self._pymss_cuda_attention_backend_error = f"{candidate}: {exc!r}"
-                    self._disabled_cuda_attention_backends.add(candidate)
-            return F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
-
-        try:
-            if backend == "xformers":
-                return _xformers_attention(q, k, v, dropout_p)
-            return _sdpa_with_backend(q, k, v, dropout_p, backend)
-        except torch.cuda.OutOfMemoryError:
-            raise
-        except Exception as exc:
-            self._pymss_cuda_attention_backend_error = f"{backend}: {exc!r}"
-            self.cuda_attention_backend = "default"
-            return F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        return F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
 
     def forward(self, x):
-        if self._use_mlx_attention_layer(x):
-            try:
-                from .mlx_attention import mlx_bridge_attention
-
-                return mlx_bridge_attention(self, x)
-            except Exception as exc:
-                self._pymss_mlx_backend_error = repr(exc)
-                self.mps_attention_backend = "torch"
-
         x = self.norm(x)
         q, k, v = qkv_to_bnhd(self.to_qkv(x), self.heads)
 
@@ -313,44 +167,7 @@ class Transformer(Module):
 
         self.norm = RMSNorm(dim) if norm_output else nn.Identity()
 
-        self.mps_attention_backend = "torch"
-        self.mps_mlx_min_tokens = 128
-        self.cuda_attention_backend = default_cuda_attention_backend()
-
-    def set_mps_attention_backend(self, backend=None, min_tokens=128):
-        backend = (backend or "torch").lower()
-        if backend not in ("torch", "mlx", "mlx_attention", "mlx_transformer"):
-            raise ValueError("mps_attention_backend must be 'torch', 'mlx', 'mlx_attention', or 'mlx_transformer'")
-        self.mps_attention_backend = backend
-        self.mps_mlx_min_tokens = 128 if min_tokens is None else int(min_tokens)
-        child_backend = "torch" if backend == "mlx_transformer" else backend
-        for attn, _ in self.layers:
-            attn.set_mps_attention_backend(child_backend, self.mps_mlx_min_tokens)
-
-    def set_cuda_attention_backend(self, backend=None):
-        self.cuda_attention_backend = normalize_cuda_attention_backend(backend)
-        for attn, _ in self.layers:
-            attn.set_cuda_attention_backend(self.cuda_attention_backend)
-
-    def _use_mlx_transformer(self, x):
-        return (
-            self.mps_attention_backend == "mlx_transformer"
-            and not self.training
-            and x.device.type == "mps"
-            and (x.dtype == torch.float16 or torch.is_autocast_enabled("mps"))
-            and x.shape[-2] >= self.mps_mlx_min_tokens
-        )
-
     def forward(self, x):
-        if self._use_mlx_transformer(x):
-            try:
-                from .mlx_attention import mlx_bridge_transformer
-
-                return mlx_bridge_transformer(self, x)
-            except Exception as exc:
-                self._pymss_mlx_backend_error = repr(exc)
-                self.set_mps_attention_backend("torch", self.mps_mlx_min_tokens)
-
         for attn, ff in self.layers:
             x = attn(x) + x
             x = ff(x) + x

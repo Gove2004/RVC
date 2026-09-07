@@ -134,8 +134,7 @@ class _SynthesizerTrnMsBase(nn.Module):
     def remove_weight_norm(self):
         self.dec.remove_weight_norm()
         self.flow.remove_weight_norm()
-        if hasattr(self, "enc_q"):
-            self.enc_q.remove_weight_norm()
+        self.enc_q.remove_weight_norm()
 
     def forward(
         self,

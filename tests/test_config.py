@@ -110,19 +110,18 @@ class TestSerialization(unittest.TestCase):
             self.assertEqual(loaded.engine.block_time, 0.5)
             self.assertEqual(loaded.active_model, "/test/model.pth")
 
-    def test_load_missing_file_returns_default(self):
+    def test_load_missing_file_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "nonexistent.json"
-            cfg = load_config_json(path, AppConfig)
-            self.assertIsInstance(cfg, AppConfig)
-            self.assertEqual(cfg.inference.pitch, 0)
+            with self.assertRaises(FileNotFoundError):
+                load_config_json(path, AppConfig)
 
-    def test_load_corrupted_file_returns_default(self):
+    def test_load_corrupted_file_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "corrupted.json"
             path.write_text("{invalid json", encoding="utf-8")
-            cfg = load_config_json(path, AppConfig)
-            self.assertIsInstance(cfg, AppConfig)
+            with self.assertRaises(json.JSONDecodeError):
+                load_config_json(path, AppConfig)
 
 
 class TestModelEntry(unittest.TestCase):
