@@ -13,10 +13,8 @@ import sounddevice as sd
 import torch
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.audio.denoise import SpectralSubtraction
+from rvc.audio.effects import AudioProcessor
 from rvc.audio.output_router import route_secondary_output, write_main_output
-from rvc.audio.realtime_mix import apply_rms_mix
-from rvc.audio.sola import apply_sola
 from rvc.config import InferenceConfig
 from rvc.inference.runner import InferenceRunner
 from rvc.runtime import Config
@@ -55,8 +53,7 @@ class RealtimeEngine:
         self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
         self.resampler = None; self.resampler_model2dev = None
         self._in_pin = None          # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用）
-        self.nr_ss = None            # 效果器（setup 时创建）
-        self._last_nr_params = None  # 降噪参数缓存（用于检测变化）
+        self.processor = AudioProcessor()
 
         self.pth_path = ""
         self.infer_ms = 0.0
@@ -71,6 +68,9 @@ class RealtimeEngine:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
         config = Config()  # load_model 在 _init_processing 之前调用，需单独获取 Config
+        # 诊断：清除所有模型缓存，每次都重新加载。
+        # 若清除后快速重启不再沙哑，说明根因在模型缓存层。
+        self.inference_cache.clear()
         try:
             self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
@@ -171,23 +171,17 @@ class RealtimeEngine:
         # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用，避免每块分配）
         self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
 
-        self.sola_buffer = torch.zeros(self.sola_buffer_samples, device=cfg.device)
-
-        ls = torch.linspace(0, 1, steps=self.sola_buffer_samples, device=cfg.device)
-        self.fade_in = torch.sin(0.5 * np.pi * ls) ** 2
-        self.fade_out = 1 - self.fade_in
-        self.sola_norm_kernel = torch.ones(1, 1, self.sola_buffer_samples, device=cfg.device)
-
         self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(cfg.device)
         if self.sr_model != self.sr:
             self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(cfg.device)
         else:
             self.resampler_model2dev = None
 
-        # 降噪器（输入侧）
-        self.nr_ss = SpectralSubtraction(self.sr)
-        self.nr_ss.reset()
-        self._last_nr_params = None
+        # 效果器（降噪 / RMS / SOLA）
+        self.processor.setup(
+            self.sr, self.block_samples, self.crossfade_samples,
+            self.sola_search_samples, cfg.device,
+        )
 
     def warmup_inference(self, n: int = 2):
         """开流前用静音数据跑 n 次完整回调，完成 CUDA Graph 捕获以及
@@ -385,32 +379,21 @@ class RealtimeEngine:
             src = torch.from_numpy(mono)
             self._in_pin[: src.shape[0]].copy_(src, non_blocking=True)
             mono = self._in_pin[: src.shape[0]].to(self._device, non_blocking=True)
-            mono = self._apply_denoise(mono, p_nr_enable, p_nr_strength)
+            mono = self.processor.process_input(mono, p_nr_enable, p_nr_strength)
             self._update_input_buffers(mono)
 
             # ── 阶段3: 语音转换推理 ───────────────────────────────────
             infer = self._run_inference()
 
-            # ── 阶段4: RMS音量包络混合 ────────────────────────────────
-            if p_rms_mix < 1 and self.function == "vc":
-                infer = self._apply_rms_mix(infer, p_rms_mix)
-
-            # ── 阶段5: SOLA对齐 ───────────────────────────────────────
-            chunk = self._apply_sola(infer)
+            # ── 阶段4-5: RMS 混合 + SOLA 对齐 ────────────────────────
+            ref = self.input_wav[self.extra_samples:]
+            chunk = self.processor.process_output(infer, ref, p_rms_mix, self.function == "vc")
 
             # ── 阶段6: 输出写入与副输出路由 ───────────────────────────
             self._write_output(chunk, outdata, p_enable_out2)
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
-    def _apply_sola(self, infer):
-        """SOLA 时间拉伸对齐，输出块长度 = block_samples"""
-        return apply_sola(
-            infer, self.sola_buffer, self.sola_norm_kernel,
-            self.fade_in, self.fade_out,
-            self.block_samples, self.sola_buffer_samples,
-            self.sola_search_samples,
-        )
 
     def _write_output(self, chunk, outdata, enable_out2):
         """主输出写入 + 副输出路由"""
@@ -422,17 +405,6 @@ class RealtimeEngine:
         mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
         return np.ascontiguousarray(mono)
 
-    def _apply_denoise(self, mono: torch.Tensor, enable: bool, strength: float) -> torch.Tensor:
-        """输入侧降噪（谱减法），输入输出均为 GPU tensor，避免 CPU↔GPU 往返。
-
-        参数变化检测：强度变了才更新效果器。
-        """
-        if enable and self.nr_ss is not None:
-            if self._last_nr_params != strength:
-                self.nr_ss.set_strength(strength)
-                self._last_nr_params = strength
-            return self.nr_ss(mono)
-        return mono
 
     def _update_input_buffers(self, mono: torch.Tensor):
         """轮换输入缓存并执行降采样到16kHz（mono 为 GPU tensor）"""
@@ -466,7 +438,3 @@ class RealtimeEngine:
             infer = self.input_wav[self.extra_samples:].clone()
         return infer
 
-    def _apply_rms_mix(self, infer, rms_mix):
-        """应用RMS音量包络混合，使转换音量参考原始音量"""
-        ref = self.input_wav[self.extra_samples:]
-        return apply_rms_mix(ref, infer, rms_mix, self.hz_centis)

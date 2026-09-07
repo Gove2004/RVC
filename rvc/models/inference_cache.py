@@ -74,5 +74,12 @@ class InferenceCache:
         """
         self._synthesizer.set(key, value)
 
+    def clear(self):
+        """清除所有缓存的模型（诊断用：快速重启沙哑时调用，
+        若清除后沙哑消失说明问题在模型缓存层）。"""
+        for lru in (self._hubert, self._rmvpe, self._fcpe, self._synthesizer):
+            with lru._lock:
+                lru._d.clear()
+
 
 default_inference_cache = InferenceCache()
