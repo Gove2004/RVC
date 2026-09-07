@@ -49,8 +49,6 @@ class RealtimeEngine:
 
         self.input_wav = None; self.input_wav_res = None
         self.input_wav_work = None; self.input_wav_res_work = None
-        self.sola_buffer = None
-        self.fade_in = None; self.fade_out = None; self.sola_norm_kernel = None
         self.resampler = None; self.resampler_model2dev = None
         self._in_pin = None          # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用）
         self.processor = AudioProcessor()
@@ -131,11 +129,9 @@ class RealtimeEngine:
         # 必须在 warmup 后彻底重置所有运行时缓冲区，确保首次真实推理从干净状态开始。
         if self.runner is not None:
             self.runner.reset()
-        self.sola_buffer.zero_()
+        self.processor.reset()
         self.input_wav.zero_()
         self.input_wav_res.zero_()
-        if self.nr_ss is not None:
-            self.nr_ss.reset()
 
         self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
@@ -250,7 +246,7 @@ class RealtimeEngine:
         # PortAudio 流关闭是异步的：abort/close 返回后底层流可能还在释放中。
         # 快速 stop→start 时新流复用旧流资源会导致音频数据混乱（声音沙哑）。
         # 短暂等待确保底层流完全释放。间隔一段时间重启不沙哑正是因为等够了。
-        time.sleep(0.15)
+        time.sleep(0.5)  # 诊断：增加到0.5s，若解决说明异步释放需更长时间
 
     def process_file(self, input_path, output_path, *, params=None,
                      block_t=0.25, cf_t=0.05, extra_t=2.5,
