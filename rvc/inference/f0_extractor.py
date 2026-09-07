@@ -18,12 +18,6 @@ logger = logging.getLogger(__name__)
 # 误判浊音给合成器喂假音高，与 RMVPE 的 thred=0.03 拉到同档（RMVPE 在该档底噪全判 uv）。
 FCPE_CONFIDENCE_THRESHOLD = 0.025
 
-# F0 中值滤波：去除孤立野值（倍频/半频错误），减少破音/沙哑/带电
-# kernel_size=5（RMVPE ~100ms，FCPE ~50ms），既能去野值又不过度平滑真实音高变化
-F0_MEDIAN_FILTER_ENABLED = True
-F0_MEDIAN_KERNEL = 5
-
-
 def _median_filter_1d(x: torch.Tensor, kernel_size: int = 5) -> torch.Tensor:
     """1D 中值滤波，reflect padding。用于 F0 曲线去野值。"""
     import torch.nn.functional as F
@@ -147,13 +141,15 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
         knee = f0_proc[3]
         f0 = apply_f0_break_protect(f0, critical, ratio, knee)
     # F0 中值滤波（去除孤立野值，减少破音/沙哑/带电）
-    if F0_MEDIAN_FILTER_ENABLED:
+    from rvc.core.experimental import experimental_config
+    if experimental_config.f0_median_enabled:
+        kernel = experimental_config.f0_median_kernel
         # UV 判定中值滤波（去除孤立的 UV/浊音误判，改善短辅音咬字）
         uv_mask = (f0 > 0).float()
-        uv_mask_smoothed = _median_filter_1d(uv_mask, F0_MEDIAN_KERNEL)
+        uv_mask_smoothed = _median_filter_1d(uv_mask, kernel)
         uv_mask_binary = uv_mask_smoothed > 0.5
         # pitchf 中值滤波（去除倍频/半频野值）
-        f0_smoothed = _median_filter_1d(f0, F0_MEDIAN_KERNEL)
+        f0_smoothed = _median_filter_1d(f0, kernel)
         f0 = torch.where(uv_mask_binary, f0_smoothed, torch.zeros_like(f0))
     return _normalize_f0_to_coarse(f0), f0
 

@@ -33,6 +33,7 @@ from gui.infer.view.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.view.tabs.global_params_tab import build_global_params_tab
 from gui.infer.view.tabs.models_tab import build_models_tab
 from gui.infer.view.tabs.offline_tab import build_offline_tab
+from gui.infer.view.tabs.experimental_tab import build_experimental_tab
 from gui.infer.controller.model_manager import ModelManager
 from gui.infer.controller.device_manager import DeviceManager
 from gui.infer.controller.offline_manager import OfflineManager
@@ -154,6 +155,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(build_global_params_tab(self), "参数调节")
         tabs.addTab(build_models_tab(self), "模型列表")
         tabs.addTab(build_offline_tab(self), "离线推理")
+        tabs.addTab(build_experimental_tab(self), "实验功能")
         root.addWidget(tabs)
 
         # ── 底部控制栏 ──
@@ -402,5 +404,6 @@ class MainWindow(QMainWindow):
         self.hide()
         if self.tray is not None:
             self.tray.notify_minimized()
+
 
 

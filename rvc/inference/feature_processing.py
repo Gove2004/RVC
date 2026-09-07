@@ -2,12 +2,6 @@
 import torch
 import torch.nn.functional as F
 
-# 辅音保护软阈值：用 sigmoid 替代 pitchf>0 硬阈值，减少浊音/清音边界突变
-# threshold=10Hz（过渡中心），width=20Hz（sigmoid 的 4σ，过渡范围约 0~20Hz）
-PROTECT_SOFT_THRESHOLD_ENABLED = True
-PROTECT_SOFT_THRESHOLD_HZ = 10.0
-PROTECT_SOFT_THRESHOLD_WIDTH = 20.0
-
 
 def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:
     # 固定形状块不需要 padding mask：attention_mask=None（全 1）即为正确语义。
@@ -35,9 +29,10 @@ def protect_blend(feats_converted: torch.Tensor, feats_original: torch.Tensor, p
     # 浊音（pitchf 高）→ 全转换；清音（pitchf 低/0）→ 按 protect 混合原特征。
     # 软阈值（sigmoid）：在 pitchf 接近 0 的区域平滑过渡，减少浊音/清音边界突变，
     # 改善短辅音（b/p/d/t）被误判为浊音导致的咬字不清。
-    if PROTECT_SOFT_THRESHOLD_ENABLED:
-        threshold = PROTECT_SOFT_THRESHOLD_HZ
-        width = PROTECT_SOFT_THRESHOLD_WIDTH
+    from rvc.core.experimental import experimental_config
+    if experimental_config.protect_soft_enabled:
+        threshold = experimental_config.protect_soft_threshold_hz
+        width = experimental_config.protect_soft_width
         # uv_prob: 0=浊音（全转换），1=UV/清音（按 protect 混合原特征）
         uv_prob = torch.sigmoid((threshold - pitchf) / (width / 4))
         mix = 1.0 - protect * uv_prob

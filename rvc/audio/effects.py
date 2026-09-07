@@ -112,9 +112,6 @@ class BreathEffect:
         self._noise_idx = 0
         self._sr = 0
         self._device = None
-        self.enabled = True
-        self.strength = 0.4  # 气息强度 0~1，默认中等
-        self.uv_threshold_hz = 10.0  # pitchf 低于此值判为 UV（叠加气息）
 
     def setup(self, sr: int, device: str, block_samples: int):
         """预生成带通粉噪声 buffer（1 秒，循环使用）。"""
@@ -154,14 +151,16 @@ class BreathEffect:
             audio: 输出音频 [samples] GPU tensor
             pitchf: 音高 [1, frames] 或 [frames]（100fps），0=UV
         """
-        if not self.enabled or self.strength <= 0 or self._noise_buffer is None or pitchf is None:
+        from rvc.core.experimental import experimental_config
+        if (not experimental_config.breath_enabled or experimental_config.breath_strength <= 0
+                or self._noise_buffer is None or pitchf is None):
             return audio
         # pitchf 可能是 [1, frames]，压缩到 [frames]
         pf = pitchf.squeeze()
         if pf.dim() == 0:
             return audio
         # UV mask：pitchf <= 阈值
-        uv_mask = (pf <= self.uv_threshold_hz).float()
+        uv_mask = (pf <= experimental_config.breath_uv_threshold_hz).float()
         # 上采样到音频采样率
         uv_mask_up = torch.nn.functional.interpolate(
             uv_mask[None, None, :], size=audio.shape[0], mode="linear", align_corners=False
@@ -173,7 +172,7 @@ class BreathEffect:
         noise = self._noise_buffer[self._noise_idx:self._noise_idx + n]
         self._noise_idx += n
         # 叠加噪声：UV 区域强度高，浊音区域保留低强度底噪（更自然）
-        breath = noise * self.strength * (0.2 + 0.8 * uv_mask_up)
+        breath = noise * experimental_config.breath_strength * (0.2 + 0.8 * uv_mask_up)
         return audio + breath
 
 class AudioProcessor:

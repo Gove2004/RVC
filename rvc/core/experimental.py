@@ -1,0 +1,28 @@
+"""实验功能配置 — 运行时可调节的音质优化参数。
+
+所有实验性功能的开关和参数都在这里，GUI 实验 Tab 直接修改此对象的属性，
+推理代码每次调用时读取，实现运行时实时调节，无需重启。
+"""
+
+
+class ExperimentalConfig:
+    """实验功能配置（运行时可修改）。"""
+
+    def __init__(self):
+        # ── F0 中值滤波（解决破音/沙哑/带电） ──
+        self.f0_median_enabled = True
+        self.f0_median_kernel = 5  # 窗口大小（帧），3-7 推荐
+
+        # ── 辅音保护软阈值（解决咬字不清） ──
+        self.protect_soft_enabled = True
+        self.protect_soft_threshold_hz = 10.0  # 过渡中心（Hz）
+        self.protect_soft_width = 20.0  # 过渡宽度（Hz，sigmoid 的 4σ）
+
+        # ── UV 区域合成气息噪声（解决缺少自然气息感） ──
+        self.breath_enabled = True
+        self.breath_strength = 0.4  # 气息强度 0~1
+        self.breath_uv_threshold_hz = 10.0  # pitchf 低于此值判为 UV（叠加气息）
+
+
+# 全局单例，GUI 和推理代码共用
+experimental_config = ExperimentalConfig()
