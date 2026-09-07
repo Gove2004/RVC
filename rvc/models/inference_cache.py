@@ -29,6 +29,11 @@ class _LRU:
             while len(self._d) > self.maxsize:
                 self._d.popitem(last=False)
 
+    def values(self):
+        """线程安全地返回所有值的快照列表。"""
+        with self._lock:
+            return list(self._d.values())
+
 
 class InferenceCache:
     def __init__(self):
@@ -82,14 +87,15 @@ class InferenceCache:
         快速 stop/start 后 f0 提取异常（声音沙哑）。
         """
         from rvc.tools.cuda_graph import clear_cuda_graph_cache
-        for lru in (self._rmvpe, self._fcpe):
-            with lru._lock:
-                for extractor in lru._d.values():
-                    # RMVPEExtractor.model 是 RMVPE 对象，CUDA Graph 在 model.mel_extractor 和 model.model 上
-                    if hasattr(extractor, 'model'):
-                        if hasattr(extractor.model, 'mel_extractor'):
-                            clear_cuda_graph_cache(extractor.model.mel_extractor)
-                        clear_cuda_graph_cache(extractor.model)
+
+        # RMVPE：CUDA Graph 在 model.mel_extractor 和 model 上
+        for extractor in self._rmvpe.values():
+            clear_cuda_graph_cache(extractor.model.mel_extractor)
+            clear_cuda_graph_cache(extractor.model)
+
+        # FCPE：CUDA Graph 在 model.model（神经网络核心）上
+        for extractor in self._fcpe.values():
+            clear_cuda_graph_cache(extractor.model.model)
 
 
 default_inference_cache = InferenceCache()

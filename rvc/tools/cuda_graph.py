@@ -112,6 +112,7 @@ class _GraphCache:
         self.replay_count = 0
         self.eviction_count = 0
         self.capture_ms = 0.0
+        self.max_entries = max(1, int(os.environ.get(MAX_CACHE_ENV, "8")))
 
     def run(self, key, function, inputs):
         signature = key + tuple(_tensor_signature(value) for value in inputs)
@@ -122,8 +123,7 @@ class _GraphCache:
                 self.entries[signature] = entry
                 self.capture_count += 1
                 self.capture_ms += entry.capture_ms
-                max_entries = max(1, int(os.environ.get(MAX_CACHE_ENV, "8")))
-                while len(self.entries) > max_entries:
+                while len(self.entries) > self.max_entries:
                     self.entries.popitem(last=False)
                     self.eviction_count += 1
             else:
