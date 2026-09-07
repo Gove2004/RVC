@@ -113,26 +113,18 @@ class RealtimeEngine:
 
         self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
 
+        # 重置 pitch 缓存：多次 stop/setup 后旧 pitch 数据会污染新会话，导致声音沙哑/失真
+        if self.runner is not None:
+            self.runner.reset()
+
         # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
         # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
         # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
         self.warmup_inference(2)
 
-        try:
-            self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
-            self.stream.start()
-            self.running = True
-        except Exception as e:
-            msg = str(e)
-            if "Invalid sample rate" in msg or "-9997" in msg:
-                raise RuntimeError(f"采样率 {self.sr} Hz 不支持，请切换到「模型采样率」或 MME 驱动") from e
-            if "Invalid number of channels" in msg or "-9998" in msg:
-                raise RuntimeError(
-                    f"通道数 {self.channels} 不被设备支持。输入「{in_info.get('name', '?')}」支持 {in_max} 通道，"
-                    f"输出「{out_info.get('name', '?')}」支持 {out_max} 通道。"
-                    f"请尝试切换输入/输出设备，或在 Windows 声音设置中确认设备配置。"
-                ) from e
-            raise
+        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
+        self.stream.start()
+        self.running = True
 
     def _init_processing(self, sr, block_t, cf_t, extra_t, channels):
         """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/降噪）。
@@ -195,14 +187,11 @@ class RealtimeEngine:
         frames = self.block_samples
         indata = np.zeros((frames, self.channels), dtype=np.float32)
         outdata = np.zeros((frames, self.channels), dtype=np.float32)
-        try:
-            with torch.no_grad():
-                for _ in range(n):
-                    self._cb_impl(indata, outdata, frames, None, None)
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-        except Exception as e:
-            logger.warning("推理预热失败（不影响运行）: %s", e)
+        with torch.no_grad():
+            for _ in range(n):
+                self._cb_impl(indata, outdata, frames, None, None)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
     def setup_out2(self, dev_idx):
         dev_name = ""
@@ -212,38 +201,28 @@ class RealtimeEngine:
             pass
         logger.info("  · 副输出: %s", dev_name or f"#{dev_idx}")
         def out2_callback(outdata, frames, time_info, status):
-            try:
-                if not self.out2_q.empty():
-                    data = self.out2_q.get_nowait()
-                    outdata[:] = data[:frames]
-                else:
-                    outdata[:] = 0
-            except Exception:
+            if not self.out2_q.empty():
+                data = self.out2_q.get_nowait()
+                outdata[:] = data[:frames]
+            else:
                 outdata[:] = 0
-        try:
-            out2_info = sd.query_devices(dev_idx)
-            out2_max = int(out2_info["max_output_channels"])
-            if out2_max < self.channels:
-                raise RuntimeError(
-                    f"副输出设备「{out2_info.get('name', '?')}」只支持 {out2_max} 通道，"
-                    f"但主输出使用 {self.channels} 通道。请选择支持至少 {self.channels} 通道的副输出设备。"
-                )
-            self.stream2 = sd.OutputStream(
-                device=dev_idx, samplerate=self.sr, channels=self.channels,
-                dtype="float32", blocksize=self.block_samples, callback=out2_callback
+        out2_info = sd.query_devices(dev_idx)
+        out2_max = int(out2_info["max_output_channels"])
+        if out2_max < self.channels:
+            raise RuntimeError(
+                f"副输出设备「{out2_info.get('name', '?')}」只支持 {out2_max} 通道，"
+                f"但主输出使用 {self.channels} 通道。请选择支持至少 {self.channels} 通道的副输出设备。"
             )
-            self.stream2.start()
-            self.enable_out2 = True
-            logger.debug("副输出流已启动: sr=%d, ch=%d, block=%d", self.sr, self.channels, self.block_samples)
-            while not self.out2_q.empty():
-                try:
-                    self.out2_q.get_nowait()
-                except queue.Empty:
-                    pass
-        except Exception as e:
-            if "Invalid sample rate" in str(e) or "-9997" in str(e):
-                raise RuntimeError(f"副输出采样率 {self.sr} Hz 不支持") from e
-            raise
+        self.stream2 = sd.OutputStream(
+            device=dev_idx, samplerate=self.sr, channels=self.channels,
+            dtype="float32", blocksize=self.block_samples, callback=out2_callback
+        )
+        self.stream2.start()
+        self.enable_out2 = True
+        logger.debug("副输出流已启动: sr=%d, ch=%d, block=%d", self.sr, self.channels, self.block_samples)
+        while not self.out2_q.empty():
+            self.out2_q.get_nowait()
+
 
 
     def stop(self):
@@ -252,14 +231,8 @@ class RealtimeEngine:
         self.runtime_error_pending = False
         for s in (self.stream2, self.stream):
             if s:
-                try:
-                    s.abort()
-                except Exception as e:
-                    logger.debug("停止流时出错: %s", e)
-                try:
-                    s.close()
-                except Exception as e:
-                    logger.debug("关闭流时出错: %s", e)
+                s.abort()
+                s.close()
         self.stream = self.stream2 = None
         self.enable_out2 = False
 
@@ -309,13 +282,8 @@ class RealtimeEngine:
 
     def _load_audio_at_sr(self, input_path, tgt_sr):
         """加载音频并重采样到目标采样率（float32, 单声道）。"""
-        import librosa
-        import numpy as np
-
-        from rvc.audio.loader import load_audio_native
-        wav, src_sr = load_audio_native(input_path)
-        if src_sr != tgt_sr:
-            wav = librosa.resample(wav, orig_sr=src_sr, target_sr=tgt_sr)
+        from rvc.audio.loader import load_audio
+        wav, _ = load_audio(input_path, tgt_sr)
         return np.ascontiguousarray(wav, dtype=np.float32)
 
     def _infer_stream(self, wav, block, pad, progress_cb):

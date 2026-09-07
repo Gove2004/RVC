@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 ENV_NAME = "RVC_CUDA_GRAPH"
 MAX_CACHE_ENV = "RVC_CUDA_GRAPH_MAX_CACHE"
-_probe_lock = threading.Lock()
-_probe_result = None
 
 
 def _device_type(device):
@@ -37,55 +35,13 @@ def _clone_output(value):
     return value
 
 
-def detect_cuda_graph_support(device):
-    """探测当前 GPU 是否支持 CUDA Graph。"""
-    if _device_type(device) != "cuda" or not torch.cuda.is_available():
-        return False
-    if not hasattr(torch.cuda, "CUDAGraph") or not hasattr(torch.cuda, "graph"):
-        return False
-    cuda_device = _cuda_device(device)
-    try:
-        with torch.cuda.device(cuda_device):
-            current = torch.cuda.current_stream(cuda_device)
-            warmup = torch.cuda.Stream(device=cuda_device)
-            warmup.wait_stream(current)
-            with torch.cuda.stream(warmup):
-                probe = torch.arange(32, device=cuda_device, dtype=torch.float32)
-                for _ in range(3):
-                    expected = probe.square().add_(1)
-            current.wait_stream(warmup)
-            torch.cuda.synchronize(cuda_device)
-            graph = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(graph):
-                captured = probe.square() + 1
-            probe.copy_(torch.arange(32, device=cuda_device, dtype=torch.float32))
-            graph.replay()
-            torch.cuda.synchronize(cuda_device)
-            valid = torch.equal(
-                captured.cpu(), torch.arange(32, dtype=torch.float32).square() + 1
-            )
-            del captured, expected, graph, probe
-            return bool(valid)
-    except Exception:
-        logger.exception("CUDA Graph support probe failed on %s", cuda_device)
-        return False
-
-
 def configure_cuda_graph(device):
-    """初始化 CUDA Graph 支持（全局只探测一次）。"""
-    global _probe_result
-    explicit = os.environ.get(ENV_NAME)
-    if explicit in {"0", "1"}:
-        if explicit == "0":
-            return False
-        if _device_type(device) != "cuda":
-            os.environ[ENV_NAME] = "0"
-            return False
-    with _probe_lock:
-        if _probe_result is None:
-            _probe_result = detect_cuda_graph_support(device)
-        os.environ[ENV_NAME] = "1" if _probe_result else "0"
-    return bool(_probe_result)
+    """初始化 CUDA Graph 支持。"""
+    if _device_type(device) != "cuda":
+        os.environ[ENV_NAME] = "0"
+        return False
+    os.environ[ENV_NAME] = "1"
+    return True
 
 
 def cuda_graph_enabled(device):
@@ -147,40 +103,29 @@ class _CapturedCall:
 
 
 class _GraphCache:
-    """按签名缓存 CUDA Graph，支持 LRU 淘汰和失败 fallback。"""
+    """按签名缓存 CUDA Graph，支持 LRU 淘汰。"""
 
     def __init__(self):
         self.entries = OrderedDict()
-        self.failures = set()
         self.lock = threading.RLock()
         self.capture_count = 0
         self.replay_count = 0
-        self.fallback_count = 0
         self.eviction_count = 0
         self.capture_ms = 0.0
 
     def run(self, key, function, inputs):
         signature = key + tuple(_tensor_signature(value) for value in inputs)
         with self.lock:
-            if signature in self.failures:
-                self.fallback_count += 1
-                return function(*inputs)
             entry = self.entries.get(signature)
             if entry is None:
-                try:
-                    entry = _CapturedCall(function, inputs)
-                    self.entries[signature] = entry
-                    self.capture_count += 1
-                    self.capture_ms += entry.capture_ms
-                    max_entries = max(1, int(os.environ.get(MAX_CACHE_ENV, "8")))
-                    while len(self.entries) > max_entries:
-                        self.entries.popitem(last=False)
-                        self.eviction_count += 1
-                except Exception:
-                    self.failures.add(signature)
-                    self.fallback_count += 1
-                    logger.exception("CUDA Graph capture failed for %s; using eager", key)
-                    return function(*inputs)
+                entry = _CapturedCall(function, inputs)
+                self.entries[signature] = entry
+                self.capture_count += 1
+                self.capture_ms += entry.capture_ms
+                max_entries = max(1, int(os.environ.get(MAX_CACHE_ENV, "8")))
+                while len(self.entries) > max_entries:
+                    self.entries.popitem(last=False)
+                    self.eviction_count += 1
             else:
                 self.entries.move_to_end(signature)
         output = entry.replay(inputs)
@@ -190,7 +135,7 @@ class _GraphCache:
 
 
 def run_cuda_graph(owner, namespace, function, *inputs):
-    """CUDA Graph 入口：已缓存则 replay，未缓存则 capture，失败则 fallback。"""
+    """CUDA Graph 入口：已缓存则 replay，未缓存则 capture。"""
     if not inputs or not cuda_graph_enabled(inputs[0].device):
         return function(*inputs)
     cache = getattr(owner, "_rvc_cuda_graph_cache", None)
@@ -205,6 +150,4 @@ def clear_cuda_graph_cache(owner):
     cache = getattr(owner, "_rvc_cuda_graph_cache", None)
     if cache is not None:
         cache.entries.clear()
-        cache.failures.clear()
         delattr(owner, "_rvc_cuda_graph_cache")
-
