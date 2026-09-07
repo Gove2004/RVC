@@ -308,9 +308,12 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
             cached = RMVPEExtractor(str(RMVPE_PATH), device, is_half)
             inference_cache.set_rmvpe(cache_key, cached)
         else:
-            # 复用缓存模型时清除旧的 CUDA Graph（mel_extractor + model 各持一份）
-            clear_cuda_graph_cache(cached.mel_extractor)
-            clear_cuda_graph_cache(cached.model)
+            # 复用缓存模型时清除旧的 CUDA Graph。
+            # RMVPEExtractor.model 是 RMVPE 对象，其内部：
+            #   model.mel_extractor 持有 "rmvpe-mel-extractor" 图
+            #   model.model（E2E网络）持有 "rmvpe-network" + "rmvpe-decode-*" 图
+            clear_cuda_graph_cache(cached.model.mel_extractor)
+            clear_cuda_graph_cache(cached.model.model)
         return cached
     elif method == "fcpe":
         cache_key = device
