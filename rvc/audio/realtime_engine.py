@@ -134,6 +134,15 @@ class RealtimeEngine:
         self.input_wav.zero_()
         self.input_wav_res.zero_()
 
+        # 关键：warmup 用静音数据捕获的 CUDA Graph 可能状态异常（静音段 f0 提取
+        # 输出随机值/全零，导致图中包含不正确的中间状态）。清除后让真实推理时
+        # 重新捕获，避免快速 stop/start 后声音沙哑或没声音。
+        from rvc.tools.cuda_graph import clear_cuda_graph_cache
+        if self.pipeline is not None:
+            clear_cuda_graph_cache(self.pipeline.hubert_model)
+            clear_cuda_graph_cache(self.pipeline.synthesizer)
+        self.inference_cache.clear_f0_cuda_graph_caches()
+
         self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
         self.running = True
