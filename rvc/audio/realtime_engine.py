@@ -124,6 +124,7 @@ class RealtimeEngine:
         # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
         # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
         # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
+        logger.info("推理组件：")
         self.warmup_inference(2)
 
         # warmup 用静音数据跑推理会污染所有缓冲区（pitch/sola/输入缓存），
@@ -250,9 +251,12 @@ class RealtimeEngine:
                     pass
         self.stream = self.stream2 = None
         self.enable_out2 = False
-        # 清理 GPU 缓存：多次 stop/start 后 GPU 内存可能有碎片，
-        # 导致新分配的张量包含旧数据，表现为声音沙哑/失真。
+        # 关键：必须先同步 GPU 等待所有推理操作完成，再释放缓存。
+        # 否则快速 stop→start 时，empty_cache 释放的内存可能还在被旧的
+        # GPU kernel 使用，新 setup 分配的张量复用这些内存导致数据冲突，
+        # 表现为声音沙哑/失真。间隔一段时间后旧 kernel 跑完了所以不会沙哑。
         if torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
 
     def process_file(self, input_path, output_path, *, params=None,
