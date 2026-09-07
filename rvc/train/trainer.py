@@ -96,11 +96,13 @@ class Trainer:
         else:
             if self.cfg.pretrain_g:
                 state = torch.load(self.cfg.pretrain_g, map_location="cpu", weights_only=False)
-                self.synthesizer.load_state_dict(state["weight"], strict=False)
+                weight = state.get("weight", state)  # 兼容官方底模（直接 state_dict，无 weight 键）
+                self.synthesizer.load_state_dict(weight, strict=False)
                 self.log("加载预训练 G")
             if self.cfg.pretrain_d:
                 state = torch.load(self.cfg.pretrain_d, map_location="cpu", weights_only=False)
-                self.net_d.load_state_dict(state["weight"], strict=False)
+                weight = state.get("weight", state)  # 兼容官方底模
+                self.net_d.load_state_dict(weight, strict=False)
                 self.log("加载预训练 D")
 
         self.scheduler_g = torch.optim.lr_scheduler.ExponentialLR(self.optim_g, gamma=self.train_cfg["lr_decay"], last_epoch=self.start_epoch - 2)
