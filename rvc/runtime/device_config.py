@@ -4,7 +4,7 @@ import threading
 
 import torch
 
-from rvc.tools.cuda_graph import configure_cuda_graph
+from rvc.inference.cuda_graph import configure_cuda_graph
 
 logger = logging.getLogger(__name__)
 

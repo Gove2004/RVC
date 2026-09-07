@@ -11,7 +11,7 @@
 2. BINDINGS 加一行（路径 + 控件 + 读写方式 + 默认值）
 3. Tab 里建控件
 """
-from rvc.config import AppConfig, EngineConfig, InferenceConfig
+from rvc.core.config import AppConfig, EngineConfig, InferenceConfig
 
 # 读写方式
 CHECK = "check"      # QCheckBox / bool

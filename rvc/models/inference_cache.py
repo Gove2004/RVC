@@ -86,7 +86,7 @@ class InferenceCache:
         但 f0 提取器通过 inference_cache 独立缓存，旧 CUDA Graph 残留可能导致
         快速 stop/start 后 f0 提取异常（声音沙哑）。
         """
-        from rvc.tools.cuda_graph import clear_cuda_graph_cache
+        from rvc.inference.cuda_graph import clear_cuda_graph_cache
 
         # RMVPE：CUDA Graph 在 model.mel_extractor 和 model 上
         for extractor in self._rmvpe.values():

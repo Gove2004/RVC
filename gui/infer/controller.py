@@ -8,7 +8,7 @@ import logging
 import threading
 from dataclasses import dataclass
 
-from rvc.config import InferenceConfig
+from rvc.core.config import InferenceConfig
 from rvc.models import default_inference_cache
 
 logger = logging.getLogger(__name__)

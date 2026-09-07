@@ -1,5 +1,6 @@
 """统一音频加载工具 — 基于 ffmpeg 解码。"""
 import logging
+from rvc.core.errors import AudioLoadError
 import subprocess
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def load_audio(path: str | Path, target_sr: int, mono: bool = True, timeout: int
     proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
     if proc.returncode:
         err = proc.stderr.decode("utf-8", errors="replace")[-500:]
-        raise RuntimeError(f"ffmpeg 解码失败: {path}\n{err}")
+        raise AudioLoadError(f"ffmpeg 解码失败: {path}\n{err}")
     raw = np.frombuffer(proc.stdout, dtype=np.float32)
     if not mono:
         raw = raw.reshape(-1, 2).T  # f32le 交织 LRLR… → (2, N)

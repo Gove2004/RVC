@@ -1,21 +1,23 @@
 """实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果。
 
-架构: RealtimeEngine 拥有一个 VCPipeline 实例，在 sounddevice 回调中驱动推理。
-audio 层依赖 inference 层是有意为之——回调必须协调流计时与模型推理。
+架构重构后：RealtimeEngine 作为门面（Facade），内部委托给子组件：
+- AudioStreamManager: 设备/流管理（PortAudio 封装）
+- InferenceRunner: 推理调度（缓冲区/推理/效果器）
+- ModelSessionManager: 模型生命周期（通过 VCPipeline 间接使用）
+
+对外接口（start/stop/load_model/process_file）保持不变，GUI 层无需修改。
 """
 import logging
-import queue
 import threading
 import time
 
 import numpy as np
 import sounddevice as sd
 import torch
-from torchaudio.transforms import Resample as TatResample
 
-from rvc.audio.effects import AudioProcessor
-from rvc.audio.output_router import route_secondary_output, write_main_output
-from rvc.config import InferenceConfig
+from rvc.audio.inference_runner import InferenceRunner
+from rvc.audio.stream_manager import AudioStreamManager
+from rvc.core.config import InferenceConfig
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -25,43 +27,40 @@ MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
 
 
 class RealtimeEngine:
+    """实时音频引擎 — 门面类，内部委托给 AudioStreamManager 和 InferenceRunner。"""
+
     def __init__(self, runtime_params, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params
         self.inference_cache = inference_cache
         self.on_runtime_error = on_runtime_error
         self.pipeline = None
-        self.stream = None
-        self.stream2 = None
         self.running = False
         self.function = "vc"
-        self.out2_q = queue.Queue(maxsize=10)
-        self.enable_out2 = False  # 副输出开关（setup_out2 时设 True，stop 时重置；不依赖 InferenceConfig）
 
-        # ── 处理状态（setup()/process_file() 经 _init_processing 填充）──
-        self.sr = None; self.sr_dev = None; self.sr_model = None
-        self.hz_centis = None; self.channels = 1
-        self.block_samples = 0; self.block_samples_16k = 0
-        self.crossfade_samples = 0; self.sola_buffer_samples = 0
-        self.sola_search_samples = 0; self.extra_samples = 0
-        self.skip_head = 0; self.return_length = 0
+        # 子组件
+        self._stream_mgr = AudioStreamManager()
+        self._runner = None  # InferenceRunner（setup 时创建）
 
-        self.input_wav = None; self.input_wav_res = None
-        self.input_wav_work = None; self.input_wav_res_work = None
-        self.resampler = None; self.resampler_model2dev = None
-        self._in_pin = None          # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用）
-        self.processor = AudioProcessor()
-
-        self.pth_path = ""
-        self.infer_ms = 0.0
-        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（EMA 平滑）
+        # 错误统计
         self.error_count = 0
         self.max_error_count = MAX_CONSECUTIVE_ERRORS
         self.last_error = ""
         self.runtime_error_pending = False
+
+        # 性能统计
+        self.infer_ms = 0.0
+        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（EMA 平滑）
+
         self._cfg = Config()  # 单例缓存，避免多处重复获取
+        self.pth_path = ""
+
+    # ── 模型加载 ──
 
     def load_model(self, pth, force=False, hubert="chinese"):
-        # 切换模型时清除 f0 提取器的旧 CUDA Graph 缓存（独立于 synthesizer/hubert）。
+        """加载模型（创建 VCPipeline）。
+
+        切换模型时清除 f0 提取器的旧 CUDA Graph 缓存。
+        """
         if self.inference_cache:
             self.inference_cache.clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
@@ -77,193 +76,104 @@ class RealtimeEngine:
             self.pipeline = None
             raise
 
+    # ── 引擎启动/停止 ──
+
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
-        if self.stream is not None:
+        """启动实时变声引擎。"""
+        if self._stream_mgr.stream is not None:
             self.stop()
         self.error_count = 0
         self.last_error = ""
         self.runtime_error_pending = False
+
         sd.default.device = [in_dev, out_dev]
-        self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.sr_model = self.pipeline.target_sr
-        self.sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
+        sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
+        sr_model = self.pipeline.target_sr
+        sr = sr_model if sr_type == "sr_model" else sr_dev
 
-        self._validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
-        self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
-        self._warmup_and_reset_buffers()
+        # 设备校验与日志
+        self._stream_mgr.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
+        channels = self._stream_mgr.channels
 
-        self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
-        self.stream.start()
+        # 推理运行器初始化
+        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
+        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
+
+        # 预热 + 重置缓冲区
+        self._runner.warmup(2)
+        self._runner.reset_buffers()
+
+        # 启动主流
+        self._stream_mgr.start_main_stream(self._cb, sr, channels, self._runner.block_samples)
         self.running = True
 
-    def _validate_and_log_devices(self, in_dev, out_dev, out2_dev_idx):
-        """校验输入/输出设备通道数，设置 channels，打印设备日志。"""
-        in_info, out_info = sd.query_devices(in_dev), sd.query_devices(out_dev)
-        in_max = int(in_info["max_input_channels"])
-        out_max = int(out_info["max_output_channels"])
-        if in_max <= 0:
-            raise RuntimeError(
-                f"输入设备不支持录音（max_input_channels={in_max}）："
-                f"索引 {in_dev}「{in_info.get('name', '?')}」。请在设备设置中选择支持输入的设备。"
-            )
-        if out_max <= 0:
-            raise RuntimeError(
-                f"输出设备不支持播放（max_output_channels={out_max}）："
-                f"索引 {out_dev}「{out_info.get('name', '?')}」。请在设备设置中选择支持输出的设备。"
-            )
-        self.channels = min(in_max, out_max, 2)
-        logger.info("音频设备：")
-        logger.info("  · 麦克风：%s", in_info.get('name', '?'))
-        logger.info("  · 主输出：%s [%dch]", out_info.get('name', '?'), self.channels)
+        # 启动副输出（如果指定）
         if out2_dev_idx is not None:
-            out2_info = sd.query_devices(out2_dev_idx)
-            logger.info("  · 副输出：%s", out2_info.get('name', f"#{out2_dev_idx}"))
-
-    def _warmup_and_reset_buffers(self):
-        """开流前用静音数据预热推理（捕获 CUDA Graph），然后重置所有被污染的缓冲区。
-
-        warmup 会污染 pitch/sola/输入缓存，必须在之后彻底重置，
-        确保首次真实推理从干净状态开始。
-        """
-        self.warmup_inference(2)
-        if self.pipeline is not None:
-            self.pipeline.reset_pitch_cache()
-        self.processor.reset()
-        self.input_wav.zero_()
-        self.input_wav_res.zero_()
-
-    def _init_processing(self, sr, block_t, cf_t, extra_t, channels):
-        """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/降噪）。
-
-        setup() 与离线文件流式推理 process_file() 共用，保证两条路径算法完全一致。
-        需先设置 self.sr_model（= pipeline.target_sr），用于判断是否需模型→设备重采样。
-        """
-        cfg = self._cfg
-        self._device = cfg.device
-        self.sr = sr
-        self.channels = channels
-        zc = self.sr // 100
-        self.block_samples = int(np.round(block_t * self.sr / zc)) * zc
-        self.crossfade_samples = int(np.round(cf_t * self.sr / zc)) * zc
-        self.sola_buffer_samples = min(self.crossfade_samples, 4 * zc)
-        self.sola_search_samples = zc
-        self.extra_samples = int(np.round(extra_t * self.sr / zc)) * zc
-
-        self.block_samples_16k = 160 * self.block_samples // zc
-        self.skip_head = self.extra_samples // zc
-        self.return_length = (self.block_samples + self.sola_buffer_samples + self.sola_search_samples) // zc
-
-        n = self.extra_samples + self.crossfade_samples + self.sola_search_samples + self.block_samples
-        self.input_wav = torch.zeros(n, device=cfg.device)
-        self.input_wav_res = torch.zeros(160 * n // zc, device=cfg.device)
-        self.input_wav_work = torch.empty_like(self.input_wav)
-        self.input_wav_res_work = torch.empty_like(self.input_wav_res)
-        self.hz_centis = zc
-        # 输入侧 pinned buffer（CPU↔GPU 非阻塞拷贝复用，避免每块分配）
-        self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
-
-        self.resampler = TatResample(self.sr, 16000, dtype=torch.float32).to(cfg.device)
-        if self.sr_model != self.sr:
-            self.resampler_model2dev = TatResample(self.sr_model, self.sr, dtype=torch.float32).to(cfg.device)
-        else:
-            self.resampler_model2dev = None
-
-        # 效果器（降噪 / RMS / SOLA）
-        self.processor.setup(
-            self.sr, self.block_samples, self.crossfade_samples,
-            self.sola_search_samples, cfg.device,
-        )
-
-    def warmup_inference(self, n: int = 2):
-        """开流前用静音数据跑 n 次完整回调，完成 CUDA Graph 捕获以及
-        降噪/重采样/SOLA/输出等所有首次开销，让首次真实回调即为热状态。
-
-        需在 setup() 分配 buffer 之后、开流之前调用（形状与真实回调一致）。
-        失败只警告，不影响运行。
-        """
-        if self.pipeline is None or self.input_wav_res is None:
-            return
-        self.function = "vc"
-        frames = self.block_samples
-        indata = np.zeros((frames, self.channels), dtype=np.float32)
-        outdata = np.zeros((frames, self.channels), dtype=np.float32)
-        with torch.no_grad():
-            for _ in range(n):
-                self._cb_impl(indata, outdata, frames, None, None)
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+            self.setup_out2(out2_dev_idx)
 
     def setup_out2(self, dev_idx):
-        def out2_callback(outdata, frames, time_info, status):
-            if not self.out2_q.empty():
-                data = self.out2_q.get_nowait()
-                outdata[:] = data[:frames]
-            else:
-                outdata[:] = 0
-        out2_info = sd.query_devices(dev_idx)
-        out2_max = int(out2_info["max_output_channels"])
-        if out2_max < self.channels:
-            raise RuntimeError(
-                f"副输出设备「{out2_info.get('name', '?')}」只支持 {out2_max} 通道，"
-                f"但主输出使用 {self.channels} 通道。请选择支持至少 {self.channels} 通道的副输出设备。"
-            )
-        self.stream2 = sd.OutputStream(
-            device=dev_idx, samplerate=self.sr, channels=self.channels,
-            dtype="float32", blocksize=self.block_samples, callback=out2_callback
+        """启动副输出流。"""
+        if self._runner is None:
+            raise RuntimeError("请先启动主引擎再设置副输出")
+        self._stream_mgr.start_secondary_output(
+            dev_idx, self._runner.sr, self._runner.channels, self._runner.block_samples
         )
-        self.stream2.start()
-        self.enable_out2 = True
-        logger.debug("副输出流已启动: sr=%d, ch=%d, block=%d", self.sr, self.channels, self.block_samples)
-        while not self.out2_q.empty():
-            self.out2_q.get_nowait()
-
-
-
-    @staticmethod
-    def _safe_close_stream(stream):
-        """安全中止并关闭 sounddevice 流，忽略所有异常。"""
-        if stream is None:
-            return
-        try:
-            stream.abort()
-        except Exception:
-            pass
-        try:
-            stream.close()
-        except Exception:
-            pass
 
     def stop(self):
+        """停止引擎，关闭所有流。"""
         self.running = False
         self.error_count = 0
         self.runtime_error_pending = False
-        self._safe_close_stream(self.stream2)
-        self._safe_close_stream(self.stream)
-        self.stream = self.stream2 = None
-        self.enable_out2 = False
+        self._stream_mgr.stop_all()
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
         if torch.cuda.is_available():
             torch.cuda.synchronize()
+
+    # ── 音频回调 ──
+
+    def _cb(self, indata, outdata, frames, times, status):
+        """sounddevice 回调函数 — 委托给 InferenceRunner.process_block。"""
+        try:
+            # 硬件时间戳实测端到端延迟
+            d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
+            if 0 < d < 2:
+                ms = d * 1000
+                self.measure_ms = ms if self.measure_ms <= 0 else self.measure_ms * 0.7 + ms * 0.3
+
+            # 委托给推理运行器
+            self._runner.process_block(indata, outdata, frames)
+            self.infer_ms = self._runner.infer_ms
+
+            # 副输出路由
+            if self._stream_mgr.enable_out2:
+                self._stream_mgr.route_secondary_output(
+                    outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
+                )
+
+            self.error_count = 0
+        except Exception as e:
+            self.error_count += 1
+            self.last_error = str(e)
+            logger.error("音频回调异常(%d/%d): %s", self.error_count, self.max_error_count, e, exc_info=True)
+            outdata[:] = 0
+            if self.error_count >= self.max_error_count and not self.runtime_error_pending:
+                self.running = False
+                self.runtime_error_pending = True
+                if self.on_runtime_error:
+                    self.on_runtime_error(self.last_error or "实时推理失败")
+                raise sd.CallbackStop
+
+    # ── 离线文件推理 ──
 
     def process_file(self, task, *, block_t=0.25, cf_t=0.05, extra_t=2.5,
                      pad_sec=3.0, progress_cb=None):
         """离线文件流式推理：「模拟播放→转换→写录」。
 
-        把整段音频当作持续输入流，逐块走实时 `_cb_impl`（降噪/RMS/SOLA/缓存轮换），
-        与实时完全同一算法。显存封顶（~400MB，不再随音频长度线性增长），音质 = 实时音质。
-        输出采样率 = 模型 target_sr。
-
-        Args:
-            task: OfflineConfig（含输入/输出路径、模型路径、推理参数）
-            block_t/cf_t/extra_t: 块时长/交叉淡化/上下文（秒），一般用默认值
-            pad_sec: 前后上下文 pad（秒），保证首尾块上下文充足
-            progress_cb: 可选回调 (completed_blocks, total_blocks)
-
-        Returns:
-            输出 wav 完整数组 (float32, target_sr 采样率)
+        把整段音频当作持续输入流，逐块走实时 process_block（降噪/RMS/SOLA/缓存轮换），
+        与实时完全同一算法。显存封顶，音质 = 实时音质。
         """
-        self.sr_model = self.pipeline.target_sr
-        tgt_sr = self.sr_model
+        sr_model = self.pipeline.target_sr
+        tgt_sr = sr_model
         wav = self._load_audio_at_sr(task.input_path, tgt_sr)
 
         self.runtime_params = task
@@ -271,10 +181,12 @@ class RealtimeEngine:
             self.pipeline.reset_pitch_cache()
         self.function = "vc"
 
-        self._init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1)
-        self.warmup_inference(2)
+        # 创建推理运行器（不启动音频流）
+        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
+        self._runner.init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1, sr_model=sr_model)
+        self._runner.warmup(2)
 
-        result = self._infer_stream(wav, self.block_samples, int(tgt_sr * pad_sec), progress_cb)
+        result = self._infer_stream(wav, self._runner.block_samples, int(tgt_sr * pad_sec), progress_cb)
         self._write_output_wav(result, task.output_path, tgt_sr)
         return result
 
@@ -285,12 +197,7 @@ class RealtimeEngine:
         return np.ascontiguousarray(wav, dtype=np.float32)
 
     def _infer_stream(self, wav, block, pad, progress_cb):
-        """把整段音频按块走实时 `_cb_impl`，返回裁剪掉 pad 的输出。
-
-        前后补 pad（reflect）、末尾补零到块整数倍，逐块推理后裁掉 pad。
-        """
-        import numpy as np
-
+        """把整段音频按块走实时 process_block，返回裁剪掉 pad 的输出。"""
         padded = np.pad(wav, (pad, pad), mode="reflect")
         if len(padded) % block:
             padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
@@ -299,8 +206,8 @@ class RealtimeEngine:
         out_chunks = []
         for i in range(total_blocks):
             seg = padded[i * block: (i + 1) * block]
-            outdata = np.zeros((block, self.channels), dtype=np.float32)
-            self._cb_impl(seg, outdata, block, None, None)
+            outdata = np.zeros((block, 1), dtype=np.float32)
+            self._runner.process_block(seg, outdata, block)
             out_chunks.append(outdata[:, 0])
             if progress_cb:
                 progress_cb(i + 1, total_blocks)
@@ -315,108 +222,32 @@ class RealtimeEngine:
             result = result / audio_max
         sf.write(output_path, result, tgt_sr, subtype="FLOAT")
 
-    def _cb(self, indata, outdata, frames, times, status):
-        try:
-            # 硬件时间戳实测端到端延迟：本块输出被 DAC 播放的时刻 - 本块输入被 ADC 采集的时刻。
-            # 这是 PortAudio 声卡时钟域的精确值，包含设备缓冲/攒块/处理全链路。
-            d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
-            if 0 < d < 2:  # 过滤异常值（时钟跳变/首块）
-                ms = d * 1000
-                # EMA 平滑：瞬时值每块跳动（块长 150ms 级），显示会乱跳显得不准。
-                # 首块直接赋值，之后 0.7/0.3 平滑收敛。
-                self.measure_ms = ms if self.measure_ms <= 0 else self.measure_ms * 0.7 + ms * 0.3
-            self._cb_impl(indata, outdata, frames, times, status)
-            self.error_count = 0
-        except Exception as e:
-            self.error_count += 1
-            self.last_error = str(e)
-            logger.error("音频回调异常(%d/%d): %s", self.error_count, self.max_error_count, e, exc_info=True)
-            outdata[:] = 0
-            if self.error_count >= self.max_error_count and not self.runtime_error_pending:
-                self.running = False
-                self.runtime_error_pending = True
-                if self.on_runtime_error:
-                    self.on_runtime_error(self.last_error or "实时推理失败")
-                raise sd.CallbackStop  # 安全终止流，避免僵尸流继续占用设备导致下次无法重载
+    # ── 兼容属性（供 GUI 层访问）──
 
-    def _cb_impl(self, indata, outdata, frames, times, status):
-        """实时音频回调主函数 — 编排各处理阶段：
+    @property
+    def stream(self):
+        return self._stream_mgr.stream
 
-        输入准备+降噪 → 缓存轮换/降采样 → 推理 → RMS → SOLA → 输出
-        """
-        t0 = time.perf_counter()
-        params = self.runtime_params
+    @property
+    def stream2(self):
+        return self._stream_mgr.stream2
 
-        # 快照本回调内多次使用的参数（推理相关参数由 _run_inference 直接读 runtime_params）
-        p_rms_mix = params.rms_mix
-        p_enable_out2 = self.enable_out2  # 引擎自身状态，不依赖 InferenceConfig
-        p_nr_enable = params.denoise.enable
-        p_nr_strength = params.denoise.strength
+    @property
+    def out2_q(self):
+        return self._stream_mgr.out2_q
 
-        with torch.no_grad():
-            # ── 阶段1-2: 输入准备 + 降噪 + 缓存轮换 ─────────────────
-            mono = self._prepare_input(indata)
-            # 输入一次性上 GPU（降噪/推理/输出共用，避免 CPU↔GPU 往返）。
-            # 预分配 pinned buffer + 非阻塞拷贝，避免每块重复分配临时张量。
-            n = mono.shape[0]
-            self._in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
-            mono = self._in_pin[:n].to(self._device, non_blocking=True)
-            mono = self.processor.process_input(mono, p_nr_enable, p_nr_strength)
-            self._update_input_buffers(mono)
+    @property
+    def enable_out2(self):
+        return self._stream_mgr.enable_out2
 
-            # ── 阶段3: 语音转换推理 ───────────────────────────────────
-            infer = self._run_inference()
+    @property
+    def sr(self):
+        return self._runner.sr if self._runner else None
 
-            # ── 阶段4-5: RMS 混合 + SOLA 对齐 ────────────────────────
-            ref = self.input_wav[self.extra_samples:]
-            chunk = self.processor.process_output(infer, ref, p_rms_mix, self.function == "vc")
+    @property
+    def channels(self):
+        return self._runner.channels if self._runner else 1
 
-            # ── 阶段6: 输出写入与副输出路由 ───────────────────────────
-            self._write_output(chunk, outdata, p_enable_out2)
-
-        self.infer_ms = (time.perf_counter() - t0) * 1000
-
-
-    def _write_output(self, chunk, outdata, enable_out2):
-        """主输出写入 + 副输出路由"""
-        write_main_output(chunk, outdata, self.channels)
-        route_secondary_output(outdata, self.stream2, self.out2_q, enable_out2)
-
-    def _prepare_input(self, indata):
-        """将输入的立体声/单声道转换为处理的单声道信号"""
-        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
-        return np.ascontiguousarray(mono)
-
-
-    def _update_input_buffers(self, mono: torch.Tensor):
-        """轮换输入缓存并执行降采样到16kHz（mono 为 GPU tensor）"""
-        # 输入wav缓冲区轮换：shift旧数据，写入新数据
-        self.input_wav_work[:-self.block_samples].copy_(self.input_wav[self.block_samples:])
-        self.input_wav_work[-self.block_samples:].zero_()
-        self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
-        self.input_wav[-mono.shape[0]:] = mono
-
-        # 降采样输入到16kHz供HuBERT特征提取使用
-        self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
-        self.input_wav_res_work[-self.block_samples_16k:].zero_()
-        self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
-        # 取额外 2*hz_centis 上下文喂 resampler（抵消重采样延迟），输出跳过前 160 样本
-        # （resampler 预热延迟），写入 16k 缓存尾部
-        resampler_in = self.input_wav[-mono.shape[0] - 2 * self.hz_centis:]
-        resampler_out = self.resampler(resampler_in)[160:]
-        target_len = 160 * (mono.shape[0] // self.hz_centis + 1)
-        self.input_wav_res[-target_len:] = resampler_out
-
-    def _run_inference(self):
-        """执行语音转换推理或直通模式。参数从 InferenceConfig 传入，pipeline 无状态。"""
-        if self.function == "vc" and self.pipeline:
-            infer = self.pipeline.infer(
-                self.input_wav_res, self.runtime_params,
-                self.block_samples_16k, self.skip_head, self.return_length,
-            )
-            if self.resampler_model2dev:
-                infer = self.resampler_model2dev(infer)
-        else:
-            infer = self.input_wav[self.extra_samples:].clone()
-        return infer
-
+    @property
+    def block_samples(self):
+        return self._runner.block_samples if self._runner else 0

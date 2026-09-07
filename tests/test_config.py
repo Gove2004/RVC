@@ -1,7 +1,7 @@
 """配置体系单元测试（unittest 风格，无需额外依赖）。"""
 import unittest
 
-from rvc.config import (
+from rvc.core.config import (
     AppConfig,
     BreakProtectConfig,
     DenoiseConfig,

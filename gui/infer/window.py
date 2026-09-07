@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer, Qt, Signal
 
-from rvc.config import AppConfig
+from rvc.core.config import AppConfig
 from gui.infer.controller import InferController
 from gui.infer.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
@@ -19,7 +19,7 @@ from gui.infer.param_binding import (
     gender_to_formant,
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
-from rvc.config import HUBERT_DEFAULT
+from rvc.core.config import HUBERT_DEFAULT
 from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab

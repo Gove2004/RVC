@@ -1,5 +1,6 @@
 """HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT"""
 import logging
+from rvc.core.errors import FeatureExtractionError
 import os
 import sys
 
@@ -44,12 +45,12 @@ def hubert_path(variant: str = "chinese") -> str:
 def load_hubert(config, inference_cache=None, variant: str = "chinese"):
     inference_cache = inference_cache or default_inference_cache
     if variant not in HUBERT_VARIANTS:
-        raise ValueError(f"未知 HuBERT 变体: {variant!r}（可选 {HUBERT_VARIANTS}）")
+        raise FeatureExtractionError(f"未知 HuBERT 变体: {variant!r}（可选 {HUBERT_VARIANTS}）")
     model_path = hubert_path(variant)
     missing = [f for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin")
                if not os.path.exists(os.path.join(model_path, f))]
     if missing:
-        raise FileNotFoundError(
+        raise FeatureExtractionError(
             f"HuBERT 权重缺失: {model_path}/{missing[0]}（{variant} 特征器未就位，"
             f"请确认 assets/hubert/{variant}/ 三件套完整）"
         )

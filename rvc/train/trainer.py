@@ -1,4 +1,5 @@
 import random
+from rvc.core.config import TrainConfig
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,25 +28,6 @@ from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 # 导出模型目录（统一来自 rvc.runtime.paths）；保留模块级名字，
 # 云训练（autodl_train.py）靠运行时改 WEIGHTS_DIR 重定向到数据盘
 WEIGHTS_DIR = MODELS_DIR
-
-
-@dataclass
-class TrainConfig:
-    exp_dir: str
-    sr: int = 48000
-    epochs: int = 2000
-    batch_size: int = 4
-    save_every_epoch: int = 200
-    learning_rate: float = 1e-4
-    pretrain_g: str = ""
-    pretrain_d: str = ""
-    fp16_run: bool = True
-    device: str = "cuda:0"
-    log_interval: int = 20
-    # checkpoint 含 optimizer 状态（G+D 约 0.7~0.8 GB/次），长期训练会撑爆磁盘；
-    # 默认只留最新一组，够断点续训用。导出模型小得多，默认全部保留（0 = 不淘汰）。
-    keep_ckpts: int = 1
-    keep_models: int = 0
 
 
 class Trainer:

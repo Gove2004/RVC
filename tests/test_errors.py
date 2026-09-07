@@ -1,7 +1,7 @@
 """错误类型单元测试（unittest 风格，无需额外依赖）。"""
 import unittest
 
-from rvc.errors import ModelLoadError
+from rvc.core.errors import ModelLoadError
 
 
 class TestModelLoadError(unittest.TestCase):

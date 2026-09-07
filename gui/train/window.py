@@ -131,13 +131,6 @@ class TrainWindow(QMainWindow):
             pretrain_g=self.pretrain_g.text().strip(),
             pretrain_d=self.pretrain_d.text().strip(),
             hubert=self.hubert.currentText(),
-            sep_input_dir=self.sep_input.text().strip(),
-            sep_output_dir=self.sep_output.text().strip(),
-            sep_model=self.sep_model.currentData() or "htdemucs",
-            sep_out_sr=self.sep_out_sr.currentText(),
-            sep_dereverb=self.sep_do_dereverb.isChecked(),
-            sep_karaoke=self.sep_do_karaoke.isChecked(),
-            sep_denoise=self.sep_do_denoise.isChecked(),
         )
 
     def apply_gui_state(self, state: TrainGuiState) -> None:
@@ -162,7 +155,6 @@ class TrainWindow(QMainWindow):
             idx = self.hubert.findText(state.hubert)
             if idx >= 0:
                 self.hubert.setCurrentIndex(idx)
-        # 人声提纯 Tab
         if state.sep_input_dir:
             self.sep_input.setText(state.sep_input_dir)
         if state.sep_output_dir:

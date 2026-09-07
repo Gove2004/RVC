@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QFileDialog
 
-from rvc.inference.offline_config import OfflineConfig
+from rvc.core.config import OfflineConfig
 from gui.infer.widgets import _sl_value_as_float
 from gui.infer.param_binding import collect_gui_state, format_error_message, gender_to_formant
 

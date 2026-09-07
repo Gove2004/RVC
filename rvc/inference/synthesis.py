@@ -1,7 +1,7 @@
 """Synthesizer 推理调用。"""
 import torch
 
-from rvc.tools.cuda_graph import run_cuda_graph
+from rvc.inference.cuda_graph import run_cuda_graph
 
 
 def cached_long_tensor(cache: dict, value: int, device: str) -> torch.Tensor:

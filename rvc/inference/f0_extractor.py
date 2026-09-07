@@ -1,5 +1,6 @@
 """F0 提取器抽象层 — 统一 RMVPE 和 FCPE 的接口"""
 import contextlib
+from rvc.core.errors import F0ExtractionError
 import logging
 import sys
 from abc import ABC, abstractmethod
@@ -8,7 +9,7 @@ from pathlib import Path
 import torch
 
 from rvc.runtime.paths import RMVPE_PATH
-from rvc.tools.cuda_graph import cuda_graph_enabled, run_cuda_graph
+from rvc.inference.cuda_graph import cuda_graph_enabled, run_cuda_graph
 from rvc.models.rmvpe.constants import F0_MIN, F0_MAX, F0_MEL_MIN, F0_MEL_MAX
 
 logger = logging.getLogger(__name__)
@@ -192,6 +193,11 @@ class F0Extractor(ABC):
         """
         pass
 
+    @abstractmethod
+    def clear_cuda_graph(self) -> None:
+        """清除该提取器的 CUDA Graph 缓存（模型切换/重启时调用）。"""
+        pass
+
 
 class RMVPEExtractor(F0Extractor):
     """RMVPE F0 提取器"""
@@ -201,7 +207,7 @@ class RMVPEExtractor(F0Extractor):
         mp = Path(model_path)
         if not mp.exists():
             # 缺权重时立即抛出明确错误，而不是让 torch.load 在奇怪的 traceback 里炸。
-            raise FileNotFoundError(
+            raise F0ExtractionError(
                 f"RMVPE 权重文件不存在: {mp}\n"
                 f"请将 rmvpe.pt 放到 {RMVPE_PATH.parent}/ 下，"
                 f"或参考 assets/README/RVC.md 中的指引。"
@@ -213,6 +219,11 @@ class RMVPEExtractor(F0Extractor):
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         f0 = self.model.infer_from_audio(audio, thred=0.03)
         return postprocess_f0(f0, f0_up_key, self.device, f0_proc)
+
+    def clear_cuda_graph(self) -> None:
+        from rvc.inference.cuda_graph import clear_cuda_graph_cache
+        clear_cuda_graph_cache(self.model.mel_extractor)
+        clear_cuda_graph_cache(self.model)
 
 
 class FCPEExtractor(F0Extractor):
@@ -283,6 +294,11 @@ class FCPEExtractor(F0Extractor):
 
         return postprocess_f0(f0, f0_up_key, self.device, f0_proc)
 
+    def clear_cuda_graph(self) -> None:
+        from rvc.inference.cuda_graph import clear_cuda_graph_cache
+        if hasattr(self.model, "model"):
+            clear_cuda_graph_cache(self.model.model)
+
 
 def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache) -> F0Extractor:
     """F0 提取器工厂函数 — 支持缓存。
@@ -306,5 +322,5 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
             inference_cache.set_fcpe(cache_key, cached)
         return cached
     else:
-        raise ValueError(f"未知的 F0 提取方法: {method}")
+        raise F0ExtractionError(f"未知的 F0 提取方法: {method}")
 

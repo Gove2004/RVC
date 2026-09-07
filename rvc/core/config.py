@@ -58,3 +58,30 @@ class AppConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     active_model: str = ""
     models: list[ModelEntry] = field(default_factory=list)
+
+
+@dataclass
+class OfflineConfig(InferenceConfig):
+    """离线推理任务配置 = 音频效果参数（继承 InferenceConfig）+ 路径/模型信息。"""
+    input_path: str = ""
+    output_path: str = ""
+    model_path: str = ""
+    hubert: str = HUBERT_DEFAULT
+
+
+@dataclass
+class TrainConfig:
+    """训练配置。"""
+    exp_dir: str
+    sr: int = 48000
+    epochs: int = 2000
+    batch_size: int = 4
+    save_every_epoch: int = 200
+    learning_rate: float = 1e-4
+    pretrain_g: str = ""
+    pretrain_d: str = ""
+    fp16_run: bool = True
+    device: str = "cuda:0"
+    log_interval: int = 20
+    keep_ckpts: int = 1
+    keep_models: int = 0
