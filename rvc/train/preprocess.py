@@ -6,10 +6,10 @@ import shutil
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 from scipy import signal
 
 from rvc.audio.loader import load_audio as _load_audio_lib
+from rvc.audio.wav_io import write_wav
 from rvc.train.ckpt_utils import CHECKPOINT_DIR_NAME
 
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
@@ -135,9 +135,9 @@ class PreProcessor:
                     break
                 chunk = normalize_audio(chunk)
                 name = f"{file_index}_{idx}.wav"
-                sf.write(self.gt_dir / name, chunk, self.sr, subtype="FLOAT")
+                write_wav(self.gt_dir / name, chunk, self.sr, subtype="FLOAT")
                 chunk16 = signal.resample(chunk, int(len(chunk) * 16000 / self.sr)) if self.sr != 16000 else chunk
-                sf.write(self.wav16k_dir / name, chunk16, 16000, subtype="FLOAT")
+                write_wav(self.wav16k_dir / name, chunk16, 16000, subtype="FLOAT")
                 idx += 1
                 if start + chunk_len >= len(piece):
                     break

@@ -68,7 +68,6 @@ REQUIRED_PACKAGES = [
     ("torch", "torch", "PyTorch 深度学习框架（训练核心）"),
     ("numpy", "numpy", "数组计算"),
     ("scipy", "scipy", "滤波器 / 重采样"),
-    ("soundfile", "soundfile", "wav 读写（预处理产物）"),
     ("transformers", "transformers", "HuBERT 特征提取"),
 ]
 # 训练用不到，缺了不报错（本地 GUI 才需要）
@@ -545,7 +544,7 @@ def _scan_audio(input_dir: Path) -> list[Path]:
 def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
     """统计素材：文件数、体积、总时长、采样率分布（超过 300 个只抽样后按比例外推）。
 
-    用 ThreadPoolExecutor 并行读取 soundfile.info（IO 密集型，并行显著加速）。
+    用 ThreadPoolExecutor 并行读取音频元信息（IO 密集型，并行显著加速）。
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -553,7 +552,7 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
     log.log(f"素材目录    : {input_dir.resolve()}")
     log.log(f"音频文件    : {len(files)} 个，共 {_human_size(total_bytes)}")
 
-    import soundfile as sf
+    from rvc.audio.wav_io import read_audio_info
 
     limit = 300
     sample = files[:limit]
@@ -561,8 +560,8 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
 
     def _probe_one(path: Path):
         try:
-            info = sf.info(str(path))
-            return info.frames / info.samplerate, info.samplerate
+            info = read_audio_info(str(path))
+            return info["duration"], info["samplerate"]
         except Exception:
             return None, None
 
