@@ -16,6 +16,7 @@ import time
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.effects import AudioProcessor
@@ -217,7 +218,11 @@ class InferenceRunner:
         self.input_wav_res[-target_len:] = resampler_out
 
     def _run_inference(self) -> torch.Tensor:
-        """执行语音转换推理或直通模式。"""
+        """执行语音转换推理或直通模式。
+
+        推理返回长度可能因 formant 重采样 / model2dev 重采样有少量偏差，
+        这里统一修正到期望长度（截断或补零），避免下游 SOLA 越界。
+        """
         if self.function == "vc" and self.pipeline:
             infer = self.pipeline.infer(
                 self.input_wav_res, self.runtime_params,
@@ -227,4 +232,10 @@ class InferenceRunner:
                 infer = self.resampler_model2dev(infer)
         else:
             infer = self.input_wav[self.extra_samples:].clone()
+        # 修正长度到期望大小
+        expected = self.block_samples + self.sola_buffer_samples + self.sola_search_samples
+        if infer.shape[0] > expected:
+            infer = infer[:expected]
+        elif infer.shape[0] < expected:
+            infer = F.pad(infer, (0, expected - infer.shape[0]))
         return infer
