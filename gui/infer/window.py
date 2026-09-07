@@ -1,11 +1,20 @@
-"""推理 GUI 主窗口"""
+"""推理 GUI 主窗口 — View 层，负责 UI 构建和信号连接。
+
+GUI 分层后，本类承担 View 职责：
+- UI 构建（_build_ui, tabs, 控制栏）
+- 信号连接（按钮点击、滑动条变化）
+- UI 状态更新（按钮文案、延迟显示、加载状态）
+- 委托业务逻辑给 InferController
+
+业务逻辑（参数应用、引擎控制、错误处理）由 InferController 承担。
+"""
 import logging
 import sys
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QPushButton, QMessageBox,
-    QTabWidget, QSpacerItem, QSizePolicy, QFileDialog,
+    QTabWidget, QSpacerItem, QSizePolicy,
     QApplication,
 )
 from PySide6.QtCore import QTimer, Qt, Signal
@@ -20,10 +29,10 @@ from gui.infer.param_binding import (
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
 from rvc.core.config import HUBERT_DEFAULT
-from gui.infer.tabs.audio_driver_tab import build_audio_driver_tab
-from gui.infer.tabs.global_params_tab import build_global_params_tab
-from gui.infer.tabs.models_tab import build_models_tab
-from gui.infer.tabs.offline_tab import build_offline_tab
+from gui.infer.view.tabs.audio_driver_tab import build_audio_driver_tab
+from gui.infer.view.tabs.global_params_tab import build_global_params_tab
+from gui.infer.view.tabs.models_tab import build_models_tab
+from gui.infer.view.tabs.offline_tab import build_offline_tab
 from gui.infer.model_manager import ModelManager
 from gui.infer.device_manager import DeviceManager
 from gui.infer.offline_manager import OfflineManager
@@ -88,10 +97,7 @@ class MainWindow(QMainWindow):
         save_config(cfg)
 
     def _tray_quit(self):
-        """托盘退出：完整清理（停 timer/加载线程/离线/引擎/保存配置）后退出应用。
-
-        不触发 engine 惰性构造（_engine 为 None 说明从未使用过，无需 stop）。
-        """
+        """托盘退出：完整清理（停 timer/加载线程/离线/引擎/保存配置）后退出应用。"""
         self._timer.stop()
         if self._lt and self._lt.isRunning():
             self._lt.quit()
@@ -101,17 +107,11 @@ class MainWindow(QMainWindow):
             self.model_manager.save_models()
         except Exception as e:
             logger.error("保存配置失败: %s", e, exc_info=True)
-        eng = self.controller._engine
-        if eng is not None:
-            try:
-                eng.stop()
-            except Exception:
-                pass
+        self.controller.stop()
         QApplication.instance().quit()
 
     def _warmup_engine(self):
-        """后台线程预热 engine — 首次构造会加载 torch 并做 CUDA 探测，
-        挪到后台执行，等用户点「开始」时 torch 已就绪。"""
+        """后台线程预热 engine — 首次构造会加载 torch 并做 CUDA 探测。"""
         import threading
 
         def _do():
@@ -128,18 +128,15 @@ class MainWindow(QMainWindow):
         """惰性获取引擎 — 首次访问才构造（构造会加载 torch，避免拖慢窗口出现）。"""
         return self.controller.engine
 
-    # ── 辅助方法 ──
+    # ── UI 辅助方法 ──
 
     def _show_warning(self, message: str) -> None:
-        """显示警告对话框"""
         QMessageBox.warning(self, "提示", message)
 
     def _show_error(self, message: str) -> None:
-        """显示错误对话框"""
         QMessageBox.critical(self, "错误", message)
 
     def _show_info(self, message: str) -> None:
-        """显示信息对话框"""
         QMessageBox.information(self, "提示", message)
 
     def _build_ui(self):
@@ -184,12 +181,7 @@ class MainWindow(QMainWindow):
         root.addLayout(ctrl)
 
     def _connect_runtime_param_signals(self):
-        """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。
-
-        引擎参数（采样长度/淡入长度/额外上下文）运行中修改不生效，不在此连接。
-        模型卡片参数（pitch/gender/hubert）由 model_manager 在卡片创建时连接。
-        """
-        # 全局推理参数 — 运行中实时生效
+        """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
         self.protect_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
         self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
         self.nr_strength_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
@@ -200,35 +192,28 @@ class MainWindow(QMainWindow):
 
     def _update_timer(self):
         if self.engine.running and self.engine.measure_ms > 0:
-            # 硬件时间戳实测（含设备缓冲），比估算更贴近真实听感
             self.delay_lbl.setText(f"延迟: {self.engine.measure_ms:.0f}ms")
         if self.tray is not None:
             self.tray.update_status()
 
-    # ── 模型管理委托 ──
+    # ── 委托方法 ──
 
     def _add_model(self):
-        """委托给 ModelManager"""
         self.model_manager.add_model_from_file()
-
-    # ── 设备管理委托 ──
 
     def _reload_dev(self):
         """委托给 DeviceManager（运行中禁止刷新，防止杀活动流）"""
-        eng = self.controller._engine
-        if eng is not None and eng.running:
+        if self.controller.is_running:
             self._show_warning("运行中不能刷新设备，请先停止")
             return
         self.device_manager.reload_devices()
 
     def _ha_changed(self, name):
-        """委托给 DeviceManager"""
         self.device_manager.on_hostapi_changed(name)
 
-    # ── 引擎参数应用 ──
+    # ── 参数应用（委托给 controller）──
 
     def _apply_model_params(self):
-        """从模型卡片收集参数（音高/共振峰/特征器），应用到 controller。"""
         card = self.model_manager.active_card
         if not card:
             return
@@ -239,7 +224,6 @@ class MainWindow(QMainWindow):
         )
 
     def _apply_runtime_params(self):
-        """从 GUI 状态收集全局推理参数（辅音保护/F0/响度/降噪/破音保护），应用到 controller。"""
         state = self.collect_gui_state()
         inf = state.inference
         self.controller.apply_runtime_params(
@@ -279,10 +263,9 @@ class MainWindow(QMainWindow):
     def apply_gui_state(self, state: AppConfig) -> None:
         bridge_apply_gui_state(self, state)
 
-    # ── 启动/停止 ──
+    # ── 启动/停止（业务逻辑委托给 controller，UI 状态留在本类）──
 
     def _on_toggle_clicked(self):
-        """单按钮切换：运行中→停止，空闲→开始（加载中按钮禁用不会触发）"""
         if self.engine.running:
             self._stop()
         else:
@@ -315,14 +298,8 @@ class MainWindow(QMainWindow):
             old = self._lt
             if old and old.isRunning():
                 old.request_stop()
-                # load_model 是阻塞调用（torch.load + CUDA 加载），request_stop 只设标志，
-                # 无法中断正在执行的 load_model。wait 返回 False 表示超时：此时断开信号
-                # （防止旧线程稍后的回调误触发）+ deleteLater（QThread 在线程结束后才删对象），
-                # 旧线程自然结束后由 Qt 清理。双线程同时 force load_model 的竞态极罕见。
                 if not old.wait(3000):
                     logger.warning("旧模型加载线程 3s 内未结束（load_model 阻塞中），断开信号后继续")
-            # 无论旧线程是否结束，先断开其信号：防止它稍后发的 finished
-            # 触发 _on_load_done 误删新线程（self._lt 已被替换）
             for sig in (old.ok, old.err, old.finished):
                 try:
                     sig.disconnect()
@@ -332,6 +309,7 @@ class MainWindow(QMainWindow):
             self._loading = False
 
         self._loading = True
+        self.controller.begin_load(None)
         self._mark_loading()
         self._lt = LoadThread(self.engine, pth, hubert)
         self._lt.ok.connect(self._on_loaded)
@@ -341,6 +319,7 @@ class MainWindow(QMainWindow):
 
     def _on_load_done(self):
         self._loading = False
+        self.controller.end_load()
         if self._lt:
             self._lt.deleteLater()
             self._lt = None
@@ -372,8 +351,6 @@ class MainWindow(QMainWindow):
             self._on_err(str(e))
 
     def _on_err(self, e):
-        # 保留 active_card：模型已加载（或正在加载），报错后用户直接点「开始」即可重试，
-        # 无需重新选择模型。仅复位运行态 UI 并显示错误。
         self._reset_runtime_ui()
         self._show_error(format_error_message(e))
 
@@ -382,15 +359,12 @@ class MainWindow(QMainWindow):
         self.runtime_error.emit(message)
 
     def _handle_runtime_error(self, message):
-        # 主线程：流已在音频回调内通过 CallbackStop 安全停止；这里只复位 UI
-        # （保留已加载模型），并延迟释放设备，避免回调线程内直接 stop 造成死锁。
-        # 下次「开始」前 setup 也会兜底关闭。
-        self.engine.runtime_error_pending = False
+        # 主线程：流已在音频回调内通过 CallbackStop 安全停止；委托 controller 处理业务逻辑
+        self.controller.handle_runtime_error(message)
         self._reset_runtime_ui()
         if self.tray is not None:
             self.tray.update_status()
         self._show_error(f"实时推理错误: {message}")
-        QTimer.singleShot(0, self.engine.stop)
 
     def _stop(self):
         if self._loading:
@@ -398,6 +372,7 @@ class MainWindow(QMainWindow):
                 self._lt.request_stop()
                 self._lt.wait(3000)
             self._loading = False
+            self.controller.end_load()
             self._reset_runtime_ui()
             if self.model_manager.active_card:
                 self.model_manager.active_card.set_active(False)
@@ -407,7 +382,7 @@ class MainWindow(QMainWindow):
 
         if not self.engine.running:
             return
-        self.engine.stop()
+        self.controller.stop_inference()
         self._reset_runtime_ui()
         if self.tray is not None:
             self.tray.update_status()
@@ -416,18 +391,13 @@ class MainWindow(QMainWindow):
     # ── 离线推理委托 ──
 
     def _off_browse(self, tgt, kind):
-        """委托给 OfflineManager"""
         self.offline_manager.browse_file(tgt, kind)
 
     def _off_start(self):
-        """委托给 OfflineManager"""
         self.offline_manager.start_conversion()
 
     def closeEvent(self, event):
-        """点关闭按钮 → 隐藏到托盘继续运行（变声不中断），不退出。
-
-        真正的退出走托盘菜单（_tray_quit），那里做完整清理。
-        """
+        """点关闭按钮 → 隐藏到托盘继续运行（变声不中断），不退出。"""
         event.ignore()
         self.hide()
         if self.tray is not None:

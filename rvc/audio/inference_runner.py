@@ -3,7 +3,7 @@
 从 RealtimeEngine 中拆分出的推理调度组件，负责：
 - 处理状态初始化（采样率/块大小/缓存/重采样/效果器）
 - 输入准备（单声道转换、降噪、缓存轮换）
-- 推理调用（VCPipeline.infer + 模型→设备重采样）
+- 推理调用（InferencePipeline.infer + 模型→设备重采样）
 - 输出处理（RMS 混合、SOLA 对齐）
 - 预热推理（CUDA Graph 捕获）
 - 缓冲区重置
@@ -30,7 +30,7 @@ class InferenceRunner:
     def __init__(self, pipeline, runtime_params, device: str, function: str = "vc"):
         """
         Args:
-            pipeline: VCPipeline 实例（已加载模型）
+            pipeline: InferencePipeline 实例（已加载模型）
             runtime_params: InferenceConfig 实例（推理参数，运行中可实时修改）
             device: 计算设备（如 "cuda:0"）
             function: 处理模式（"vc" 变声 / "mono" 直通）

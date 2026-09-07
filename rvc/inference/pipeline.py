@@ -13,18 +13,18 @@ import torch
 from rvc.core.config import InferenceConfig
 from rvc.models.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
-from rvc.inference.model_session import load_model_session
+from rvc.inference.model_session import ModelSessionManager
 from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
 from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
 
 logger = logging.getLogger(__name__)
 
 
-class VCPipeline:
+class InferencePipeline:
     """实时语音转换管线。
 
     用法:
-        pipeline = VCPipeline(device_config, pth_path, hubert="chinese")
+        pipeline = InferencePipeline(device_config, pth_path, hubert="chinese")
         pipeline.load()
         output = pipeline.infer(input_wav, inference_config, block_16k, skip_head, ret_len)
     """
@@ -48,10 +48,11 @@ class VCPipeline:
         self.use_f0 = 1
 
     def load(self) -> None:
-        session = load_model_session(
-            SimpleNamespace(device=self.device, is_half=self.is_half), self.pth_path,
-            self.inference_cache, hubert_variant=self.hubert_variant,
+        manager = ModelSessionManager(
+            SimpleNamespace(device=self.device, is_half=self.is_half),
+            self.inference_cache,
         )
+        session = manager.load(self.pth_path, hubert_variant=self.hubert_variant)
         self.hubert_model = session.hubert
         self.synthesizer = session.synthesizer
         self.target_sr = session.target_sr

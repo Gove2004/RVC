@@ -305,7 +305,7 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
 
     注意：不要在此处清除 CUDA Graph！本函数每次推理都会被调用，
     清除 CUDA Graph 会导致图被反复重建，推理卡顿（声音断断续续）。
-    CUDA Graph 缓存在模型加载时（load_model_session）统一清除。
+    CUDA Graph 缓存在模型加载时（ModelSessionManager）统一清除。
     """
     if method == "rmvpe":
         cache_key = (device, is_half)

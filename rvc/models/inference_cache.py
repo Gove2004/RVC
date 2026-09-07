@@ -82,7 +82,7 @@ class InferenceCache:
     def clear_f0_cuda_graph_caches(self):
         """清除所有缓存的 f0 提取器（RMVPE/FCPE）的 CUDA Graph 缓存。
 
-        模型重加载时调用：synthesizer/hubert 的 CUDA Graph 在 load_model_session 中清除，
+        模型重加载时调用：synthesizer/hubert 的 CUDA Graph 在 ModelSessionManager 中清除，
         但 f0 提取器通过 inference_cache 独立缓存，旧 CUDA Graph 残留可能导致
         快速 stop/start 后 f0 提取异常（声音沙哑）。
         """

@@ -37,11 +37,10 @@ class TestInferenceModuleImports:
 
     def test_model_session_import(self):
         from rvc.inference.model_session import (
-            ModelSession, ModelSessionManager, load_model_session,
+            ModelSession, ModelSessionManager,
         )
         assert ModelSession is not None
         assert ModelSessionManager is not None
-        assert load_model_session is not None
 
     def test_f0_extractor_import(self):
         from rvc.inference.f0_extractor import (
@@ -53,8 +52,8 @@ class TestInferenceModuleImports:
         assert issubclass(FCPEExtractor, F0Extractor)
 
     def test_pipeline_import(self):
-        from rvc.inference.pipeline import VCPipeline
-        assert VCPipeline is not None
+        from rvc.inference.pipeline import InferencePipeline
+        assert InferencePipeline is not None
 
     def test_synthesis_import(self):
         from rvc.inference.synthesis import infer_synth_audio, apply_formant_resample

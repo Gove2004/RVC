@@ -6,7 +6,7 @@ offline_config 轻量。
 import importlib
 
 __all__ = [
-    "VCPipeline",
+    "InferencePipeline",
     "OfflineConfig",
     "F0Extractor",
     "RMVPEExtractor",
@@ -16,7 +16,7 @@ __all__ = [
 ]
 
 _MODULE_MAP = {
-    "VCPipeline": "rvc.inference.pipeline",
+    "InferencePipeline": "rvc.inference.pipeline",
     "OfflineConfig": "rvc.inference.offline_config",
     "F0Extractor": "rvc.inference.f0_extractor",
     "RMVPEExtractor": "rvc.inference.f0_extractor",

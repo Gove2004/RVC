@@ -130,11 +130,3 @@ class _DeviceConfig:
     def __init__(self, device: str, is_half: bool):
         self.device = device
         self.is_half = is_half
-
-
-# 向后兼容：保留 load_model_session 函数（内部委托给 ModelSessionManager）
-def load_model_session(config, pth_path: str, inference_cache,
-                       hubert_variant: str = "chinese") -> ModelSession:
-    """加载模型会话（向后兼容接口，内部委托给 ModelSessionManager）。"""
-    manager = ModelSessionManager(config, inference_cache)
-    return manager.load(pth_path, hubert_variant)
