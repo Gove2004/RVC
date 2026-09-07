@@ -69,6 +69,7 @@ class ModelCard(QFrame):
 
     # name, pth, pitch, gender, hubert
     load_requested = Signal(str, str, int, float, str)
+    params_changed = Signal()  # pitch/gender/hubert 任一变化时发出（运行中实时同步用）
 
     def __init__(self, name="", pth="", pitch=0,
                  gender=0.0, hubert=HUBERT_DEFAULT, parent=None):
@@ -119,6 +120,7 @@ class ModelCard(QFrame):
 
         self.pitch_slider = _sl(-16, 16, 1, pitch); self.pitch_label = QLabel(str(pitch))
         self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
+        self.pitch_slider.valueChanged.connect(lambda _: self.params_changed.emit())
         bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
 
         # 滑杆 [0,1] ↔ formant shift [-2.5,+2.5]，换算唯一来源在 param_binding
@@ -126,6 +128,7 @@ class ModelCard(QFrame):
         gender_slider_val = int(round(formant_to_gender(gender) * 100))
         self.gender_slider = _sl(0, 100, 1, gender_slider_val); self.gender_label = QLabel(f"{gender:+.2f}")
         self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{gender_to_formant(v / 100):+.2f}"))
+        self.gender_slider.valueChanged.connect(lambda _: self.params_changed.emit())
         bl.addWidget(QLabel("性别因子"), r, 0); bl.addWidget(self.gender_slider, r, 1); bl.addWidget(self.gender_label, r, 2); r += 1
 
         # HuBERT 特征器：base（原始 hubert_base）/ chinese（腾讯中文 hubert）。
@@ -136,6 +139,7 @@ class ModelCard(QFrame):
         bi = self.hubert_combo.findText(hubert)
         if bi >= 0:
             self.hubert_combo.setCurrentIndex(bi)
+        self.hubert_combo.currentTextChanged.connect(lambda _: self.params_changed.emit())
         self.hubert_combo.setToolTip("此模型训练时用的特征器（base=原版 hubert_base，chinese=腾讯中文 hubert）。训练与推理必须一致。")
         bl.addWidget(QLabel("特征器"), r, 0); bl.addWidget(self.hubert_combo, r, 1, 1, 2); r += 1
 

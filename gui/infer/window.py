@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
         self._build_ui()
+        self._connect_runtime_param_signals()
 
         # 初始化管理器
         self.model_manager = ModelManager(self, self._models_layout)
@@ -182,6 +183,21 @@ class MainWindow(QMainWindow):
         ctrl.addLayout(btn_group)
         root.addLayout(ctrl)
 
+    def _connect_runtime_param_signals(self):
+        """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。
+
+        引擎参数（采样长度/淡入长度/额外上下文）运行中修改不生效，不在此连接。
+        模型卡片参数（pitch/gender/hubert）由 model_manager 在卡片创建时连接。
+        """
+        # 全局推理参数 — 运行中实时生效
+        self.protect_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.nr_strength_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.break_src_hz_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.nr_enable_checkbox.toggled.connect(lambda _: self._apply_runtime_params())
+        self.break_enable_checkbox.toggled.connect(lambda _: self._apply_runtime_params())
+        self.f0_rmvp_btn.toggled.connect(lambda _: self._apply_runtime_params())
+
     def _update_timer(self):
         if self.engine.running and self.engine.measure_ms > 0:
             # 硬件时间戳实测（含设备缓冲），比估算更贴近真实听感
@@ -212,24 +228,24 @@ class MainWindow(QMainWindow):
     # ── 引擎参数应用 ──
 
     def _apply_model_params(self):
-        """从模型卡片 + 全局参数 Tab 收集推理参数，应用到 controller。"""
+        """从模型卡片收集参数（音高/共振峰/特征器），应用到 controller。"""
         card = self.model_manager.active_card
         if not card:
             return
         self.controller.apply_model_params(
             pitch=card.pitch_slider.value(),
             formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),
-            protect=_sl_value_as_float(self.protect_slider),
-            f0_method="rmvpe" if self.f0_rmvp_btn.isChecked() else "fcpe",
+            hubert_variant=card.hubert_combo.currentText(),
         )
 
     def _apply_runtime_params(self):
-        """从 GUI 状态收集运行时参数，应用到 controller。"""
+        """从 GUI 状态收集全局推理参数（辅音保护/F0/响度/降噪/破音保护），应用到 controller。"""
         state = self.collect_gui_state()
         inf = state.inference
         self.controller.apply_runtime_params(
+            protect=inf.protect,
+            f0_method=inf.f0_method,
             rms_mix=inf.rms_mix,
-            enable_out2=state.engine.enable_out2,
             denoise_enable=inf.denoise.enable,
             denoise_strength=inf.denoise.strength,
             break_enable=inf.break_protect.enable,

@@ -41,23 +41,23 @@ class InferController:
                     )
         return self._engine
 
-    def apply_model_params(self, pitch: int, formant: float, protect: float, f0_method: str):
-        """应用模型卡片的推理参数（音高/音色/保护/F0方法）。"""
+    def apply_model_params(self, pitch: int, formant: float, hubert_variant: str):
+        """应用模型卡片级参数（音高/共振峰/特征器）。"""
         self.runtime_params.pitch = pitch
         self.runtime_params.formant = formant
-        self.runtime_params.protect = protect
-        self.runtime_params.f0_method = f0_method
+        self.runtime_params.hubert_variant = hubert_variant
 
-    def apply_runtime_params(self, rms_mix: float, enable_out2: bool,
+    def apply_runtime_params(self, protect: float, f0_method: str, rms_mix: float,
                              denoise_enable: bool, denoise_strength: float,
                              break_enable: bool, break_src_hz: float):
-        """应用运行时参数（响度混合/副输出/降噪/破音保护）。"""
+        """应用全局推理参数（辅音保护/F0方法/响度混合/降噪/破音保护）。"""
+        self.runtime_params.protect = protect
+        self.runtime_params.f0_method = f0_method
         self.runtime_params.rms_mix = rms_mix
         self.runtime_params.denoise.enable = denoise_enable
         self.runtime_params.denoise.strength = denoise_strength
         self.runtime_params.break_protect.enable = break_enable
         self.runtime_params.break_protect.src_hz = break_src_hz
-        # enable_out2 属于引擎配置，由 engine 直接读取，这里不设置
 
     def setup_engine(self, sr_mode: str, input_device_idx: int, output_device_idx: int,
                      output2_device_idx: int, block_time: float, crossfade_time: float,

@@ -42,6 +42,7 @@ class ModelManager:
             hubert=hubert
         )
         card.load_requested.connect(self._handle_card_load)
+        card.params_changed.connect(lambda: self._on_card_params_changed(card))
         card._del.clicked.connect(lambda: self.remove_card(card))
         self.models_layout.insertWidget(self.models_layout.count() - 1, card)
         self.cards.append(card)
@@ -55,6 +56,14 @@ class ModelManager:
         self.models_layout.removeWidget(card)
         card.deleteLater()
         self.save_models()
+
+    def _on_card_params_changed(self, card: ModelCard) -> None:
+        """模型卡片参数（pitch/gender/hubert）变化时实时同步到 controller。
+
+        只有当前 active_card 的参数变化才同步，避免非活动卡片干扰运行时参数。
+        """
+        if card is self.active_card and hasattr(self.parent, "_apply_model_params"):
+            self.parent._apply_model_params()
 
     def _handle_card_load(
         self,
