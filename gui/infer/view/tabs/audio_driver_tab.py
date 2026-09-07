@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from gui.styles import ButtonStyles, LabelStyles
-from gui.infer.widgets import _sl
+from gui.infer.view.widgets import _sl
 
 
 def build_audio_driver_tab(win):

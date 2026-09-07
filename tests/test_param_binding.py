@@ -2,7 +2,7 @@
 import unittest
 
 from rvc.core.config import AppConfig, InferenceConfig, EngineConfig
-from gui.infer.param_binding import (
+from gui.infer.viewmodel.param_binding import (
     _get_nested, _set_nested, _has_nested,
     _get_nested_dict, _set_nested_dict,
     _migrate_old_format, _parse,

@@ -20,22 +20,22 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer, Qt, Signal
 
 from rvc.core.config import AppConfig
-from gui.infer.controller import InferController
-from gui.infer.param_binding import (
+from gui.infer.controller.infer_controller import InferController
+from gui.infer.viewmodel.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
     apply_gui_state as bridge_apply_gui_state,
     format_error_message,
     gender_to_formant,
 )
-from gui.infer.widgets import LoadThread, _sl_value_as_float
+from gui.infer.view.widgets import LoadThread, _sl_value_as_float
 from rvc.core.config import HUBERT_DEFAULT
 from gui.infer.view.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.view.tabs.global_params_tab import build_global_params_tab
 from gui.infer.view.tabs.models_tab import build_models_tab
 from gui.infer.view.tabs.offline_tab import build_offline_tab
-from gui.infer.model_manager import ModelManager
-from gui.infer.device_manager import DeviceManager
-from gui.infer.offline_manager import OfflineManager
+from gui.infer.controller.model_manager import ModelManager
+from gui.infer.controller.device_manager import DeviceManager
+from gui.infer.controller.offline_manager import OfflineManager
 from gui.styles import ButtonStyles, Layout
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         # 系统托盘：关闭=最小化到托盘；托盘不可用时直接报错退出
         self.tray = None
         try:
-            from gui.infer.tray import TrayManager
+            from gui.infer.view.tray import TrayManager
             self.tray = TrayManager(self, on_quit=self._tray_quit)
         except Exception as e:
             QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
     def _load_gui_config(self) -> None:
         """从持久化配置加载 GUI 状态（嵌套结构）。"""
         from gui.configs import load_config
-        from gui.infer.param_binding import state_from_dict
+        from gui.infer.viewmodel.param_binding import state_from_dict
         cfg = load_config()
         state = state_from_dict(cfg.get("gui", {}))
         self.apply_gui_state(state)
@@ -91,7 +91,7 @@ class MainWindow(QMainWindow):
     def _save_gui_config(self) -> None:
         """保存当前 GUI 状态到持久化配置（嵌套结构）。"""
         from gui.configs import load_config, save_config
-        from gui.infer.param_binding import state_to_dict
+        from gui.infer.viewmodel.param_binding import state_to_dict
         cfg = load_config()
         cfg["gui"] = state_to_dict(self.collect_gui_state())
         save_config(cfg)

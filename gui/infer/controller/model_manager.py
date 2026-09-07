@@ -3,7 +3,7 @@ from typing import List, Optional
 from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 import os
 
-from gui.infer.widgets import ModelCard, ModelListData
+from gui.infer.view.widgets import ModelCard, ModelListData
 from rvc.core.config import HUBERT_DEFAULT
 from rvc.runtime.paths import MODELS_DIR
 

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, List, Tuple
 from rvc.audio import get_audio_devices
 
 if TYPE_CHECKING:
-    from gui.infer.window import MainWindow
+    from gui.infer.view.main_window import MainWindow
 
 
 class DeviceManager:

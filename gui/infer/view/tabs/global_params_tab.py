@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox,
 )
 
-from gui.infer.widgets import _slrow
+from gui.infer.view.widgets import _slrow
 
 
 def build_global_params_tab(win):

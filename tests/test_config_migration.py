@@ -5,7 +5,7 @@
 """
 import unittest
 
-from gui.infer.param_binding import (
+from gui.infer.viewmodel.param_binding import (
     _migrate_old_format,
     state_from_dict,
     state_to_dict,
