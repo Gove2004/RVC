@@ -415,7 +415,7 @@ def _probe_ffmpeg(log: TrainLogger) -> str:
         try:
             import rvc.audio.loader as _loader
 
-            _loader._FFMPEG = Path("")
+            _loader.FFMPEG_EXE = Path("")
         except Exception:
             pass
         return ""
@@ -437,7 +437,7 @@ def _probe_ffmpeg(log: TrainLogger) -> str:
         try:
             import rvc.audio.loader as _loader
 
-            _loader._FFMPEG = Path(chosen)  # 函数体内是全局查找，改模块属性即生效
+            _loader.FFMPEG_EXE = Path(chosen)  # 函数体内是全局查找，改模块属性即生效
             log.log("             → 已重定向 rvc.audio.loader 的 ffmpeg 路径")
         except Exception as exc:
             log.log(f"重定向 ffmpeg 路径失败（忽略）: {exc}", "WARN")
