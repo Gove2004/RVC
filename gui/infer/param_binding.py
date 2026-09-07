@@ -259,3 +259,10 @@ def gender_to_formant(v: float) -> float:
 def formant_to_gender(f: float) -> float:
     """gender_to_formant 的反函数。"""
     return f / 5.0 + 0.5
+
+
+def format_error_message(error: Exception | str) -> str:
+    """格式化错误消息，只保留最后一行有意义的内容。"""
+    msg = str(error).strip()
+    lines = msg.splitlines()
+    return lines[-1] if lines else "未知错误"

@@ -1,13 +1,15 @@
 """离线推理管理器 — 负责离线音频文件转换"""
-from typing import TYPE_CHECKING
-from PySide6.QtWidgets import QFileDialog
+import logging
 import os
+import traceback
+from typing import TYPE_CHECKING
 
-from gui.infer.workers import OfflineWorker
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QFileDialog
+
 from rvc.inference.offline_config import OfflineConfig
-from gui.infer.utils import format_error_message
 from gui.infer.widgets import _sl_value_as_float
-from gui.infer.param_binding import collect_gui_state, gender_to_formant
+from gui.infer.param_binding import collect_gui_state, format_error_message, gender_to_formant
 
 if TYPE_CHECKING:
     from gui.infer.window import MainWindow
@@ -124,3 +126,47 @@ class OfflineManager:
         # 信号在 run() 内发出，此刻线程可能尚未真正退出，提前析构有竞态。
         # 引用保留到下次 start_conversion 时被新 worker 覆盖，一次只多占一个对象。
         self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
+
+
+logger = logging.getLogger(__name__)
+
+
+class OfflineWorker(QThread):
+    """离线推理线程：模拟播放→转换→写录，复用实时引擎全链路（显存封顶）。"""
+    progress = Signal(int, int)
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, cfg: OfflineConfig):
+        super().__init__()
+        self.cfg = cfg
+
+    def run(self):
+        import torch  # 惰性导入，避免 GUI 启动时加载 torch
+
+        try:
+            self._do_run()
+        except Exception:
+            tb = traceback.format_exc()
+            logger.error("离线推理失败:\n%s", tb)
+            self.error.emit(tb.strip())
+        finally:
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+    def _do_run(self):
+        from rvc.audio.realtime_engine import RealtimeEngine
+
+        self.progress.emit(0, 100)
+        engine = RealtimeEngine(self.cfg)
+        engine.load_model(self.cfg.model_path, hubert=self.cfg.hubert)
+        self.progress.emit(20, 100)
+
+        def _progress(cur, total):
+            self.progress.emit(int(cur * 100 / total), 100)
+
+        engine.process_file(self.cfg, progress_cb=_progress)
+        self.progress.emit(100, 100)
+        self.finished.emit(self.cfg.output_path)

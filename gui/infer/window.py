@@ -15,6 +15,7 @@ from gui.infer.controller import InferController
 from gui.infer.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
     apply_gui_state as bridge_apply_gui_state,
+    format_error_message,
     gender_to_formant,
 )
 from gui.infer.widgets import LoadThread, _sl_value_as_float
@@ -24,10 +25,8 @@ from gui.infer.tabs.global_params_tab import build_global_params_tab
 from gui.infer.tabs.models_tab import build_models_tab
 from gui.infer.tabs.offline_tab import build_offline_tab
 from gui.infer.model_manager import ModelManager
-from gui.infer.config_manager import ConfigManager
 from gui.infer.device_manager import DeviceManager
 from gui.infer.offline_manager import OfflineManager
-from gui.infer.utils import format_error_message
 from gui.styles import ButtonStyles, Layout
 
 logger = logging.getLogger(__name__)
@@ -52,13 +51,12 @@ class MainWindow(QMainWindow):
 
         # 初始化管理器
         self.model_manager = ModelManager(self, self._models_layout)
-        self.config_manager = ConfigManager(self)
         self.device_manager = DeviceManager(self)
         self.offline_manager = OfflineManager(self)
 
         self.device_manager.load_hostapis()
         self.model_manager.load_models()
-        self.config_manager.load_config()
+        self._load_gui_config()
         # Connect refresh button after device_manager is ready
         self.refresh_btn.clicked.connect(self._reload_dev)
         # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
@@ -72,6 +70,22 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
             sys.exit(1)
 
+    def _load_gui_config(self) -> None:
+        """从持久化配置加载 GUI 状态（嵌套结构）。"""
+        from gui.configs import load_config
+        from gui.infer.param_binding import state_from_dict
+        cfg = load_config()
+        state = state_from_dict(cfg.get("gui", {}))
+        self.apply_gui_state(state)
+
+    def _save_gui_config(self) -> None:
+        """保存当前 GUI 状态到持久化配置（嵌套结构）。"""
+        from gui.configs import load_config, save_config
+        from gui.infer.param_binding import state_to_dict
+        cfg = load_config()
+        cfg["gui"] = state_to_dict(self.collect_gui_state())
+        save_config(cfg)
+
     def _tray_quit(self):
         """托盘退出：完整清理（停 timer/加载线程/离线/引擎/保存配置）后退出应用。
 
@@ -82,7 +96,7 @@ class MainWindow(QMainWindow):
             self._lt.quit()
             self._lt.wait(2000)
         try:
-            self.config_manager.save_config()
+            self._save_gui_config()
             self.model_manager.save_models()
         except Exception as e:
             logger.error("保存配置失败: %s", e, exc_info=True)
@@ -272,7 +286,7 @@ class MainWindow(QMainWindow):
 
         # 保存配置（在启动前保存当前设置）
         try:
-            self.config_manager.save_config()
+            self._save_gui_config()
             self.model_manager.save_models()
             logger.debug("配置已保存")
         except Exception as e:
@@ -336,7 +350,7 @@ class MainWindow(QMainWindow):
             self._mark_running()
             if self.tray is not None:
                 self.tray.update_status()
-            self.config_manager.save_config()
+            self._save_gui_config()
             self.model_manager.save_models()
         except Exception as e:
             self._on_err(str(e))
