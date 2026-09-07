@@ -62,7 +62,8 @@ class RealtimeEngine:
 
     def load_model(self, pth, force=False, hubert="chinese"):
         # 切换模型时清除 f0 提取器的旧 CUDA Graph 缓存（独立于 synthesizer/hubert）。
-        self.inference_cache.clear_f0_cuda_graph_caches()
+        if self.inference_cache:
+            self.inference_cache.clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
