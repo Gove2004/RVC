@@ -4,6 +4,7 @@
 本模块从 runtime 重新导出以保持向后兼容。
 """
 import logging
+import os
 import threading
 import time
 from collections import OrderedDict
