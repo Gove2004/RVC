@@ -111,7 +111,7 @@ class TrayManager:
         QTimer.singleShot(
             300,
             lambda: self.tray.showMessage(
-                "RVC 实时变声",
+                "RVC",
                 "已最小化到托盘，点击图标恢复窗口",
                 QSystemTrayIcon.MessageIcon.Information,
                 2500,
