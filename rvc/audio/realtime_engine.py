@@ -146,7 +146,7 @@ class RealtimeEngine:
 
             # 副输出路由
             if self._stream_mgr.enable_out2:
-                self._stream_mgr.route_secondary_output(
+                self._runner.route_secondary_output(
                     outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
                 )
 
