@@ -97,7 +97,7 @@ class RealtimeEngine:
 
         # 推理运行器初始化
         self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
-        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
+        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, self.sr_model)
 
         # 预热 + 重置缓冲区
         self._runner.warmup(2)
