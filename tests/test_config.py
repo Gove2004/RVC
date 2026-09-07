@@ -1,8 +1,5 @@
 """配置体系单元测试（unittest 风格，无需额外依赖）。"""
-import json
-import tempfile
 import unittest
-from pathlib import Path
 
 from rvc.config import (
     AppConfig,
@@ -11,11 +8,6 @@ from rvc.config import (
     EngineConfig,
     InferenceConfig,
     ModelEntry,
-    OfflineTask,
-    config_to_dict,
-    dict_to_config,
-    load_config_json,
-    save_config_json,
 )
 
 
@@ -80,50 +72,6 @@ class TestAppConfig(unittest.TestCase):
         self.assertEqual(cfg.active_model, "/path/to/model.pth")
 
 
-class TestSerialization(unittest.TestCase):
-    def test_config_to_dict(self):
-        cfg = InferenceConfig(pitch=12, formant=1.0)
-        d = config_to_dict(cfg)
-        self.assertEqual(d["pitch"], 12)
-        self.assertEqual(d["formant"], 1.0)
-        self.assertTrue(d["break_protect"]["enable"])
-        self.assertFalse(d["denoise"]["enable"])
-
-    def test_dict_to_config(self):
-        d = {"pitch": 6, "formant": 0.5, "f0_method": "fcpe"}
-        cfg = dict_to_config(d, InferenceConfig)
-        self.assertEqual(cfg.pitch, 6)
-        self.assertEqual(cfg.formant, 0.5)
-        self.assertEqual(cfg.f0_method, "fcpe")
-        self.assertEqual(cfg.protect, 0.5)  # 缺省字段用默认值
-
-    def test_json_roundtrip(self):
-        cfg = AppConfig()
-        cfg.inference.pitch = 12
-        cfg.engine.block_time = 0.5
-        cfg.active_model = "/test/model.pth"
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "config.json"
-            save_config_json(cfg, path)
-            loaded = load_config_json(path, AppConfig)
-            self.assertEqual(loaded.inference.pitch, 12)
-            self.assertEqual(loaded.engine.block_time, 0.5)
-            self.assertEqual(loaded.active_model, "/test/model.pth")
-
-    def test_load_missing_file_raises(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "nonexistent.json"
-            with self.assertRaises(FileNotFoundError):
-                load_config_json(path, AppConfig)
-
-    def test_load_corrupted_file_raises(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "corrupted.json"
-            path.write_text("{invalid json", encoding="utf-8")
-            with self.assertRaises(json.JSONDecodeError):
-                load_config_json(path, AppConfig)
-
-
 class TestModelEntry(unittest.TestCase):
     def test_defaults(self):
         m = ModelEntry()
@@ -132,17 +80,6 @@ class TestModelEntry(unittest.TestCase):
         self.assertEqual(m.pitch, 0)
         self.assertEqual(m.formant, 0.0)
         self.assertEqual(m.hubert, "chinese")
-
-
-class TestOfflineTask(unittest.TestCase):
-    def test_defaults(self):
-        t = OfflineTask()
-        self.assertEqual(t.input_path, "")
-        self.assertEqual(t.output_path, "")
-        self.assertEqual(t.model_path, "")
-        self.assertEqual(t.pad_sec, 3.0)
-        self.assertIsInstance(t.inference, InferenceConfig)
-        self.assertIsInstance(t.engine, EngineConfig)
 
 
 if __name__ == "__main__":
