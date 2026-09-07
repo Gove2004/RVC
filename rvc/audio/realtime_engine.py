@@ -83,7 +83,7 @@ class RealtimeEngine:
             self.runner = None
             raise
 
-    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t):
+    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
         if self.stream is not None:
             self.stop()
         self.error_count = 0
@@ -108,8 +108,12 @@ class RealtimeEngine:
                 f"索引 {out_dev}「{out_info.get('name', '?')}」。请在设备设置中选择支持输出的设备。"
             )
         self.channels = min(in_max, out_max, 2)
-        logger.info("音频设备: %s → %s [%dch]",
-                    in_info.get('name', '?'), out_info.get('name', '?'), self.channels)
+        logger.info("音频设备：")
+        logger.info("  · 麦克风：%s", in_info.get('name', '?'))
+        logger.info("  · 主输出：%s [%dch]", out_info.get('name', '?'), self.channels)
+        if out2_dev_idx is not None:
+            out2_info = sd.query_devices(out2_dev_idx)
+            logger.info("  · 副输出：%s", out2_info.get('name', f"#{out2_dev_idx}"))
 
         self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
 
@@ -122,11 +126,16 @@ class RealtimeEngine:
         # 这就是「停止后重新开始延迟变低」的原因——图已捕获；现在把它提前到开流前。
         self.warmup_inference(2)
 
-        # warmup 用静音数据跑推理会污染 pitch 缓存（静音上 f0 提取可能输出随机值），
-        # 必须在 warmup 后再次重置，否则首次真实推理会继承静音段的异常 pitch 状态，
-        # 表现为多次 stop/start 后声音沙哑/失真。
+        # warmup 用静音数据跑推理会污染所有缓冲区（pitch/sola/输入缓存），
+        # 静音段 f0 提取可能输出随机值，SOLA 缓冲区会残留静音段的交叉淡化状态。
+        # 必须在 warmup 后彻底重置所有运行时缓冲区，确保首次真实推理从干净状态开始。
         if self.runner is not None:
             self.runner.reset()
+        self.sola_buffer.zero_()
+        self.input_wav.zero_()
+        self.input_wav_res.zero_()
+        if self.nr_ss is not None:
+            self.nr_ss.reset()
 
         self.stream = sd.Stream(callback=self._cb, blocksize=self.block_samples, samplerate=self.sr, channels=self.channels, dtype="float32")
         self.stream.start()
@@ -200,12 +209,6 @@ class RealtimeEngine:
             torch.cuda.synchronize()
 
     def setup_out2(self, dev_idx):
-        dev_name = ""
-        try:
-            dev_name = sd.query_devices(dev_idx)["name"]
-        except Exception:
-            pass
-        logger.info("  · 副输出: %s", dev_name or f"#{dev_idx}")
         def out2_callback(outdata, frames, time_info, status):
             if not self.out2_q.empty():
                 data = self.out2_q.get_nowait()
@@ -237,10 +240,20 @@ class RealtimeEngine:
         self.runtime_error_pending = False
         for s in (self.stream2, self.stream):
             if s:
-                s.abort()
-                s.close()
+                try:
+                    s.abort()
+                except Exception:
+                    pass
+                try:
+                    s.close()
+                except Exception:
+                    pass
         self.stream = self.stream2 = None
         self.enable_out2 = False
+        # 清理 GPU 缓存：多次 stop/start 后 GPU 内存可能有碎片，
+        # 导致新分配的张量包含旧数据，表现为声音沙哑/失真。
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def process_file(self, input_path, output_path, *, params=None,
                      block_t=0.25, cf_t=0.05, extra_t=2.5,
