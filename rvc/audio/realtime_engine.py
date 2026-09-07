@@ -62,6 +62,10 @@ class RealtimeEngine:
         self.runtime_error_pending = False
 
     def load_model(self, pth, force=False, hubert="chinese"):
+        # 模型加载前清除 f0 提取器（RMVPE/FCPE）的旧 CUDA Graph 缓存。
+        # synthesizer/hubert 的 CUDA Graph 在 load_model_session 中清除，
+        # 但 f0 提取器通过 inference_cache 独立缓存，旧图残留可能导致沙哑。
+        self.inference_cache.clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
