@@ -240,10 +240,6 @@ class RealtimeEngine:
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        # PortAudio 流关闭是异步的：abort/close 返回后底层流可能还在释放中。
-        # 快速 stop→start 时新流复用旧流资源会导致音频数据混乱（声音沙哑）。
-        # 短暂等待确保底层流完全释放。间隔一段时间重启不沙哑正是因为等够了。
-        time.sleep(0.5)  # 诊断：增加到0.5s，若解决说明异步释放需更长时间
 
     def process_file(self, task, *, block_t=0.25, cf_t=0.05, extra_t=2.5,
                      pad_sec=3.0, progress_cb=None):
