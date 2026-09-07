@@ -5,6 +5,7 @@
 同步链导致的参数双份源问题。
 """
 import logging
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -48,7 +49,7 @@ class VCPipeline:
 
     def load(self) -> None:
         session = load_model_session(
-            self._device_config_proxy(), self.pth_path,
+            SimpleNamespace(device=self.device, is_half=self.is_half), self.pth_path,
             self.inference_cache, hubert_variant=self.hubert_variant,
         )
         self.hubert_model = session.hubert
@@ -56,31 +57,10 @@ class VCPipeline:
         self.target_sr = session.target_sr
         self.use_f0 = session.use_f0
 
-    def _device_config_proxy(self):
-        """load_model_session 需要 device+is_half，用轻量代理对象。"""
-        class _Proxy:
-            pass
-        p = _Proxy()
-        p.device = self.device
-        p.is_half = self.is_half
-        return p
-
     def reset_pitch_cache(self) -> None:
         """重置音高缓存（切换模型/文件时调用，避免跨上下文污染）。"""
         self.pitch_cache.zero_()
         self.pitchf_cache.zero_()
-
-    def _cached_long_tensor(self, value: int) -> torch.Tensor:
-        return cached_long_tensor(self._long_tensor_cache, value, self.device)
-
-    def _extract_hubert_features(self, input_wav):
-        return extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
-
-    def _clone_protect_source(self, feats, protect):
-        return clone_protect_source(feats, self.use_f0, protect)
-
-    def _upsample_features(self, feats, p_len, feats0=None, pitchf=None, protect=0.0):
-        return upsample_features(feats, p_len, self.is_half, feats0, pitchf, protect)
 
     @torch.no_grad()
     def infer(self, input_wav: torch.Tensor, config: InferenceConfig,
@@ -110,8 +90,8 @@ class VCPipeline:
         f0_proc = (bp.enable, bp.src_hz, bp.ratio, bp.knee)
 
         # 特征提取：HuBERT → 辅音保护克隆
-        feats = self._extract_hubert_features(input_wav)
-        feats0 = self._clone_protect_source(feats, config.protect)
+        feats = extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
+        feats0 = clone_protect_source(feats, self.use_f0, config.protect)
 
         # 音高（F0）缓存更新
         if self.use_f0 == 1:
@@ -128,7 +108,7 @@ class VCPipeline:
             cache_pitch = cache_pitchf = None
 
         # 特征上采样（含辅音保护混合）
-        feats = self._upsample_features(feats, p_len, feats0, cache_pitchf, config.protect)
+        feats = upsample_features(feats, p_len, self.is_half, feats0, cache_pitchf, config.protect)
 
         # 合成 + 后处理（formant 重采样）
         infered_audio = self._synthesize_realtime(
@@ -138,8 +118,8 @@ class VCPipeline:
         return self._postprocess_realtime(infered_audio, factor, return_length)
 
     def _synthesize_realtime(self, feats, p_len, cache_pitch, cache_pitchf, skip_head, return_length, return_length2_val):
-        p_len_t = self._cached_long_tensor(p_len)
-        sid = self._cached_long_tensor(0)
+        p_len_t = cached_long_tensor(self._long_tensor_cache, p_len, self.device)
+        sid = cached_long_tensor(self._long_tensor_cache, 0, self.device)
         infered_audio, _, _ = infer_synth_audio(
             self.synthesizer, feats, p_len_t,
             cache_pitch, cache_pitchf, sid,

@@ -73,17 +73,18 @@ class OfflineManager:
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
         state = collect_gui_state(self.window)
+        inf = state.inference
         config = OfflineConfig(
             input_path=self.window.offline_input.text().strip(),
             output_path=self.window.offline_output.text().strip(),
             model_path=card.pth_edit.text().strip(),
             pitch=card.pitch_slider.value(),
-            f0method=state.f0method,
-            rms_mix=state.rms_mix,
-            protect=state.protect,
-            gender=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
-            break_enable=state.break_enable,
-            break_src_hz=state.break_src_hz,
+            formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
+            protect=inf.protect,
+            f0_method=inf.f0_method,
+            rms_mix=inf.rms_mix,
+            break_protect=inf.break_protect,
+            denoise=inf.denoise,
             hubert=card.hubert_combo.currentText(),
         )
         self.worker = OfflineWorker(config)

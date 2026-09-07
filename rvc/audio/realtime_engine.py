@@ -16,7 +16,6 @@ from torchaudio.transforms import Resample as TatResample
 from rvc.audio.effects import AudioProcessor
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.config import InferenceConfig
-from rvc.inference.runner import InferenceRunner
 from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,6 @@ class RealtimeEngine:
         self.inference_cache = inference_cache
         self.on_runtime_error = on_runtime_error
         self.pipeline = None
-        self.runner = None  # InferenceRunner（load_model 后创建）
         self.stream = None
         self.stream2 = None
         self.running = False
@@ -73,13 +71,11 @@ class RealtimeEngine:
         try:
             self.pipeline = VCPipeline(config, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
-            self.runner = InferenceRunner(self.pipeline)
             self.pth_path = pth
             return self.pipeline.target_sr
         except Exception as e:
             logger.error(f"模型加载失败: {e}", exc_info=True)
             self.pipeline = None
-            self.runner = None
             raise
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
@@ -117,8 +113,8 @@ class RealtimeEngine:
         self._init_processing(self.sr, block_t, cf_t, extra_t, self.channels)
 
         # 重置 pitch 缓存：多次 stop/setup 后旧 pitch 数据会污染新会话，导致声音沙哑/失真
-        if self.runner is not None:
-            self.runner.reset()
+        if self.pipeline is not None:
+            self.pipeline.reset_pitch_cache()
 
         # 开流前预热推理：首次推理会触发 CUDA Graph 捕获（每模型 3 次 warmup 前向 + capture，
         # 单块可能数百 ms），提前用静音数据跑完，让首次真实回调即为热状态。
@@ -128,8 +124,8 @@ class RealtimeEngine:
         # warmup 用静音数据跑推理会污染所有缓冲区（pitch/sola/输入缓存），
         # 静音段 f0 提取可能输出随机值，SOLA 缓冲区会残留静音段的交叉淡化状态。
         # 必须在 warmup 后彻底重置所有运行时缓冲区，确保首次真实推理从干净状态开始。
-        if self.runner is not None:
-            self.runner.reset()
+        if self.pipeline is not None:
+            self.pipeline.reset_pitch_cache()
         self.processor.reset()
         self.input_wav.zero_()
         self.input_wav_res.zero_()
@@ -276,8 +272,8 @@ class RealtimeEngine:
         wav = self._load_audio_at_sr(task.input_path, tgt_sr)
 
         self.runtime_params = task
-        if self.runner:
-            self.runner.reset()
+        if self.pipeline:
+            self.pipeline.reset_pitch_cache()
         self.function = "vc"
 
         self._init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1)
@@ -418,8 +414,8 @@ class RealtimeEngine:
 
     def _run_inference(self):
         """执行语音转换推理或直通模式。参数从 InferenceConfig 传入，pipeline 无状态。"""
-        if self.function == "vc" and self.runner:
-            infer = self.runner.process_block(
+        if self.function == "vc" and self.pipeline:
+            infer = self.pipeline.infer(
                 self.input_wav_res, self.runtime_params,
                 self.block_samples_16k, self.skip_head, self.return_length,
             )
