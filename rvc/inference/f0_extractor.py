@@ -295,25 +295,16 @@ class FCPEExtractor(F0Extractor):
 def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache) -> F0Extractor:
     """F0 提取器工厂函数 — 支持缓存。
 
-    从缓存获取时必须清除 CUDA Graph 缓存：重开时复用旧的 CUDA Graph
-    可能导致 f0 提取异常（音高追踪不稳定/沙哑）。HuBERT/Synthesizer
-    的 CUDA Graph 在 load_model_session 中已清除，f0 提取器在此处清除。
+    注意：不要在此处清除 CUDA Graph！本函数每次推理都会被调用，
+    清除 CUDA Graph 会导致图被反复重建，推理卡顿（声音断断续续）。
+    CUDA Graph 缓存在模型加载时（load_model_session）统一清除。
     """
-    from rvc.tools.cuda_graph import clear_cuda_graph_cache
-
     if method == "rmvpe":
         cache_key = (device, is_half)
         cached = inference_cache.get_rmvpe(cache_key)
         if cached is None:
             cached = RMVPEExtractor(str(RMVPE_PATH), device, is_half)
             inference_cache.set_rmvpe(cache_key, cached)
-        else:
-            # 复用缓存模型时清除旧的 CUDA Graph。
-            # RMVPEExtractor.model 是 RMVPE 对象，其内部：
-            #   model.mel_extractor 持有 "rmvpe-mel-extractor" 图
-            #   model.model（E2E网络）持有 "rmvpe-network" + "rmvpe-decode-*" 图
-            clear_cuda_graph_cache(cached.model.mel_extractor)
-            clear_cuda_graph_cache(cached.model.model)
         return cached
     elif method == "fcpe":
         cache_key = device
@@ -321,8 +312,7 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
         if cached is None:
             cached = FCPEExtractor(device)
             inference_cache.set_fcpe(cache_key, cached)
-        else:
-            clear_cuda_graph_cache(cached.model)
         return cached
     else:
         raise ValueError(f"未知的 F0 提取方法: {method}")
+
