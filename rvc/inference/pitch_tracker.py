@@ -1,4 +1,5 @@
 """实时 pitch 跟踪与缓存。"""
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import torch
 
 from rvc.inference.f0_extractor import create_f0_extractor
@@ -23,13 +24,13 @@ def extract_f0(x, f0_up_key: float, method: str, device: str, is_half: bool, inf
     extractor = create_f0_extractor(method, device, is_half, inference_cache)
     if not torch.is_tensor(x):
         x = torch.from_numpy(x)
-    return extractor.extract(x, 16000, f0_up_key, f0_proc)
+    return extractor.extract(x, HUBERT_SAMPLE_RATE, f0_up_key, f0_proc)
 
 
 def realtime_f0_window(block_frame_16k: int, method: str) -> int:
     frames = block_frame_16k + 800
     if method == "rmvpe":
-        frames = 5120 * ((frames - 1) // 5120 + 1) - 160
+        frames = 5120 * ((frames - 1) // 5120 + 1) - HUBERT_FRAME_SIZE
     return frames
 
 
@@ -53,7 +54,7 @@ def update_realtime_pitch_cache(
         input_wav[-f0_extractor_frame:], f0_up_key, method, device, is_half, inference_cache,
         f0_proc,
     )
-    shift = block_frame_16k // 160
+    shift = block_frame_16k // HUBERT_FRAME_SIZE
     cache_pitch[:-shift] = cache_pitch[shift:].clone()
     cache_pitchf[:-shift] = cache_pitchf[shift:].clone()
     # 帧对齐：F0 提取器输出与 HuBERT 特征帧存在固定偏移（下采样 320 + 上采样 x2），

@@ -1,3 +1,4 @@
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -37,7 +38,7 @@ class HuBERTExtractor:
         return len(files)
 
     def extract(self, path: Path):
-        wav, _ = load_audio(path, 16000)
+        wav, _ = load_audio(path, HUBERT_SAMPLE_RATE)
         feats = torch.from_numpy(wav).to(self.device)
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)

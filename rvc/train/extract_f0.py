@@ -1,3 +1,4 @@
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from pathlib import Path
 
 import numpy as np
@@ -38,7 +39,7 @@ class TrainF0Extractor:
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
-                wav, _ = load_audio(path, 16000)
+                wav, _ = load_audio(path, HUBERT_SAMPLE_RATE)
                 f0 = self.model.infer_from_audio(wav, thred=0.03)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()

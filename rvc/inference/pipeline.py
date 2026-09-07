@@ -4,6 +4,7 @@
 （pitch_cache / resample_kernel / long_tensor_cache）。消除历史上 configure()
 同步链导致的参数双份源问题。
 """
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import logging
 from types import SimpleNamespace
 
@@ -81,7 +82,7 @@ class InferencePipeline:
         return self._infer_impl(input_wav, config, block_frame_16k, skip_head, return_length)
 
     def _infer_impl(self, input_wav, config: InferenceConfig, block_frame_16k, skip_head, return_length):
-        p_len = input_wav.shape[0] // 160
+        p_len = input_wav.shape[0] // HUBERT_FRAME_SIZE
         formant_factor = config.formant
         factor = pow(2, formant_factor / 12)
         return_length2_val = int(np.ceil(return_length * factor))

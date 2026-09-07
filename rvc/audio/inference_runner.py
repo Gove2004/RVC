@@ -10,6 +10,7 @@
 
 RealtimeEngine 保留对外接口，内部委托给本组件处理推理逻辑。
 """
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import logging
 import queue
 import time
@@ -98,13 +99,13 @@ class InferenceRunner:
         self.sola_search_samples = zc
         self.extra_samples = int(np.round(extra_t * sr / zc)) * zc
 
-        self.block_samples_16k = 160 * self.block_samples // zc
+        self.block_samples_16k = HUBERT_FRAME_SIZE * self.block_samples // zc
         self.skip_head = self.extra_samples // zc
         self.return_length = (self.block_samples + self.sola_buffer_samples + self.sola_search_samples) // zc
 
         n = self.extra_samples + self.crossfade_samples + self.sola_search_samples + self.block_samples
         self.input_wav = torch.zeros(n, device=self._device)
-        self.input_wav_res = torch.zeros(160 * n // zc, device=self._device)
+        self.input_wav_res = torch.zeros(HUBERT_FRAME_SIZE * n // zc, device=self._device)
         self.input_wav_work = torch.empty_like(self.input_wav)
         self.input_wav_res_work = torch.empty_like(self.input_wav_res)
 
@@ -112,7 +113,7 @@ class InferenceRunner:
         self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
 
         # 重采样器
-        self.resampler = TatResample(sr, 16000, dtype=torch.float32).to(self._device)
+        self.resampler = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(self._device)
         if sr_model != sr:
             self.resampler_model2dev = TatResample(sr_model, sr, dtype=torch.float32).to(self._device)
         else:
@@ -211,10 +212,10 @@ class InferenceRunner:
         self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
         self.input_wav_res_work[-self.block_samples_16k:].zero_()
         self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
-        # 取额外 2*hz_centis 上下文喂 resampler（抵消重采样延迟），输出跳过前 160 样本
+        # 取额外 2*hz_centis 上下文喂 resampler（抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
         resampler_in = self.input_wav[-mono.shape[0] - 2 * self.hz_centis:]
-        resampler_out = self.resampler(resampler_in)[160:]
-        target_len = 160 * (mono.shape[0] // self.hz_centis + 1)
+        resampler_out = self.resampler(resampler_in)[HUBERT_FRAME_SIZE:]
+        target_len = HUBERT_FRAME_SIZE * (mono.shape[0] // self.hz_centis + 1)
         self.input_wav_res[-target_len:] = resampler_out
 
     def _run_inference(self) -> torch.Tensor:

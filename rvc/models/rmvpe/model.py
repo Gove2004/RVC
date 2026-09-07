@@ -1,4 +1,5 @@
 """RMVPE 模型 — F0 提取推理接口"""
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import logging
 
 import numpy as np
@@ -20,7 +21,7 @@ class RMVPE:
             device = "cuda:0"
         self.device = device
         self.mel_extractor = MelSpectrogram(
-            is_half, 128, 16000, 1024, 160, None, 30, 8000
+            is_half, 128, HUBERT_SAMPLE_RATE, 1024, HUBERT_FRAME_SIZE, None, 30, 8000
         ).to(device)
 
 

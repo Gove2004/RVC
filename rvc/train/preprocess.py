@@ -1,3 +1,4 @@
+from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import hashlib
 import json
 import os
@@ -136,8 +137,8 @@ class PreProcessor:
                 chunk = normalize_audio(chunk)
                 name = f"{file_index}_{idx}.wav"
                 write_wav(self.gt_dir / name, chunk, self.sr, subtype="FLOAT")
-                chunk16 = signal.resample(chunk, int(len(chunk) * 16000 / self.sr)) if self.sr != 16000 else chunk
-                write_wav(self.wav16k_dir / name, chunk16, 16000, subtype="FLOAT")
+                chunk16 = signal.resample(chunk, int(len(chunk) * HUBERT_SAMPLE_RATE / self.sr)) if self.sr != HUBERT_SAMPLE_RATE else chunk
+                write_wav(self.wav16k_dir / name, chunk16, HUBERT_SAMPLE_RATE, subtype="FLOAT")
                 idx += 1
                 if start + chunk_len >= len(piece):
                     break
