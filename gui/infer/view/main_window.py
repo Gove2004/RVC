@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
         self._build_ui()
+        self._connect_runtime_param_signals()
 
         # 初始化管理器
         self.model_manager = ModelManager(self, self._models_layout)
@@ -178,6 +179,16 @@ class MainWindow(QMainWindow):
 
         ctrl.addLayout(btn_group)
         root.addLayout(ctrl)
+
+    def _connect_runtime_param_signals(self):
+        """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
+        self.protect_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.nr_strength_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.break_src_hz_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.nr_enable_checkbox.toggled.connect(lambda _: self._apply_runtime_params())
+        self.break_enable_checkbox.toggled.connect(lambda _: self._apply_runtime_params())
+        self.f0_rmvp_btn.toggled.connect(lambda _: self._apply_runtime_params())
 
     def _update_timer(self):
         if self.engine.running and self.engine.measure_ms > 0:
