@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from rvc.train.mel_processing import mel_filter_bank, pad_center, _hz_to_mel, _mel_to_hz, _fft_frequencies, _mel_frequencies
+from rvc.audio.mel import mel_filter_bank, pad_center, _hz_to_mel, _mel_to_hz, _fft_frequencies, _mel_frequencies
 
 
 class TestMelFilterBank(unittest.TestCase):

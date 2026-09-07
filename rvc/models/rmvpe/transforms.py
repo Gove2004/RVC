@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.signal import get_window
 
-from rvc.train.mel_processing import mel_filter_bank, pad_center
+from rvc.audio.mel import mel_filter_bank, pad_center
 
 
 class STFT(torch.nn.Module):

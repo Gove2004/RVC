@@ -1,7 +1,6 @@
 """F0 提取器抽象层 — 统一 RMVPE 和 FCPE 的接口"""
 import contextlib
 import logging
-import math
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -10,19 +9,13 @@ import torch
 
 from rvc.runtime.paths import RMVPE_PATH
 from rvc.tools.cuda_graph import cuda_graph_enabled, run_cuda_graph
+from rvc.models.rmvpe.constants import F0_MIN, F0_MAX, F0_MEL_MIN, F0_MEL_MAX
 
 logger = logging.getLogger(__name__)
 
 # UV 判定的 confidence 阈值：FCPE 默认 0.006 在低电平底噪（麦克风底噪/呼吸/气声）100%
 # 误判浊音给合成器喂假音高，与 RMVPE 的 thred=0.03 拉到同档（RMVPE 在该档底噪全判 uv）。
 FCPE_CONFIDENCE_THRESHOLD = 0.025
-
-# F0 范围常量
-F0_MIN = 50.0  # Hz - 人声最低基频
-F0_MAX = 1100.0  # Hz - 人声最高基频
-
-F0_MEL_MIN = 1127 * math.log(1 + F0_MIN / 700)
-F0_MEL_MAX = 1127 * math.log(1 + F0_MAX / 700)
 
 
 class _FilteredStream:

@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 from rvc.audio.loader import load_audio
-from rvc.inference.f0_extractor import F0_MEL_MAX, F0_MEL_MIN  # 复用推理侧常量，避免算法漂移
+from rvc.models.rmvpe.constants import F0_MEL_MAX, F0_MEL_MIN  # RMVPE 模型常量
 from rvc.models.rmvpe import RMVPE
 from rvc.runtime.paths import RMVPE_PATH
 
