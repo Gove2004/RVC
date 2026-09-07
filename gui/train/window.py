@@ -155,19 +155,6 @@ class TrainWindow(QMainWindow):
             idx = self.hubert.findText(state.hubert)
             if idx >= 0:
                 self.hubert.setCurrentIndex(idx)
-        if state.sep_input_dir:
-            self.sep_input.setText(state.sep_input_dir)
-        if state.sep_output_dir:
-            self.sep_output.setText(state.sep_output_dir)
-        idx = self.sep_model.findData(state.sep_model)
-        if idx >= 0:
-            self.sep_model.setCurrentIndex(idx)
-        idx = self.sep_out_sr.findText(state.sep_out_sr)
-        if idx >= 0:
-            self.sep_out_sr.setCurrentIndex(idx)
-        self.sep_do_dereverb.setChecked(state.sep_dereverb)
-        self.sep_do_karaoke.setChecked(state.sep_karaoke)
-        self.sep_do_denoise.setChecked(state.sep_denoise)
 
     def _save_cfg(self):
         config = load_config()
