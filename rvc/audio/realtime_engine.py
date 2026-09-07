@@ -1,4 +1,4 @@
-"""实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果。
+﻿"""实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果。
 
 架构重构后：RealtimeEngine 作为门面（Facade），内部委托给子组件：
 - AudioStreamManager: 设备/流管理（PortAudio 封装）
@@ -87,9 +87,9 @@ class RealtimeEngine:
         self.runtime_error_pending = False
 
         sd.default.device = [in_dev, out_dev]
-        sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
-        sr_model = self.pipeline.target_sr
-        sr = sr_model if sr_type == "sr_model" else sr_dev
+        self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
+        self.sr_model = self.pipeline.target_sr
+        sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
 
         # 设备校验与日志
         self._stream_mgr.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
@@ -221,5 +221,6 @@ class RealtimeEngine:
         if audio_max > 1:
             result = result / audio_max
         sf.write(output_path, result, tgt_sr, subtype="FLOAT")
+
 
 
