@@ -8,7 +8,7 @@
 
 新增参数时改动点：
 1. rvc/config.py 对应 dataclass 加字段
-2. BINDINGS 加一行（路径 + 控件 + 读写方式 + 存储短键 + 默认值）
+2. BINDINGS 加一行（路径 + 控件 + 读写方式 + 默认值）
 3. Tab 里建控件
 """
 from rvc.config import AppConfig, EngineConfig, InferenceConfig
@@ -22,29 +22,29 @@ TEXT = "text"        # QLineEdit text
 RADIO_F0 = "radio_f0"  # RMVPE/FCPE 互斥
 RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 
-# 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 存储短键, 缺省默认值)
+# 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 缺省默认值)
 BINDINGS = [
     # ── 推理参数（inference.*）──
     # 注意：pitch/formant 是模型卡片级参数（card.pitch_slider/card.gender_slider），
     # 不在全局 BINDINGS 表中，由 model_manager 管理持久化。
-    ("inference.protect", "protect_slider", X100, "protect", 0.5),
-    ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "f0", "rmvpe"),
-    ("inference.rms_mix", "rms_mix_slider", X100, "rms", 0.0),
-    ("inference.denoise.enable", "nr_enable_checkbox", CHECK, "nr_en", False),
-    ("inference.denoise.strength", "nr_strength_slider", X100, "nr_str", 0.5),
-    ("inference.break_protect.enable", "break_enable_checkbox", CHECK, "brk_en", True),
-    ("inference.break_protect.src_hz", "break_src_hz_slider", X100, "brk_hz", 300.0),
+    ("inference.protect", "protect_slider", X100, 0.5),
+    ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
+    ("inference.rms_mix", "rms_mix_slider", X100, 0.0),
+    ("inference.denoise.enable", "nr_enable_checkbox", CHECK, False),
+    ("inference.denoise.strength", "nr_strength_slider", X100, 0.5),
+    ("inference.break_protect.enable", "break_enable_checkbox", CHECK, True),
+    ("inference.break_protect.src_hz", "break_src_hz_slider", X100, 300.0),
     # ── 引擎参数（engine.*）──
-    ("engine.block_time", "block_time_slider", X100, "bl", 0.25),
-    ("engine.crossfade_time", "crossfade_slider", X100, "cf", 0.05),
-    ("engine.extra_time", "extra_time_slider", X100, "ex", 2.5),
-    ("engine.sr_mode", "sr_model_radio", RADIO_SR, "sr_mode", "model"),
-    ("engine.hostapi", "hostapi_combo", COMBO, "ha", ""),
-    ("engine.input_device", "input_combo", COMBO, "in_dev", ""),
-    ("engine.output_device", "output_combo", COMBO, "out_dev", ""),
-    ("engine.output2_device", "output2_combo", COMBO, "out2_dev", ""),
+    ("engine.block_time", "block_time_slider", X100, 0.25),
+    ("engine.crossfade_time", "crossfade_slider", X100, 0.05),
+    ("engine.extra_time", "extra_time_slider", X100, 2.5),
+    ("engine.sr_mode", "sr_model_radio", RADIO_SR, "model"),
+    ("engine.hostapi", "hostapi_combo", COMBO, ""),
+    ("engine.input_device", "input_combo", COMBO, ""),
+    ("engine.output_device", "output_combo", COMBO, ""),
+    ("engine.output2_device", "output2_combo", COMBO, ""),
     # ── 顶层 ──
-    ("active_model", "", TEXT, "active_model", ""),
+    ("active_model", "", TEXT, ""),
 ]
 
 # 需要按控件步长量化的字段：字段路径 → 量化步长
@@ -145,7 +145,7 @@ def state_from_dict(data: dict) -> AppConfig:
     """
     data = _migrate_old_format(data)
     cfg = AppConfig()
-    for path, _w, kind, _key, default in BINDINGS:
+    for path, _w, kind, default in BINDINGS:
         raw = _get_nested_dict(data, path) if _has_nested(data, path) else default
         val = _parse(kind, raw)
         step = QUANTIZE.get(path)
@@ -160,7 +160,7 @@ def state_from_dict(data: dict) -> AppConfig:
 def state_to_dict(state: AppConfig) -> dict:
     """AppConfig → 持久化字典（嵌套结构）。"""
     result = {}
-    for path, _w, _k, _key, _d in BINDINGS:
+    for path, _w, _k, _d in BINDINGS:
         _set_nested_dict(result, path, _get_nested(state, path))
     return result
 
@@ -210,7 +210,7 @@ def _set(win, widget, kind, value):
 def collect_gui_state(win) -> AppConfig:
     """从控件收集完整配置（含 active_model 特例）。"""
     cfg = AppConfig()
-    for path, widget, kind, _k, _d in BINDINGS:
+    for path, widget, kind, _d in BINDINGS:
         if widget:
             _set_nested(cfg, path, _get(win, widget, kind))
     # enable_out2 无独立控件，根据 output2_combo 是否选了"不使用"自动推导
@@ -226,7 +226,7 @@ def collect_gui_state(win) -> AppConfig:
 
 def apply_gui_state(win, state: AppConfig) -> None:
     """将配置写回控件（含 active_model 特例）。"""
-    for path, widget, kind, _k, _d in BINDINGS:
+    for path, widget, kind, _d in BINDINGS:
         if widget:
             _set(win, widget, kind, _get_nested(state, path))
     if state.active_model:

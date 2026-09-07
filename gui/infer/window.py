@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer, Qt, Signal
 
-from gui.configs.infer_state import InferGuiState
+from rvc.config import AppConfig
 from gui.infer.controller import InferController
 from gui.infer.param_binding import (
     collect_gui_state as bridge_collect_gui_state,
@@ -243,10 +243,10 @@ class MainWindow(QMainWindow):
         self._set_toggle_button("停止", True, ButtonStyles.danger())
         self._timer.start(200)
 
-    def collect_gui_state(self) -> InferGuiState:
+    def collect_gui_state(self) -> AppConfig:
         return bridge_collect_gui_state(self)
 
-    def apply_gui_state(self, state: InferGuiState) -> None:
+    def apply_gui_state(self, state: AppConfig) -> None:
         bridge_apply_gui_state(self, state)
 
     # ── 启动/停止 ──
