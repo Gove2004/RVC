@@ -65,21 +65,24 @@ def load_hubert(config, inference_cache=None, variant: str = "chinese"):
 
     # GUI 无控制台环境（pythonw / 打包 exe）下 sys.stdout / sys.stderr 为 None，
     # transformers 打印 LOAD REPORT（chinese 有 MISSING 键必触发）会调 sys.stdout.isatty() 崩溃。
-    # 兜底为 devnull，杜绝任何 isatty()/write() 调用碰到 None。
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w")
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w")
-
-    hubert_model = HubertModelWithFinalProj.from_pretrained(
-        model_path,
-        local_files_only=True,
-    ).to(config.device).eval()
-
-    if config.is_half:
-        hubert_model = hubert_model.half()
-    else:
-        hubert_model = hubert_model.float()
+    # 保存原始值，from_pretrained 期间临时替换为 devnull，完成后恢复并关闭。
+    _stdout, _stderr = sys.stdout, sys.stderr
+    try:
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, "w")
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, "w")
+        hubert_model = HubertModelWithFinalProj.from_pretrained(
+            model_path,
+            local_files_only=True,
+        ).to(device=config.device, dtype=dtype).eval()
+    finally:
+        if sys.stdout is not _stdout:
+            sys.stdout.close()
+            sys.stdout = _stdout
+        if sys.stderr is not _stderr:
+            sys.stderr.close()
+            sys.stderr = _stderr
 
     inference_cache.set_hubert(cache_key, hubert_model)
     return hubert_model

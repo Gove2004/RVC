@@ -52,6 +52,8 @@ def apply_rms_mix(
     """
     r_hz = ref_hz if ref_hz is not None else hz_per_centisecond
     r1 = fast_rms(reference[:converted.shape[0]], 4 * r_hz, r_hz)
+    # size=N+1 再 [:-1]：linear 插值在 align_corners=True 下首尾锚定到端点，
+    # 多取一帧再截断可让第 i 个采样点对应第 i 帧的中心，避免整体偏移半帧。
     r1 = F.interpolate(r1[None, None], size=converted.shape[0] + 1, mode="linear", align_corners=True)[0, 0, :-1]
     r2 = fast_rms(converted, 4 * hz_per_centisecond, hz_per_centisecond)
     r2 = F.interpolate(r2[None, None], size=converted.shape[0] + 1, mode="linear", align_corners=True)[0, 0, :-1]

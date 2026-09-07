@@ -19,10 +19,11 @@ def _ffmpeg() -> Path:
     return FFMPEG_EXE
 
 
-def load_audio(path: str | Path, target_sr: int, mono: bool = True) -> tuple[np.ndarray, int]:
+def load_audio(path: str | Path, target_sr: int, mono: bool = True, timeout: int = 300) -> tuple[np.ndarray, int]:
     """用 ffmpeg 解码并重采样到 target_sr，输出 float32。
 
     mono=False 时返回 shape (2, N) 的立体声。
+    timeout: ffmpeg 子进程超时秒数（默认 300，长音频按需调大）。
     """
     path = Path(path).resolve()
     cmd = [
@@ -30,7 +31,7 @@ def load_audio(path: str | Path, target_sr: int, mono: bool = True) -> tuple[np.
         "-acodec", "pcm_f32le", "-f", "f32le",
         "-ac", "1" if mono else "2", "-ar", str(target_sr), "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True, timeout=300)
+    proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
     if proc.returncode:
         err = proc.stderr.decode("utf-8", errors="replace")[-500:]
         raise RuntimeError(f"ffmpeg 解码失败: {path}\n{err}")
