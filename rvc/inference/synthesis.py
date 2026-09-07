@@ -38,10 +38,11 @@ def infer_synth_audio(
     实时路径三者必传（8 参签名，含 skip_head/return_length/return_length2）。
     """
     realtime = skip_head is not None
-    # call 必须接受位置参数 — CUDA Graph fallback (`capture 失败 / 探测失败`)
-    # 会用 `function(*inputs)` 调用它，把 tensor inputs 透传过去。
-    # 我们用 lambda 接住后忽略，由闭包捕获 feats/p_len_t/... 这些外层 tensor。
-    # `tail` 区分实时（多 3 个裁剪参数）与离线（5 参签名），避免重复分支。
+    # tail 是标量参数（skip_head/return_length/return_length2），不是张量，
+    # 不能作为 CUDA Graph 输入，必须通过闭包捕获。
+    # 但 feats/p_len_t/pitch/pitchf/sid 是张量，必须作为参数传入，
+    # 否则 CUDA Graph 捕获/回放时用的是外部变量地址而非静态张量地址，
+    # 重开时外部变量地址变化导致 CUDA Graph 使用错误数据（声音沙哑/失真）。
     tail = (skip_head, return_length, return_length2) if realtime else ()
     mode = "realtime" if realtime else "offline"
 
@@ -49,11 +50,13 @@ def infer_synth_audio(
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
         graph_key = f"synth-{mode}-f0"
         tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
-        call = lambda *_: synthesizer.infer(feats, p_len_t, pitch, pitchf, sid, *tail)
+        def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
+            return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)
     else:
         graph_key = f"synth-{mode}-no-f0"
         tensor_inputs = (feats, p_len_t, sid)
-        call = lambda *_: synthesizer.infer(feats, p_len_t, None, None, sid, *tail)
+        def call(feats_, p_len_t_, sid_):
+            return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)
     # 必须把 tensor inputs 传到 run_cuda_graph 里——否则 cache 不认识 tensor shape，
     # synthesize 实际从未进 graph，每次都走 eager，Python 调度开销白白浪费。
     return run_cuda_graph(synthesizer, graph_key, call, *tensor_inputs)
