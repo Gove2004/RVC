@@ -55,7 +55,7 @@ class TestModelSessionManager(unittest.TestCase):
 
     def test_inference_cache_default(self):
         """未传 inference_cache 时应使用默认全局缓存。"""
-        from rvc.models.inference_cache import default_inference_cache
+        from rvc.inference.inference_cache import default_inference_cache
         cfg = _DeviceConfig("cpu", False)
         manager = ModelSessionManager(cfg)
         assert manager.inference_cache is default_inference_cache

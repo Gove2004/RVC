@@ -12,7 +12,7 @@ from transformers.utils.logging import disable_progress_bar
 # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
 disable_progress_bar()
 
-from rvc.models.inference_cache import default_inference_cache
+from rvc.inference.inference_cache import default_inference_cache
 from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)

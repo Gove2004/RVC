@@ -38,7 +38,7 @@ class ModelSessionManager:
             device_config: 含 device / is_half 的配置对象
             inference_cache: InferenceCache 实例（None 则用默认全局缓存）
         """
-        from rvc.models.inference_cache import default_inference_cache
+        from rvc.inference.inference_cache import default_inference_cache
         self.device = device_config.device
         self.is_half = device_config.is_half
         self.inference_cache = inference_cache or default_inference_cache

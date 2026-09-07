@@ -57,13 +57,13 @@ class TestInferencePipelineInit(unittest.TestCase):
 
     def test_init_uses_default_cache(self):
         """不传入 inference_cache 时使用 default_inference_cache。"""
-        from rvc.models.inference_cache import default_inference_cache
+        from rvc.inference.inference_cache import default_inference_cache
         pipeline = self._make_pipeline()
         self.assertIs(pipeline.inference_cache, default_inference_cache)
 
     def test_init_uses_custom_cache(self):
         """传入自定义 inference_cache 时使用自定义缓存。"""
-        from rvc.models.inference_cache import InferenceCache
+        from rvc.inference.inference_cache import InferenceCache
         custom_cache = InferenceCache()
         device_config = SimpleNamespace(device="cpu", is_half=False)
         pipeline = InferencePipeline(device_config, "test.pth", inference_cache=custom_cache)

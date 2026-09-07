@@ -1,30 +1,24 @@
-"""CUDA Graph 推理加速 — 捕获 Synthesizer/HuBERT/F0 模型的前向传播，跳过 Python 调度开销。"""
+"""CUDA Graph 推理加速 — 捕获 Synthesizer/HuBERT/F0 模型的前向传播，跳过 Python 调度开销。
+
+基础设备判断函数（configure_cuda_graph / cuda_graph_enabled）在 rvc.runtime.cuda_graph，
+本模块从 runtime 重新导出以保持向后兼容。
+"""
 import logging
-import os
 import threading
 import time
 from collections import OrderedDict
 
 import torch
 
+from rvc.runtime.cuda_graph import (
+    ENV_NAME,
+    MAX_CACHE_ENV,
+    configure_cuda_graph,
+    cuda_graph_enabled,
+)
+
 
 logger = logging.getLogger(__name__)
-
-ENV_NAME = "RVC_CUDA_GRAPH"
-MAX_CACHE_ENV = "RVC_CUDA_GRAPH_MAX_CACHE"
-
-
-def _device_type(device):
-    if isinstance(device, torch.device):
-        return device.type
-    return str(device).split(":", 1)[0].lower()
-
-
-def _cuda_device(device):
-    parsed = device if isinstance(device, torch.device) else torch.device(device)
-    if parsed.index is None:
-        parsed = torch.device("cuda", torch.cuda.current_device())
-    return parsed
 
 
 def _clone_output(value):
@@ -33,24 +27,6 @@ def _clone_output(value):
     if isinstance(value, tuple):
         return tuple(_clone_output(item) for item in value)
     return value
-
-
-def configure_cuda_graph(device):
-    """初始化 CUDA Graph 支持。"""
-    if _device_type(device) != "cuda":
-        os.environ[ENV_NAME] = "0"
-        return False
-    os.environ[ENV_NAME] = "1"
-    return True
-
-
-def cuda_graph_enabled(device):
-    """判断 CUDA Graph 是否对给定设备生效。"""
-    return (
-        os.environ.get(ENV_NAME) == "1"
-        and _device_type(device) == "cuda"
-        and torch.cuda.is_available()
-    )
 
 
 def _tensor_signature(tensor):

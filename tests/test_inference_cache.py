@@ -2,7 +2,7 @@
 import unittest
 import torch
 
-from rvc.models.inference_cache import InferenceCache, _LRU
+from rvc.inference.inference_cache import InferenceCache, _LRU
 
 
 class TestLRU(unittest.TestCase):

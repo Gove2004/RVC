@@ -1,4 +1,7 @@
 """训练 GUI 状态对象。"""
+
+本模块承担 gui/train 的 viewmodel 职责：训练 GUI 状态的序列化/反序列化、
+默认值管理、与 GUI 控件的双向绑定。训练运行时配置（TrainConfig）在 rvc.core.config。
 from dataclasses import dataclass
 from typing import Any
 

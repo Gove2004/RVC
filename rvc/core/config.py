@@ -71,7 +71,12 @@ class OfflineConfig(InferenceConfig):
 
 @dataclass
 class TrainConfig:
-    """训练配置。"""
+    """训练运行时配置——传给 Trainer 的超参数（epochs/batch_size/lr 等）。
+
+    与 gui.configs.train_state.TrainGuiState 的区别：
+    - TrainConfig: 运行时配置，直接控制训练循环，不含路径/GUI 状态
+    - TrainGuiState: GUI 状态持久化，含 exp_name/input_dir 等路径信息
+    """
     exp_dir: str
     sr: int = 48000
     epochs: int = 2000

@@ -1,8 +1,11 @@
-"""轻量级 WAV 读写（替代 soundfile）。
+"""WAV 文件结构化读写（替代 soundfile 依赖）。
 
-仅支持项目需要的格式：
-- 写：FLOAT32（IEEE float）、PCM16
-- 读元信息：WAV 直接解析头；其他格式用 ffmpeg 解析
+职责：WAV 文件的结构化读写——写 FLOAT32/PCM16 格式，读 WAV 头元信息。
+非 WAV 格式的元信息用 ffmpeg 解析（后备方案）。
+
+与 loader 的分工：
+- wav_io.py: WAV 文件读写（结构化，不需要解码）
+- loader.py: 任意格式解码到 numpy 数组（需要 ffmpeg）
 """
 import re
 import struct

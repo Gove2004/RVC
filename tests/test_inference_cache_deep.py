@@ -6,7 +6,7 @@ import threading
 import time
 import unittest
 
-from rvc.models.inference_cache import InferenceCache, _LRU
+from rvc.inference.inference_cache import InferenceCache, _LRU
 
 
 class TestLRUDeep(unittest.TestCase):
@@ -213,7 +213,7 @@ class TestInferenceCacheDeep(unittest.TestCase):
 
     def test_default_cache_is_instance(self):
         """default_inference_cache 是 InferenceCache 实例。"""
-        from rvc.models.inference_cache import default_inference_cache
+        from rvc.inference.inference_cache import default_inference_cache
         self.assertIsInstance(default_inference_cache, InferenceCache)
 
 

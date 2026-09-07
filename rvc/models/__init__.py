@@ -3,7 +3,7 @@
 hubert 子模块依赖 torch + transformers（重型），惰性导出；
 inference_cache 轻量，启动即加载。
 """
-from rvc.models.inference_cache import InferenceCache, default_inference_cache
+from rvc.inference.inference_cache import InferenceCache, default_inference_cache  # 向后兼容：实际在 inference 层
 
 __all__ = [
     "load_hubert",

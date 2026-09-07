@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from rvc.core.config import InferenceConfig
-from rvc.models.inference_cache import default_inference_cache
+from rvc.inference.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.model_session import ModelSessionManager
 from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
