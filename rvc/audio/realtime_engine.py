@@ -62,7 +62,7 @@ class RealtimeEngine:
         self.runtime_error_pending = False
 
     def load_model(self, pth, force=False, hubert="chinese"):
-        if not force and self.pipeline and self.pth_path == pth:
+        if False and not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.inference.pipeline import VCPipeline
         config = Config()  # load_model 在 _init_processing 之前调用，需单独获取 Config
@@ -248,10 +248,8 @@ class RealtimeEngine:
         # 短暂等待确保底层流完全释放。间隔一段时间重启不沙哑正是因为等够了。
         time.sleep(0.5)  # 诊断：增加到0.5s，若解决说明异步释放需更长时间
 
-    def process_file(self, input_path, output_path, *, params=None,
-                     block_t=0.25, cf_t=0.05, extra_t=2.5,
-                     f0method=None, protect=None, pad_sec=3.0,
-                     progress_cb=None):
+    def process_file(self, task, *, block_t=0.25, cf_t=0.05, extra_t=2.5,
+                     pad_sec=3.0, progress_cb=None):
         """离线文件流式推理：「模拟播放→转换→写录」。
 
         把整段音频当作持续输入流，逐块走实时 `_cb_impl`（降噪/RMS/SOLA/缓存轮换），
@@ -259,11 +257,8 @@ class RealtimeEngine:
         输出采样率 = 模型 target_sr。
 
         Args:
-            input_path: 输入音频路径（任意格式）
-            output_path: 输出 wav 路径
-            params: 运行时参数（rvc.inference.params.Params），缺省用默认
-            block_t/cf_t/extra_t: 块时长/交叉淡化/上下文（秒）
-            f0method/protect: 可覆盖 params 对应的推理参数
+            task: OfflineConfig（含输入/输出路径、模型路径、推理参数）
+            block_t/cf_t/extra_t: 块时长/交叉淡化/上下文（秒），一般用默认值
             pad_sec: 前后上下文 pad（秒），保证首尾块上下文充足
             progress_cb: 可选回调 (completed_blocks, total_blocks)
 
@@ -272,24 +267,18 @@ class RealtimeEngine:
         """
         self.sr_model = self.pipeline.target_sr
         tgt_sr = self.sr_model
-        wav = self._load_audio_at_sr(input_path, tgt_sr)
+        wav = self._load_audio_at_sr(task.input_path, tgt_sr)
 
-        if params is None:
-            params = InferenceConfig()
-        self.runtime_params = params
+        self.runtime_params = task
         if self.runner:
-            self.runner.reset()  # 重置 pitch 缓存，避免跨文件污染
-        if f0method is not None:
-            self.runtime_params.f0_method = f0method
-        if protect is not None:
-            self.runtime_params.protect = protect
+            self.runner.reset()
         self.function = "vc"
 
         self._init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1)
         self.warmup_inference(2)
 
         result = self._infer_stream(wav, self.block_samples, int(tgt_sr * pad_sec), progress_cb)
-        self._write_output_wav(result, output_path, tgt_sr)
+        self._write_output_wav(result, task.output_path, tgt_sr)
         return result
 
     def _load_audio_at_sr(self, input_path, tgt_sr):
