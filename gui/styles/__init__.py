@@ -11,6 +11,7 @@
 
 from gui.styles.colors import Colors
 from gui.styles.layout import Layout
+from gui.styles.theme import apply_theme
 from gui.styles.components import (
     ButtonStyles,
     LabelStyles,
@@ -22,6 +23,7 @@ from gui.styles.widgets import sep
 __all__ = [
     "Colors",
     "Layout",
+    "apply_theme",
     "ButtonStyles",
     "LabelStyles",
     "CardStyles",

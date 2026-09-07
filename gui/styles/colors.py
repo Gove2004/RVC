@@ -35,7 +35,23 @@ class Colors:
     SUCCESS_BG = "rgba(16, 124, 16, 0.08)"
     INFO_BG = "rgba(0, 120, 212, 0.08)"
 
+    # 背景色
+    WINDOW_BG = "#202020"          # 窗口背景
+    INPUT_BG = "#1a1a1a"           # 输入框/文本区背景
+    ALTERNATE_BG = "#252525"       # 交替行背景
+    TOOLTIP_BG = "#2a2a2a"         # 工具提示背景
+
     # 文字色
-    TEXT_PRIMARY = "#ffffff"      # 主要文字
-    TEXT_SECONDARY = "#c5c5c5"    # 次要文字
+    TEXT_PRIMARY = "#ffffff"        # 主要文字
+    TEXT_SECONDARY = "#c5c5c5"      # 次要文字
+    TEXT_INPUT = "#e5e5e5"          # 输入框文字
     TEXT_WHITE = "white"
+    LINK = "#4cc2ff"                # 链接色
+
+    # 禁用态
+    DISABLED_TEXT = "#6d6d6d"       # 禁用文字
+    DISABLED_BG = "#323232"         # 禁用按钮背景
+    DISABLED_HIGHLIGHT = "#3c3c3c"  # 禁用高亮
+
+    # 控件边框
+    CHECKBOX_BORDER = "#555555"     # 复选框/单选框边框
