@@ -3,9 +3,10 @@ import logging
 import random
 from pathlib import Path
 
-import librosa
 import numpy as np
 import torch
+
+from rvc.audio.loader import load_audio
 from torch.utils.data import Dataset, Sampler
 
 from rvc.train.mel_processing import spectrogram_torch
@@ -69,7 +70,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         return len(self.audiopaths_and_text)
 
     def _get_audio(self, filename: str):
-        wav, sr = librosa.load(filename, sr=self.sampling_rate, mono=True)
+        wav, sr = load_audio(filename, target_sr=self.sampling_rate, mono=True)
         if sr != self.sampling_rate:
             raise ValueError(f"采样率不匹配: {sr} != {self.sampling_rate}")
         wav = torch.FloatTensor(wav).unsqueeze(0)

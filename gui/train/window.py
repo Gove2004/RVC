@@ -7,12 +7,11 @@ from PySide6.QtWidgets import (
 )
 
 from gui.configs import TrainGuiState, load_config, save_config
-from gui.train.workers import TrainWorker, VocalExtractWorker
+from gui.train.workers import TrainWorker
 from gui.train.widgets import ToolThread
 from gui.train.tabs.settings_tab import build_settings_tab
 from gui.train.tabs.train_tab import build_train_tab
 from gui.train.tabs.tools_tab import build_tools_tab
-from gui.train.tabs.vocal_tab import build_vocal_tab
 from gui.styles import ButtonStyles, LabelStyles, Layout
 from rvc.runtime.paths import PRETRAINED_ROOT
 
@@ -23,7 +22,6 @@ class TrainWindow(QMainWindow):
         self.setWindowTitle("RVC 训练")
         self.resize(470, 400)
         self.worker = None
-        self._sep_worker = None
         self._tool_thread = None
         self._last_loss_text = ""
         self._build_ui()
@@ -38,7 +36,6 @@ class TrainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(build_settings_tab(self), "设置")
         tabs.addTab(build_train_tab(self), "训练")
-        tabs.addTab(build_vocal_tab(self), "人声提纯")
         tabs.addTab(build_tools_tab(self), "工具")
         layout.addWidget(tabs)
 
@@ -82,93 +79,6 @@ class TrainWindow(QMainWindow):
             self.stop_btn.setEnabled(False)
             self.stop_btn.setText("停止中...")
             self.stage_label.setText("当前阶段: 正在请求停止")
-
-    # ── 人声提纯 ──────────────────────────────────────────
-
-    def _sep_browse(self, line_edit):
-        path = QFileDialog.getExistingDirectory(self, "选择文件夹")
-        if path:
-            line_edit.setText(path)
-
-    def _sep_collect_options(self):
-        input_dir = self.sep_input.text().strip()
-        output_dir = self.sep_output.text().strip()
-        if not input_dir or not Path(input_dir).exists():
-            raise ValueError("请选择有效的输入文件夹")
-        if not output_dir:
-            raise ValueError("请选择输出文件夹")
-        if Path(input_dir).resolve() == Path(output_dir).resolve():
-            raise ValueError("输出文件夹不能和输入文件夹相同（会覆盖原始素材）")
-        options = {
-            "input_dir": input_dir,
-            "output_dir": output_dir,
-            "model": self.sep_model.currentData(),
-            "out_sr": self.sep_out_sr.currentText(),
-        }
-        from rvc.tools.separate import POST_KEYS
-
-        for key in POST_KEYS:
-            options[f"do_{key}"] = getattr(self, f"sep_do_{key}").isChecked()
-        return options
-
-    def _sep_start(self):
-        try:
-            options = self._sep_collect_options()
-        except ValueError as exc:
-            QMessageBox.warning(self, "参数错误", str(exc))
-            return
-        self._sep_set_running(True)
-        self.sep_log.clear()
-        self.sep_progress.setValue(0)
-        self._sep_worker = VocalExtractWorker(options)
-        self._sep_worker.stage_changed.connect(self._sep_on_stage)
-        self._sep_worker.progress.connect(self._sep_on_progress)
-        self._sep_worker.log_message.connect(self._sep_on_log)
-        self._sep_worker.error.connect(lambda msg: QMessageBox.critical(self, "提纯失败", msg))
-        self._sep_worker.cancelled.connect(self._sep_on_cancelled)
-        self._sep_worker.finished.connect(self._sep_on_finished)
-        self._sep_worker.start()
-
-    def _sep_stop(self):
-        if self._sep_worker:
-            self._sep_worker.request_stop()
-            self.sep_stop.setEnabled(False)
-            self.sep_stop.setText("停止中...")
-
-    def _sep_set_running(self, running: bool):
-        self.sep_start.setEnabled(not running)
-        self.sep_stop.setEnabled(running)
-        self.sep_stop.setText("停止")
-        for widget in [self.sep_input, self.sep_output, self.sep_model, self.sep_out_sr]:
-            widget.setEnabled(not running)
-        from rvc.tools.separate import POST_KEYS
-
-        for key in POST_KEYS:
-            getattr(self, f"sep_do_{key}").setEnabled(not running)
-
-    def _sep_on_stage(self, stage: str):
-        self.sep_status.setText(stage)
-
-    def _sep_on_progress(self, current: int, total: int):
-        self.sep_progress.setValue(int(current * 100 / max(total, 1)))
-
-    def _sep_on_log(self, message: str):
-        self.sep_log.append(message.rstrip())
-        self.sep_log.verticalScrollBar().setValue(self.sep_log.verticalScrollBar().maximum())
-
-    def _sep_on_finished(self, success: bool, message: str):
-        self._sep_set_running(False)
-        self._sep_on_log(message)
-        if success:
-            self.sep_status.setStyleSheet(LabelStyles.status("success"))
-            QMessageBox.information(self, "完成", message)
-        else:
-            self.sep_status.setStyleSheet(LabelStyles.status("error"))
-
-    def _sep_on_cancelled(self, message: str):
-        self._sep_set_running(False)
-        self._sep_on_log(message)
-        self.sep_status.setStyleSheet(LabelStyles.status("warning"))
 
     def _collect_options(self):
         exp_name = self.exp_name.text().strip()
@@ -361,12 +271,5 @@ class TrainWindow(QMainWindow):
             if not self._tool_thread.wait(5000):
                 event.ignore()
                 QMessageBox.information(self, "提示", "工具任务正在停止，请稍候再关闭窗口")
-                return
-        if self._sep_worker and self._sep_worker.isRunning():
-            # 提纯的取消点只在文件之间，单个长音频可能要跑很久才响应
-            self._sep_worker.request_stop()
-            if not self._sep_worker.wait(5000):
-                event.ignore()
-                QMessageBox.information(self, "提示", "人声提纯正在停止，请稍候再关闭窗口")
                 return
         event.accept()

@@ -32,8 +32,6 @@ PRETRAINED_ROOT = ASSETS_ROOT / "pretrained"
 MODELS_DIR = ASSETS_ROOT / "models"
 # 本地训练工作目录（切片/特征/ckpt/导出中间产物），基于项目根、与启动 cwd 无关
 TRAIN_LOGS_ROOT = PROJECT_ROOT / "logs"
-# 人声提纯权重（手动下载；yaml 清单随仓库跟踪）
-SEPARATE_DIR = ASSETS_ROOT / "separate"
 
 # ── ffmpeg（Windows 专用二进制，git 忽略）──
 FFMPEG_EXE = ASSETS_ROOT / "ffmpeg" / "ffmpeg.exe"

@@ -16,15 +16,6 @@ class TrainGuiState:
     pretrain_d: str
     # HuBERT 特征器: base / chinese（与推理侧模型卡牌选择一致，训练推理必须同一种）
     hubert: str = "chinese"
-    # ── 人声提纯 Tab ──
-    sep_input_dir: str = ""
-    sep_output_dir: str = ""
-    sep_model: str = "htdemucs"  # 主分离模型 key
-    sep_out_sr: str = "44.1k"  # 输出采样率
-    sep_dereverb: bool = True
-    sep_karaoke: bool = False
-    sep_denoise: bool = True
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrainGuiState":
         return cls(
@@ -38,13 +29,6 @@ class TrainGuiState:
             pretrain_g=str(data.get("pretrain_g", "")),
             pretrain_d=str(data.get("pretrain_d", "")),
             hubert=str(data.get("hubert", "chinese")),
-            sep_input_dir=str(data.get("sep_input_dir", "")),
-            sep_output_dir=str(data.get("sep_output_dir", "")),
-            sep_model=str(data.get("sep_model", "htdemucs")),
-            sep_out_sr=str(data.get("sep_out_sr", "44.1k")),
-            sep_dereverb=bool(data.get("sep_dereverb", True)),
-            sep_karaoke=bool(data.get("sep_karaoke", False)),
-            sep_denoise=bool(data.get("sep_denoise", True)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,11 +43,4 @@ class TrainGuiState:
             "pretrain_g": self.pretrain_g,
             "pretrain_d": self.pretrain_d,
             "hubert": self.hubert,
-            "sep_input_dir": self.sep_input_dir,
-            "sep_output_dir": self.sep_output_dir,
-            "sep_model": self.sep_model,
-            "sep_out_sr": self.sep_out_sr,
-            "sep_dereverb": self.sep_dereverb,
-            "sep_karaoke": self.sep_karaoke,
-            "sep_denoise": self.sep_denoise,
         }

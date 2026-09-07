@@ -3,9 +3,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from librosa.util import pad_center
-from librosa.filters import mel
 from scipy.signal import get_window
+
+from rvc.train.mel_processing import mel_filter_bank, pad_center
 
 
 class STFT(torch.nn.Module):
@@ -154,7 +154,7 @@ class MelSpectrogram(torch.nn.Module):
         super().__init__()
         n_fft = win_length if n_fft is None else n_fft
         self.hann_window = {}
-        mel_basis = mel(
+        mel_basis = mel_filter_bank(
             sr=sampling_rate,
             n_fft=n_fft,
             n_mels=n_mel_channels,

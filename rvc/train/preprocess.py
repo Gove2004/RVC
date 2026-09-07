@@ -5,7 +5,6 @@ import re
 import shutil
 from pathlib import Path
 
-import librosa
 import numpy as np
 import soundfile as sf
 from scipy import signal
@@ -26,6 +25,23 @@ _RUNTIME_DIRS = [
 _CHECKPOINT_GLOBS = ["G_*.pth", "D_*.pth"]
 
 
+
+def _rms(y: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
+    """计算每帧 RMS（兼容 librosa.feature.rms，center=True，reflect padding）。
+
+    用于音频切片的静音检测，微小差异不影响最终结果。
+    """
+    pad = int(frame_length // 2)
+    y_padded = np.pad(y, (pad, pad), mode="reflect")
+    n_frames = 1 + (len(y_padded) - frame_length) // hop_length
+    frames = np.lib.stride_tricks.as_strided(
+        y_padded,
+        shape=(n_frames, frame_length),
+        strides=(y_padded.strides[0] * hop_length, y_padded.strides[0]),
+    )
+    return np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1)).astype(np.float32)
+
+
 class Slicer:
     def __init__(self, sr: int, threshold: float = -42.0, min_length: int = 1500, min_interval: int = 400, hop_size: int = 15, max_sil_kept: int = 500):
         self.sr = sr
@@ -38,7 +54,7 @@ class Slicer:
     def slice(self, wav: np.ndarray):
         if wav.shape[0] <= self.min_length:
             return [wav]
-        rms = librosa.feature.rms(y=wav, frame_length=self.hop_size * 2, hop_length=self.hop_size).squeeze(0)
+        rms = _rms(wav, frame_length=self.hop_size * 2, hop_length=self.hop_size)
         below = rms < self.threshold
         length = len(below)
 
@@ -120,7 +136,7 @@ class PreProcessor:
                 chunk = normalize_audio(chunk)
                 name = f"{file_index}_{idx}.wav"
                 sf.write(self.gt_dir / name, chunk, self.sr, subtype="FLOAT")
-                chunk16 = librosa.resample(chunk, orig_sr=self.sr, target_sr=16000) if self.sr != 16000 else chunk
+                chunk16 = signal.resample(chunk, int(len(chunk) * 16000 / self.sr)) if self.sr != 16000 else chunk
                 sf.write(self.wav16k_dir / name, chunk16, 16000, subtype="FLOAT")
                 idx += 1
                 if start + chunk_len >= len(piece):
