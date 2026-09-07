@@ -3,7 +3,7 @@
 架构重构后：RealtimeEngine 作为门面（Facade），内部委托给子组件：
 - AudioStreamManager: 设备/流管理（PortAudio 封装）
 - InferenceRunner: 推理调度（缓冲区/推理/效果器）
-- ModelSessionManager: 模型生命周期（通过 VCPipeline 间接使用）
+- ModelSessionManager: 模型生命周期（通过 InferencePipeline 间接使用）
 
 对外接口（start/stop/load_model/process_file）保持不变，GUI 层无需修改。
 """
@@ -57,7 +57,7 @@ class RealtimeEngine:
     # ── 模型加载 ──
 
     def load_model(self, pth, force=False, hubert="chinese"):
-        """加载模型（创建 VCPipeline）。
+        """加载模型（创建 InferencePipeline）。
 
         切换模型时清除 f0 提取器的旧 CUDA Graph 缓存。
         """
@@ -65,9 +65,9 @@ class RealtimeEngine:
             self.inference_cache.clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
-        from rvc.inference.pipeline import VCPipeline
+        from rvc.inference.pipeline import InferencePipeline
         try:
-            self.pipeline = VCPipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
+            self.pipeline = InferencePipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
             self.pth_path = pth
             return self.pipeline.target_sr
@@ -222,32 +222,4 @@ class RealtimeEngine:
             result = result / audio_max
         sf.write(output_path, result, tgt_sr, subtype="FLOAT")
 
-    # ── 兼容属性（供 GUI 层访问）──
 
-    @property
-    def stream(self):
-        return self._stream_mgr.stream
-
-    @property
-    def stream2(self):
-        return self._stream_mgr.stream2
-
-    @property
-    def out2_q(self):
-        return self._stream_mgr.out2_q
-
-    @property
-    def enable_out2(self):
-        return self._stream_mgr.enable_out2
-
-    @property
-    def sr(self):
-        return self._runner.sr if self._runner else None
-
-    @property
-    def channels(self):
-        return self._runner.channels if self._runner else 1
-
-    @property
-    def block_samples(self):
-        return self._runner.block_samples if self._runner else 0

@@ -65,19 +65,18 @@ class InferController:
         """配置并启动音频引擎。
 
         设备索引由调用方（window/device_manager）从设备名称转换而来。
+        副输出由 setup 内部统一启动（setup_out2 是幂等的，重复调用安全）。
         """
         sr_type = "sr_model" if sr_mode == "model" else "sr_device"
         out2_idx = output2_device_idx if (enable_out2 and output2_device_idx >= 0) else None
-        self.engine.setup(
-            sr_type, input_device_idx, output_device_idx,
-            block_time, crossfade_time, extra_time, out2_idx,
-        )
-        if enable_out2 and output2_device_idx >= 0:
-            try:
-                self.engine.setup_out2(output2_device_idx)
-            except Exception:
-                self.engine.stop()  # 副输出失败时停掉主流，避免引擎失控
-                raise
+        try:
+            self.engine.setup(
+                sr_type, input_device_idx, output_device_idx,
+                block_time, crossfade_time, extra_time, out2_idx,
+            )
+        except Exception:
+            self.engine.stop()  # 启动失败时停掉所有流，避免引擎失控
+            raise
         return EngineStats(self.engine.sr_model, self.engine.sr_dev)
 
     def stop(self):
