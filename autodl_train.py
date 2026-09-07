@@ -68,7 +68,6 @@ REQUIRED_PACKAGES = [
     ("torch", "torch", "PyTorch 深度学习框架（训练核心）"),
     ("numpy", "numpy", "数组计算"),
     ("scipy", "scipy", "滤波器 / 重采样"),
-    ("librosa", "librosa", "音频加载与切片 RMS"),
     ("soundfile", "soundfile", "wav 读写（预处理产物）"),
     ("transformers", "transformers", "HuBERT 特征提取"),
 ]

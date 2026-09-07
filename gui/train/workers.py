@@ -1,6 +1,6 @@
 """训练 GUI 线程 worker。
 
-注意：rvc.train.* 模块顶层 import torch/librosa，必须惰性导入（在 run() 内），
+注意：rvc.train.* 模块顶层 import torch，必须惰性导入（在 run() 内），
 否则 train 窗口启动时就要加载重型依赖，导致启动慢（infer 窗口已遵守此约定）。
 """
 import traceback
@@ -57,7 +57,7 @@ class TrainWorker(QThread):
             self.finished.emit(False, "训练失败")
 
     def _run_impl(self):
-        # 惰性导入：rvc.train.* 顶层 import torch/librosa，放在线程内避免拖慢 GUI 启动
+        # 惰性导入：rvc.train.* 顶层 import torch，放在线程内避免拖慢 GUI 启动
         from rvc.runtime import Config
         from rvc.train.extract_f0 import TrainF0Extractor
         from rvc.train.extract_feature import HuBERTExtractor

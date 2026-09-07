@@ -1,4 +1,4 @@
-"""音频设备枚举 — 轻量模块，仅依赖 sounddevice，避免启动时加载 torch/librosa。"""
+"""音频设备枚举 — 轻量模块，仅依赖 sounddevice，避免启动时加载 torch。"""
 import sounddevice as sd
 
 

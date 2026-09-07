@@ -1,6 +1,6 @@
 """音频处理模块 — 加载、流管理、工具函数、降噪
 
-注意：子模块（realtime_engine/denoise/sola 等）依赖 torch/librosa，属于重型模块。
+注意：子模块（realtime_engine/denoise/sola 等）依赖 torch，属于重型模块。
 本包采用惰性导出，GUI 启动路径上只加载轻量子模块（device_query/sounddevice），
 torch 等延迟到真正使用音频处理时再导入。
 """
