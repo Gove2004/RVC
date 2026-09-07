@@ -16,7 +16,7 @@ __pycache__/
 # 大文件/权重一律忽略（git clone 不会带下来，需要手动放置或上传；
 # 云训练体检 _probe_assets 会逐项检查缺失）。目录骨架用 .gitkeep 占位，
 # 保证 clone 之后 assets 下各文件夹可见。
-# 注意：已跟踪文件（configs/*.json、resources/*.png、separate/*.yaml、
+# 注意：已跟踪文件（configs/*.json、resources/*.png、
 # rmvpe/rmvpe_inputs.pth）不受忽略规则影响，clone 时正常带出。
 assets/ffmpeg/*
 assets/indexes/*
@@ -33,10 +33,6 @@ assets/hubert/**
 !assets/hubert/chinese/
 !assets/hubert/base/.gitkeep
 !assets/hubert/chinese/.gitkeep
-# 人声提纯权重（手动下载，单文件最大 639MB）；yaml 清单保留跟踪
-assets/separate/*.ckpt
-assets/separate/*.th
-assets/separate/*.pth
 
 # Runtime configs (migrated to assets/configs/)
 /configs/
