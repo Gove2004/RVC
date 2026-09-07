@@ -96,6 +96,10 @@ class _CapturedCall:
             for static, value in zip(self.inputs, inputs):
                 static.copy_(value, non_blocking=True)
             self.graph.replay()
+            # 强制同步：确保回放完成后再克隆输出。
+            # 异步回放可能导致输出张量还在被写入时就被克隆，
+            # 或两次回放重叠，表现为声音沙哑/失真。
+            torch.cuda.synchronize(self.inputs[0].device)
             output = _clone_output(self.output)
             self.done_event = torch.cuda.Event(blocking=False)
             self.done_event.record(stream)
