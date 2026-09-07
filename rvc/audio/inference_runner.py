@@ -185,6 +185,10 @@ class InferenceRunner:
             ref = self.input_wav[self.extra_samples:]
             chunk = self.processor.process_output(infer, ref, p_rms_mix, self.function == "vc")
 
+            # 阶段5.5: UV 区域合成气息噪声（增加自然气息感，不漏本音）
+            if self.pipeline is not None and hasattr(self.pipeline, "last_pitchf"):
+                chunk = self.processor.breath.process(chunk, self.pipeline.last_pitchf)
+
             # 阶段6: 输出写入（主输出 + 副输出路由由调用方处理）
             write_main_output(chunk, outdata, self.channels)
 
