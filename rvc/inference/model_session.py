@@ -70,7 +70,7 @@ class ModelSessionManager:
         try:
             synthesizer.remove_weight_norm()
         except Exception as e:
-            logger.warning("移除 weight_norm 失败: %s", e)
+            logger.warning("移除 weight_norm 失败：%s", e)
 
         # 清除旧模型的 CUDA Graph 缓存（避免形状/设备不匹配）
         clear_cuda_graph_cache(synthesizer)

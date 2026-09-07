@@ -145,7 +145,7 @@ class BucketSampler(Sampler):
                 assigned += 1
                 buckets[bucket_idx].append(idx)
         if dropped := total - assigned:
-            logger.warning("BucketSampler: %d/%d 样本被跳过（长度超出范围 [%d, %d]）", dropped, total, self.boundaries[0], self.boundaries[-1])
+            logger.warning("BucketSampler：%d/%d 样本被跳过（长度超出范围 [%d, %d]）", dropped, total, self.boundaries[0], self.boundaries[-1])
         return [bucket for bucket in buckets if bucket]
 
     def _bisect(self, length: int):

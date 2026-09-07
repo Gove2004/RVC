@@ -1,12 +1,12 @@
 """AudioStreamManager 单元测试 — 音频流管理（不依赖实际设备）。"""
-import pytest
+import unittest
 import numpy as np
 
 from rvc.audio.stream_manager import AudioStreamManager
 from rvc.core.errors import AudioDeviceError
 
 
-class TestAudioStreamManager:
+class TestAudioStreamManager(unittest.TestCase):
     """AudioStreamManager 基本接口测试。"""
 
     def test_creation(self):
@@ -39,10 +39,10 @@ class TestAudioStreamManager:
 
         注意：此测试需要实际音频设备，跳过。
         """
-        pytest.skip("需要实际音频设备")
+        self.skipTest("需要实际音频设备")
 
 
-class TestAudioDeviceError:
+class TestAudioDeviceError(unittest.TestCase):
     """AudioDeviceError 异常测试。"""
 
     def test_creation(self):

@@ -1,5 +1,5 @@
 """F0 提取器抽象接口单元测试。"""
-import pytest
+import unittest
 import torch
 
 from rvc.inference.f0_extractor import (
@@ -12,12 +12,12 @@ from rvc.inference.f0_extractor import (
 )
 
 
-class TestF0ExtractorABC:
+class TestF0ExtractorABC(unittest.TestCase):
     """F0Extractor 抽象基类测试。"""
 
     def test_cannot_instantiate(self):
         """抽象基类不能直接实例化。"""
-        with pytest.raises(TypeError):
+        with self.assertRaises(TypeError):
             F0Extractor()
 
     def test_subclass_must_implement_extract(self):
@@ -26,7 +26,7 @@ class TestF0ExtractorABC:
             def clear_cuda_graph(self):
                 pass
 
-        with pytest.raises(TypeError):
+        with self.assertRaises(TypeError):
             IncompleteExtractor()
 
     def test_subclass_must_implement_clear_cuda_graph(self):
@@ -35,11 +35,11 @@ class TestF0ExtractorABC:
             def extract(self, audio, sr, f0_up_key, f0_proc=None):
                 pass
 
-        with pytest.raises(TypeError):
+        with self.assertRaises(TypeError):
             IncompleteExtractor()
 
 
-class TestPostprocessF0:
+class TestPostprocessF0(unittest.TestCase):
     """postprocess_f0 函数测试。"""
 
     def test_basic(self):
@@ -54,10 +54,10 @@ class TestPostprocessF0:
         pitch_0, _ = postprocess_f0(f0, f0_up_key=0, device="cpu", f0_proc=None)
         pitch_12, _ = postprocess_f0(f0, f0_up_key=12, device="cpu", f0_proc=None)
         # 升高 12 半音，F0 应翻倍，离散 pitch 应增大
-        assert pitch_12[0] > pitch_0[0]
+        assert pitch_12.item() > pitch_0.item()
 
 
-class TestBreakProtect:
+class TestBreakProtect(unittest.TestCase):
     """破音保护函数测试。"""
 
     def test_disabled_ratio_1(self):
@@ -86,7 +86,7 @@ class TestBreakProtect:
         assert torch.allclose(result, f0)
 
 
-class TestNormalizeF0:
+class TestNormalizeF0(unittest.TestCase):
     """_normalize_f0_to_coarse 函数测试。"""
 
     def test_range(self):

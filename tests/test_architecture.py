@@ -1,8 +1,9 @@
 """架构验证测试 — 验证重构后的模块导入与接口一致性。"""
-import pytest
+
+import unittest
 
 
-class TestCoreModuleImports:
+class TestCoreModuleImports(unittest.TestCase):
     """核心模块导入测试。"""
 
     def test_config_import(self):
@@ -32,7 +33,7 @@ class TestCoreModuleImports:
         assert run_cuda_graph is not None
 
 
-class TestInferenceModuleImports:
+class TestInferenceModuleImports(unittest.TestCase):
     """推理模块导入测试。"""
 
     def test_model_session_import(self):
@@ -60,7 +61,7 @@ class TestInferenceModuleImports:
         assert infer_synth_audio is not None
 
 
-class TestAudioModuleImports:
+class TestAudioModuleImports(unittest.TestCase):
     """音频模块导入测试。"""
 
     def test_stream_manager_import(self):
@@ -80,7 +81,7 @@ class TestAudioModuleImports:
         assert AudioProcessor is not None
 
 
-class TestConfigDefaults:
+class TestConfigDefaults(unittest.TestCase):
     """配置默认值一致性测试。"""
 
     def test_inference_config_defaults(self):
@@ -121,7 +122,7 @@ class TestConfigDefaults:
         assert cfg.keep_ckpts == 1
 
 
-class TestF0ExtractorInterface:
+class TestF0ExtractorInterface(unittest.TestCase):
     """F0 提取器接口一致性测试。"""
 
     def test_rmvpe_has_clear_cuda_graph(self):

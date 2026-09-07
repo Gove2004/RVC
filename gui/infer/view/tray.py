@@ -42,9 +42,9 @@ def _load_or_make_icon(path: Path, base_color: QColor) -> QIcon:
     icon = _draw_icon(base_color)
     try:
         icon.pixmap(64, 64).save(str(path))
-        logger.info("托盘图标已生成并缓存: %s", path)
+        logger.info("托盘图标已生成并缓存：%s", path)
     except Exception as e:
-        logger.warning("托盘图标缓存失败（本次用内存绘制）: %s", e)
+        logger.warning("托盘图标缓存失败（本次用内存绘制）：%s", e)
     return icon
 
 

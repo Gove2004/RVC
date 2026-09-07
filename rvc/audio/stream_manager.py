@@ -129,7 +129,7 @@ class AudioStreamManager:
         )
         self.stream2.start()
         self.enable_out2 = True
-        logger.debug("副输出流已启动: sr=%d, ch=%d, block=%d", sr, channels, block_samples)
+        logger.debug("副输出流已启动：sr=%d, ch=%d, block=%d", sr, channels, block_samples)
 
         # 清空队列中可能残留的旧数据
         while not self.out2_q.empty():

@@ -127,7 +127,7 @@ class InferController:
             )
             return StartResult(success=True, sr_model=stats.sr_model, sr_dev=stats.sr_dev)
         except Exception as e:
-            logger.error("开始推理失败: %s", e, exc_info=True)
+            logger.error("开始推理失败：%s", e, exc_info=True)
             self.stop()
             return StartResult(success=False, error=str(e))
 
@@ -176,4 +176,4 @@ class InferController:
         if self._engine is not None:
             self.engine.runtime_error_pending = False
             self.engine.stop()
-        logger.error("实时推理错误: %s", message)
+        logger.error("实时推理错误：%s", message)

@@ -72,7 +72,7 @@ class RealtimeEngine:
             self.pth_path = pth
             return self.pipeline.target_sr
         except Exception as e:
-            logger.error(f"模型加载失败: {e}", exc_info=True)
+            logger.error("模型加载失败：%s", e, exc_info=True)
             self.pipeline = None
             raise
 
@@ -154,7 +154,7 @@ class RealtimeEngine:
         except Exception as e:
             self.error_count += 1
             self.last_error = str(e)
-            logger.error("音频回调异常(%d/%d): %s", self.error_count, self.max_error_count, e, exc_info=True)
+            logger.error("音频回调异常(%d/%d)：%s", self.error_count, self.max_error_count, e, exc_info=True)
             outdata[:] = 0
             if self.error_count >= self.max_error_count and not self.runtime_error_pending:
                 self.running = False

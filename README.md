@@ -175,68 +175,102 @@ gui/
     colors.py               # 颜色调色板
     layout.py               # 布局参数
     components.py           # 样式组件
-  configs/                  # 配置代码
-    config.py               # load_config/save_config（GUI 状态）
-  infer/                    # 推理 GUI
-    window.py               # 主窗口（含系统托盘集成、引擎后台预热）
-    controller.py           # 控制器（依赖注入，engine 惰性构造）
-    widgets.py              # ModelCard, LoadThread
-    tray.py                 # 系统托盘（图标/菜单/tooltip 状态）
-    tabs/                   # 各功能 Tab
-  train/                    # 训练 GUI
-    window.py               # 训练窗口
-    tabs/                   # 设置、训练、工具 Tab
-rvc/
-  config.py                 # 统一配置体系（InferenceConfig/EngineConfig/AppConfig/ModelEntry/OfflineTask）
-  errors.py                 # 统一错误类型（RVCError/ModelLoadError/AudioDeviceError/...）
-  audio/
-    realtime_engine.py      # RealtimeEngine（音频流管理 + 回调编排 + 开流前预热）
-    device_query.py         # 音频设备枚举（轻量，仅依赖 sounddevice）
+    theme.py                # 主题应用
+    widgets.py              # 控件样式
+  configs/                  # GUI 配置（窗口状态、持久化）
+    config.py               # load_config/save_config
+    train_state.py          # 训练 GUI 状态
+  infer/                    # 推理 GUI（MVC 分层）
+    view/                   # View 层（纯 UI 构建 + 信号连接）
+      main_window.py        # 主窗口（系统托盘集成、引擎后台预热）
+      widgets.py            # ModelCard, LoadThread 等自定义控件
+      tray.py               # 系统托盘（图标/菜单/tooltip 状态）
+      tabs/                 # 各功能 Tab（设备/参数/模型/离线）
+    controller/             # Controller 层（业务逻辑 + 状态管理）
+      main_controller.py    # InferController（参数应用/引擎控制/错误处理）
+      model_manager.py      # 模型列表管理
+      device_manager.py     # 音频设备管理
+      offline_manager.py    # 离线推理管理
+    viewmodel/              # ViewModel 层（GUI 状态 ↔ 核心配置绑定）
+      param_binding.py      # 嵌套路径绑定（点号路径如 inference.pitch）
+  train/                    # 训练 GUI（同 MVC 分层结构）
+    view/
+      main_window.py        # 训练窗口
+      widgets.py            # 训练控件
+      tabs/                 # 设置、训练、工具 Tab
+    controller/
+      workers.py            # 训练工作线程（QThread）
+rvc/                        # 核心引擎（严禁 import gui 或 PySide6）
+  core/                     # 核心配置与异常
+    config.py               # 统一配置体系（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry）
+    errors.py               # 统一异常体系（RVCError 基类 + 8 种具体异常）
+  audio/                    # 音频处理层
+    realtime_engine.py      # RealtimeEngine（门面类，委托给子组件）
+    stream_manager.py       # AudioStreamManager（设备/流管理，PortAudio 封装）
+    inference_runner.py     # InferenceRunner（分块/交叉淡入/SOLA/效果器）
+    effects.py              # 效果器编排（AudioProcessor：降噪/RMS/SOLA）
+    denoise.py              # 谱减法降噪（GPU 块级）
     sola.py                 # SOLA 时间拉伸对齐与交叉淡化
     realtime_mix.py         # RMS 音量包络混合
     output_router.py        # 主输出写入与副输出路由
-    loader.py               # 音频加载（librosa + ffmpeg fallback）
-    utils.py                # RMS 响度匹配
-    effects.py              # 效果器抽象（AudioEffect 基类 + Denoise/RMS/SOLA 实现 + EffectChain）
-    denoise.py              # 谱减法降噪（GPU 块级）
-  inference/
-    pipeline.py             # VCPipeline（无状态：infer 接收 InferenceConfig，只持缓存）
-    runner.py               # InferenceRunner（实时/离线统一推理入口，pitch 缓存隔离）
-    feature_processing.py   # HuBERT 特征、padding mask、protect blend
+    loader.py               # 音频加载（soundfile + ffmpeg fallback）
+    device_query.py         # 音频设备枚举
+    mel.py                  # Mel 滤波器
+  inference/                # 推理管线层
+    pipeline.py             # InferencePipeline（无状态：infer 接收 InferenceConfig，只持缓存）
+    model_session.py        # ModelSessionManager（模型生命周期：HuBERT/Synthesizer/F0 缓存）
+    model_loader.py         # SynthesizerLoader（PyTorch 加载）
+    f0_extractor.py         # F0Extractor ABC + RMVPEExtractor/FCPEExtractor
+    feature_processing.py   # HuBERT 特征提取、辅音保护、上采样
     pitch_tracker.py        # F0 提取窗口与实时 pitch cache
     synthesis.py            # Synthesizer 推理调用与 formant 重采样
-    model_session.py        # HuBERT/Synthesizer session 加载
-    model_loader.py         # SynthesizerLoader（PyTorch）
-    offline_config.py       # OfflineConfig（离线推理配置）
-    params.py               # Params 兼容层（旧字段名 property 映射到 InferenceConfig）
-    f0_extractor.py         # F0 提取器抽象层（RMVPE/FCPE）
-  models/
-    inference_cache.py      # InferenceCache（线程安全模型缓存）
-    hubert.py               # HuBERT 加载
+    cuda_graph.py           # CUDA Graph 捕获/回放缓存（按形状 LRU）
+  models/                   # 模型层
+    inference_cache.py      # InferenceCache（线程安全 LRU 模型缓存）
+    hubert.py               # HuBERT 加载（base/chinese）
     rmvpe/                  # RMVPE F0 提取器（模块化）
       model.py              # RMVPE 推理类
       blocks.py             # CNN 模块
       transforms.py         # STFT + MelSpectrogram
-  synthesizer/              # NSF 合成器（模块化）
-    model.py                # 统一 Synthesizer 基类
+      constants.py          # 常量
+  synthesizer/              # NSF 合成器（VITS 架构，模块化）
+    model.py                # SynthesizerTrnMsNSFsid
     encoder.py              # TextEncoder, PosteriorEncoder
     decoder.py              # Generator, GeneratorNSF
     flow.py                 # ResidualCouplingBlock
   nn/                       # 神经网络基础层
-  tools/
-    cuda_graph.py           # CUDA Graph 捕获/回放缓存（按形状 LRU）
+    attentions.py           # 注意力机制
+    commons.py              # 通用模块
+    discriminator.py        # 判别器
+    modules.py              # 基础模块
   runtime/                  # 运行时配置
-    device_config.py        # Config 单例（CUDA 探测、GPU 信息）
+    device_config.py        # 设备配置（CUDA 探测、GPU 信息、精度）
     paths.py                # 配置路径
   train/                    # 训练管线
     trainer.py              # GAN 训练循环
     preprocess.py           # 音频预处理
     extract_f0.py           # F0 提取
     extract_feature.py      # HuBERT 特征提取
+    data_utils.py           # 数据加载
+    losses.py               # 损失函数
+    mel_processing.py       # Mel 处理
     ckpt_utils.py           # Checkpoint 工具
 tests/                      # 单元测试（unittest，无需额外依赖）
+  test_architecture.py      # 架构验证（模块导入与接口一致性）
   test_config.py            # 配置体系测试
-  test_errors.py            # 错误类型测试
+  test_errors.py            # 异常类型测试
+  test_effects.py           # 效果器测试
+  test_effects_deep.py      # 效果器深度测试（边界条件/状态一致性）
+  test_inference_cache.py   # 推理缓存测试
+  test_inference_cache_deep.py  # 推理缓存深度测试（LRU 淘汰/线程安全）
+  test_pipeline.py          # 推理管线测试（状态管理/无状态设计/参数计算）
+  test_f0_interface.py      # F0 提取器接口测试
+  test_model_session.py     # 模型会话测试
+  test_stream_manager.py    # 流管理器测试
+  test_audio_utils.py       # 音频工具测试
+  test_mel_filter.py        # Mel 滤波器测试
+  test_config_migration.py  # 配置迁移测试
+  test_param_binding.py     # 参数绑定测试
 assets/
   configs/                  # 配置数据
     save_state.json         # GUI 持久化状态
@@ -256,7 +290,7 @@ logs/                       # 训练实验目录
 ### 实时推理管线
 
 ```
-麦克风 → [降噪] → RealtimeEngine → VCPipeline → SOLA → 输出 → 扬声器
+麦克风 → [降噪] → RealtimeEngine → InferencePipeline → SOLA → 输出 → 扬声器
           ↓                 ↓
       sounddevice      HuBERT + Synthesizer
       SOLA crossfade   protect_blend（辅音保护）
@@ -335,10 +369,15 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 ### 架构分层
 
 - `rvc/` = 核心运行时（推理/音频/模型/训练），**严禁 import `gui` 或 PySide6**
-- `gui/` = PySide6 窗口、控件、管理器、QThread worker
+- `gui/` = PySide6 GUI，MVC 三层分层：
+  - `view/` = 纯 UI 构建 + 信号连接（main_window, widgets, tabs, tray）
+  - `controller/` = 业务逻辑 + 状态管理（main_controller, model/device/offline manager, workers）
+  - `viewmodel/` = GUI 状态 ↔ 核心配置绑定（param_binding）
 - 运行时设备/路径配置来自 `rvc.runtime`；GUI 状态持久化来自 `gui.configs`
-- 配置体系统一为 `rvc/config.py` 的 `AppConfig`（嵌套 inference/engine/active_model/models），新增参数 = dataclass 字段 + `param_binding.BINDINGS` 一行 + Tab 控件
-- VCPipeline 无状态化：`infer(input_wav, config: InferenceConfig, ...)`，参数每次传入，pipeline 只持缓存（pitch_cache/resample_kernel）；实时/离线统一走 `InferenceRunner.process_block()`
+- 配置体系统一为 `rvc/core/config.py` 的 dataclass（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry），新增参数 = dataclass 字段 + param_binding 绑定 + Tab 控件
+- InferencePipeline 无状态化：`infer(input_wav, config: InferenceConfig, ...)`，参数每次传入，pipeline 只持缓存（pitch_cache/resample_kernel）；实时/离线统一走 `InferenceRunner.process_block()`
+- 模型生命周期统一由 `ModelSessionManager` 管理（HuBERT/Synthesizer/F0 提取器缓存）
+- RealtimeEngine 门面模式：委托给 `AudioStreamManager`（设备/流）+ `InferenceRunner`（分块推理/效果器）
 
 ### 核心实现规则
 
@@ -364,17 +403,30 @@ git -C "Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main
 ### 验证
 
 ```bash
-python -m py_compile <file>             # 单文件语法检查
-python -m compileall -q app.py rvc gui # 全量语法检查
-python -m unittest tests.test_config tests.test_errors -v  # 单元测试
+python -m py_compile <file>                    # 单文件语法检查
+python -m compileall -q app.py rvc gui        # 全量语法检查
+python -m unittest discover -s tests -v        # 运行全部单元测试（218 个测试）
+python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 ```
 
 运行时验证靠手动启动 GUI（`python app.py --infer` / `python app.py --train`）。
 
+### 最近架构改进（2026-09-07）
+
+- ✅ **GUI 全面 MVC 分层** — infer/train 两个 GUI 模块拆分为 view/controller/viewmodel 三层；view 层只负责 UI 构建和信号连接，controller 层负责业务逻辑和状态管理，viewmodel 层负责 GUI 状态与核心配置的绑定
+- ✅ **核心目录重构** — 新建 `rvc/core/`（config.py + errors.py），`cuda_graph.py` 从 tools/ 移入 inference/，删除空的 tools/ 目录
+- ✅ **统一异常体系** — `RVCError` 基类 + 8 种具体异常（ModelLoadError/AudioDeviceError/InferenceError/F0ExtractionError/FeatureExtractionError/ConfigError/AudioLoadError）
+- ✅ **F0 提取器抽象接口** — `F0Extractor` ABC + `RMVPEExtractor`/`FCPEExtractor` 实现，新增 F0 方法只需加实现类
+- ✅ **模型生命周期统一** — `ModelSessionManager` 统一管理 HuBERT 缓存、合成器加载、F0 提取器
+- ✅ **RealtimeEngine 拆分** — 门面类委托给 `AudioStreamManager`（设备/流管理）+ `InferenceRunner`（分块推理/效果器）
+- ✅ **InferencePipeline 重命名** — VCPipeline → InferencePipeline（更通用的命名）
+- ✅ **测试体系完善** — 218 个单元测试，覆盖架构、配置、异常、效果器、推理缓存、推理管线、F0 接口、模型会话、流管理器等；统一使用 unittest，`python -m unittest discover` 一键运行全部测试
+- ✅ **日志格式统一** — f-string → % 格式化，中英文标点统一（中文冒号/括号）
+
 ### 最近架构改进（2026-09-06）
 
 - ✅ **统一配置体系** — 新建 `rvc/config.py`，定义 `InferenceConfig`（嵌套 `BreakProtectConfig`/`DenoiseConfig`）、`EngineConfig`、`AppConfig`、`ModelEntry`、`OfflineTask`，消除历史 6 套配置和 7 层转换链；`param_binding.py` 重写为嵌套路径绑定（点号路径如 `inference.pitch`）
-- ✅ **VCPipeline 无状态化** — 删除 `configure()`/`set_formant()`/`set_break()` 系列方法，`infer()` 每次接收 `InferenceConfig`，pipeline 只持缓存状态；`f0_proc` 扩展为四元组 `(enable, src_hz, ratio, knee)`
+- ✅ **InferencePipeline 无状态化** — 删除 `configure()`/`set_formant()`/`set_break()` 系列方法，`infer()` 每次接收 `InferenceConfig`，pipeline 只持缓存状态；`f0_proc` 扩展为四元组 `(enable, src_hz, ratio, knee)`
 - ✅ **InferenceRunner 统一实时/离线** — 新建 `rvc/inference/runner.py`，唯一推理入口 `process_block()`；`process_file` 开始时调 `runner.reset()`，**解决历史 pitch 缓存跨文件污染问题**（批量处理短音频 NaN）
 - ✅ **统一错误类型体系** — 新建 `rvc/errors.py`，`RVCError` 基类 + 5 个子类（`ModelLoadError`/`AudioDeviceError`/`InferenceError`/`ConfigError`/`FeatureExtractError`）+ `format_error_message()` 友好消息格式化
 - ✅ **效果器抽象** — 新建 `rvc/audio/effects.py`，`AudioEffect` 抽象基类 + `DenoiseEffect`/`RmsMixEffect`/`SolaEffect` + `EffectChain` 组合器

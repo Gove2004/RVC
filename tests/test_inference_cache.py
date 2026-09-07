@@ -1,11 +1,11 @@
 """InferenceCache 单元测试 — LRU 缓存管理。"""
-import pytest
+import unittest
 import torch
 
 from rvc.models.inference_cache import InferenceCache, _LRU
 
 
-class TestLRU:
+class TestLRU(unittest.TestCase):
     """_LRU 线程安全 LRU 字典测试。"""
 
     def test_get_set(self):
@@ -44,7 +44,7 @@ class TestLRU:
         assert set(values) == {1, 2}
 
 
-class TestInferenceCache:
+class TestInferenceCache(unittest.TestCase):
     """InferenceCache 各槽位 LRU 测试。"""
 
     def test_hubert_cache(self):

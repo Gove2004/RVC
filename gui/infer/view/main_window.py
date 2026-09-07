@@ -106,7 +106,7 @@ class MainWindow(QMainWindow):
             self._save_gui_config()
             self.model_manager.save_models()
         except Exception as e:
-            logger.error("保存配置失败: %s", e, exc_info=True)
+            logger.error("保存配置失败：%s", e, exc_info=True)
         self.controller.stop()
         QApplication.instance().quit()
 
@@ -289,7 +289,7 @@ class MainWindow(QMainWindow):
             self.model_manager.save_models()
             logger.debug("配置已保存")
         except Exception as e:
-            logger.warning("保存配置失败: %s", e)
+            logger.warning("保存配置失败：%s", e)
 
         self._start_engine(pth, hubert)
 

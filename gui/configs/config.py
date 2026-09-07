@@ -24,9 +24,9 @@ def load_config() -> dict:
         backup = state_file.with_suffix(state_file.suffix + ".bak")
         try:
             os.replace(state_file, backup)
-            logger.warning("配置文件损坏，已备份到 %s: %s", backup, e)
+            logger.warning("配置文件损坏，已备份到 %s：%s", backup, e)
         except Exception:
-            logger.warning("配置文件损坏且备份失败: %s", e, exc_info=True)
+            logger.warning("配置文件损坏且备份失败：%s", e, exc_info=True)
         return dict(_DEFAULT_STATE)
 
 

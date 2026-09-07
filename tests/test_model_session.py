@@ -1,10 +1,11 @@
 """ModelSessionManager 单元测试 — 模型生命周期管理。"""
-import pytest
+
+import unittest
 
 from rvc.inference.model_session import ModelSession, ModelSessionManager, _DeviceConfig
 
 
-class TestDeviceConfig:
+class TestDeviceConfig(unittest.TestCase):
     """_DeviceConfig 轻量级适配器测试。"""
 
     def test_attributes(self):
@@ -18,7 +19,7 @@ class TestDeviceConfig:
         assert cfg.is_half is False
 
 
-class TestModelSession:
+class TestModelSession(unittest.TestCase):
     """ModelSession dataclass 测试。"""
 
     def test_creation(self):
@@ -34,7 +35,7 @@ class TestModelSession:
         assert session.use_f0 == 1
 
 
-class TestModelSessionManager:
+class TestModelSessionManager(unittest.TestCase):
     """ModelSessionManager 基本接口测试（不实际加载模型）。"""
 
     def test_creation(self):
