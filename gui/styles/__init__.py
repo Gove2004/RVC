@@ -18,7 +18,7 @@ from gui.styles.components import (
     CardStyles,
     MiscStyles,
 )
-from gui.styles.widgets import sep
+from gui.styles.components import sep
 
 __all__ = [
     "Colors",

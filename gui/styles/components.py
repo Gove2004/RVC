@@ -1,4 +1,5 @@
 """按钮样式 — 统一的按钮 QSS 样式生成器"""
+from PySide6.QtWidgets import QFrame
 from gui.styles.colors import Colors
 from gui.styles.layout import Layout
 
@@ -194,3 +195,10 @@ class MiscStyles:
                 background: transparent;
             }}
         """
+
+def sep() -> QFrame:
+    """水平分隔线"""
+    f = QFrame()
+    f.setFrameShape(QFrame.Shape.HLine)
+    f.setStyleSheet(f"color:{Colors.DIVIDER}")
+    return f
