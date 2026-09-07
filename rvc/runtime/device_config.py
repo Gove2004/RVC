@@ -30,13 +30,11 @@ class Config:
         self.gpu_mem = None
         self._init_device()
 
-        # 对照实验：临时禁用 CUDA Graph，验证沙哑是否由 CUDA Graph 缓存污染导致
-        if False and configure_cuda_graph(self.device):
+        if configure_cuda_graph(self.device):
             self.use_cuda_graph = True
             logger.info("CUDA Graph 已启用（GPU: %s）", self.gpu_name)
         else:
             self.use_cuda_graph = False
-            logger.info("CUDA Graph 已禁用（对照实验）")
 
     def _init_device(self) -> None:
         i_device = int(self.device.split(":")[-1])
