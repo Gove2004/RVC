@@ -100,12 +100,9 @@ class TestInferenceConfig(unittest.TestCase):
 
     def test_custom_nested_config(self):
         bp = BreakProtectConfig(enable=False, src_hz=400.0)
-        dn = DenoiseConfig(enable=True, strength=0.7)
-        cfg = InferenceConfig(break_protect=bp, denoise=dn)
+        cfg = InferenceConfig(break_protect=bp)
         self.assertFalse(cfg.break_protect.enable)
-        self.assertTrue(cfg.denoise.enable)
         self.assertAlmostEqual(cfg.break_protect.src_hz, 400.0)
-        self.assertAlmostEqual(cfg.denoise.strength, 0.7)
 
     def test_field_count(self):
         self.assertEqual(len(fields(InferenceConfig)), 7)
@@ -330,8 +327,8 @@ class TestOfflineConfig(unittest.TestCase):
         self.assertTrue(issubclass(OfflineConfig, InferenceConfig))
 
     def test_field_count_includes_inherited(self):
-        """OfflineConfig 字段 = InferenceConfig 8 个 + 4 个特有 = 12 个。"""
-        self.assertEqual(len(fields(OfflineConfig)), 12)
+        """OfflineConfig 字段 = InferenceConfig 7 个 + 4 个特有 = 11 个。"""
+        self.assertEqual(len(fields(OfflineConfig)), 11)
 
     def test_asdict_includes_all(self):
         d = asdict(OfflineConfig())

@@ -172,7 +172,7 @@ class TestMigrateOldFormat(unittest.TestCase):
 
     def test_old_format_migrated(self):
         """旧格式（≥3 个短键）应迁移到嵌套结构。"""
-        data = {"protect": 0.3, "f0_method": "fcpe", "rms_mix": 0.2}
+        data = {"protect": 0.3, "f0": "fcpe", "rms": 0.2}
         result = _migrate_old_format(data)
         self.assertIn("inference", result)
         self.assertEqual(result["inference"]["protect"], 0.3)
