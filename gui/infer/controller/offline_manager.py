@@ -168,7 +168,9 @@ class OfflineWorker(QThread):
         self.progress.emit(20, 100)
 
         def _progress(cur, total):
-            self.progress.emit(int(cur * 100 / total), 100)
+            # 推理进度占 80%（模型加载占前 20%），避免进度回退
+            pct = 20 + int(cur * 80 / total) if total > 0 else 20
+            self.progress.emit(pct, 100)
 
         engine.process_file(self.cfg, progress_cb=_progress)
         self.progress.emit(100, 100)
