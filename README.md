@@ -13,7 +13,6 @@
 - **音高调节** — 变调不变速（-16 ~ +16 半音）
 - **辅音保护** — 保留原音清音/辅音，防止齿音失真（0.0 ~ 1.0）
 - **破音保护** — 高音超过临界 Hz 自动软收敛，防止破音/沙哑（开关 + 临界 Hz，压缩比/膝宽内部自动）
-- **频谱降噪** — 输入侧降噪（GPU 谱减法、零新增延迟）+ RMS 响度匹配
 - **双输出** — 主输出 + 可选副输出（虚拟音频设备）
 
 ## 系统要求
@@ -100,7 +99,6 @@ python -m venv .venv
      - **性别**：formant shift（-50 ~ +50）
 3. **全局参数** — 在"参数" Tab 配置：
      - **辅音保护**：清音保留程度（0.0 = 全转换，1.0 = 全保留）
-     - **频谱降噪**：输入侧降噪（GPU 谱减法、零新增延迟），勾选启用、滑条调强度（0.00 ~ 1.00）
      - **破音保护**：高音超过临界 Hz 自动软收敛（勾选启用、滑条调临界 200~400 Hz），防止高音破音/沙哑
      - **采样长度/淡入长度/额外上下文**：实时推理延迟控制
      - **响度因子**：输出响度混合比例
@@ -176,7 +174,6 @@ gui/
     layout.py               # 布局参数
     components.py           # 样式组件
     theme.py                # 主题应用
-    widgets.py              # 控件样式
   configs/                  # GUI 配置（窗口状态、持久化）
     config.py               # load_config/save_config
     train_state.py          # 训练 GUI 状态
@@ -208,8 +205,7 @@ rvc/                        # 核心引擎（严禁 import gui 或 PySide6）
     realtime_engine.py      # RealtimeEngine（门面类，委托给子组件）
     stream_manager.py       # AudioStreamManager（设备/流管理，PortAudio 封装）
     inference_runner.py     # InferenceRunner（分块/交叉淡入/SOLA/效果器）
-    effects.py              # 效果器编排（AudioProcessor：降噪/RMS/SOLA）
-    denoise.py              # 谱减法降噪（GPU 块级）
+    effects.py              # 效果器编排（AudioProcessor：RMS/SOLA）
     sola.py                 # SOLA 时间拉伸对齐与交叉淡化
     realtime_mix.py         # RMS 音量包络混合
     output_router.py        # 主输出写入与副输出路由
@@ -290,7 +286,7 @@ logs/                       # 训练实验目录
 ### 实时推理管线
 
 ```
-麦克风 → [降噪] → RealtimeEngine → InferencePipeline → SOLA → 输出 → 扬声器
+麦克风 → RealtimeEngine → InferencePipeline → SOLA → 输出 → 扬声器
           ↓                 ↓
       sounddevice      HuBERT + Synthesizer
       SOLA crossfade   protect_blend（辅音保护）
@@ -300,7 +296,6 @@ logs/                       # 训练实验目录
 
 - **SOLA 算法** — 重叠相加实现无缝音频拼接，支持变速不变调
 - **辅音保护** — 使用 F0 contour 作为掩码，清音区域混回原始特征
-- **谱减法降噪** — 输入侧 FFT 频域谱减，自适应噪声地板，GPU 块级零新增延迟
 - **双采样率模式** — 模型采样率（高音质）或设备采样率（低延迟）
 - **动态精度** — 自动处理 half/float 模型，确保推理稳定
 - **延迟实测** — 基于 PortAudio 硬件时间戳（ADC 采集 → DAC 播放）实时测量端到端延迟（瞬时值），替代不可靠的估算值
@@ -333,9 +328,6 @@ logs/                       # 训练实验目录
 - **首次点开始**：开流前自动用静音数据跑 2 次推理完成 CUDA Graph 捕获（约 1s，在 loading 状态内），首块推理即为热状态
 
 ## 常见问题
-
-**Q: 转换后声音有周期性"嘟嘟嘟"失真？**  
-A: 检查是否开启了频谱降噪且强度过高，可适当降低强度或关闭。
 
 **Q: 辅音保护（protect）如何调节？**  
 A: 0.0 = 完全转换（音色纯但可能糊），1.0 = 完全保留原音辅音（清晰但音色不纯）。建议从 0.5 开始调整。
@@ -386,7 +378,6 @@ A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动�
 - **实时回调安全**：sounddevice 回调内禁止阻塞 IO、模型加载、大分配、GPU 同步；禁止直接操作 Qt（运行时错误经 Signal 转发主线程）
 - **惰性导入**：GUI 启动路径禁止在模块顶层 import torch/transformers/librosa 或实例化 `Config()`；重型 import 只允许出现在「加载模型/开始/离线推理」路径；`rvc/*/__init__.py` 用模块级 `__getattr__` 惰性导出
 - **引擎访问**：判断引擎是否已构造用 `controller._engine`（勿触发惰性构造）；首次访问 `engine` 会加载 torch（~1.6s，已由后台预热覆盖）
-- **降噪**：输入侧谱减法（GPU 块级、零新增延迟），强度是每回调的标量快照
 - **配置**：`Config` 是单例，CUDA 不可用时直接退出；`use_cuda_graph` 默认关闭，运行时探测启用
 
 ### 上游同步
@@ -405,11 +396,20 @@ git -C "Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main
 ```bash
 python -m py_compile <file>                    # 单文件语法检查
 python -m compileall -q app.py rvc gui        # 全量语法检查
-python -m unittest discover -s tests -v        # 运行全部单元测试（218 个测试）
+python -m unittest discover -s tests -v        # 运行全部单元测试（1152 个测试）
 python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 ```
 
 运行时验证靠手动启动 GUI（`python app.py --infer` / `python app.py --train`）。
+
+### 最近架构改进（2026-09-08）
+
+- ✅ **测试覆盖大规模新增** — 从 262 个测试增加到 1152 个（+890），新增 16 个深度测试文件，覆盖 config/errors/sola/wav_io/effects/inference_cache/runtime_paths/mel/train_slicer/f0/synthesis/cuda_graph/model_session/pipeline/gui_configs/feature_processing/inference_runner/realtime_engine/extract_f0/extract_feature
+- ✅ **未使用导入清理** — 清理 40+ 处未使用导入，涉及 rvc/ 和 gui/ 目录下 22 个文件
+- ✅ **延迟张量克隆优化** — 去掉 `clone_protect_source` 中不必要的 `.clone()`（F.interpolate 会创建新张量，不会修改输入）
+- ✅ **pipeline.py docstring 补充** — 补充 5 个方法的 docstring（__init__/load/_infer_impl/_synthesize_realtime/_postprocess_realtime）
+- ✅ **_write_output_wav 空数组修复** — 添加空数组检查，避免 np.max() 报错
+- ✅ **常量定义统一** — 新增 rvc/audio/constants.py（HUBERT_SAMPLE_RATE=16000, HUBERT_FRAME_SIZE=160, HUBERT_FRAME_RATE=100），消除魔法数字
 
 ### 最近架构改进（2026-09-07）
 
@@ -420,7 +420,7 @@ python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 - ✅ **模型生命周期统一** — `ModelSessionManager` 统一管理 HuBERT 缓存、合成器加载、F0 提取器
 - ✅ **RealtimeEngine 拆分** — 门面类委托给 `AudioStreamManager`（设备/流管理）+ `InferenceRunner`（分块推理/效果器）
 - ✅ **InferencePipeline 重命名** — VCPipeline → InferencePipeline（更通用的命名）
-- ✅ **测试体系完善** — 218 个单元测试，覆盖架构、配置、异常、效果器、推理缓存、推理管线、F0 接口、模型会话、流管理器等；统一使用 unittest，`python -m unittest discover` 一键运行全部测试
+- ✅ **测试体系完善** — 1152 个单元测试，覆盖架构、配置、异常、效果器、推理缓存、推理管线、F0 接口、模型会话、流管理器、inference_runner、realtime_engine、extract_f0、extract_feature 等；统一使用 unittest，`python -m unittest discover` 一键运行全部测试
 - ✅ **日志格式统一** — f-string → % 格式化，中英文标点统一（中文冒号/括号）
 
 ### 最近架构改进（2026-09-06）
@@ -437,7 +437,7 @@ python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 ### 最近架构改进（2026-09-05）
 
 - ✅ **彻底移除特征检索（FAISS/index）** — 检索匹配"用处不大"，全链删除代码、界面与依赖
-- ✅ **离线推理改流式** — `RealtimeEngine.process_file` 复用实时全链路（降噪/RMS/SOLA/CUDA Graph），显存封顶、任意长不 OOM；离线音质 ≈ 实时
+- ✅ **离线推理改流式** — `RealtimeEngine.process_file` 复用实时全链路（RMS/SOLA/CUDA Graph），显存封顶、任意长不 OOM；离线音质 ≈ 实时
 - ✅ **推理默认 RMVPE** — 与训练侧 F0 提取对齐，消除 train/infer f0 分布不匹配
 - ✅ **FCPE 阈值收紧到 0.025** — 消除低电平底噪导致的假音高
 - ✅ **RMVPE 解码搬上 GPU** — 消除回调内 GPU 同步，抗噪更稳
