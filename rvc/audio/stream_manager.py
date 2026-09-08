@@ -2,15 +2,17 @@
 
 从 RealtimeEngine 中拆分出的设备/流管理组件，负责：
 - 设备查询与校验（输入/输出/副输出通道数）
-- 主流创建与启动（sd.Stream）
+- 主流创建与启动（sd.Stream，显式指定设备 + 错误回调）
 - 副输出流创建与启动（sd.OutputStream + 队列）
 - 流安全中止与关闭
+- 流健康检查与错误统计
 - 设备日志打印
 
 RealtimeEngine 保留对外接口，内部委托给本组件处理音频流。
 """
 import logging
 import queue
+import threading
 
 import numpy as np
 import sounddevice as sd
@@ -31,6 +33,12 @@ class AudioStreamManager:
         self.sr = None
         self.channels = 1
         self.block_samples = 0
+        # 流错误统计
+        self.error_count = 0
+        self.last_error = ""
+        self._error_lock = threading.Lock()
+        # 外部错误回调（可选）
+        self.on_stream_error = None
 
     def query_device(self, dev_idx: int) -> dict:
         """查询设备信息。"""
@@ -80,7 +88,23 @@ class AudioStreamManager:
                 f"但主输出使用 {channels} 通道。请选择支持至少 {channels} 通道的副输出设备。"
             )
 
-    def start_main_stream(self, callback, sr: int, channels: int, block_samples: int) -> None:
+    def _handle_stream_error(self, status):
+        """sounddevice 错误回调：记录错误并通知上层。"""
+        if status:
+            with self._error_lock:
+                self.error_count += 1
+                self.last_error = str(status)
+            # 只记录非频繁错误（input_overflow/output_underflow 在高负载时常见）
+            if not (status.input_overflow or status.output_underflow):
+                logger.warning("音频流错误: %s", status)
+            if self.on_stream_error is not None:
+                try:
+                    self.on_stream_error(status)
+                except Exception:
+                    logger.exception("流错误回调异常")
+
+    def start_main_stream(self, callback, sr: int, channels: int, block_samples: int,
+                           in_dev: int | None = None, out_dev: int | None = None) -> None:
         """创建并启动主流。
 
         Args:
@@ -88,16 +112,26 @@ class AudioStreamManager:
             sr: 采样率
             channels: 通道数
             block_samples: 块大小（样本数）
+            in_dev: 输入设备索引（None = 使用默认设备）
+            out_dev: 输出设备索引（None = 使用默认设备）
         """
         self.sr = sr
         self.channels = channels
         self.block_samples = block_samples
+        # 重置错误统计
+        with self._error_lock:
+            self.error_count = 0
+            self.last_error = ""
+
+        device = (in_dev, out_dev) if (in_dev is not None and out_dev is not None) else None
         self.stream = sd.Stream(
             callback=callback,
             blocksize=block_samples,
             samplerate=sr,
             channels=channels,
             dtype="float32",
+            device=device,
+            error_callback=self._handle_stream_error,
         )
         self.stream.start()
 
@@ -113,6 +147,10 @@ class AudioStreamManager:
         self.validate_secondary_output(dev_idx, channels)
 
         def out2_callback(outdata, frames, time_info, status):
+            if status:
+                with self._error_lock:
+                    self.error_count += 1
+                    self.last_error = f"out2: {status}"
             if not self.out2_q.empty():
                 data = self.out2_q.get_nowait()
                 outdata[:] = data[:frames]
@@ -126,6 +164,7 @@ class AudioStreamManager:
             dtype="float32",
             blocksize=block_samples,
             callback=out2_callback,
+            error_callback=self._handle_stream_error,
         )
         self.stream2.start()
         self.enable_out2 = True
@@ -141,6 +180,27 @@ class AudioStreamManager:
         self.stream = None
         self.stream2 = None
         self.enable_out2 = False
+
+    def check_health(self) -> dict:
+        """检查流健康状态。
+
+        Returns:
+            dict: {
+                "main_active": bool,  # 主流是否活跃
+                "secondary_active": bool,  # 副输出是否活跃
+                "error_count": int,  # 累计错误数
+                "last_error": str,  # 最近错误信息
+            }
+        """
+        with self._error_lock:
+            error_count = self.error_count
+            last_error = self.last_error
+        return {
+            "main_active": self.stream is not None and self.stream.active,
+            "secondary_active": self.stream2 is not None and self.stream2.active,
+            "error_count": error_count,
+            "last_error": last_error,
+        }
 
     @staticmethod
     def _safe_close_stream(stream) -> None:

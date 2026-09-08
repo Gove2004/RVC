@@ -103,8 +103,11 @@ class RealtimeEngine:
         self._runner.warmup(2)
         self._runner.reset_buffers()
 
-        # 启动主流
-        self._stream_mgr.start_main_stream(self._cb, sr, channels, self._runner.block_samples)
+        # 启动主流（显式指定设备，不依赖 sd.default.device）
+        self._stream_mgr.start_main_stream(
+            self._cb, sr, channels, self._runner.block_samples,
+            in_dev=in_dev, out_dev=out_dev,
+        )
         self.running = True
 
         # 启动副输出（如果指定）
