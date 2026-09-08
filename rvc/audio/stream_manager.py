@@ -87,15 +87,21 @@ class AudioStreamManager:
                 f"但主输出使用 {channels} 通道。请选择支持至少 {channels} 通道的副输出设备。"
             )
 
-    def _handle_stream_error(self, status):
-        """sounddevice 错误回调：记录错误并通知上层。"""
+    def _handle_stream_error(self, status, prefix=""):
+        """音频流错误处理：记录错误并通知上层。
+
+        Args:
+            status: sounddevice 回调状态对象
+            prefix: 错误来源前缀（如 "out2"），用于区分主流和副输出
+        """
         if status:
+            msg = f"{prefix}: {status}" if prefix else str(status)
             with self._error_lock:
                 self.error_count += 1
-                self.last_error = str(status)
+                self.last_error = msg
             # 只记录非频繁错误（input_overflow/output_underflow 在高负载时常见）
             if not (status.input_overflow or status.output_underflow):
-                logger.warning("音频流错误: %s", status)
+                logger.warning("音频流错误: %s", msg)
             if self.on_stream_error is not None:
                 try:
                     self.on_stream_error(status)
@@ -123,14 +129,19 @@ class AudioStreamManager:
             self.last_error = ""
 
         device = (in_dev, out_dev) if (in_dev is not None and out_dev is not None) else None
+
+        def _wrapped_callback(indata, outdata, frames, time_info, status):
+            if status:
+                self._handle_stream_error(status)
+            callback(indata, outdata, frames, time_info, status)
+
         self.stream = sd.Stream(
-            callback=callback,
+            callback=_wrapped_callback,
             blocksize=block_samples,
             samplerate=sr,
             channels=channels,
             dtype="float32",
             device=device,
-            error_callback=self._handle_stream_error,
         )
         self.stream.start()
 
@@ -147,9 +158,7 @@ class AudioStreamManager:
 
         def out2_callback(outdata, frames, time_info, status):
             if status:
-                with self._error_lock:
-                    self.error_count += 1
-                    self.last_error = f"out2: {status}"
+                self._handle_stream_error(status, prefix="out2")
             if not self.out2_q.empty():
                 data = self.out2_q.get_nowait()
                 outdata[:] = data[:frames]
@@ -163,7 +172,6 @@ class AudioStreamManager:
             dtype="float32",
             blocksize=block_samples,
             callback=out2_callback,
-            error_callback=self._handle_stream_error,
         )
         self.stream2.start()
         self.enable_out2 = True
