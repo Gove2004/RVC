@@ -47,7 +47,6 @@ class InferencePipeline:
         self.synthesizer = None
         self.target_sr = None
         self.use_f0 = 1
-        self.last_pitchf = None  # 最近一次推理的 pitchf（供气息效果器使用）
 
     def load(self) -> None:
         manager = ModelSessionManager(
@@ -107,10 +106,8 @@ class InferencePipeline:
                 self.device, self.is_half,
                 self.inference_cache, f0_proc,
             )
-            self.last_pitchf = cache_pitchf  # 保存供气息效果器使用
         else:
             cache_pitch = cache_pitchf = None
-            self.last_pitchf = None
 
         # 特征上采样（含辅音保护混合）
         feats = upsample_features(feats, p_len, self.is_half, feats0, cache_pitchf, config.protect)

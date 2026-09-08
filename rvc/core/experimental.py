@@ -18,11 +18,6 @@ class ExperimentalConfig:
         self.protect_soft_threshold_hz = 10.0  # 过渡中心（Hz）
         self.protect_soft_width = 20.0  # 过渡宽度（Hz，sigmoid 的 4σ）
 
-        # ── UV 区域合成气息噪声（解决缺少自然气息感） ──
-        self.breath_enabled = True
-        self.breath_strength = 0.4  # 气息强度 0~1
-        self.breath_uv_threshold_hz = 10.0  # pitchf 低于此值判为 UV（叠加气息）
-
 
 # 全局单例，GUI 和推理代码共用
 experimental_config = ExperimentalConfig()

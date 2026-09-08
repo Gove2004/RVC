@@ -82,54 +82,6 @@ def build_experimental_tab(win):
 
     root.addWidget(group2)
 
-    # ── 3. 气息效果 ──
-    group3 = QGroupBox("UV 区域合成气息噪声（解决缺少自然气息感）")
-    g3 = QGridLayout(group3)
-    r = 0
-
-    win.exp_breath_checkbox = QCheckBox("启用")
-    win.exp_breath_checkbox.setChecked(experimental_config.breath_enabled)
-    win.exp_breath_checkbox.stateChanged.connect(
-        lambda: setattr(experimental_config, "breath_enabled", win.exp_breath_checkbox.isChecked())
-    )
-    g3.addWidget(win.exp_breath_checkbox, r, 0); r += 1
-
-    win.exp_breath_strength_slider = _slrow(
-        win, "exp_breath_strength_slider", 0.0, 1.0, 0.01,
-        experimental_config.breath_strength, fmt=".2f", label_w=45,
-    )
-    win.exp_breath_strength_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "breath_strength",
-            _sl_value_as_float(win.exp_breath_strength_slider),
-        )
-    )
-    g3.addWidget(QLabel("气息强度"), r, 0)
-    g3.addWidget(win.exp_breath_strength_slider, r, 1)
-    g3.addWidget(win.exp_breath_strength_label, r, 2); r += 1
-
-    win.exp_breath_uv_threshold_slider = _slrow(
-        win, "exp_breath_uv_threshold_slider", 0.0, 30.0, 1.0,
-        experimental_config.breath_uv_threshold_hz, fmt=".0f", unit="Hz", label_w=45,
-    )
-    win.exp_breath_uv_threshold_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "breath_uv_threshold_hz",
-            _sl_value_as_float(win.exp_breath_uv_threshold_slider),
-        )
-    )
-    g3.addWidget(QLabel("UV 判定阈值"), r, 0)
-    g3.addWidget(win.exp_breath_uv_threshold_slider, r, 1)
-    g3.addWidget(win.exp_breath_uv_threshold_label, r, 2); r += 1
-
-    root.addWidget(group3)
-
-    # 底部说明
-    hint = QLabel("提示：所有参数实时生效，无需重启。可分别开关对比效果。")
-    hint.setStyleSheet("color: #888; font-size: 11px;")
-    hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    root.addWidget(hint)
-
     root.addStretch()
     return w
 
