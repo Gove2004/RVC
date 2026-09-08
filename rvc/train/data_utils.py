@@ -74,8 +74,17 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         if sr != self.sampling_rate:
             raise ValueError(f"采样率不匹配: {sr} != {self.sampling_rate}")
         wav = torch.FloatTensor(wav).unsqueeze(0)
-        spec_path = f"{filename}.sr{self.sampling_rate}.spec.pt"
-        if Path(spec_path).exists():
+        # 缓存 key 包含全部 STFT 参数；重新预处理导致切片文件更新时自动失效
+        spec_path = (
+            f"{filename}.sr{self.sampling_rate}"
+            f".n{self.filter_length}.h{self.hop_length}.w{self.win_length}.spec.pt"
+        )
+        wav_mtime = Path(filename).stat().st_mtime
+        cache_valid = (
+            Path(spec_path).exists()
+            and Path(spec_path).stat().st_mtime >= wav_mtime
+        )
+        if cache_valid:
             spec = torch.load(spec_path, map_location="cpu", weights_only=False)
         else:
             spec = spectrogram_torch(
