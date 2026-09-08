@@ -9,8 +9,7 @@ class TestCoreModuleImports(unittest.TestCase):
     def test_config_import(self):
         from rvc.core.config import (
             InferenceConfig, EngineConfig, AppConfig, ModelEntry,
-            BreakProtectConfig, DenoiseConfig, OfflineConfig, TrainConfig,
-            HUBERT_DEFAULT,
+            OfflineConfig, TrainConfig, HUBERT_DEFAULT,
         )
         assert InferenceConfig is not None
         assert OfflineConfig is not None
@@ -93,7 +92,6 @@ class TestConfigDefaults(unittest.TestCase):
         assert cfg.f0_method == "rmvpe"
         assert cfg.rms_mix == 0.0
         assert cfg.break_protect.enable is True
-        assert cfg.denoise.enable is False
 
     def test_engine_config_defaults(self):
         from rvc.core.config import EngineConfig

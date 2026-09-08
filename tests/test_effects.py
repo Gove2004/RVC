@@ -1,4 +1,4 @@
-"""音频效果器单元测试 — DenoiseEffect / RmsMixEffect / SolaEffect / AudioProcessor。
+﻿"""音频效果器单元测试 RmsMixEffect / SolaEffect / AudioProcessor。
 
 全部用 CPU 设备，不依赖 GPU。测试数据用随机张量，验证形状、状态更新和直通逻辑。
 """
@@ -6,41 +6,7 @@ import unittest
 
 import torch
 
-from rvc.audio.effects import AudioProcessor, DenoiseEffect, RmsMixEffect, SolaEffect
-
-
-class TestDenoiseEffect(unittest.TestCase):
-    def setUp(self):
-        self.effect = DenoiseEffect()
-        self.effect.setup(sr=16000)
-        self.mono = torch.randn(1024)
-
-    def test_setup_initializes(self):
-        self.assertIsNotNone(self.effect._nr_ss)
-        self.assertIsNone(self.effect._last_strength)
-
-    def test_process_disabled_returns_same_tensor(self):
-        out = self.effect.process(self.mono, enable=False, strength=0.5)
-        self.assertIs(out, self.mono)
-
-    def test_process_enabled_returns_same_shape(self):
-        out = self.effect.process(self.mono, enable=True, strength=0.5)
-        self.assertEqual(out.shape, self.mono.shape)
-
-    def test_strength_change_updates_ss(self):
-        self.effect.process(self.mono, enable=True, strength=0.3)
-        self.assertEqual(self.effect._last_strength, 0.3)
-        self.assertEqual(self.effect._nr_ss.strength, 0.3)
-        # 第二次用不同强度，确认更新
-        self.effect.process(self.mono, enable=True, strength=0.8)
-        self.assertEqual(self.effect._last_strength, 0.8)
-        self.assertEqual(self.effect._nr_ss.strength, 0.8)
-
-    def test_reset_clears_noise_floor(self):
-        self.effect.process(self.mono, enable=True, strength=0.5)
-        self.assertIsNotNone(self.effect._nr_ss.noise_floor)
-        self.effect.reset()
-        self.assertIsNone(self.effect._nr_ss.noise_floor)
+from rvc.audio.effects import AudioProcessor, RmsMixEffect, SolaEffect
 
 
 class TestRmsMixEffect(unittest.TestCase):
@@ -147,17 +113,8 @@ class TestAudioProcessor(unittest.TestCase):
         )
 
     def test_setup_initializes_all_effects(self):
-        self.assertIsNotNone(self.processor.denoise._nr_ss)
         self.assertEqual(self.processor.rms_mix._hz_centis, 160)
         self.assertIsNotNone(self.processor.sola.sola_buffer)
-
-    def test_process_input_denoise_disabled(self):
-        out = self.processor.process_input(self.mono, denoise_enable=False, denoise_strength=0.5)
-        self.assertIs(out, self.mono)
-
-    def test_process_input_denoise_enabled(self):
-        out = self.processor.process_input(self.mono, denoise_enable=True, denoise_strength=0.5)
-        self.assertEqual(out.shape, self.mono.shape)
 
     def test_process_output_vc_mode(self):
         out = self.processor.process_output(self.infer, self.ref, rms_mix=0.5, is_vc=True)
@@ -170,18 +127,15 @@ class TestAudioProcessor(unittest.TestCase):
 
     def test_reset_clears_all_state(self):
         # 先处理一些数据，让状态非零
-        self.processor.process_input(self.mono, denoise_enable=True, denoise_strength=0.5)
         self.processor.process_output(self.infer, self.ref, rms_mix=0.5, is_vc=True)
-        self.assertIsNotNone(self.processor.denoise._nr_ss.noise_floor)
         self.assertFalse(torch.all(self.processor.sola.sola_buffer == 0))
 
         self.processor.reset()
 
-        # denoise 噪声地板被清空
-        self.assertIsNone(self.processor.denoise._nr_ss.noise_floor)
         # sola buffer 被清零
         self.assertTrue(torch.all(self.processor.sola.sola_buffer == 0))
 
 
 if __name__ == "__main__":
     unittest.main()
+

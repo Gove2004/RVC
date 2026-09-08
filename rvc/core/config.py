@@ -1,4 +1,4 @@
-"""统一配置体系 — 训练/推理/GUI 共用一套 dataclass。"""
+﻿"""统一配置体系 — 训练/推理/GUI 共用一套 dataclass。"""
 from dataclasses import dataclass, field
 
 HUBERT_DEFAULT = "chinese"
@@ -13,12 +13,6 @@ class BreakProtectConfig:
 
 
 @dataclass
-class DenoiseConfig:
-    enable: bool = False
-    strength: float = 0.5
-
-
-@dataclass
 class InferenceConfig:
     pitch: int = 0
     formant: float = 0.0
@@ -27,7 +21,6 @@ class InferenceConfig:
     rms_mix: float = 0.0
     hubert_variant: str = "chinese"
     break_protect: BreakProtectConfig = field(default_factory=BreakProtectConfig)
-    denoise: DenoiseConfig = field(default_factory=DenoiseConfig)
 
 
 @dataclass
@@ -90,3 +83,4 @@ class TrainConfig:
     log_interval: int = 20
     keep_ckpts: int = 1
     keep_models: int = 0
+

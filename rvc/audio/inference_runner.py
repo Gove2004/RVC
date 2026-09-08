@@ -154,7 +154,7 @@ class InferenceRunner:
     def process_block(self, indata: np.ndarray, outdata: np.ndarray, frames: int) -> None:
         """处理一个音频块（实时回调主函数）。
 
-        编排各处理阶段：输入准备+降噪 → 缓存轮换/降采样 → 推理 → RMS → SOLA → 输出
+        编排各处理阶段：输入准备 → 缓存轮换/降采样 → 推理 → RMS → SOLA → 输出
 
         Args:
             indata: 输入音频 (frames, channels) float32
@@ -166,8 +166,6 @@ class InferenceRunner:
 
         # 快照本回调内多次使用的参数
         p_rms_mix = params.rms_mix
-        p_nr_enable = params.denoise.enable
-        p_nr_strength = params.denoise.strength
 
         with torch.no_grad():
             # 阶段1-2: 输入准备 + 降噪 + 缓存轮换
@@ -175,7 +173,6 @@ class InferenceRunner:
             n = mono.shape[0]
             self._in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
             mono = self._in_pin[:n].to(self._device, non_blocking=True)
-            mono = self.processor.process_input(mono, p_nr_enable, p_nr_strength)
             self._update_input_buffers(mono)
 
             # 阶段3: 语音转换推理

@@ -1,4 +1,4 @@
-"""音频处理模块 — 加载、流管理、推理、效果器、降噪、WAV 读写
+"""音频处理模块 — 加载、流管理、推理、效果器、WAV 读写
 
 公开 API（惰性导出，避免 GUI 启动时加载 torch）：
 - load_audio: 用 ffmpeg 解码任意格式音频到 numpy 数组
@@ -6,9 +6,8 @@
 - RealtimeEngine: 实时变声引擎（门面类）
 - InferenceRunner: 推理执行器（实时/离线统一）
 - AudioStreamManager: 音频流管理（输入/输出/副输出）
-- AudioProcessor: 音频效果器链（Denoise/RmsMix/Sola）
-- DenoiseEffect / RmsMixEffect / SolaEffect: 单个效果器
-- SpectralSubtraction: 谱减法降噪
+- AudioProcessor: 音频效果器链（RmsMix/Sola）
+- RmsMixEffect / SolaEffect: 单个效果器
 - get_audio_devices: 查询音频设备列表
 
 其他内部类从子模块直接导入。
@@ -24,10 +23,8 @@ __all__ = [
     "InferenceRunner",
     "AudioStreamManager",
     "AudioProcessor",
-    "DenoiseEffect",
     "RmsMixEffect",
     "SolaEffect",
-    "SpectralSubtraction",
     "get_audio_devices",
 ]
 
@@ -40,10 +37,8 @@ _MODULE_MAP = {
     "InferenceRunner": "rvc.audio.inference_runner",
     "AudioStreamManager": "rvc.audio.stream_manager",
     "AudioProcessor": "rvc.audio.effects",
-    "DenoiseEffect": "rvc.audio.effects",
     "RmsMixEffect": "rvc.audio.effects",
     "SolaEffect": "rvc.audio.effects",
-    "SpectralSubtraction": "rvc.audio.denoise",
     "get_audio_devices": "rvc.audio.device_query",
 }
 

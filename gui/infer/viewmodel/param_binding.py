@@ -30,8 +30,6 @@ BINDINGS = [
     ("inference.protect", "protect_slider", X100, 0.5),
     ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
     ("inference.rms_mix", "rms_mix_slider", X100, 0.0),
-    ("inference.denoise.enable", "nr_enable_checkbox", CHECK, False),
-    ("inference.denoise.strength", "nr_strength_slider", X100, 0.5),
     ("inference.break_protect.enable", "break_enable_checkbox", CHECK, True),
     ("inference.break_protect.src_hz", "break_src_hz_slider", X100, 300.0),
     # ── 引擎参数（engine.*）──
@@ -97,8 +95,6 @@ _OLD_KEY_MAPPING = {
     "protect": "inference.protect",
     "f0": "inference.f0_method",
     "rms": "inference.rms_mix",
-    "nr_en": "inference.denoise.enable",
-    "nr_str": "inference.denoise.strength",
     "brk_en": "inference.break_protect.enable",
     "brk_hz": "inference.break_protect.src_hz",
     "bl": "engine.block_time",
@@ -127,6 +123,9 @@ def _migrate_old_format(data: dict) -> dict:
     for old_key, new_path in _OLD_KEY_MAPPING.items():
         if old_key in result:
             _set_nested_dict(result, new_path, result.pop(old_key))
+    # 删除已废弃的键（频谱降噪已删除）
+    for deprecated_key in ("nr_en", "nr_str"):
+        result.pop(deprecated_key, None)
     return result
 
 

@@ -1,11 +1,10 @@
-"""音频 IO 与工具函数测试 — output_router / wav_io / denoise。
+"""音频 IO 与工具函数测试 — output_router / wav_io。
 
 覆盖：
 - write_main_output: 单声道/立体声写入
 - route_secondary_output: 启用/禁用、队列满处理
 - write_wav + read_wav_info: FLOAT/PCM_16 往返一致性
 - read_wav_info: 非 WAV 文件报错
-- SpectralSubtraction: 直通/正常处理/状态保持/reset
 """
 import os
 import queue
@@ -16,8 +15,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-
-from rvc.audio.denoise import SpectralSubtraction
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.audio.wav_io import read_audio_info, read_wav_info, write_wav
 
@@ -190,86 +187,3 @@ class TestWavIo(unittest.TestCase):
         self.assertEqual(info["frames"], 300)
         self.assertAlmostEqual(info["duration"], 300 / 44100, places=4)
 
-
-class TestSpectralSubtraction(unittest.TestCase):
-    """谱减法降噪测试。"""
-
-    def setUp(self):
-        self.nr = SpectralSubtraction(sample_rate=16000)
-        self.audio = torch.randn(1024, dtype=torch.float32) * 0.1
-
-    def test_init_default_strength_zero(self):
-        """初始化时 strength=0，noise_floor=None。"""
-        self.assertEqual(self.nr.strength, 0.0)
-        self.assertIsNone(self.nr.noise_floor)
-
-    def test_set_strength_clamps(self):
-        """set_strength 限制在 [0, 1]。"""
-        self.nr.set_strength(0.5)
-        self.assertEqual(self.nr.strength, 0.5)
-        self.nr.set_strength(-1.0)
-        self.assertEqual(self.nr.strength, 0.0)
-        self.nr.set_strength(2.0)
-        self.assertEqual(self.nr.strength, 1.0)
-
-    def test_zero_strength_passthrough(self):
-        """strength=0 时直通（返回原 tensor）。"""
-        self.nr.set_strength(0.0)
-        out = self.nr.process(self.audio)
-        self.assertIs(out, self.audio)  # 同一对象，不拷贝
-
-    def test_process_preserves_shape(self):
-        """正常处理不改变形状。"""
-        self.nr.set_strength(0.5)
-        out = self.nr.process(self.audio)
-        self.assertEqual(out.shape, self.audio.shape)
-
-    def test_process_initializes_noise_floor(self):
-        """首次处理初始化 noise_floor。"""
-        self.assertIsNone(self.nr.noise_floor)
-        self.nr.set_strength(0.5)
-        self.nr.process(self.audio)
-        self.assertIsNotNone(self.nr.noise_floor)
-
-    def test_continuous_process_state_persists(self):
-        """连续处理时 noise_floor 状态保持。"""
-        self.nr.set_strength(0.5)
-        self.nr.process(self.audio)
-        floor_after_first = self.nr.noise_floor.clone()
-        self.nr.process(self.audio)
-        # 第二次处理后 noise_floor 应该有更新（不完全相同）
-        self.assertFalse(torch.allclose(floor_after_first, self.nr.noise_floor))
-
-    def test_reset_clears_noise_floor(self):
-        """reset 清空 noise_floor。"""
-        self.nr.set_strength(0.5)
-        self.nr.process(self.audio)
-        self.assertIsNotNone(self.nr.noise_floor)
-        self.nr.reset()
-        self.assertIsNone(self.nr.noise_floor)
-
-    def test_call_alias(self):
-        """__call__ 是 process 的别名。"""
-        self.nr.set_strength(0.0)
-        out1 = self.nr(self.audio)
-        out2 = self.nr.process(self.audio)
-        self.assertIs(out1, out2)
-
-    def test_different_length_reinitializes_floor(self):
-        """不同长度的输入重新初始化 noise_floor。"""
-        self.nr.set_strength(0.5)
-        self.nr.process(self.audio)
-        floor_shape = self.nr.noise_floor.shape
-        short_audio = torch.randn(512, dtype=torch.float32) * 0.1
-        self.nr.process(short_audio)
-        self.assertNotEqual(self.nr.noise_floor.shape, floor_shape)
-
-    def test_output_finite(self):
-        """输出值有限（无 NaN/Inf）。"""
-        self.nr.set_strength(0.9)
-        out = self.nr.process(self.audio)
-        self.assertTrue(torch.isfinite(out).all())
-
-
-if __name__ == "__main__":
-    unittest.main()

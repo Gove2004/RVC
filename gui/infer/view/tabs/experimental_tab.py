@@ -1,4 +1,4 @@
-﻿"""实验功能 Tab — 音质优化参数实时调节（F0中值滤波 / 辅音软阈值 / 气息噪声）"""
+﻿"""实验功能 Tab — 辅音保护 / 破音保护 / 辅音软阈值"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox, QGroupBox, QVBoxLayout,
 )
@@ -11,6 +11,16 @@ from rvc.core.experimental import experimental_config
 def build_experimental_tab(win):
     w = QWidget()
     root = QVBoxLayout(w)
+
+    # ── 1. 辅音保护强度 ──
+    group1 = QGroupBox("辅音保护强度（清音区域保留多少原特征）")
+    g1 = QGridLayout(group1)
+    r = 0
+    win.protect_slider = _slrow(win, "protect_slider", 0.0, 1.0, 0.01, 0.5)
+    g1.addWidget(QLabel("保护强度"), r, 0)
+    g1.addWidget(win.protect_slider, r, 1)
+    g1.addWidget(win.protect_label, r, 2); r += 1
+    root.addWidget(group1)
 
     # ── 2. 辅音保护软阈值 ──
     group2 = QGroupBox("辅音保护软阈值（解决咬字不清）")
@@ -53,6 +63,18 @@ def build_experimental_tab(win):
     g2.addWidget(win.exp_protect_width_label, r, 2); r += 1
 
     root.addWidget(group2)
+
+    # ── 3. 破音保护 ──
+    group3 = QGroupBox("破音保护（高音破音/沙哑，源音高超过临界后自动软收敛）")
+    g3 = QGridLayout(group3)
+    r = 0
+    win.break_enable_checkbox = QCheckBox("启用")
+    g3.addWidget(win.break_enable_checkbox, r, 0); r += 1
+    win.break_src_hz_slider = _slrow(win, "break_src_hz_slider", 200.0, 400.0, 5.0, 300.0, fmt=".0f", unit="Hz", label_w=45)
+    g3.addWidget(QLabel("破音临界"), r, 0)
+    g3.addWidget(win.break_src_hz_slider, r, 1)
+    g3.addWidget(win.break_src_hz_label, r, 2); r += 1
+    root.addWidget(group3)
 
     root.addStretch()
     return w

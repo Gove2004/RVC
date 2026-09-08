@@ -164,12 +164,6 @@ class TestInferenceConfigDefaults(unittest.TestCase):
         self.assertEqual(config.break_protect.ratio, 0.4)
         self.assertEqual(config.break_protect.knee, 0.12)
 
-    def test_denoise_defaults(self):
-        config = InferenceConfig()
-        self.assertFalse(config.denoise.enable)
-        self.assertEqual(config.denoise.strength, 0.5)
-
-
 class TestInferencePipelineFormantCalculation(unittest.TestCase):
     """共振峰参数计算逻辑测试（从 _infer_impl 提取的纯计算逻辑）。"""
 

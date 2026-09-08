@@ -107,8 +107,6 @@ class TestStateSerialization(unittest.TestCase):
         self.assertEqual(state.inference.protect, state2.inference.protect)
         self.assertEqual(state.inference.f0_method, state2.inference.f0_method)
         self.assertEqual(state.inference.rms_mix, state2.inference.rms_mix)
-        self.assertEqual(state.inference.denoise.enable, state2.inference.denoise.enable)
-        self.assertEqual(state.inference.denoise.strength, state2.inference.denoise.strength)
         self.assertEqual(state.inference.break_protect.enable, state2.inference.break_protect.enable)
         self.assertEqual(state.inference.break_protect.src_hz, state2.inference.break_protect.src_hz)
         self.assertEqual(state.engine.block_time, state2.engine.block_time)
@@ -122,8 +120,6 @@ class TestStateSerialization(unittest.TestCase):
         state.inference.protect = 0.3
         state.inference.f0_method = "fcpe"
         state.inference.rms_mix = 0.2
-        state.inference.denoise.enable = True
-        state.inference.denoise.strength = 0.8
         state.inference.break_protect.enable = False
         state.inference.break_protect.src_hz = 500.0
         state.engine.block_time = 0.5
@@ -135,8 +131,6 @@ class TestStateSerialization(unittest.TestCase):
         self.assertEqual(state2.inference.protect, 0.3)
         self.assertEqual(state2.inference.f0_method, "fcpe")
         self.assertEqual(state2.inference.rms_mix, 0.2)
-        self.assertTrue(state2.inference.denoise.enable)
-        self.assertEqual(state2.inference.denoise.strength, 0.8)
         self.assertFalse(state2.inference.break_protect.enable)
         self.assertEqual(state2.inference.break_protect.src_hz, 500.0)
         self.assertEqual(state2.engine.block_time, 0.5)
@@ -152,7 +146,6 @@ class TestStateSerialization(unittest.TestCase):
         self.assertIn("engine", d)
         self.assertIn("protect", d["inference"])
         self.assertIn("f0_method", d["inference"])
-        self.assertIn("denoise", d["inference"])
         self.assertIn("break_protect", d["inference"])
         self.assertIn("block_time", d["engine"])
         self.assertIn("active_model", d)
@@ -179,13 +172,12 @@ class TestMigrateOldFormat(unittest.TestCase):
 
     def test_old_format_migrated(self):
         """旧格式（≥3 个短键）应迁移到嵌套结构。"""
-        data = {"protect": 0.3, "f0": "fcpe", "rms": 0.2, "nr_en": True}
+        data = {"protect": 0.3, "f0_method": "fcpe", "rms_mix": 0.2}
         result = _migrate_old_format(data)
         self.assertIn("inference", result)
         self.assertEqual(result["inference"]["protect"], 0.3)
         self.assertEqual(result["inference"]["f0_method"], "fcpe")
         self.assertEqual(result["inference"]["rms_mix"], 0.2)
-        self.assertTrue(result["inference"]["denoise"]["enable"])
 
     def test_few_old_keys_unchanged(self):
         """少于 3 个旧短键应不变（可能是新格式的 active_model）。"""

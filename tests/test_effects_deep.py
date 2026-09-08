@@ -1,210 +1,562 @@
-"""音频效果器深度测试 — 边界条件 / 状态一致性 / 连续处理 / 参数极端值。
+"""效果器深度测试 — RmsMixEffect / SolaEffect / AudioProcessor 各种边界条件。
 
-在 test_effects.py 基础上补充更深入的测试用例。
-全部用 CPU 设备，不依赖 GPU。
+覆盖：
+- RmsMixEffect: setup/process、各种 rms_mix 值、各种采样率、直通模式
+- SolaEffect: setup/process/reset、各种 block/crossfade/search 大小、连续处理
+- AudioProcessor: setup/process_output/reset、is_vc 开关、各种参数组合
 """
 import unittest
 
 import torch
 
-from rvc.audio.effects import AudioProcessor, DenoiseEffect, RmsMixEffect, SolaEffect
+from rvc.audio.effects import AudioProcessor, RmsMixEffect, SolaEffect
 
 
-class TestDenoiseEffectDeep(unittest.TestCase):
-    """DenoiseEffect 边界条件和状态测试。"""
+class TestRmsMixEffectInit(unittest.TestCase):
+    """RmsMixEffect 初始化测试。"""
 
-    def setUp(self):
-        self.effect = DenoiseEffect()
-        self.effect.setup(sr=16000)
-        self.mono = torch.randn(1024)
+    def test_default_hz_zero(self):
+        effect = RmsMixEffect()
+        self.assertEqual(effect._hz_centis, 0)
 
-    def test_strength_zero_still_processes(self):
-        """strength=0 时仍会处理（不是直通），只是降噪强度为 0。"""
-        out = self.effect.process(self.mono, enable=True, strength=0.0)
-        self.assertEqual(out.shape, self.mono.shape)
-        # strength=0 时 _last_strength 会更新
-        self.assertEqual(self.effect._last_strength, 0.0)
+    def test_has_setup_method(self):
+        effect = RmsMixEffect()
+        self.assertTrue(hasattr(effect, "setup"))
+        self.assertTrue(callable(effect.setup))
 
-    def test_strength_negative_clamped_by_ss(self):
-        """负 strength 传给 SpectralSubtraction，不崩溃。"""
-        out = self.effect.process(self.mono, enable=True, strength=-0.5)
-        self.assertEqual(out.shape, self.mono.shape)
-
-    def test_strength_above_one(self):
-        """strength>1 时不崩溃。"""
-        out = self.effect.process(self.mono, enable=True, strength=1.5)
-        self.assertEqual(out.shape, self.mono.shape)
-
-    def test_same_strength_no_ss_update(self):
-        """相同 strength 连续调用不会重复 set_strength。"""
-        self.effect.process(self.mono, enable=True, strength=0.5)
-        first_ss = self.effect._nr_ss
-        self.effect.process(self.mono, enable=True, strength=0.5)
-        # _last_strength 不变，不会触发 set_strength
-        self.assertEqual(self.effect._last_strength, 0.5)
-        self.assertIs(self.effect._nr_ss, first_ss)
-
-    def test_disabled_after_enabled_no_state_change(self):
-        """禁用后再启用，状态保持。"""
-        self.effect.process(self.mono, enable=True, strength=0.5)
-        self.effect.process(self.mono, enable=False, strength=0.8)
-        # 禁用时不更新 _last_strength
-        self.assertEqual(self.effect._last_strength, 0.5)
+    def test_has_process_method(self):
+        effect = RmsMixEffect()
+        self.assertTrue(hasattr(effect, "process"))
+        self.assertTrue(callable(effect.process))
 
 
-class TestRmsMixEffectDeep(unittest.TestCase):
-    """RmsMixEffect 边界条件测试。"""
+class TestRmsMixEffectSetup(unittest.TestCase):
+    """RmsMixEffect setup 测试。"""
+
+    def test_setup_16k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=16000)
+        self.assertEqual(effect._hz_centis, 160)
+
+    def test_setup_22k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=22050)
+        self.assertEqual(effect._hz_centis, 220)
+
+    def test_setup_32k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=32000)
+        self.assertEqual(effect._hz_centis, 320)
+
+    def test_setup_44k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=44100)
+        self.assertEqual(effect._hz_centis, 441)
+
+    def test_setup_48k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=48000)
+        self.assertEqual(effect._hz_centis, 480)
+
+    def test_setup_8k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=8000)
+        self.assertEqual(effect._hz_centis, 80)
+
+    def test_setup_96k(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=96000)
+        self.assertEqual(effect._hz_centis, 960)
+
+    def test_multiple_setups(self):
+        effect = RmsMixEffect()
+        effect.setup(sr=16000)
+        self.assertEqual(effect._hz_centis, 160)
+        effect.setup(sr=48000)
+        self.assertEqual(effect._hz_centis, 480)
+
+
+class TestRmsMixEffectProcess(unittest.TestCase):
+    """RmsMixEffect process 测试。"""
 
     def setUp(self):
         self.effect = RmsMixEffect()
         self.effect.setup(sr=16000)
-        self.infer = torch.randn(512)
-        self.ref = torch.randn(512)
+
+    def test_rms_mix_one_passthrough(self):
+        """rms_mix >= 1.0 时直通，返回原 tensor。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.2
+        ref = torch.randn(5000, dtype=torch.float32) * 0.1
+        out = self.effect.process(infer, ref, rms_mix=1.0)
+        self.assertIs(out, infer)
 
     def test_rms_mix_above_one_passthrough(self):
-        """rms_mix > 1.0 时直通。"""
-        out = self.effect.process(self.infer, self.ref, rms_mix=1.5)
-        self.assertIs(out, self.infer)
+        """rms_mix > 1.0 时也直通。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.2
+        ref = torch.randn(5000, dtype=torch.float32) * 0.1
+        out = self.effect.process(infer, ref, rms_mix=2.0)
+        self.assertIs(out, infer)
 
-    def test_rms_mix_exactly_one_passthrough(self):
-        """rms_mix == 1.0 时直通。"""
-        out = self.effect.process(self.infer, self.ref, rms_mix=1.0)
-        self.assertIs(out, self.infer)
+    def test_rms_mix_zero(self):
+        """rms_mix=0 时完全跟随参考音量。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.05
+        ref = torch.randn(5000, dtype=torch.float32) * 0.5
+        out = self.effect.process(infer, ref, rms_mix=0.0)
+        self.assertEqual(out.shape, infer.shape)
+        self.assertTrue(torch.isfinite(out).all())
+        # 输出能量应该比原始 infer 大（跟随 ref 的大音量）
+        self.assertTrue(torch.mean(out**2) > torch.mean(infer**2))
 
-    def test_different_sr_hz_centis(self):
-        """不同采样率下 _hz_centis 正确。"""
-        effect = RmsMixEffect()
-        effect.setup(sr=48000)
-        self.assertEqual(effect._hz_centis, 480)  # 48000 // 100
+    def test_rms_mix_half(self):
+        """rms_mix=0.5 时混合。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.1
+        ref = torch.randn(5000, dtype=torch.float32) * 0.3
+        out = self.effect.process(infer, ref, rms_mix=0.5)
+        self.assertEqual(out.shape, infer.shape)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_various_rms_mix_values(self):
+        """各种 rms_mix 值。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.1
+        ref = torch.randn(5000, dtype=torch.float32) * 0.3
+        for mix in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]:
+            out = self.effect.process(infer.clone(), ref, rms_mix=mix)
+            self.assertEqual(out.shape, infer.shape)
+            self.assertTrue(torch.isfinite(out).all())
+
+    def test_silence_reference(self):
+        """静音参考。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.1
+        ref = torch.zeros(5000, dtype=torch.float32)
+        out = self.effect.process(infer, ref, rms_mix=0.5)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_silence_infer(self):
+        """静音 infer。"""
+        infer = torch.zeros(5000, dtype=torch.float32)
+        ref = torch.randn(5000, dtype=torch.float32) * 0.1
+        out = self.effect.process(infer, ref, rms_mix=0.5)
+        self.assertTrue(torch.isfinite(out).all())
+        # 静音输入输出应为静音
+        self.assertTrue(torch.allclose(out, torch.zeros_like(out), atol=1e-5))
+
+    def test_both_silence(self):
+        """双方都静音。"""
+        infer = torch.zeros(5000, dtype=torch.float32)
+        ref = torch.zeros(5000, dtype=torch.float32)
+        out = self.effect.process(infer, ref, rms_mix=0.5)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_various_lengths(self):
+        """各种输入长度。"""
+        for n in [500, 1000, 2000, 5000, 10000]:
+            infer = torch.randn(n, dtype=torch.float32) * 0.1
+            ref = torch.randn(n, dtype=torch.float32) * 0.2
+            out = self.effect.process(infer, ref, rms_mix=0.5)
+            self.assertEqual(out.shape, (n,))
+            self.assertTrue(torch.isfinite(out).all())
+
+    def test_output_dtype(self):
+        """输出 dtype 为 float32。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.1
+        ref = torch.randn(5000, dtype=torch.float32) * 0.2
+        out = self.effect.process(infer, ref, rms_mix=0.5)
+        self.assertEqual(out.dtype, torch.float32)
 
 
-class TestSolaEffectDeep(unittest.TestCase):
-    """SolaEffect 边界条件和状态一致性测试。"""
+class TestSolaEffectInit(unittest.TestCase):
+    """SolaEffect 初始化测试。"""
 
-    def _make_effect(self, sr=16000, block_samples=256, crossfade_samples=64,
-                      sola_search_samples=32):
+    def test_default_buffer_none(self):
         effect = SolaEffect()
-        effect.setup(sr, block_samples, crossfade_samples, sola_search_samples, "cpu")
-        return effect
+        self.assertIsNone(effect.sola_buffer)
 
-    def test_sola_buffer_samples_capped(self):
-        """sola_buffer_samples = min(crossfade_samples, 4*zc)，crossfade 过大时被截断。"""
-        effect = self._make_effect(crossfade_samples=1000)  # 远大于 4*160=640
-        self.assertEqual(effect._sola_buffer_samples, 640)  # 被截断到 4*zc
+    def test_default_fade_none(self):
+        effect = SolaEffect()
+        self.assertIsNone(effect._fade_in)
+        self.assertIsNone(effect._fade_out)
 
-    def test_small_crossfade(self):
-        """很小的 crossfade 不崩溃。"""
-        effect = self._make_effect(crossfade_samples=8, sola_search_samples=4)
-        infer = torch.randn(256 + 8 + 4)
-        out = effect.process(infer)
-        self.assertEqual(out.shape, (256,))
+    def test_default_norm_kernel_none(self):
+        effect = SolaEffect()
+        self.assertIsNone(effect._sola_norm_kernel)
 
-    def test_fade_in_out_sum_to_one(self):
-        """fade_in + fade_out = 1。"""
-        effect = self._make_effect()
-        self.assertTrue(torch.allclose(effect._fade_in + effect._fade_out, torch.ones_like(effect._fade_in)))
+    def test_default_block_zero(self):
+        effect = SolaEffect()
+        self.assertEqual(effect._block_samples, 0)
 
-    def test_fade_in_monotonic_increasing(self):
-        """fade_in 单调递增。"""
-        effect = self._make_effect()
-        diffs = effect._fade_in[1:] - effect._fade_in[:-1]
-        self.assertTrue(torch.all(diffs >= 0))
+    def test_has_setup_method(self):
+        effect = SolaEffect()
+        self.assertTrue(hasattr(effect, "setup"))
+        self.assertTrue(callable(effect.setup))
 
-    def test_reset_after_multiple_blocks(self):
-        """多块处理后 reset 清空 buffer。"""
-        effect = self._make_effect()
-        for _ in range(10):
-            infer = torch.randn(256 + 64 + 32)
-            effect.process(infer)
-        self.assertFalse(torch.all(effect.sola_buffer == 0))
-        effect.reset()
-        self.assertTrue(torch.all(effect.sola_buffer == 0))
+    def test_has_process_method(self):
+        effect = SolaEffect()
+        self.assertTrue(hasattr(effect, "process"))
+        self.assertTrue(callable(effect.process))
 
-    def test_deterministic_with_same_input(self):
-        """相同输入和初始状态，输出一致。"""
-        effect1 = self._make_effect()
-        effect2 = self._make_effect()
-        infer = torch.randn(256 + 64 + 32)
-        out1 = effect1.process(infer)
-        out2 = effect2.process(infer)
-        self.assertTrue(torch.allclose(out1, out2))
+    def test_has_reset_method(self):
+        effect = SolaEffect()
+        self.assertTrue(hasattr(effect, "reset"))
+        self.assertTrue(callable(effect.reset))
 
 
-class TestAudioProcessorDeep(unittest.TestCase):
-    """AudioProcessor 集成测试 — 效果器链顺序和状态一致性。"""
+class TestSolaEffectSetup(unittest.TestCase):
+    """SolaEffect setup 测试。"""
+
+    def test_setup_basic(self):
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        self.assertEqual(effect._block_samples, 480)
+        self.assertEqual(effect._sola_search_samples, 120)
+        self.assertIsNotNone(effect.sola_buffer)
+        self.assertIsNotNone(effect._fade_in)
+        self.assertIsNotNone(effect._fade_out)
+        self.assertIsNotNone(effect._sola_norm_kernel)
+
+    def test_buffer_shape(self):
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        # crossfade=240, 4*zc=4*480=1920, min=240
+        self.assertEqual(effect.sola_buffer.shape, (240,))
+
+    def test_buffer_capped_at_4zc(self):
+        """crossfade 超过 4*zc 时被截断。"""
+        effect = SolaEffect()
+        effect.setup(sr=16000, block_samples=160, crossfade_samples=1000,
+                     sola_search_samples=80, device="cpu")
+        # 4*zc=4*160=640, crossfade=1000, min=640
+        self.assertEqual(effect.sola_buffer.shape, (640,))
+
+    def test_fade_in_shape(self):
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        self.assertEqual(effect._fade_in.shape, (240,))
+
+    def test_fade_out_shape(self):
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        self.assertEqual(effect._fade_out.shape, (240,))
+
+    def test_norm_kernel_shape(self):
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        self.assertEqual(effect._sola_norm_kernel.shape, (1, 1, 240))
+
+    def test_fade_in_range(self):
+        """fade_in 值在 [0, 1] 范围内。"""
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        self.assertTrue((effect._fade_in >= 0).all())
+        self.assertTrue((effect._fade_in <= 1).all())
+
+    def test_fade_out_range(self):
+        """fade_out 值在 [0, 1] 范围内。"""
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        self.assertTrue((effect._fade_out >= 0).all())
+        self.assertTrue((effect._fade_out <= 1).all())
+
+    def test_fade_in_out_sum(self):
+        """fade_in + fade_out ≈ 1。"""
+        effect = SolaEffect()
+        effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                     sola_search_samples=120, device="cpu")
+        total = effect._fade_in + effect._fade_out
+        self.assertTrue(torch.allclose(total, torch.ones_like(total), atol=1e-5))
+
+    def test_various_sample_rates(self):
+        """各种采样率 setup。"""
+        for sr in [16000, 22050, 32000, 44100, 48000]:
+            effect = SolaEffect()
+            block = sr // 100
+            effect.setup(sr=sr, block_samples=block, crossfade_samples=block//2,
+                         sola_search_samples=block//4, device="cpu")
+            self.assertIsNotNone(effect.sola_buffer)
+            self.assertEqual(effect._block_samples, block)
+
+    def test_various_block_sizes(self):
+        """各种块大小。"""
+        for block in [128, 256, 480, 512, 960, 1024]:
+            effect = SolaEffect()
+            effect.setup(sr=48000, block_samples=block, crossfade_samples=block//2,
+                         sola_search_samples=block//4, device="cpu")
+            self.assertEqual(effect._block_samples, block)
+            self.assertIsNotNone(effect.sola_buffer)
+
+
+class TestSolaEffectProcess(unittest.TestCase):
+    """SolaEffect process 测试。"""
 
     def setUp(self):
-        self.sr = 16000
-        self.block_samples = 256
-        self.crossfade_samples = 64
-        self.sola_search_samples = 32
-        self.sola_buffer_samples = 64
-        self.processor = AudioProcessor()
-        self.processor.setup(
-            sr=self.sr,
-            block_samples=self.block_samples,
-            crossfade_samples=self.crossfade_samples,
-            sola_search_samples=self.sola_search_samples,
-            device="cpu",
-        )
-        self.mono = torch.randn(1024)
-        self.infer = torch.randn(
-            self.block_samples + self.sola_buffer_samples + self.sola_search_samples
-        )
-        self.ref = torch.randn(
-            self.block_samples + self.sola_buffer_samples + self.sola_search_samples
-        )
+        self.effect = SolaEffect()
+        self.effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                          sola_search_samples=120, device="cpu")
 
-    def test_process_chain_order_vc_mode(self):
-        """VC 模式下：RMS 混合 → SOLA，输出长度为 block_samples。"""
-        out = self.processor.process_output(self.infer, self.ref, rms_mix=0.5, is_vc=True)
-        self.assertEqual(out.shape, (self.block_samples,))
+    def _make_input(self, n=850):
+        return torch.randn(n, dtype=torch.float32) * 0.1
 
-    def test_process_chain_order_passthrough_mode(self):
-        """直通模式下：跳过 RMS，只做 SOLA。"""
-        out = self.processor.process_output(self.infer, self.ref, rms_mix=0.5, is_vc=False)
-        self.assertEqual(out.shape, (self.block_samples,))
+    def test_output_shape(self):
+        infer = self._make_input()
+        out = self.effect.process(infer)
+        self.assertEqual(out.shape, (480,))
 
-    def test_full_pipeline_continuous(self):
-        """完整 pipeline 连续处理 20 块不崩溃，状态持续更新。"""
-        for i in range(20):
-            mono = torch.randn(1024)
-            infer = torch.randn(self.block_samples + self.sola_buffer_samples + self.sola_search_samples)
-            ref = torch.randn(self.block_samples + self.sola_buffer_samples + self.sola_search_samples)
+    def test_output_finite(self):
+        infer = self._make_input()
+        out = self.effect.process(infer)
+        self.assertTrue(torch.isfinite(out).all())
 
-            processed_input = self.processor.process_input(mono, denoise_enable=True, denoise_strength=0.5)
-            self.assertEqual(processed_input.shape, mono.shape)
+    def test_output_dtype(self):
+        infer = self._make_input()
+        out = self.effect.process(infer)
+        self.assertEqual(out.dtype, torch.float32)
 
-            out = self.processor.process_output(infer, ref, rms_mix=0.5, is_vc=True)
-            self.assertEqual(out.shape, (self.block_samples,))
+    def test_buffer_updated(self):
+        infer = self._make_input()
+        self.effect.process(infer)
+        # 处理后 buffer 不应全零
+        self.assertFalse(torch.allclose(self.effect.sola_buffer, torch.zeros_like(self.effect.sola_buffer)))
 
-        # 连续处理后 sola_buffer 非零
-        self.assertFalse(torch.all(self.processor.sola.sola_buffer == 0))
+    def test_consecutive_calls(self):
+        """连续调用不崩溃。"""
+        for _ in range(10):
+            infer = self._make_input()
+            out = self.effect.process(infer)
+            self.assertEqual(out.shape, (480,))
+            self.assertTrue(torch.isfinite(out).all())
 
-    def test_reset_between_sessions(self):
-        """reset 后状态清空，新会话不受旧会话影响。"""
-        # 会话 1
+    def test_long_sequence(self):
+        """长序列处理（100 帧）。"""
+        for i in range(100):
+            infer = self._make_input()
+            out = self.effect.process(infer)
+            self.assertEqual(out.shape, (480,))
+            self.assertTrue(torch.isfinite(out).all())
+
+    def test_silence_input(self):
+        infer = torch.zeros(850, dtype=torch.float32)
+        out = self.effect.process(infer)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_constant_input(self):
+        infer = torch.full((850,), 0.5, dtype=torch.float32)
+        out = self.effect.process(infer)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_high_amplitude(self):
+        infer = torch.randn(850, dtype=torch.float32) * 0.9
+        out = self.effect.process(infer)
+        self.assertTrue(torch.isfinite(out).all())
+
+
+class TestSolaEffectReset(unittest.TestCase):
+    """SolaEffect reset 测试。"""
+
+    def setUp(self):
+        self.effect = SolaEffect()
+        self.effect.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                          sola_search_samples=120, device="cpu")
+
+    def test_reset_clears_buffer(self):
+        # 先处理一帧，让 buffer 非零
+        infer = torch.randn(850, dtype=torch.float32) * 0.1
+        self.effect.process(infer)
+        self.assertFalse(torch.allclose(self.effect.sola_buffer, torch.zeros_like(self.effect.sola_buffer)))
+        # reset 后 buffer 应为零
+        self.effect.reset()
+        self.assertTrue(torch.allclose(self.effect.sola_buffer, torch.zeros_like(self.effect.sola_buffer)))
+
+    def test_reset_before_setup_no_crash(self):
+        """未 setup 时 reset 不崩溃。"""
+        effect = SolaEffect()
+        effect.reset()  # 不应崩溃
+
+    def test_reset_then_process(self):
+        """reset 后继续处理正常。"""
+        infer = torch.randn(850, dtype=torch.float32) * 0.1
+        self.effect.process(infer)
+        self.effect.reset()
+        out = self.effect.process(infer)
+        self.assertEqual(out.shape, (480,))
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_multiple_resets(self):
+        """多次 reset 不崩溃。"""
         for _ in range(5):
-            self.processor.process_input(self.mono, denoise_enable=True, denoise_strength=0.5)
-            self.processor.process_output(self.infer, self.ref, rms_mix=0.5, is_vc=True)
+            infer = torch.randn(850, dtype=torch.float32) * 0.1
+            self.effect.process(infer)
+            self.effect.reset()
+            self.assertTrue(torch.allclose(self.effect.sola_buffer, torch.zeros_like(self.effect.sola_buffer)))
 
-        self.processor.reset()
 
-        # 会话 2 开始时状态干净
-        self.assertIsNone(self.processor.denoise._nr_ss.noise_floor)
-        self.assertTrue(torch.all(self.processor.sola.sola_buffer == 0))
+class TestAudioProcessorInit(unittest.TestCase):
+    """AudioProcessor 初始化测试。"""
 
-    def test_denoise_strength_runtime_change(self):
-        """运行中改变降噪强度不崩溃。"""
-        for strength in [0.0, 0.3, 0.5, 0.8, 1.0]:
-            out = self.processor.process_input(self.mono, denoise_enable=True, denoise_strength=strength)
-            self.assertEqual(out.shape, self.mono.shape)
+    def test_has_rms_mix(self):
+        proc = AudioProcessor()
+        self.assertIsInstance(proc.rms_mix, RmsMixEffect)
 
-    def test_rms_mix_runtime_change(self):
-        """运行中改变 rms_mix 不崩溃。"""
-        for rms_mix in [0.0, 0.3, 0.5, 0.8, 1.0, 1.5]:
-            out = self.processor.process_output(self.infer, self.ref, rms_mix=rms_mix, is_vc=True)
-            self.assertEqual(out.shape, (self.block_samples,))
+    def test_has_sola(self):
+        proc = AudioProcessor()
+        self.assertIsInstance(proc.sola, SolaEffect)
+
+    def test_has_setup_method(self):
+        proc = AudioProcessor()
+        self.assertTrue(hasattr(proc, "setup"))
+        self.assertTrue(callable(proc.setup))
+
+    def test_has_process_output_method(self):
+        proc = AudioProcessor()
+        self.assertTrue(hasattr(proc, "process_output"))
+        self.assertTrue(callable(proc.process_output))
+
+    def test_has_reset_method(self):
+        proc = AudioProcessor()
+        self.assertTrue(hasattr(proc, "reset"))
+        self.assertTrue(callable(proc.reset))
+
+
+class TestAudioProcessorSetup(unittest.TestCase):
+    """AudioProcessor setup 测试。"""
+
+    def test_setup_basic(self):
+        proc = AudioProcessor()
+        proc.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                   sola_search_samples=120, device="cpu")
+        self.assertEqual(proc.rms_mix._hz_centis, 480)
+        self.assertIsNotNone(proc.sola.sola_buffer)
+
+    def test_setup_various_sample_rates(self):
+        for sr in [16000, 22050, 32000, 44100, 48000]:
+            proc = AudioProcessor()
+            block = sr // 100
+            proc.setup(sr=sr, block_samples=block, crossfade_samples=block//2,
+                       sola_search_samples=block//4, device="cpu")
+            self.assertEqual(proc.rms_mix._hz_centis, sr // 100)
+            self.assertIsNotNone(proc.sola.sola_buffer)
+
+    def test_multiple_setups(self):
+        proc = AudioProcessor()
+        proc.setup(sr=16000, block_samples=160, crossfade_samples=80,
+                   sola_search_samples=40, device="cpu")
+        self.assertEqual(proc.rms_mix._hz_centis, 160)
+        proc.setup(sr=48000, block_samples=480, crossfade_samples=240,
+                   sola_search_samples=120, device="cpu")
+        self.assertEqual(proc.rms_mix._hz_centis, 480)
+
+
+class TestAudioProcessorProcessOutput(unittest.TestCase):
+    """AudioProcessor process_output 测试。"""
+
+    def setUp(self):
+        self.proc = AudioProcessor()
+        self.proc.setup(sr=16000, block_samples=160, crossfade_samples=80,
+                        sola_search_samples=40, device="cpu")
+
+    def _make_input(self, n=5000):
+        return torch.randn(n, dtype=torch.float32) * 0.1
+
+    def test_output_shape(self):
+        infer = self._make_input()
+        ref = self._make_input()
+        out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.assertEqual(out.shape, (160,))
+
+    def test_output_finite(self):
+        infer = self._make_input()
+        ref = self._make_input()
+        out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_is_vc_true_applies_rms(self):
+        """is_vc=True 时应用 RMS 混合。"""
+        infer = torch.randn(5000, dtype=torch.float32) * 0.05
+        ref = torch.randn(5000, dtype=torch.float32) * 0.5
+        out = self.proc.process_output(infer, ref, rms_mix=0.0, is_vc=True)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_is_vc_false_skips_rms(self):
+        """is_vc=False 时跳过 RMS 混合，只做 SOLA。"""
+        infer = self._make_input()
+        ref = self._make_input()
+        out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=False)
+        self.assertEqual(out.shape, (160,))
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_rms_mix_one_passthrough_rms(self):
+        """rms_mix=1.0 时 RMS 直通，只做 SOLA。"""
+        infer = self._make_input()
+        ref = self._make_input()
+        out = self.proc.process_output(infer, ref, rms_mix=1.0, is_vc=True)
+        self.assertEqual(out.shape, (160,))
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_various_rms_mix(self):
+        infer = self._make_input()
+        ref = self._make_input()
+        for mix in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            out = self.proc.process_output(infer.clone(), ref, rms_mix=mix, is_vc=True)
+            self.assertEqual(out.shape, (160,))
+            self.assertTrue(torch.isfinite(out).all())
+
+    def test_consecutive_calls(self):
+        for _ in range(10):
+            infer = self._make_input()
+            ref = self._make_input()
+            out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+            self.assertEqual(out.shape, (160,))
+            self.assertTrue(torch.isfinite(out).all())
+
+    def test_silence_input(self):
+        infer = torch.zeros(5000, dtype=torch.float32)
+        ref = self._make_input()
+        out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_silence_reference(self):
+        infer = self._make_input()
+        ref = torch.zeros(5000, dtype=torch.float32)
+        out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.assertTrue(torch.isfinite(out).all())
+
+
+class TestAudioProcessorReset(unittest.TestCase):
+    """AudioProcessor reset 测试。"""
+
+    def setUp(self):
+        self.proc = AudioProcessor()
+        self.proc.setup(sr=16000, block_samples=160, crossfade_samples=80,
+                        sola_search_samples=40, device="cpu")
+
+    def test_reset_clears_sola_buffer(self):
+        infer = torch.randn(5000, dtype=torch.float32) * 0.1
+        ref = torch.randn(5000, dtype=torch.float32) * 0.1
+        self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.assertFalse(torch.allclose(self.proc.sola.sola_buffer, torch.zeros_like(self.proc.sola.sola_buffer)))
+        self.proc.reset()
+        self.assertTrue(torch.allclose(self.proc.sola.sola_buffer, torch.zeros_like(self.proc.sola.sola_buffer)))
+
+    def test_reset_then_process(self):
+        infer = torch.randn(5000, dtype=torch.float32) * 0.1
+        ref = torch.randn(5000, dtype=torch.float32) * 0.1
+        self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.proc.reset()
+        out = self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+        self.assertEqual(out.shape, (160,))
+        self.assertTrue(torch.isfinite(out).all())
+
+    def test_multiple_resets(self):
+        for _ in range(5):
+            infer = torch.randn(5000, dtype=torch.float32) * 0.1
+            ref = torch.randn(5000, dtype=torch.float32) * 0.1
+            self.proc.process_output(infer, ref, rms_mix=0.5, is_vc=True)
+            self.proc.reset()
 
 
 if __name__ == "__main__":

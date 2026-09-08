@@ -4,7 +4,6 @@ import unittest
 from rvc.core.config import (
     AppConfig,
     BreakProtectConfig,
-    DenoiseConfig,
     EngineConfig,
     InferenceConfig,
     ModelEntry,
@@ -28,20 +27,15 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertEqual(cfg.break_protect.src_hz, 300.0)
         self.assertEqual(cfg.break_protect.ratio, 0.4)
         self.assertEqual(cfg.break_protect.knee, 0.12)
-        self.assertIsInstance(cfg.denoise, DenoiseConfig)
-        self.assertFalse(cfg.denoise.enable)
-        self.assertEqual(cfg.denoise.strength, 0.5)
 
     def test_mutation(self):
         cfg = InferenceConfig()
         cfg.pitch = 12
         cfg.formant = 1.5
         cfg.break_protect.enable = False
-        cfg.denoise.enable = True
         self.assertEqual(cfg.pitch, 12)
         self.assertEqual(cfg.formant, 1.5)
         self.assertFalse(cfg.break_protect.enable)
-        self.assertTrue(cfg.denoise.enable)
 
 
 class TestEngineConfig(unittest.TestCase):
