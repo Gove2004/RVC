@@ -9,10 +9,6 @@ class ExperimentalConfig:
     """实验功能配置（运行时可修改）。"""
 
     def __init__(self):
-        # ── F0 中值滤波（解决破音/沙哑/带电） ──
-        self.f0_median_enabled = True
-        self.f0_median_kernel = 5  # 窗口大小（帧），3-7 推荐
-
         # ── 辅音保护软阈值（解决咬字不清） ──
         self.protect_soft_enabled = True
         self.protect_soft_threshold_hz = 10.0  # 过渡中心（Hz）

@@ -18,16 +18,6 @@ logger = logging.getLogger(__name__)
 # 误判浊音给合成器喂假音高，与 RMVPE 的 thred=0.03 拉到同档（RMVPE 在该档底噪全判 uv）。
 FCPE_CONFIDENCE_THRESHOLD = 0.025
 
-def _median_filter_1d(x: torch.Tensor, kernel_size: int = 5) -> torch.Tensor:
-    """1D 中值滤波，reflect padding。用于 F0 曲线去野值。"""
-    import torch.nn.functional as F
-    if x.dim() == 0 or x.shape[0] < kernel_size:
-        return x
-    pad = kernel_size // 2
-    x_padded = F.pad(x.unsqueeze(0).unsqueeze(0), (pad, pad), mode="reflect").squeeze()
-    unfolded = x_padded.unfold(0, kernel_size, 1)
-    return unfolded.median(dim=-1).values
-
 
 class _FilteredStream:
     def __init__(self, stream, blocked_prefixes, blocked_contains):
@@ -140,18 +130,6 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
         ratio = f0_proc[2]
         knee = f0_proc[3]
         f0 = apply_f0_break_protect(f0, critical, ratio, knee)
-    # F0 中值滤波（去除孤立野值，减少破音/沙哑/带电）
-    from rvc.core.experimental import experimental_config
-    if experimental_config.f0_median_enabled:
-        kernel = experimental_config.f0_median_kernel
-        # UV 判定中值滤波固定 kernel=3：只去除孤立单帧误判（一个UV帧被浊音包围或反之），
-        # 不会吃掉连续的 UV 帧（辅音/停顿/气息），否则气息噪声无处叠加
-        uv_mask = (f0 > 0).float()
-        uv_mask_smoothed = _median_filter_1d(uv_mask, 3)
-        uv_mask_binary = uv_mask_smoothed > 0.5
-        # pitchf 中值滤波（去除倍频/半频野值），用用户可调的 kernel
-        f0_smoothed = _median_filter_1d(f0, kernel)
-        f0 = torch.where(uv_mask_binary, f0_smoothed, torch.zeros_like(f0))
     return _normalize_f0_to_coarse(f0), f0
 
 
