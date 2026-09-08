@@ -71,21 +71,29 @@ class OfflineManager:
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
         # 离线推理使用独立的 RealtimeEngine 实例，可与实时变声同时运行（需显存足够）
-        state = collect_gui_state(self.window)
-        inf = state.inference
-        config = OfflineConfig(
-            input_path=self.window.offline_input.text().strip(),
-            output_path=self.window.offline_output.text().strip(),
-            model_path=card.pth_edit.text().strip(),
-            pitch=card.pitch_slider.value(),
-            formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
-            protect=inf.protect,
-            f0_method=inf.f0_method,
-            rms_mix=inf.rms_mix,
-            break_protect=inf.break_protect,
-            denoise=inf.denoise,
-            hubert=card.hubert_combo.currentText(),
-        )
+        try:
+            state = collect_gui_state(self.window)
+            inf = state.inference
+            config = OfflineConfig(
+                input_path=self.window.offline_input.text().strip(),
+                output_path=self.window.offline_output.text().strip(),
+                model_path=card.pth_edit.text().strip(),
+                pitch=card.pitch_slider.value(),
+                formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
+                protect=inf.protect,
+                f0_method=inf.f0_method,
+                rms_mix=inf.rms_mix,
+                break_protect=inf.break_protect,
+                denoise=inf.denoise,
+                hubert=card.hubert_combo.currentText(),
+            )
+        except Exception as exc:
+            import traceback
+            logger.error("离线转换初始化失败:
+%s", traceback.format_exc())
+            self.window._show_error(f"离线转换初始化失败: {exc}")
+            return
+
         self.worker = OfflineWorker(config)
         self._converting = True
         self.worker.progress.connect(self._on_progress)
