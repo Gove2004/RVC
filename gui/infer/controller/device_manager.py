@@ -1,10 +1,6 @@
 """设备管理器 — 负责音频设备的枚举和选择"""
-from typing import TYPE_CHECKING, List, Tuple
+from typing import List
 from rvc.audio import get_audio_devices
-
-if TYPE_CHECKING:
-    from gui.infer.view.main_window import MainWindow
-
 
 class DeviceManager:
     """管理音频设备的加载和选择"""

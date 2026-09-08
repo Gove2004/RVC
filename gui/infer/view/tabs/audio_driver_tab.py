@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QComboBox,
     QPushButton, QRadioButton, QButtonGroup,
 )
-from PySide6.QtCore import Qt
 
 from gui.styles import ButtonStyles, LabelStyles
 from gui.infer.view.widgets import _sl

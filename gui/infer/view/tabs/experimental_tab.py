@@ -2,7 +2,6 @@
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox, QGroupBox, QVBoxLayout, QHBoxLayout,
 )
-from PySide6.QtCore import Qt
 
 from gui.infer.view.widgets import _slrow, _sl_value_as_float
 from rvc.core.experimental import experimental_config

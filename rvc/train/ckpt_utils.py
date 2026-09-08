@@ -28,7 +28,7 @@ def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: st
 
 def load_checkpoint(path: str, model, optimizer=None):
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-    saved_state = checkpoint.get("model", checkpoint)
+    saved_state = checkpoint["model"]
     model_state = model.state_dict()
     matched = {}
     for key, value in saved_state.items():
@@ -36,9 +36,9 @@ def load_checkpoint(path: str, model, optimizer=None):
             matched[key] = value
     model_state.update(matched)
     model.load_state_dict(model_state, strict=False)
-    if optimizer is not None and checkpoint.get("optimizer") is not None:
+    if optimizer is not None and checkpoint["optimizer"] is not None:
         optimizer.load_state_dict(checkpoint["optimizer"])
-    return checkpoint.get("learning_rate", 1e-4), checkpoint.get("iteration", 0)
+    return checkpoint["learning_rate"], checkpoint["iteration"]
 
 
 CHECKPOINT_DIR_NAME = "4_checkpoints"

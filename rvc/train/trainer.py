@@ -1,6 +1,5 @@
 import random
 from rvc.core.config import TrainConfig
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -83,11 +82,9 @@ class Trainer:
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
 
-        # checkpoint 存在 <exp>/4_checkpoints/ 下（与 _save 一致）；
-        # 根目录再试一次只为兼容早期布局，不改写入位置
         ckpt_dir = str(self.checkpoints_dir())
-        latest_g = latest_checkpoint_path(ckpt_dir, "G") or latest_checkpoint_path(self.cfg.exp_dir, "G")
-        latest_d = latest_checkpoint_path(ckpt_dir, "D") or latest_checkpoint_path(self.cfg.exp_dir, "D")
+        latest_g = latest_checkpoint_path(ckpt_dir, "G")
+        latest_d = latest_checkpoint_path(ckpt_dir, "D")
         if latest_g and latest_d:
             _, epoch_g = load_checkpoint(latest_g, self.synthesizer, self.optim_g)
             _, epoch_d = load_checkpoint(latest_d, self.net_d, self.optim_d)
@@ -96,13 +93,11 @@ class Trainer:
         else:
             if self.cfg.pretrain_g:
                 state = torch.load(self.cfg.pretrain_g, map_location="cpu", weights_only=False)
-                weight = state.get("weight", state)  # 兼容官方底模（直接 state_dict，无 weight 键）
-                self.synthesizer.load_state_dict(weight, strict=False)
+                self.synthesizer.load_state_dict(state["weight"], strict=False)
                 self.log("加载预训练 G")
             if self.cfg.pretrain_d:
                 state = torch.load(self.cfg.pretrain_d, map_location="cpu", weights_only=False)
-                weight = state.get("weight", state)  # 兼容官方底模
-                self.net_d.load_state_dict(weight, strict=False)
+                self.net_d.load_state_dict(state["weight"], strict=False)
                 self.log("加载预训练 D")
 
         self.scheduler_g = torch.optim.lr_scheduler.ExponentialLR(self.optim_g, gamma=self.train_cfg["lr_decay"], last_epoch=self.start_epoch - 2)

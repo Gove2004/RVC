@@ -9,7 +9,8 @@ from pathlib import Path
 import torch
 
 from rvc.runtime.paths import RMVPE_PATH
-from rvc.inference.cuda_graph import cuda_graph_enabled, run_cuda_graph
+from rvc.inference.cuda_graph import run_cuda_graph
+from rvc.runtime.cuda_graph import cuda_graph_enabled
 from rvc.models.rmvpe.constants import F0_MIN, F0_MAX, F0_MEL_MIN, F0_MEL_MAX
 
 logger = logging.getLogger(__name__)

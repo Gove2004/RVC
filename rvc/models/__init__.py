@@ -1,14 +1,10 @@
-"""模型加载模块 — HuBERT, RMVPE, 缓存管理
+"""模型加载模块 — HuBERT, RMVPE
 
-hubert 子模块依赖 torch + transformers（重型），惰性导出；
-inference_cache 轻量，启动即加载。
+hubert 子模块依赖 torch + transformers（重型），惰性导出。
 """
-from rvc.inference.inference_cache import InferenceCache, default_inference_cache  # 向后兼容：实际在 inference 层
 
 __all__ = [
     "load_hubert",
-    "InferenceCache",
-    "default_inference_cache",
 ]
 
 

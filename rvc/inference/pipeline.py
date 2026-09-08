@@ -4,7 +4,7 @@
 （pitch_cache / resample_kernel / long_tensor_cache）。消除历史上 configure()
 同步链导致的参数双份源问题。
 """
-from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.audio.constants import HUBERT_FRAME_SIZE
 import logging
 from types import SimpleNamespace
 

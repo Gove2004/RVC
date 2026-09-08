@@ -14,7 +14,6 @@ import logging
 import queue
 import threading
 
-import numpy as np
 import sounddevice as sd
 
 from rvc.core.errors import AudioDeviceError

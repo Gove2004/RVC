@@ -1,5 +1,4 @@
 """训练设置 Tab — 数据设置 + 训练参数"""
-from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QGridLayout, QFormLayout,

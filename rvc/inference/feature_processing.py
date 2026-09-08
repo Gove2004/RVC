@@ -1,24 +1,16 @@
 """HuBERT 特征处理。"""
-import logging
-
 import torch
 import torch.nn.functional as F
 
-from rvc.inference.cuda_graph import cuda_graph_enabled, run_cuda_graph
-
-logger = logging.getLogger(__name__)
+from rvc.inference.cuda_graph import run_cuda_graph
 
 
 def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:
-    """提取 HuBERT 特征，支持 CUDA Graph 加速（带安全回退）。
+    """提取 HuBERT 特征，走 CUDA Graph 加速。
 
     固定形状块不需要 padding mask：attention_mask=None（全 1）即为正确语义。
     预处理（dtype/shape 转换）和后处理（末帧 padding）放在 CUDA Graph 外，
     只捕获模型前向传播（最耗时部分）。
-
-    安全回退：transformers 模型内部可能有动态操作导致 CUDA Graph 捕获失败，
-    第一次失败后在 model 上标记 _hubert_cuda_graph_failed，后续直接用普通推理，
-    避免每次都尝试捕获导致性能下降。
     """
     if not torch.is_tensor(input_wav):
         input_wav = torch.from_numpy(input_wav)
@@ -26,20 +18,10 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
     feats = feats.half() if is_half else feats.float()
     feats = feats.view(1, -1)
 
-    use_cuda_graph = cuda_graph_enabled(feats.device) and not getattr(model, "_hubert_cuda_graph_failed", False)
+    def _hubert_forward(x):
+        return model(x).last_hidden_state
 
-    if use_cuda_graph:
-        try:
-            def _hubert_forward(x):
-                return model(x).last_hidden_state
-            feats_result = run_cuda_graph(model, "hubert", _hubert_forward, feats)
-        except Exception as exc:
-            # 捕获失败：标记并回退到普通推理
-            logger.warning("HuBERT CUDA Graph 捕获失败，回退到普通推理: %s", exc)
-            model._hubert_cuda_graph_failed = True
-            feats_result = model(feats).last_hidden_state
-    else:
-        feats_result = model(feats).last_hidden_state
+    feats_result = run_cuda_graph(model, "hubert", _hubert_forward, feats)
 
     # Unconditional last-frame padding for feature alignment
     feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)

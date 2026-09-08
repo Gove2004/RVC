@@ -1,7 +1,7 @@
 """CUDA Graph 推理加速 — 捕获 Synthesizer/HuBERT/F0 模型的前向传播，跳过 Python 调度开销。
 
 基础设备判断函数（configure_cuda_graph / cuda_graph_enabled）在 rvc.runtime.cuda_graph，
-本模块从 runtime 重新导出以保持向后兼容。
+本模块只负责捕获/回放逻辑和 LRU 缓存。
 """
 import logging
 import os
@@ -11,12 +11,7 @@ from collections import OrderedDict
 
 import torch
 
-from rvc.runtime.cuda_graph import (
-    ENV_NAME,
-    MAX_CACHE_ENV,
-    configure_cuda_graph,
-    cuda_graph_enabled,
-)
+from rvc.runtime.cuda_graph import ENV_NAME, MAX_CACHE_ENV, cuda_graph_enabled
 
 
 logger = logging.getLogger(__name__)

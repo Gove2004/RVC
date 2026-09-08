@@ -269,7 +269,7 @@ class TestCudaGraphConstants(unittest.TestCase):
         self.assertGreater(len(MAX_CACHE_ENV), 0)
 
     def test_env_name_imported(self):
-        from rvc.inference.cuda_graph import ENV_NAME
+        from rvc.runtime.cuda_graph import ENV_NAME
         self.assertIsInstance(ENV_NAME, str)
 
 
