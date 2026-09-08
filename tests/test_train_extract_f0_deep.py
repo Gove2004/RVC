@@ -14,7 +14,8 @@ import os
 
 import numpy as np
 
-from rvc.train.extract_f0 import coarse_f0, TrainF0Extractor
+from rvc.audio.f0_utils import normalize_f0_to_coarse
+from rvc.train.extract_f0 import TrainF0Extractor
 from rvc.models.rmvpe.constants import F0_MEL_MAX, F0_MEL_MIN
 
 
@@ -24,26 +25,26 @@ class TestCoarseF0(unittest.TestCase):
     def test_zero_f0_returns_one(self):
         """F0=0（静音/无基频）返回 1。"""
         f0 = np.array([0.0], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result[0], 1)
 
     def test_negative_f0_returns_one(self):
         """负 F0 返回 1（视为无基频）。"""
         f0 = np.array([-10.0, -50.0], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertTrue(np.all(result == 1))
 
     def test_output_dtype_int64(self):
         """输出类型为 int64。"""
         f0 = np.array([100.0, 200.0], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result.dtype, np.int64)
 
     def test_output_shape_matches_input(self):
         """输出形状与输入相同。"""
         for shape in [(10,), (100,), (1, 10)]:
             f0 = np.ones(shape, dtype=np.float32) * 200.0
-            result = coarse_f0(f0)
+            result = normalize_f0_to_coarse(f0)
             self.assertEqual(result.shape, f0.shape)
 
     def test_low_f0_clamped_to_one(self):
@@ -54,7 +55,7 @@ class TestCoarseF0(unittest.TestCase):
         low_mel = F0_MEL_MIN - 100
         low_freq = 700 * (np.exp(low_mel / 1127) - 1)
         f0 = np.array([low_freq], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result[0], 1)
 
     def test_high_f0_clamped_to_255(self):
@@ -62,21 +63,21 @@ class TestCoarseF0(unittest.TestCase):
         high_mel = F0_MEL_MAX + 100
         high_freq = 700 * (np.exp(high_mel / 1127) - 1)
         f0 = np.array([high_freq], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result[0], 255)
 
     def test_mid_f0_in_range(self):
         """中间频率的 F0 在 1-255 范围内。"""
         for freq in [100, 200, 400, 800, 1600]:
             f0 = np.array([float(freq)], dtype=np.float32)
-            result = coarse_f0(f0)
+            result = normalize_f0_to_coarse(f0)
             self.assertGreaterEqual(result[0], 1)
             self.assertLessEqual(result[0], 255)
 
     def test_monotonic_increasing(self):
         """F0 增加时 coarse_f0 也应该增加（在有效范围内）。"""
         freqs = np.linspace(80, 1000, 50, dtype=np.float32)
-        results = coarse_f0(freqs)
+        results = normalize_f0_to_coarse(freqs)
         # 应该是非递减的
         self.assertTrue(np.all(np.diff(results) >= 0))
 
@@ -90,31 +91,31 @@ class TestCoarseF0(unittest.TestCase):
         expected_coarse = np.rint(expected_coarse)
 
         f0 = np.array([freq], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result[0], int(expected_coarse))
 
     def test_empty_array(self):
         """空数组不崩溃。"""
         f0 = np.array([], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(len(result), 0)
 
     def test_all_zeros(self):
         """全零数组全返回 1。"""
         f0 = np.zeros(100, dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertTrue(np.all(result == 1))
 
     def test_float64_input(self):
         """float64 输入也能处理。"""
         f0 = np.array([200.0], dtype=np.float64)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result.dtype, np.int64)
 
     def test_integer_input(self):
         """整数输入也能处理。"""
         f0 = np.array([200], dtype=np.int32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         self.assertEqual(result.dtype, np.int64)
 
     def test_f0_mel_min_boundary(self):
@@ -122,7 +123,7 @@ class TestCoarseF0(unittest.TestCase):
         # 恰好等于 F0_MEL_MIN 的频率
         freq_at_min = 700 * (np.exp(F0_MEL_MIN / 1127) - 1)
         f0 = np.array([freq_at_min], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         # mel = F0_MEL_MIN 时，coarse = 0 + 1 = 1
         self.assertEqual(result[0], 1)
 
@@ -130,7 +131,7 @@ class TestCoarseF0(unittest.TestCase):
         """F0_MEL_MAX 边界值测试。"""
         freq_at_max = 700 * (np.exp(F0_MEL_MAX / 1127) - 1)
         f0 = np.array([freq_at_max], dtype=np.float32)
-        result = coarse_f0(f0)
+        result = normalize_f0_to_coarse(f0)
         # mel = F0_MEL_MAX 时，coarse = 254 + 1 = 255
         self.assertEqual(result[0], 255)
 

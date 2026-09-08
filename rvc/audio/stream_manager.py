@@ -32,9 +32,9 @@ class AudioStreamManager:
         self.sr = None
         self.channels = 1
         self.block_samples = 0
-        # 流错误统计
-        self.error_count = 0
-        self.last_error = ""
+        # 流错误统计（与 InferenceRunner 的推理错误区分）
+        self.stream_error_count = 0
+        self.last_stream_error = ""
         self._error_lock = threading.Lock()
         # 外部错误回调（可选）
         self.on_stream_error = None
@@ -97,8 +97,8 @@ class AudioStreamManager:
         if status:
             msg = f"{prefix}: {status}" if prefix else str(status)
             with self._error_lock:
-                self.error_count += 1
-                self.last_error = msg
+                self.stream_error_count += 1
+                self.last_stream_error = msg
             # 只记录非频繁错误（input_overflow/output_underflow 在高负载时常见）
             if not (status.input_overflow or status.output_underflow):
                 logger.warning("音频流错误: %s", msg)
@@ -125,8 +125,8 @@ class AudioStreamManager:
         self.block_samples = block_samples
         # 重置错误统计
         with self._error_lock:
-            self.error_count = 0
-            self.last_error = ""
+            self.stream_error_count = 0
+            self.last_stream_error = ""
 
         device = (in_dev, out_dev) if (in_dev is not None and out_dev is not None) else None
 
@@ -200,13 +200,13 @@ class AudioStreamManager:
             }
         """
         with self._error_lock:
-            error_count = self.error_count
-            last_error = self.last_error
+            error_count = self.stream_error_count
+            last_error = self.last_stream_error
         return {
             "main_active": self.stream is not None and self.stream.active,
             "secondary_active": self.stream2 is not None and self.stream2.active,
-            "error_count": error_count,
-            "last_error": last_error,
+            "stream_error_count": stream_error_count,
+            "last_stream_error": last_stream_error,
         }
 
     @staticmethod

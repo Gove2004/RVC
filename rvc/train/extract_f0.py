@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from rvc.audio.loader import load_audio
-from rvc.models.rmvpe.constants import F0_MEL_MAX, F0_MEL_MIN  # RMVPE 模型常量
+from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD
 from rvc.models.rmvpe import RMVPE
 from rvc.runtime.paths import RMVPE_PATH
 
@@ -40,19 +40,12 @@ class TrainF0Extractor:
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
                 wav, _ = load_audio(path, HUBERT_SAMPLE_RATE)
-                f0 = self.model.infer_from_audio(wav, thred=0.03)
+                f0 = self.model.infer_from_audio(wav, thred=RMVPE_THRESHOLD)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()
                 np.save(out_cont, f0.astype(np.float32), allow_pickle=False)
-                np.save(out_coarse, coarse_f0(f0), allow_pickle=False)
+                np.save(out_coarse, normalize_f0_to_coarse(f0), allow_pickle=False)
             if progress_callback:
                 progress_callback(i, len(files))
         return len(files)
 
-
-def coarse_f0(f0: np.ndarray):
-    f0_mel = 1127 * np.log(1 + f0 / 700)
-    f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - F0_MEL_MIN) * 254 / (F0_MEL_MAX - F0_MEL_MIN) + 1
-    f0_mel[f0_mel <= 1] = 1
-    f0_mel[f0_mel > 255] = 255
-    return np.rint(f0_mel).astype(np.int64)

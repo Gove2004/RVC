@@ -58,6 +58,11 @@ class TrainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "参数错误", str(exc))
             return
+        # 点击按钮时先保存配置，确保下次启动时恢复当前设置
+        try:
+            self._save_cfg()
+        except Exception:
+            pass
         self._set_running(True)
         self.log_edit.clear()
         self.worker = TrainWorker(options, step)

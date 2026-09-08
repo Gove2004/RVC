@@ -11,7 +11,8 @@ import torch
 from rvc.runtime.paths import RMVPE_PATH
 from rvc.inference.cuda_graph import run_cuda_graph
 from rvc.runtime.cuda_graph import cuda_graph_enabled
-from rvc.models.rmvpe.constants import F0_MIN, F0_MAX, F0_MEL_MIN, F0_MEL_MAX
+from rvc.models.rmvpe.constants import F0_MIN, F0_MAX
+from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -76,23 +77,6 @@ def _suppress_torchfcpe_output():
     )
 
 
-def _normalize_f0_to_coarse(f0: torch.Tensor) -> torch.Tensor:
-    """将连续 F0 归一化为离散 pitch 值 (1-255)。
-
-    使用 Mel 频率标度进行归一化，将 F0 映射到 MIDI-like 的离散表示。
-
-    Args:
-        f0: 连续 F0 值 (Hz)
-
-    Returns:
-        pitch_coarse: 离散化的 pitch 值，范围 [1, 255]
-    """
-    f0_mel = 1127 * torch.log(1 + f0 / 700)
-    f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - F0_MEL_MIN) * 254 / (F0_MEL_MAX - F0_MEL_MIN) + 1
-    f0_mel[f0_mel <= 1] = 1
-    f0_mel[f0_mel > 255] = 255
-    return torch.round(f0_mel).long()
-
 
 # 破音保护（用户核心瑕疵：高音破音/沙哑）。作用在【变声后】音高上：
 # 变声后 ≤ 临界 完全原样（说话/唱歌动态 100% 保留），> 临界 指数软收敛——
@@ -128,7 +112,7 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
         ratio = f0_proc[2]
         knee = f0_proc[3]
         f0 = apply_f0_break_protect(f0, critical, ratio, knee)
-    return _normalize_f0_to_coarse(f0), f0
+    return normalize_f0_to_coarse(f0), f0
 
 
 def apply_f0_break_protect(f0: torch.Tensor, critical_hz: float,
@@ -215,7 +199,7 @@ class RMVPEExtractor(F0Extractor):
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        f0 = self.model.infer_from_audio(audio, thred=0.03)
+        f0 = self.model.infer_from_audio(audio, thred=RMVPE_THRESHOLD)
         return postprocess_f0(f0, f0_up_key, self.device, f0_proc)
 
     def clear_cuda_graph(self) -> None:

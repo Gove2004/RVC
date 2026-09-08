@@ -8,7 +8,7 @@ from rvc.audio.constants import HUBERT_FRAME_SIZE
 import logging
 from types import SimpleNamespace
 
-import numpy as np
+import math
 import torch
 
 from rvc.core.config import InferenceConfig
@@ -106,7 +106,7 @@ class InferencePipeline:
         p_len = input_wav.shape[0] // HUBERT_FRAME_SIZE
         formant_factor = config.formant
         factor = pow(2, formant_factor / 12)
-        return_length2_val = int(np.ceil(return_length * factor))
+        return_length2_val = int(math.ceil(return_length * factor))
 
         # f0_proc = (开关, 源临界Hz, 压缩比, 膝宽) — 全部从 config 读取
         bp = config.break_protect
@@ -176,7 +176,7 @@ class InferencePipeline:
         Returns:
             后处理后的音频张量
         """
-        upp_res = int(np.floor(factor * self.target_sr // 100))
+        upp_res = int(math.floor(factor * self.target_sr // 100))
         if upp_res != self.target_sr // 100:
             infered_audio = apply_formant_resample(
                 infered_audio[:, : return_length * upp_res],

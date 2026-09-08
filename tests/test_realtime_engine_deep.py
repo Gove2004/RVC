@@ -171,9 +171,12 @@ class TestRealtimeEngineCallback(unittest.TestCase):
 
     def test_callback_resets_error_count_on_success(self):
         self.engine._runner.error_count = 2
+        # mock 的 reset_success_count 需要真正修改 error_count
+        self.engine._runner.reset_success_count.side_effect = lambda: setattr(self.engine._runner, "error_count", 0)
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
+        self.engine._runner.reset_success_count.assert_called_once()
         self.assertEqual(self.engine._runner.error_count, 0)
     def test_callback_error_increments_count(self):
         self.engine._runner.process_block.side_effect = RuntimeError("test error")

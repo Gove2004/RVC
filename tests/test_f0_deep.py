@@ -21,12 +21,12 @@ from rvc.inference.f0_extractor import (
     FCPE_CONFIDENCE_THRESHOLD,
     F0Extractor,
     _FilteredStream,
-    _normalize_f0_to_coarse,
     _suppress_third_party_output,
     apply_f0_break_protect,
     create_f0_extractor,
     postprocess_f0,
 )
+from rvc.audio.f0_utils import normalize_f0_to_coarse
 from rvc.core.errors import F0ExtractionError
 
 
@@ -142,26 +142,26 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
     def test_zero_f0_returns_one(self):
         """F0=0 (UV) maps to 1."""
         f0 = torch.tensor([0.0])
-        coarse = _normalize_f0_to_coarse(f0)
+        coarse = normalize_f0_to_coarse(f0)
         self.assertEqual(coarse[0].item(), 1)
 
     def test_negative_f0_returns_one(self):
         """Negative F0 maps to 1."""
         f0 = torch.tensor([-10.0])
-        coarse = _normalize_f0_to_coarse(f0)
+        coarse = normalize_f0_to_coarse(f0)
         self.assertEqual(coarse[0].item(), 1)
 
     def test_very_high_f0_clamped_to_255(self):
         """Very high F0 is clamped to 255."""
         f0 = torch.tensor([10000.0])
-        coarse = _normalize_f0_to_coarse(f0)
+        coarse = normalize_f0_to_coarse(f0)
         self.assertEqual(coarse[0].item(), 255)
 
     def test_normal_f0_in_range(self):
         """Normal F0 (100-1000 Hz) is in 1-255 range."""
         for hz in [100, 200, 300, 440, 500, 800, 1000]:
             f0 = torch.tensor([float(hz)])
-            coarse = _normalize_f0_to_coarse(f0)
+            coarse = normalize_f0_to_coarse(f0)
             self.assertGreaterEqual(coarse[0].item(), 1)
             self.assertLessEqual(coarse[0].item(), 255)
 
@@ -169,18 +169,18 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
         """Higher F0 gives higher coarse value (monotonic)."""
         f0_low = torch.tensor([200.0])
         f0_high = torch.tensor([400.0])
-        coarse_low = _normalize_f0_to_coarse(f0_low)
-        coarse_high = _normalize_f0_to_coarse(f0_high)
+        coarse_low = normalize_f0_to_coarse(f0_low)
+        coarse_high = normalize_f0_to_coarse(f0_high)
         self.assertGreater(coarse_high[0].item(), coarse_low[0].item())
 
     def test_output_dtype_long(self):
         f0 = torch.tensor([440.0, 500.0])
-        coarse = _normalize_f0_to_coarse(f0)
+        coarse = normalize_f0_to_coarse(f0)
         self.assertEqual(coarse.dtype, torch.long)
 
     def test_batch_input(self):
         f0 = torch.tensor([0.0, 200.0, 440.0, 10000.0])
-        coarse = _normalize_f0_to_coarse(f0)
+        coarse = normalize_f0_to_coarse(f0)
         self.assertEqual(coarse.shape, (4,))
         self.assertEqual(coarse[0].item(), 1)
         self.assertEqual(coarse[3].item(), 255)
@@ -188,7 +188,7 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
     def test_mid_f0_around_128(self):
         """Mid F0 should be around 128."""
         f0 = torch.tensor([500.0])
-        coarse = _normalize_f0_to_coarse(f0)
+        coarse = normalize_f0_to_coarse(f0)
         self.assertGreater(coarse[0].item(), 50)
         self.assertLess(coarse[0].item(), 200)
 

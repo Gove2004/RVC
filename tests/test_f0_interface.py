@@ -2,13 +2,14 @@
 import unittest
 import torch
 
+from rvc.audio.f0_utils import normalize_f0_to_coarse
+
 from rvc.inference.f0_extractor import (
     F0Extractor,
     RMVPEExtractor,
     FCPEExtractor,
     postprocess_f0,
     apply_f0_break_protect,
-    _normalize_f0_to_coarse,
 )
 
 
@@ -91,7 +92,7 @@ class TestNormalizeF0(unittest.TestCase):
 
     def test_range(self):
         f0 = torch.tensor([50.0, 100.0, 1000.0, 2000.0])
-        result = _normalize_f0_to_coarse(f0)
+        result = normalize_f0_to_coarse(f0)
         assert result.dtype == torch.long
         assert torch.all(result >= 1)
         assert torch.all(result <= 255)
@@ -99,5 +100,5 @@ class TestNormalizeF0(unittest.TestCase):
     def test_zero_f0(self):
         """F0=0（清音）应映射到 1。"""
         f0 = torch.tensor([0.0])
-        result = _normalize_f0_to_coarse(f0)
+        result = normalize_f0_to_coarse(f0)
         assert result[0] == 1

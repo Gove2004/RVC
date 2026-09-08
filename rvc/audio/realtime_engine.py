@@ -103,14 +103,8 @@ class RealtimeEngine:
         self._stream_mgr.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
         channels = self._stream_mgr.channels
 
-        # 推理运行器初始化
-        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
-        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, self.sr_model)
-        self._runner.reset_error_state()
-
-        # 预热 + 重置缓冲区
-        self._runner.warmup(2)
-        self._runner.reset_buffers()
+        # 推理运行器初始化（实时模式：预热后重置缓冲区）
+        self._create_runner(sr, channels, block_t, cf_t, extra_t, self.sr_model, reset_buffers=True)
 
         # 启动主流（显式指定设备，不依赖 sd.default.device）
         self._stream_mgr.start_main_stream(
@@ -122,6 +116,25 @@ class RealtimeEngine:
         # 启动副输出（如果指定）
         if out2_dev_idx is not None:
             self.setup_out2(out2_dev_idx)
+
+    def _create_runner(self, sr, channels, block_t, cf_t, extra_t, sr_model, *, reset_buffers=True):
+        """创建并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
+
+        Args:
+            sr: 工作采样率
+            channels: 通道数
+            block_t: 块时长（秒）
+            cf_t: 交叉淡化时长（秒）
+            extra_t: 额外上下文时长（秒）
+            sr_model: 模型目标采样率
+            reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
+        """
+        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
+        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
+        self._runner.reset_error_state()
+        self._runner.warmup(2)
+        if reset_buffers:
+            self._runner.reset_buffers()
 
     def setup_out2(self, dev_idx):
         """启动副输出流。"""
@@ -162,7 +175,7 @@ class RealtimeEngine:
                     outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
                 )
 
-            self._runner.error_count = 0
+            self._runner.reset_success_count()
         except Exception as e:
             should_stop = self._runner.handle_error(e)
             logger.error("音频回调异常(%d/%d)：%s", self._runner.error_count, self._runner.max_error_count, e, exc_info=True)
@@ -191,10 +204,8 @@ class RealtimeEngine:
             self.pipeline.reset_pitch_cache()
         self.function = "vc"
 
-        # 创建推理运行器（不启动音频流）
-        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
-        self._runner.init_processing(tgt_sr, block_t, cf_t, extra_t, channels=1, sr_model=sr_model)
-        self._runner.warmup(2)
+        # 创建推理运行器（离线模式：不重置缓冲区，避免清除 pad 上下文）
+        self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
 
         result = self._infer_stream(wav, self._runner.block_samples, int(tgt_sr * pad_sec), progress_cb)
         self._write_output_wav(result, task.output_path, tgt_sr)
@@ -235,6 +246,3 @@ class RealtimeEngine:
         if audio_max > 1:
             result = result / audio_max
         write_wav(output_path, result, tgt_sr, subtype="FLOAT")
-
-
-

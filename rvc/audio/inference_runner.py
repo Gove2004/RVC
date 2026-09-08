@@ -163,6 +163,10 @@ class InferenceRunner:
         self.last_error = ""
         self.runtime_error_pending = False
 
+    def reset_success_count(self) -> None:
+        """回调成功时重置连续错误计数（不清除 last_error 历史）。"""
+        self.error_count = 0
+
     def handle_error(self, error: Exception) -> bool:
         """处理音频回调中的错误，返回是否应该停止流。
 
