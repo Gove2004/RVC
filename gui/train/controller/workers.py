@@ -58,11 +58,9 @@ class TrainWorker(QThread):
 
     def _run_impl(self):
         # 惰性导入：rvc.train.* 顶层 import torch，放在线程内避免拖慢 GUI 启动
+        # 各步骤方法（_step_*）内部自行导入所需类，这里只导入 _run_impl 本身用到的
         from rvc.runtime import Config
-        from rvc.train.extract_f0 import TrainF0Extractor
-        from rvc.train.extract_feature import HuBERTExtractor
-        from rvc.train.preprocess import PreProcessor, generate_filelist, manifest_diff_reason
-        from rvc.train.trainer import TrainConfig, Trainer
+        from rvc.train.preprocess import manifest_diff_reason
 
         config = Config()
         exp_dir = TRAIN_LOGS_ROOT / self.options["exp_name"]
@@ -95,6 +93,7 @@ class TrainWorker(QThread):
         self.finished.emit(True, "流程完成")
 
     def _step_preprocess(self, config, exp_dir, sr):
+        from rvc.train.preprocess import PreProcessor
         self._check_stop()
         self.stage_changed.emit("预处理音频")
         self.log_message.emit("开始预处理音频")
@@ -103,6 +102,7 @@ class TrainWorker(QThread):
         self.log_message.emit("预处理完成")
 
     def _step_f0(self, config, exp_dir, sr):
+        from rvc.train.extract_f0 import TrainF0Extractor
         self._check_stop()
         self.stage_changed.emit("提取 F0")
         self.log_message.emit("开始提取 F0")
@@ -114,6 +114,7 @@ class TrainWorker(QThread):
         self.log_message.emit("F0 提取完成")
 
     def _step_feature(self, config, exp_dir, sr):
+        from rvc.train.extract_feature import HuBERTExtractor
         self._check_stop()
         self.stage_changed.emit("提取 HuBERT 特征")
         hubert = self.options.get("hubert", "chinese")
@@ -127,6 +128,8 @@ class TrainWorker(QThread):
         self.log_message.emit("HuBERT 特征提取完成")
 
     def _step_train(self, config, exp_dir, sr):
+        from rvc.train.preprocess import generate_filelist
+        from rvc.train.trainer import TrainConfig, Trainer
         self.stage_changed.emit("生成训练列表")
         filelist, count = generate_filelist(str(exp_dir))
         self.log_message.emit(f"训练样本数: {count}")
