@@ -220,6 +220,10 @@ class RealtimeEngine:
         """峰值归一化（防削波）后写出 wav。"""
         from rvc.audio.wav_io import write_wav
 
+        if len(result) == 0:
+            write_wav(output_path, result, tgt_sr, subtype="FLOAT")
+            return
+
         audio_max = np.abs(result).max() / 0.99
         if audio_max > 1:
             result = result / audio_max

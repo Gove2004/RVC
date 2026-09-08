@@ -31,6 +31,14 @@ class InferencePipeline:
     """
 
     def __init__(self, device_config, pth_path, inference_cache=None, hubert: str = "chinese"):
+        """初始化推理管线。
+
+        Args:
+            device_config: 设备配置（device/is_half）
+            pth_path: 模型权重文件路径
+            inference_cache: 推理缓存（默认使用全局缓存）
+            hubert: HuBERT 模型变体（chinese/base/japanese 等）
+        """
         self.device = device_config.device
         self.is_half = device_config.is_half
         self.inference_cache = inference_cache or default_inference_cache
@@ -49,6 +57,7 @@ class InferencePipeline:
         self.use_f0 = 1
 
     def load(self) -> None:
+        """加载模型（HuBERT + 合成器），通过 ModelSessionManager 缓存复用。"""
         manager = ModelSessionManager(
             SimpleNamespace(device=self.device, is_half=self.is_half),
             self.inference_cache,
@@ -82,6 +91,18 @@ class InferencePipeline:
         return self._infer_impl(input_wav, config, block_frame_16k, skip_head, return_length)
 
     def _infer_impl(self, input_wav, config: InferenceConfig, block_frame_16k, skip_head, return_length):
+        """推理实现：特征提取 → F0 跟踪 → 特征上采样 → 合成 → 后处理。
+
+        Args:
+            input_wav: 16kHz 滚动缓冲区（GPU tensor）
+            config: 推理参数配置
+            block_frame_16k: 本块新增的 16kHz 采样数
+            skip_head: 跳过的 10ms 帧数（上下文前缀）
+            return_length: 需要返回的 10ms 帧数
+
+        Returns:
+            合成音频张量（target_sr 采样率）
+        """
         p_len = input_wav.shape[0] // HUBERT_FRAME_SIZE
         formant_factor = config.formant
         factor = pow(2, formant_factor / 12)
@@ -120,6 +141,20 @@ class InferencePipeline:
         return self._postprocess_realtime(infered_audio, factor, return_length)
 
     def _synthesize_realtime(self, feats, p_len, cache_pitch, cache_pitchf, skip_head, return_length, return_length2_val):
+        """实时合成：调用合成器生成音频。
+
+        Args:
+            feats: 上采样后的特征张量
+            p_len: 音高帧数
+            cache_pitch: 离散 F0 缓存
+            cache_pitchf: 连续 F0 缓存
+            skip_head: 跳过的帧数
+            return_length: 返回帧数
+            return_length2_val: formant 调整后的返回帧数
+
+        Returns:
+            合成音频张量
+        """
         p_len_t = cached_long_tensor(self._long_tensor_cache, p_len, self.device)
         sid = cached_long_tensor(self._long_tensor_cache, 0, self.device)
         infered_audio, _, _ = infer_synth_audio(
@@ -131,6 +166,16 @@ class InferencePipeline:
         return infered_audio.squeeze(1).float()
 
     def _postprocess_realtime(self, infered_audio, factor, return_length):
+        """实时后处理：formant 重采样（如果需要）。
+
+        Args:
+            infered_audio: 合成器输出的音频
+            factor: formant 缩放因子（2^(formant/12)）
+            return_length: 返回帧数
+
+        Returns:
+            后处理后的音频张量
+        """
         upp_res = int(np.floor(factor * self.target_sr // 100))
         if upp_res != self.target_sr // 100:
             infered_audio = apply_formant_resample(
