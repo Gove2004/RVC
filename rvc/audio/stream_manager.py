@@ -62,7 +62,7 @@ class AudioStreamManager:
 
         logger.info("音频设备：")
         logger.info("  · 麦克风：%s", in_info.get('name', '?'))
-        logger.info("  · 主输出：%s [%dch]", out_info.get('name', '?'), self.channels)
+        logger.info("  · 主输出：%s", out_info.get('name', '?'))
 
         if out2_dev_idx is not None:
             out2_info = self.query_device(out2_dev_idx)
@@ -129,7 +129,6 @@ class AudioStreamManager:
         )
         self.stream2.start()
         self.enable_out2 = True
-        logger.debug("副输出流已启动：sr=%d, ch=%d, block=%d", sr, channels, block_samples)
 
         # 清空队列中可能残留的旧数据
         while not self.out2_q.empty():
