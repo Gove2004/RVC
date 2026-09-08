@@ -845,13 +845,15 @@ def step_feature(log: TrainLogger, cfg: dict):
 
 
 def _features_ready(exp_dir: Path) -> bool:
-    gt = len(list((exp_dir / "0_gt_wavs").glob("*.wav")))
-    if gt == 0:
+    """检查 F0 与 HuBERT 特征是否完整：每个音频文件都有对应特征，而非只看数量。"""
+    gt_wavs = sorted(exp_dir.glob("0_gt_wavs/*.wav"))
+    if not gt_wavs:
         return False
-    f0 = len(list((exp_dir / "2a_f0").glob("*.npy")))
-    f0nsf = len(list((exp_dir / "2b-f0nsf").glob("*.npy")))
-    feat = len(list((exp_dir / "3_feature768").glob("*.npy")))
-    return f0 >= gt and f0nsf >= gt and feat >= gt
+    stems = {p.stem for p in gt_wavs}
+    f0_stems = {p.stem for p in exp_dir.glob("2a_f0/*.npy")}
+    f0nsf_stems = {p.stem for p in exp_dir.glob("2b-f0nsf/*.npy")}
+    feat_stems = {p.stem for p in exp_dir.glob("3_feature768/*.npy")}
+    return stems.issubset(f0_stems) and stems.issubset(f0nsf_stems) and stems.issubset(feat_stems)
 
 
 def _gpu_mem() -> tuple[float, float]:
