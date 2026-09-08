@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch, call, PropertyMock
 import numpy as np
 import torch
 
-from rvc.audio.realtime_engine import RealtimeEngine, MAX_CONSECUTIVE_ERRORS
+from rvc.audio.realtime_engine import RealtimeEngine
 
 
 class TestRealtimeEngineInit(unittest.TestCase):
@@ -70,13 +70,6 @@ class TestRealtimeEngineInit(unittest.TestCase):
         engine = RealtimeEngine(self.runtime_params)
         self.assertEqual(engine.error_count, 0)
 
-    def test_max_error_count_default(self):
-        engine = RealtimeEngine(self.runtime_params)
-        self.assertEqual(engine.max_error_count, MAX_CONSECUTIVE_ERRORS)
-
-    def test_max_consecutive_errors_constant(self):
-        self.assertEqual(MAX_CONSECUTIVE_ERRORS, 3)
-
     def test_last_error_empty_initially(self):
         engine = RealtimeEngine(self.runtime_params)
         self.assertEqual(engine.last_error, "")
@@ -105,6 +98,7 @@ class TestRealtimeEngineStop(unittest.TestCase):
         self.runtime_params = MagicMock()
         self.runtime_params.rms_mix = 0.0
         self.engine = RealtimeEngine(self.runtime_params)
+        self.engine._runner = MagicMock()
 
     def test_stop_sets_running_false(self):
         self.engine.running = True
@@ -112,14 +106,13 @@ class TestRealtimeEngineStop(unittest.TestCase):
         self.assertFalse(self.engine.running)
 
     def test_stop_resets_error_count(self):
-        self.engine.error_count = 5
+        self.engine._runner.error_count = 5
         self.engine.stop()
-        self.assertEqual(self.engine.error_count, 0)
-
+        self.engine._runner.reset_error_state.assert_called_once()
     def test_stop_resets_runtime_error_pending(self):
-        self.engine.runtime_error_pending = True
+        self.engine._runner.runtime_error_pending = True
         self.engine.stop()
-        self.assertFalse(self.engine.runtime_error_pending)
+        self.engine._runner.reset_error_state.assert_called_once()
 
     def test_stop_calls_stream_mgr_stop_all(self):
         self.engine._stream_mgr = MagicMock()
@@ -177,72 +170,64 @@ class TestRealtimeEngineCallback(unittest.TestCase):
         self.assertEqual(self.engine.infer_ms, 5.0)
 
     def test_callback_resets_error_count_on_success(self):
-        """成功回调后重置 error_count。"""
-        self.engine.error_count = 2
+        self.engine._runner.error_count = 2
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
-        self.assertEqual(self.engine.error_count, 0)
-
+        self.assertEqual(self.engine._runner.error_count, 0)
     def test_callback_error_increments_count(self):
-        """回调出错时 error_count 增加。"""
         self.engine._runner.process_block.side_effect = RuntimeError("test error")
+        self.engine._runner.handle_error.return_value = False
+        self.engine._runner.error_count = 0
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
-        self.assertEqual(self.engine.error_count, 1)
-
+        self.engine._runner.handle_error.assert_called_once()
     def test_callback_error_sets_last_error(self):
-        """回调出错时设置 last_error。"""
         self.engine._runner.process_block.side_effect = RuntimeError("test error message")
+        self.engine._runner.handle_error.return_value = False
+        self.engine._runner.last_error = "test error message"
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
         self.assertIn("test error message", self.engine.last_error)
-
     def test_callback_error_zeros_outdata(self):
-        """回调出错时 outdata 被清零。"""
         self.engine._runner.process_block.side_effect = RuntimeError("test")
+        self.engine._runner.handle_error.return_value = False
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.ones((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
         self.assertTrue(np.all(outdata == 0))
-
     def test_callback_stops_after_max_errors(self):
-        """连续错误达到 max_error_count 时停止推理。"""
         self.engine._runner.process_block.side_effect = RuntimeError("test")
         self.engine.on_runtime_error = MagicMock()
+        self.engine.running = True
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
 
         # 前两次错误不停止
+        self.engine._runner.handle_error.return_value = False
         self.engine._cb(indata, outdata, 100, self.times, None)
-        self.assertEqual(self.engine.error_count, 1)
-        self.assertFalse(self.engine.runtime_error_pending)
-
         self.engine._cb(indata, outdata, 100, self.times, None)
-        self.assertEqual(self.engine.error_count, 2)
-        self.assertFalse(self.engine.runtime_error_pending)
+        self.assertTrue(self.engine.running)
 
         # 第三次错误触发停止
+        self.engine._runner.handle_error.return_value = True
         with self.assertRaises(Exception):
             self.engine._cb(indata, outdata, 100, self.times, None)
-        self.assertEqual(self.engine.error_count, 3)
-        self.assertTrue(self.engine.runtime_error_pending)
         self.assertFalse(self.engine.running)
-
+        self.engine.on_runtime_error.assert_called_once()
     def test_callback_calls_on_runtime_error(self):
-        """达到最大错误时调用 on_runtime_error 回调。"""
         self.engine._runner.process_block.side_effect = RuntimeError("test error")
+        self.engine._runner.handle_error.return_value = True
         self.engine.on_runtime_error = MagicMock()
-        self.engine.error_count = 2  # 已经有 2 次错误
+        self.engine.running = True
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
 
         with self.assertRaises(Exception):
             self.engine._cb(indata, outdata, 100, self.times, None)
         self.engine.on_runtime_error.assert_called_once()
-
     def test_callback_secondary_output_routed_when_enabled(self):
         """副输出启用时调用 route_secondary_output。"""
         self.engine._stream_mgr.enable_out2 = True
@@ -262,24 +247,13 @@ class TestRealtimeEngineCallback(unittest.TestCase):
         self.engine._runner.route_secondary_output.assert_not_called()
 
     def test_callback_measure_ms_updated(self):
-        """回调后更新 measure_ms（EMA 平滑）。"""
+        """回调后更新 measure_ms（瞬时值）。"""
         self.engine.measure_ms = 0.0
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
         # d = 1.0 - 0.99 = 0.01s = 10ms
         self.assertGreater(self.engine.measure_ms, 0)
-
-    def test_callback_measure_ms_ema_smoothing(self):
-        """measure_ms 使用 EMA 平滑（0.7 旧 + 0.3 新）。"""
-        self.engine.measure_ms = 100.0
-        indata = np.zeros((100, 1), dtype=np.float32)
-        outdata = np.zeros((100, 1), dtype=np.float32)
-        self.engine._cb(indata, outdata, 100, self.times, None)
-        # 新值 = 100 * 0.7 + 10 * 0.3 = 73
-        expected = 100 * 0.7 + 10 * 0.3
-        self.assertAlmostEqual(self.engine.measure_ms, expected, places=1)
-
 
 class TestWriteOutputWav(unittest.TestCase):
     """_write_output_wav 测试（峰值归一化）。"""
