@@ -1,11 +1,33 @@
-﻿"""实验功能 Tab — 辅音保护 / 破音保护 / 辅音软阈值"""
+"""实验功能 Tab — 辅音保护 / 破音保护 / 辅音软阈值"""
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QCheckBox, QGroupBox, QVBoxLayout,
+    QWidget, QGridLayout, QLabel, QCheckBox, QGroupBox, QVBoxLayout, QHBoxLayout,
 )
 from PySide6.QtCore import Qt
 
 from gui.infer.view.widgets import _slrow, _sl_value_as_float
 from rvc.core.experimental import experimental_config
+
+
+def _group_with_toggle(title: str, checkbox: QCheckBox) -> tuple[QGroupBox, QGridLayout]:
+    """创建带标题+启用勾选框的 GroupBox，勾选框在标题文字右侧。"""
+    box = QGroupBox()
+    outer = QVBoxLayout(box)
+    outer.setContentsMargins(8, 4, 8, 8)
+
+    # 标题行：文字 + 勾选框
+    header = QHBoxLayout()
+    title_lbl = QLabel(title)
+    title_lbl.setStyleSheet("font-weight: bold;")
+    header.addWidget(title_lbl)
+    header.addWidget(checkbox)
+    header.addStretch()
+    outer.addLayout(header)
+
+    # 内容网格
+    grid = QGridLayout()
+    grid.setHorizontalSpacing(8)
+    outer.addLayout(grid)
+    return box, grid
 
 
 def build_experimental_tab(win):
@@ -23,16 +45,13 @@ def build_experimental_tab(win):
     root.addWidget(group1)
 
     # ── 2. 辅音保护软阈值 ──
-    group2 = QGroupBox("辅音保护软阈值（解决咬字不清）")
-    g2 = QGridLayout(group2)
-    r = 0
-
     win.exp_protect_soft_checkbox = QCheckBox("启用")
     win.exp_protect_soft_checkbox.setChecked(experimental_config.protect_soft_enabled)
     win.exp_protect_soft_checkbox.stateChanged.connect(
         lambda: setattr(experimental_config, "protect_soft_enabled", win.exp_protect_soft_checkbox.isChecked())
     )
-    g2.addWidget(win.exp_protect_soft_checkbox, r, 0); r += 1
+    group2, g2 = _group_with_toggle("辅音保护软阈值（解决咬字不清）", win.exp_protect_soft_checkbox)
+    r = 0
 
     win.exp_protect_threshold_slider = _slrow(
         win, "exp_protect_threshold_slider", 0.0, 30.0, 1.0,
@@ -65,11 +84,9 @@ def build_experimental_tab(win):
     root.addWidget(group2)
 
     # ── 3. 破音保护 ──
-    group3 = QGroupBox("破音保护（高音破音/沙哑，源音高超过临界后自动软收敛）")
-    g3 = QGridLayout(group3)
-    r = 0
     win.break_enable_checkbox = QCheckBox("启用")
-    g3.addWidget(win.break_enable_checkbox, r, 0); r += 1
+    group3, g3 = _group_with_toggle("破音保护（高音破音/沙哑，源音高超过临界后自动软收敛）", win.break_enable_checkbox)
+    r = 0
     win.break_src_hz_slider = _slrow(win, "break_src_hz_slider", 200.0, 400.0, 5.0, 300.0, fmt=".0f", unit="Hz", label_w=45)
     g3.addWidget(QLabel("破音临界"), r, 0)
     g3.addWidget(win.break_src_hz_slider, r, 1)
@@ -78,4 +95,3 @@ def build_experimental_tab(win):
 
     root.addStretch()
     return w
-
