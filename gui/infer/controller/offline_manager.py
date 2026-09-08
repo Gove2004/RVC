@@ -84,7 +84,6 @@ class OfflineManager:
                 f0_method=inf.f0_method,
                 rms_mix=inf.rms_mix,
                 break_protect=inf.break_protect,
-                denoise=inf.denoise,
                 hubert=card.hubert_combo.currentText(),
             )
         except Exception as exc:
