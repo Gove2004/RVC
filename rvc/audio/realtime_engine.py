@@ -49,7 +49,7 @@ class RealtimeEngine:
 
         # 性能统计
         self.infer_ms = 0.0
-        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（EMA 平滑）
+        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
 
         self._cfg = Config()  # 单例缓存，避免多处重复获取
         self.pth_path = ""
@@ -141,7 +141,7 @@ class RealtimeEngine:
             d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
             if 0 < d < 2:
                 ms = d * 1000
-                self.measure_ms = ms if self.measure_ms <= 0 else self.measure_ms * 0.7 + ms * 0.3
+                self.measure_ms = ms
 
             # 委托给推理运行器
             self._runner.process_block(indata, outdata, frames)
