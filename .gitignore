@@ -19,13 +19,11 @@ __pycache__/
 # 注意：已跟踪文件（configs/*.json、resources/*.png、
 # rmvpe/rmvpe_inputs.pth）不受忽略规则影响，clone 时正常带出。
 assets/ffmpeg/*
-assets/indexes/*
 assets/models/*
 assets/pretrained/*
 assets/rmvpe/*
 assets/hubert/**
 !assets/ffmpeg/.gitkeep
-!assets/indexes/.gitkeep
 !assets/models/.gitkeep
 !assets/pretrained/.gitkeep
 !assets/rmvpe/.gitkeep

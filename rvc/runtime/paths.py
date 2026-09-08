@@ -50,7 +50,7 @@ def config_path() -> Path:
 def parse_sr(sr) -> int:
     """把 '40k'/'48000' 等统一成 Hz 整数。
 
-    采样率解析的唯一入口：训练/推理/人声提纯各处都走这里，避免重复实现。
+    采样率解析的唯一入口：训练/推理各处都走这里，避免重复实现。
     """
     s = str(sr).strip().lower()
     if s.endswith("k"):

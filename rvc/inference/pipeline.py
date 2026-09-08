@@ -80,7 +80,7 @@ class InferencePipeline:
 
         Args:
             input_wav: 滚动缓冲区 (16kHz, GPU)
-            config: 推理参数（音高/音色/保护/降噪/破音）
+            config: 推理参数（音高/音色/保护/破音）
             block_frame_16k: 本块新增的 16kHz 采样数
             skip_head: 跳过的 10ms 帧数（上下文）
             return_length: 需要返回的 10ms 帧数

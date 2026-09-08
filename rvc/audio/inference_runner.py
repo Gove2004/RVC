@@ -2,7 +2,7 @@
 
 从 RealtimeEngine 中拆分出的推理调度组件，负责：
 - 处理状态初始化（采样率/块大小/缓存/重采样/效果器）
-- 输入准备（单声道转换、降噪、缓存轮换）
+- 输入准备（单声道转换、缓存轮换）
 - 推理调用（InferencePipeline.infer + 模型→设备重采样）
 - 输出处理（RMS 混合、SOLA 对齐）
 - 预热推理（CUDA Graph 捕获）
@@ -75,7 +75,7 @@ class InferenceRunner:
 
     def init_processing(self, sr: int, block_t: float, cf_t: float, extra_t: float,
                         channels: int, sr_model: int) -> None:
-        """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/降噪）。
+        """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/效果器）。
 
         实时 setup() 与离线 process_file() 共用，保证两条路径算法完全一致。
 
@@ -119,7 +119,7 @@ class InferenceRunner:
         else:
             self.resampler_model2dev = None
 
-        # 效果器（降噪 / RMS / SOLA）
+        # 效果器（RMS / SOLA）
         self.processor.setup(
             sr, self.block_samples, self.crossfade_samples,
             self.sola_search_samples, self._device,
@@ -168,7 +168,7 @@ class InferenceRunner:
         p_rms_mix = params.rms_mix
 
         with torch.no_grad():
-            # 阶段1-2: 输入准备 + 降噪 + 缓存轮换
+            # 阶段1-2: 输入准备 + 缓存轮换
             mono = self._prepare_input(indata)
             n = mono.shape[0]
             self._in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)

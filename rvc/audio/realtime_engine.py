@@ -172,7 +172,7 @@ class RealtimeEngine:
                      pad_sec=3.0, progress_cb=None):
         """离线文件流式推理：「模拟播放→转换→写录」。
 
-        把整段音频当作持续输入流，逐块走实时 process_block（降噪/RMS/SOLA/缓存轮换），
+        把整段音频当作持续输入流，逐块走实时 process_block（RMS/SOLA/缓存轮换），
         与实时完全同一算法。显存封顶，音质 = 实时音质。
         """
         sr_model = self.pipeline.target_sr
