@@ -89,8 +89,7 @@ class OfflineManager:
             )
         except Exception as exc:
             import traceback
-            logger.error("离线转换初始化失败:
-%s", traceback.format_exc())
+            logger.error("离线转换初始化失败:\n%s", traceback.format_exc())
             self.window._show_error(f"离线转换初始化失败: {exc}")
             return
 
