@@ -36,7 +36,7 @@ import warnings
 from pathlib import Path
 
 # assets 资产路径统一取自 rvc.runtime.paths（轻量，不触发 torch）
-from rvc.runtime.paths import ASSETS_ROOT, CONFIG_ROOT, FFMPEG_EXE, HUBERT_ROOT, PRETRAINED_ROOT, RMVPE_PATH
+from rvc.runtime.paths import CONFIG_ROOT, FFMPEG_EXE, HUBERT_ROOT, PRETRAINED_ROOT, RMVPE_PATH
 
 # ── 0. 控制台编码 + 工作目录 ──────────────────────────────────────────
 # 项目内大量路径是相对 cwd 的（assets/hubert、assets/rmvpe、assets/configs），

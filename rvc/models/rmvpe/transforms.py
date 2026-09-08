@@ -1,7 +1,6 @@
-"""RMVPE 信号变换层 — STFT + MelSpectrogram"""
+﻿"""RMVPE 淇″彿鍙樻崲灞?鈥?STFT + MelSpectrogram"""
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from scipy.signal import get_window
 

@@ -1,6 +1,6 @@
 """模型 Tab — 纯卡片列表，首卡片为 + 添加模型"""
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QPushButton,
     QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt, Signal

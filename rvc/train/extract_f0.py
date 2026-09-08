@@ -1,4 +1,4 @@
-from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.audio.constants import HUBERT_SAMPLE_RATE
 from pathlib import Path
 
 import numpy as np

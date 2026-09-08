@@ -11,7 +11,7 @@ from collections import OrderedDict
 
 import torch
 
-from rvc.runtime.cuda_graph import ENV_NAME, MAX_CACHE_ENV, cuda_graph_enabled
+from rvc.runtime.cuda_graph import MAX_CACHE_ENV, cuda_graph_enabled
 
 
 logger = logging.getLogger(__name__)

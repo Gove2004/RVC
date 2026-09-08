@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 import torch
 
-from rvc.runtime.cuda_graph import cuda_graph_enabled
 
 logger = logging.getLogger(__name__)
 

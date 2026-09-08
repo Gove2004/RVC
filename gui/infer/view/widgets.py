@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 
 from gui.configs import load_config, save_config
-from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout, Colors
+from gui.styles import ButtonStyles, LabelStyles, CardStyles, Layout
 from gui.infer.viewmodel.param_binding import formant_to_gender, gender_to_formant
 from rvc.core.config import HUBERT_DEFAULT
 

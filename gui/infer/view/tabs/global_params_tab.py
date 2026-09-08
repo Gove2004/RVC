@@ -1,6 +1,6 @@
 """全局参数 Tab — 采样/融合参数"""
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QCheckBox,
+    QWidget, QGridLayout, QLabel,
 )
 
 from gui.infer.view.widgets import _slrow

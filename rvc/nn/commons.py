@@ -1,7 +1,6 @@
 from typing import Optional
 
 import torch
-from torch.nn import functional as F
 
 
 def init_weights(m, mean=0.0, std=0.01):

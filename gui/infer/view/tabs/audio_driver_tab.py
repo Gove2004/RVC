@@ -4,8 +4,7 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QButtonGroup,
 )
 
-from gui.styles import ButtonStyles, LabelStyles
-from gui.infer.view.widgets import _sl
+from gui.styles import ButtonStyles
 
 
 def build_audio_driver_tab(win):

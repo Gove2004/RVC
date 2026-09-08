@@ -3,16 +3,15 @@ import time
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget, QFileDialog,
+    QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget,
 )
 
 from gui.configs import TrainGuiState, load_config, save_config
 from gui.train.controller.workers import TrainWorker
-from gui.train.view.widgets import ToolThread
 from gui.train.view.tabs.settings_tab import build_settings_tab
 from gui.train.view.tabs.train_tab import build_train_tab
 from gui.train.view.tabs.tools_tab import build_tools_tab
-from gui.styles import ButtonStyles, LabelStyles, Layout
+from gui.styles import ButtonStyles, LabelStyles
 from rvc.runtime.paths import PRETRAINED_ROOT
 
 
