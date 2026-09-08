@@ -1,4 +1,4 @@
-"""实验功能 Tab — 音质优化参数实时调节（F0中值滤波 / 辅音软阈值 / 气息噪声）"""
+﻿"""实验功能 Tab — 音质优化参数实时调节（F0中值滤波 / 辅音软阈值 / 气息噪声）"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QCheckBox, QGroupBox, QVBoxLayout,
 )
@@ -36,7 +36,7 @@ def build_experimental_tab(win):
     )
     g1.addWidget(QLabel("滤波窗口"), r, 0)
     g1.addWidget(win.exp_f0_median_kernel_slider, r, 1)
-    g1.addWidget(win.exp_f0_median_kernel_slider_label, r, 2); r += 1
+    g1.addWidget(win.exp_f0_median_kernel_label, r, 2); r += 1
 
     root.addWidget(group1)
 
@@ -64,7 +64,7 @@ def build_experimental_tab(win):
     )
     g2.addWidget(QLabel("过渡中心"), r, 0)
     g2.addWidget(win.exp_protect_threshold_slider, r, 1)
-    g2.addWidget(win.exp_protect_threshold_slider_label, r, 2); r += 1
+    g2.addWidget(win.exp_protect_threshold_label, r, 2); r += 1
 
     win.exp_protect_width_slider = _slrow(
         win, "exp_protect_width_slider", 5.0, 50.0, 1.0,
@@ -78,7 +78,7 @@ def build_experimental_tab(win):
     )
     g2.addWidget(QLabel("过渡宽度"), r, 0)
     g2.addWidget(win.exp_protect_width_slider, r, 1)
-    g2.addWidget(win.exp_protect_width_slider_label, r, 2); r += 1
+    g2.addWidget(win.exp_protect_width_label, r, 2); r += 1
 
     root.addWidget(group2)
 
@@ -106,7 +106,7 @@ def build_experimental_tab(win):
     )
     g3.addWidget(QLabel("气息强度"), r, 0)
     g3.addWidget(win.exp_breath_strength_slider, r, 1)
-    g3.addWidget(win.exp_breath_strength_slider_label, r, 2); r += 1
+    g3.addWidget(win.exp_breath_strength_label, r, 2); r += 1
 
     win.exp_breath_uv_threshold_slider = _slrow(
         win, "exp_breath_uv_threshold_slider", 0.0, 30.0, 1.0,
@@ -120,7 +120,7 @@ def build_experimental_tab(win):
     )
     g3.addWidget(QLabel("UV 判定阈值"), r, 0)
     g3.addWidget(win.exp_breath_uv_threshold_slider, r, 1)
-    g3.addWidget(win.exp_breath_uv_threshold_slider_label, r, 2); r += 1
+    g3.addWidget(win.exp_breath_uv_threshold_label, r, 2); r += 1
 
     root.addWidget(group3)
 
@@ -132,3 +132,4 @@ def build_experimental_tab(win):
 
     root.addStretch()
     return w
+
