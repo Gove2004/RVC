@@ -1,4 +1,4 @@
-"""离线推理管理器 — 负责离线音频文件转换"""
+﻿"""离线推理管理器 — 负责离线音频文件转换"""
 import logging
 import os
 import traceback
@@ -170,3 +170,4 @@ class OfflineWorker(QThread):
         engine.process_file(self.cfg, progress_cb=_progress)
         self.progress.emit(100, 100)
         self.finished.emit(self.cfg.output_path)
+

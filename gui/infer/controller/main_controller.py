@@ -75,14 +75,11 @@ class InferController:
         self.runtime_params.hubert_variant = hubert_variant
 
     def apply_runtime_params(self, protect: float, f0_method: str, rms_mix: float,
-                             denoise_enable: bool, denoise_strength: float,
                              break_enable: bool, break_src_hz: float):
-        """应用全局推理参数（辅音保护/F0方法/响度混合/降噪/破音保护）。"""
+        """应用全局推理参数（辅音保护/F0方法/响度混合/破音保护）。"""
         self.runtime_params.protect = protect
         self.runtime_params.f0_method = f0_method
         self.runtime_params.rms_mix = rms_mix
-        self.runtime_params.denoise.enable = denoise_enable
-        self.runtime_params.denoise.strength = denoise_strength
         self.runtime_params.break_protect.enable = break_enable
         self.runtime_params.break_protect.src_hz = break_src_hz
 
