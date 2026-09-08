@@ -21,12 +21,12 @@ from rvc.inference.feature_processing import (
 class TestCloneProtectSource(unittest.TestCase):
     """clone_protect_source 测试。"""
 
-    def test_use_f0_and_protect_returns_clone(self):
-        """use_f0=1 且 protect>0 时返回克隆。"""
+    def test_use_f0_and_protect_returns_reference(self):
+        """use_f0=1 且 protect>0 时返回原始特征引用（优化：不再克隆，F.interpolate 会创建新张量）。"""
         feats = torch.randn(1, 10, 768)
         result = clone_protect_source(feats, use_f0=1, protect=0.5)
         self.assertIsNotNone(result)
-        self.assertIsNot(result, feats)
+        self.assertIs(result, feats)  # 返回引用，不克隆
         self.assertTrue(torch.equal(result, feats))
 
     def test_use_f0_zero_returns_none(self):
@@ -47,12 +47,12 @@ class TestCloneProtectSource(unittest.TestCase):
         result = clone_protect_source(feats, use_f0=1, protect=-0.1)
         self.assertIsNone(result)
 
-    def test_clone_independent(self):
-        """克隆是独立的，修改原张量不影响克隆。"""
+    def test_reference_shares_data(self):
+        """返回引用，修改原张量会影响返回值（优化：不再克隆，后续 F.interpolate 会创建新张量）。"""
         feats = torch.randn(1, 10, 768)
         result = clone_protect_source(feats, use_f0=1, protect=0.5)
         feats[0, 0, 0] = 999.0
-        self.assertNotEqual(result[0, 0, 0].item(), 999.0)
+        self.assertEqual(result[0, 0, 0].item(), 999.0)  # 引用共享数据
 
     def test_various_protect_values(self):
         feats = torch.randn(1, 10, 768)

@@ -29,8 +29,13 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
 
 
 def clone_protect_source(feats: torch.Tensor, use_f0: int, protect: float) -> torch.Tensor | None:
+    """返回需要保护的原始特征引用。
+
+    注意：不再克隆，因为后续 F.interpolate 会创建新张量，不会修改输入。
+    这样可以避免一次不必要的张量复制（768 维 × 数百帧）。
+    """
     if use_f0 == 1 and protect > 0:
-        return feats.clone()
+        return feats
     return None
 
 
