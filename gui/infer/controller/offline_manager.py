@@ -69,11 +69,8 @@ class OfflineManager:
             self.window._show_warning("模型路径为空")
             return
 
-        if self.window.engine.running:
-            self.window._show_warning("请先停止实时变声")
-            return
-
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
+        # 离线推理使用独立的 RealtimeEngine 实例，可与实时变声同时运行（需显存足够）
         state = collect_gui_state(self.window)
         inf = state.inference
         config = OfflineConfig(
