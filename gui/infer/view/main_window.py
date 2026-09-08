@@ -22,8 +22,8 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from rvc.core.config import AppConfig
 from gui.infer.controller.main_controller import InferController
 from gui.infer.viewmodel.param_binding import (
-    collect_gui_state as bridge_collect_gui_state,
-    apply_gui_state as bridge_apply_gui_state,
+    collect_gui_state,
+    apply_gui_state,
     format_error_message,
     gender_to_formant,
 )
@@ -82,19 +82,27 @@ class MainWindow(QMainWindow):
             sys.exit(1)
 
     def _load_gui_config(self) -> None:
-        """从持久化配置加载 GUI 状态（嵌套结构）。"""
+        """从持久化配置加载 GUI 状态（嵌套结构 + 实验参数）。"""
         from gui.configs import load_config
         from gui.infer.viewmodel.param_binding import state_from_dict
+        from rvc.core.experimental import experimental_config
         cfg = load_config()
         state = state_from_dict(cfg.get("gui", {}))
         self.apply_gui_state(state)
+        # 加载实验参数并恢复控件值
+        experimental_config.from_dict(cfg.get("experimental", {}))
+        self.exp_protect_soft_checkbox.setChecked(experimental_config.protect_soft_enabled)
+        self.exp_protect_threshold_slider.setValue(int(round(experimental_config.protect_soft_threshold_hz)))
+        self.exp_protect_width_slider.setValue(int(round(experimental_config.protect_soft_width)))
 
     def _save_gui_config(self) -> None:
-        """保存当前 GUI 状态到持久化配置（嵌套结构）。"""
+        """保存当前 GUI 状态到持久化配置（嵌套结构 + 实验参数）。"""
         from gui.configs import load_config, save_config
         from gui.infer.viewmodel.param_binding import state_to_dict
+        from rvc.core.experimental import experimental_config
         cfg = load_config()
         cfg["gui"] = state_to_dict(self.collect_gui_state())
+        cfg["experimental"] = experimental_config.to_dict()
         save_config(cfg)
 
     def _tray_quit(self):
@@ -256,10 +264,10 @@ class MainWindow(QMainWindow):
         self._timer.start(200)
 
     def collect_gui_state(self) -> AppConfig:
-        return bridge_collect_gui_state(self)
+        return collect_gui_state(self)
 
     def apply_gui_state(self, state: AppConfig) -> None:
-        bridge_apply_gui_state(self, state)
+        apply_gui_state(self, state)
 
     # ── 启动/停止（业务逻辑委托给 controller，UI 状态留在本类）──
 

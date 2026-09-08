@@ -63,13 +63,10 @@ _TORCHFCPE_OUT_CONTAINS = (
 
 @contextlib.contextmanager
 def _suppress_third_party_output(*prefixes, contains=()):
-    stdout, stderr = sys.stdout, sys.stderr
-    sys.stdout = _FilteredStream(stdout, prefixes, contains) if stdout else stdout
-    sys.stderr = _FilteredStream(stderr, prefixes, contains) if stderr else stderr
-    try:
+    out = _FilteredStream(sys.stdout, prefixes, contains) if sys.stdout else sys.stdout
+    err = _FilteredStream(sys.stderr, prefixes, contains) if sys.stderr else sys.stderr
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         yield
-    finally:
-        sys.stdout, sys.stderr = stdout, stderr
 
 
 def _suppress_torchfcpe_output():

@@ -6,13 +6,30 @@
 
 
 class ExperimentalConfig:
-    """实验功能配置（运行时可修改）。"""
+    """实验功能配置（运行时可修改，可持久化）。"""
 
     def __init__(self):
         # ── 辅音保护软阈值（解决咬字不清） ──
         self.protect_soft_enabled = True
         self.protect_soft_threshold_hz = 10.0  # 过渡中心（Hz）
         self.protect_soft_width = 20.0  # 过渡宽度（Hz，sigmoid 的 4σ）
+
+    def to_dict(self) -> dict:
+        """序列化为字典（用于持久化）。"""
+        return {
+            "protect_soft_enabled": self.protect_soft_enabled,
+            "protect_soft_threshold_hz": self.protect_soft_threshold_hz,
+            "protect_soft_width": self.protect_soft_width,
+        }
+
+    def from_dict(self, data: dict) -> None:
+        """从字典反序列化（缺失字段保持默认值）。"""
+        if "protect_soft_enabled" in data:
+            self.protect_soft_enabled = bool(data["protect_soft_enabled"])
+        if "protect_soft_threshold_hz" in data:
+            self.protect_soft_threshold_hz = float(data["protect_soft_threshold_hz"])
+        if "protect_soft_width" in data:
+            self.protect_soft_width = float(data["protect_soft_width"])
 
 
 # 全局单例，GUI 和推理代码共用

@@ -73,6 +73,12 @@ class InferenceRunner:
         # 性能统计
         self.infer_ms = 0.0
 
+        # 错误状态（音频回调中使用）
+        self.error_count = 0
+        self.max_error_count = 3  # 连续错误达到此阈值后停止推理
+        self.last_error = ""
+        self.runtime_error_pending = False
+
     def init_processing(self, sr: int, block_t: float, cf_t: float, extra_t: float,
                         channels: int, sr_model: int) -> None:
         """设备无关的处理状态初始化（采样率/块大小/缓存/重采样/效果器）。
@@ -150,6 +156,24 @@ class InferenceRunner:
             self.input_wav.zero_()
         if self.input_wav_res is not None:
             self.input_wav_res.zero_()
+
+    def reset_error_state(self) -> None:
+        """重置错误计数和状态（setup/stop 时调用）。"""
+        self.error_count = 0
+        self.last_error = ""
+        self.runtime_error_pending = False
+
+    def handle_error(self, error: Exception) -> bool:
+        """处理音频回调中的错误，返回是否应该停止流。
+
+        连续错误达到 max_error_count 时标记 runtime_error_pending 并返回 True。
+        """
+        self.error_count += 1
+        self.last_error = str(error)
+        if self.error_count >= self.max_error_count and not self.runtime_error_pending:
+            self.runtime_error_pending = True
+            return True
+        return False
 
     def process_block(self, indata: np.ndarray, outdata: np.ndarray, frames: int) -> None:
         """处理一个音频块（实时回调主函数）。

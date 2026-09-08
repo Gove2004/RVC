@@ -7,7 +7,7 @@
 支持 AppConfig 的任意嵌套层级。
 
 新增参数时改动点：
-1. rvc/config.py 对应 dataclass 加字段
+1. rvc/core/config.py 对应 dataclass 加字段
 2. BINDINGS 加一行（路径 + 控件 + 读写方式 + 默认值）
 3. Tab 里建控件
 """

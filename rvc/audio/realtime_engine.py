@@ -22,9 +22,6 @@ from rvc.runtime import Config
 
 logger = logging.getLogger(__name__)
 
-# 实时推理错误容忍配置
-MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此阈值后停止推理
-
 
 class RealtimeEngine:
     """实时音频引擎 — 门面类，内部委托给 AudioStreamManager 和 InferenceRunner。"""
@@ -41,18 +38,33 @@ class RealtimeEngine:
         self._stream_mgr = AudioStreamManager()
         self._runner = None  # InferenceRunner（setup 时创建）
 
-        # 错误统计
-        self.error_count = 0
-        self.max_error_count = MAX_CONSECUTIVE_ERRORS
-        self.last_error = ""
-        self.runtime_error_pending = False
-
         # 性能统计
         self.infer_ms = 0.0
         self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
 
+        # 错误状态由 InferenceRunner 管理（通过属性代理访问）
+
         self._cfg = Config()  # 单例缓存，避免多处重复获取
         self.pth_path = ""
+
+    # ── 错误状态属性代理（委托给 InferenceRunner） ──
+
+    @property
+    def error_count(self):
+        return self._runner.error_count if self._runner else 0
+
+    @property
+    def last_error(self):
+        return self._runner.last_error if self._runner else ""
+
+    @property
+    def runtime_error_pending(self):
+        return self._runner.runtime_error_pending if self._runner else False
+
+    @runtime_error_pending.setter
+    def runtime_error_pending(self, value):
+        if self._runner:
+            self._runner.runtime_error_pending = value
 
     # ── 模型加载 ──
 
@@ -82,10 +94,6 @@ class RealtimeEngine:
         """启动实时变声引擎。"""
         if self._stream_mgr.stream is not None:
             self.stop()
-        self.error_count = 0
-        self.last_error = ""
-        self.runtime_error_pending = False
-
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
         self.sr_model = self.pipeline.target_sr
@@ -98,6 +106,7 @@ class RealtimeEngine:
         # 推理运行器初始化
         self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
         self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, self.sr_model)
+        self._runner.reset_error_state()
 
         # 预热 + 重置缓冲区
         self._runner.warmup(2)
@@ -125,8 +134,8 @@ class RealtimeEngine:
     def stop(self):
         """停止引擎，关闭所有流。"""
         self.running = False
-        self.error_count = 0
-        self.runtime_error_pending = False
+        if self._runner:
+            self._runner.reset_error_state()
         self._stream_mgr.stop_all()
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
         if torch.cuda.is_available():
@@ -153,17 +162,15 @@ class RealtimeEngine:
                     outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
                 )
 
-            self.error_count = 0
+            self._runner.error_count = 0
         except Exception as e:
-            self.error_count += 1
-            self.last_error = str(e)
-            logger.error("音频回调异常(%d/%d)：%s", self.error_count, self.max_error_count, e, exc_info=True)
+            should_stop = self._runner.handle_error(e)
+            logger.error("音频回调异常(%d/%d)：%s", self._runner.error_count, self._runner.max_error_count, e, exc_info=True)
             outdata[:] = 0
-            if self.error_count >= self.max_error_count and not self.runtime_error_pending:
+            if should_stop:
                 self.running = False
-                self.runtime_error_pending = True
                 if self.on_runtime_error:
-                    self.on_runtime_error(self.last_error or "实时推理失败")
+                    self.on_runtime_error(self._runner.last_error or "实时推理失败")
                 raise sd.CallbackStop
 
     # ── 离线文件推理 ──
