@@ -88,5 +88,39 @@ def build_experimental_tab(win):
     g2.addWidget(win.break_src_hz_label, r, 2); r += 1
     root.addWidget(group2)
 
+    # ── 3. F0 清浊阈值 ──
+    win.exp_rmvpe_threshold_slider = _slrow(
+        win, "exp_rmvpe_threshold_slider", 0.01, 0.10, 0.01,
+        experimental_config.rmvpe_threshold, fmt=".2f", label_w=45,
+    )
+    win.exp_rmvpe_threshold_slider.valueChanged.connect(
+        lambda: setattr(
+            experimental_config, "rmvpe_threshold",
+            _sl_value_as_float(win.exp_rmvpe_threshold_slider),
+        )
+    )
+    group3 = QGroupBox("F0 清浊阈值")
+    g3 = QGridLayout(group3)
+    g3.setHorizontalSpacing(8)
+    r = 0
+    g3.addWidget(QLabel("RMVPE 阈值"), r, 0)
+    g3.addWidget(win.exp_rmvpe_threshold_slider, r, 1)
+    g3.addWidget(win.exp_rmvpe_threshold_label, r, 2); r += 1
+
+    win.exp_fcpe_threshold_slider = _slrow(
+        win, "exp_fcpe_threshold_slider", 0.01, 0.08, 0.01,
+        experimental_config.fcpe_confidence_threshold, fmt=".2f", label_w=45,
+    )
+    win.exp_fcpe_threshold_slider.valueChanged.connect(
+        lambda: setattr(
+            experimental_config, "fcpe_confidence_threshold",
+            _sl_value_as_float(win.exp_fcpe_threshold_slider),
+        )
+    )
+    g3.addWidget(QLabel("FCPE 阈值"), r, 0)
+    g3.addWidget(win.exp_fcpe_threshold_slider, r, 1)
+    g3.addWidget(win.exp_fcpe_threshold_label, r, 2); r += 1
+    root.addWidget(group3)
+
     root.addStretch()
     return w
