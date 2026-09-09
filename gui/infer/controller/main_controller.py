@@ -68,11 +68,10 @@ class InferController:
 
     # ── 参数应用 ──
 
-    def apply_model_params(self, pitch: int, formant: float, hubert_variant: str):
+    def apply_model_params(self, pitch: int, formant: float):
         """应用模型卡片级参数（音高/共振峰/特征器）。"""
         self.runtime_params.pitch = pitch
         self.runtime_params.formant = formant
-        self.runtime_params.hubert_variant = hubert_variant
 
     def apply_runtime_params(self, protect: float, f0_method: str, rms_mix: float,
                              break_enable: bool, break_src_hz: float):

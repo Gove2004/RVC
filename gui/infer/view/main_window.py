@@ -228,7 +228,6 @@ class MainWindow(QMainWindow):
         self.controller.apply_model_params(
             pitch=card.pitch_slider.value(),
             formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),
-            hubert_variant=card.hubert_combo.currentText(),
         )
 
     def _apply_runtime_params(self):

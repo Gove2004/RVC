@@ -12,10 +12,10 @@ def build_global_params_tab(win):
     r = 0
 
     # ── 采样与融合参数 ──
-    win.block_time_slider = _slrow(win, "block_time_slider", 0.05, 1.0, 0.01, 0.25)
+    win.block_time_slider = _slrow(win, "block_time_slider", 0.05, 0.50, 0.01, 0.25)
     g.addWidget(QLabel("采样长度"), r, 0); g.addWidget(win.block_time_slider, r, 1); g.addWidget(win.block_time_label, r, 2); r += 1
 
-    win.crossfade_slider = _slrow(win, "crossfade_slider", 0.01, 0.05, 0.01, 0.05)
+    win.crossfade_slider = _slrow(win, "crossfade_slider", 0.01, 0.15, 0.01, 0.05)
     g.addWidget(QLabel("淡入长度"), r, 0); g.addWidget(win.crossfade_slider, r, 1); g.addWidget(win.crossfade_label, r, 2); r += 1
 
     win.extra_time_slider = _slrow(win, "extra_time_slider", 0.05, 5.0, 0.01, 2.5)

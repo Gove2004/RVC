@@ -19,7 +19,6 @@ class InferenceConfig:
     protect: float = 0.5
     f0_method: str = "rmvpe"
     rms_mix: float = 0.0
-    hubert_variant: str = "chinese"
     break_protect: BreakProtectConfig = field(default_factory=BreakProtectConfig)
 
 

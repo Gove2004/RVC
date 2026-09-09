@@ -18,7 +18,6 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertEqual(cfg.protect, 0.5)
         self.assertEqual(cfg.f0_method, "rmvpe")
         self.assertEqual(cfg.rms_mix, 0.0)
-        self.assertEqual(cfg.hubert_variant, "chinese")
 
     def test_nested_defaults(self):
         cfg = InferenceConfig()

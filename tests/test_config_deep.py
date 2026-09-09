@@ -91,7 +91,6 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertAlmostEqual(cfg.protect, 0.5)
         self.assertEqual(cfg.f0_method, "rmvpe")
         self.assertAlmostEqual(cfg.rms_mix, 0.0)
-        self.assertEqual(cfg.hubert_variant, "chinese")
 
     def test_nested_break_protect_default(self):
         cfg = InferenceConfig()
@@ -105,7 +104,7 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertAlmostEqual(cfg.break_protect.src_hz, 400.0)
 
     def test_field_count(self):
-        self.assertEqual(len(fields(InferenceConfig)), 7)
+        self.assertEqual(len(fields(InferenceConfig)), 6)
 
     def test_asdict_nested(self):
         d = asdict(InferenceConfig())
@@ -132,11 +131,6 @@ class TestInferenceConfig(unittest.TestCase):
         for method in ["rmvpe", "fcpe", "crepe", "pm", "harvest"]:
             cfg = InferenceConfig(f0_method=method)
             self.assertEqual(cfg.f0_method, method)
-
-    def test_hubert_variant_variants(self):
-        for variant in ["chinese", "base", "japanese", "korean"]:
-            cfg = InferenceConfig(hubert_variant=variant)
-            self.assertEqual(cfg.hubert_variant, variant)
 
     def test_protect_zero(self):
         cfg = InferenceConfig(protect=0.0)
@@ -327,8 +321,8 @@ class TestOfflineConfig(unittest.TestCase):
         self.assertTrue(issubclass(OfflineConfig, InferenceConfig))
 
     def test_field_count_includes_inherited(self):
-        """OfflineConfig 字段 = InferenceConfig 7 个 + 4 个特有 = 11 个。"""
-        self.assertEqual(len(fields(OfflineConfig)), 11)
+        """OfflineConfig 字段 = InferenceConfig 6 个 + 4 个特有 = 10 个。"""
+        self.assertEqual(len(fields(OfflineConfig)), 10)
 
     def test_asdict_includes_all(self):
         d = asdict(OfflineConfig())

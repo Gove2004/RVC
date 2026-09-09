@@ -153,10 +153,6 @@ class TestInferenceConfigDefaults(unittest.TestCase):
         config = InferenceConfig()
         self.assertEqual(config.f0_method, "rmvpe")
 
-    def test_default_hubert_variant(self):
-        config = InferenceConfig()
-        self.assertEqual(config.hubert_variant, "chinese")
-
     def test_break_protect_defaults(self):
         config = InferenceConfig()
         self.assertTrue(config.break_protect.enable)
