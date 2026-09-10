@@ -15,7 +15,7 @@ from rvc.core.config import AppConfig, EngineConfig, InferenceConfig
 
 # 读写方式
 CHECK = "check"      # QCheckBox / bool
-X100 = "x100"        # QSlider，值 /100
+X100 = "x100"        # DoubleSlider，直接读写物理值（float），历史命名保留
 INT = "int"          # QSlider，整数值（不除 100）
 COMBO = "combo"      # QComboBox currentText / findText
 TEXT = "text"        # QLineEdit text
@@ -165,7 +165,7 @@ def _get(win, widget, kind):
     if kind == CHECK:
         return w.isChecked()
     if kind == X100:
-        return w.value() / 100.0
+        return float(w.value())
     if kind == INT:
         return w.value()
     if kind == COMBO:
@@ -185,7 +185,7 @@ def _set(win, widget, kind, value):
     if kind == CHECK:
         getattr(win, widget).setChecked(bool(value))
     elif kind == X100:
-        getattr(win, widget).setValue(int(round(float(value) * 100)))
+        getattr(win, widget).setValue(float(value))
     elif kind == INT:
         getattr(win, widget).setValue(int(value))
     elif kind == COMBO:

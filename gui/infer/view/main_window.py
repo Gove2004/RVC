@@ -95,8 +95,8 @@ class MainWindow(QMainWindow):
             min(100.0, _tc + _tw / 2),
         )
         # F0 清浊阈值
-        self.exp_rmvpe_threshold_slider.setValue(int(round(experimental_config.rmvpe_threshold * 100)))
-        self.exp_fcpe_threshold_slider.setValue(int(round(experimental_config.fcpe_confidence_threshold * 100)))
+        self.exp_rmvpe_threshold_slider.setValue(experimental_config.rmvpe_threshold)
+        self.exp_fcpe_threshold_slider.setValue(experimental_config.fcpe_confidence_threshold)
         # 音域映射（RangeSlider 双滑块，直接传物理值）
         self.exp_pitch_map_src_range.setRange(
             experimental_config.pitch_map_src_min,

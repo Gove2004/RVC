@@ -5,7 +5,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QBrush
 
 from rvc.core.config import HUBERT_DEFAULT
 
-__all__ = ["LoadThread", "_sl", "_slrow", "_sl_value_as_float", "RangeSlider"]
+__all__ = ["LoadThread", "_sl", "_slrow", "_sl_value_as_float", "DoubleSlider", "RangeSlider"]
 
 
 def _sl(mn, mx, st, dv):
@@ -14,27 +14,61 @@ def _sl(mn, mx, st, dv):
     return s
 
 
+class DoubleSlider(QSlider):
+    """支持浮点值的滑动条，基于步长动态编码。
+
+    对外暴露物理值（float），内部用整数编码：
+        整数值 = round(物理值 / step)
+        物理值 = 整数值 × step
+
+    这样拖动时的最小变化量就是 step，而不是固定的 0.01（X100 编码的问题）。
+    存档直接存物理值，不需要 X100 转换。
+    """
+
+    def __init__(self, min_val, max_val, step, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self._step = float(step)
+        self._int_min = round(min_val / self._step)
+        self._int_max = round(max_val / self._step)
+        super().setMinimum(self._int_min)
+        super().setMaximum(self._int_max)
+        super().setSingleStep(1)
+
+    def value(self):
+        """返回物理值（float）。"""
+        return super().value() * self._step
+
+    def setValue(self, value):
+        """设置物理值（float）。"""
+        super().setValue(round(float(value) / self._step))
+
+    def minimum(self):
+        return self._int_min * self._step
+
+    def maximum(self):
+        return self._int_max * self._step
+
+
 def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     """创建「滑杆 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
 
-    参数为**物理值**（工厂内部按 ×100 编码到 QSlider；运行时 QSlider.value()/100
-    即物理值，与 param_binding 的 X100 读写兼容）。fmt/unit 控制标签显示。
-    返回 slider。一处样板替换原先「建滑块 + 建 label + connect 格式化」三行。
+    使用 DoubleSlider，基于步长动态编码，对外直接暴露物理值（float）。
+    存档直接存物理值，不需要 X100 转换。拖动时的最小变化量 = step。
+    fmt/unit 控制标签显示。
+    返回 slider。
     """
-    s = QSlider(Qt.Orientation.Horizontal)
+    s = DoubleSlider(mn, mx, st)
     s.setFixedHeight(18)
-    s.setRange(int(mn * 100), int(mx * 100))
-    s.setSingleStep(int(st * 100))
-    s.setValue(int(dv * 100))
+    s.setValue(dv)
     lbl = QLabel()
     lbl.setFixedWidth(label_w)
     lbl.setAlignment(Qt.AlignCenter)
 
     def _fmt(v):
-        return f"{v / 100:{fmt}}{unit}"
+        return f"{v:{fmt}}{unit}"
 
     lbl.setText(_fmt(s.value()))
-    s.valueChanged.connect(lambda v: lbl.setText(_fmt(v)))
+    s.valueChanged.connect(lambda _v: lbl.setText(_fmt(s.value())))
     setattr(win, attr, s)
     # 约定：滑块属性 xxx_slider → 值标签属性 xxx_label
     label_attr = attr[:-7] + "_label" if attr.endswith("_slider") else attr + "_label"
@@ -42,8 +76,9 @@ def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     return s
 
 
-def _sl_value_as_float(slider: QSlider, divisor: float = 100.0) -> float:
-    return slider.value() / divisor
+def _sl_value_as_float(slider) -> float:
+    """从滑动条读取物理值（DoubleSlider.value() 已返回 float）。"""
+    return float(slider.value())
 
 
 class LoadThread(QThread):
@@ -68,19 +103,19 @@ class LoadThread(QThread):
 class RangeSlider(QWidget):
     """双滑块范围选择器 — 一个控件同时控制下限和上限。
 
-    采用 X100 编码（和 _slrow 兼容）：内部值为物理值×100，
-    low()/high() 返回物理值（float）。
+    内部直接存物理值（float），基于步长量化，和 DoubleSlider 统一。
+    low()/high() 返回物理值（float）。拖动时的最小变化量 = step。
     """
     rangeChanged = Signal(float, float)  # low, high（物理值）
 
     def __init__(self, min_val, max_val, step, low_val, high_val,
                  fmt=".0f", unit="Hz", parent=None):
         super().__init__(parent)
-        self._min = int(min_val * 100)
-        self._max = int(max_val * 100)
-        self._step = int(step * 100)
-        self._low = int(low_val * 100)
-        self._high = int(high_val * 100)
+        self._min = float(min_val)
+        self._max = float(max_val)
+        self._step = float(step)
+        self._low = float(low_val)
+        self._high = float(high_val)
         self._fmt = fmt
         self._unit = unit
         self._dragging = None  # 'low' or 'high'
@@ -91,22 +126,22 @@ class RangeSlider(QWidget):
 
     def setRange(self, low_val, high_val):
         """设置当前范围（物理值）。"""
-        self._low = max(self._min, int(low_val * 100))
-        self._high = min(self._max, int(high_val * 100))
+        self._low = max(self._min, float(low_val))
+        self._high = min(self._max, float(high_val))
         if self._low > self._high:
             self._low, self._high = self._high, self._low
         self.update()
         self._update_tooltip()
 
     def low(self):
-        return self._low / 100.0
+        return self._low
 
     def high(self):
-        return self._high / 100.0
+        return self._high
 
     def _update_tooltip(self):
-        self.setToolTip(f"{self._low/100:{self._fmt}}{self._unit} - "
-                        f"{self._high/100:{self._fmt}}{self._unit}")
+        self.setToolTip(f"{self._low:{self._fmt}}{self._unit} - "
+                        f"{self._high:{self._fmt}}{self._unit}")
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -147,7 +182,7 @@ class RangeSlider(QWidget):
     def _x_to_value(self, x):
         ratio = max(0.0, min(1.0, (x - 8) / (self.width() - 16)))
         value = self._min + ratio * (self._max - self._min)
-        return int(round(value / self._step) * self._step)
+        return round(value / self._step) * self._step
 
     def mousePressEvent(self, event):
         low_x = self._value_to_x(self._low)
@@ -182,7 +217,7 @@ class RangeSlider(QWidget):
             self._low = new_low
             self.update()
             self._update_tooltip()
-            self.rangeChanged.emit(self._low / 100.0, self._high / 100.0)
+            self.rangeChanged.emit(self._low, self._high)
 
     def _update_high(self, x):
         new_high = self._x_to_value(x)
@@ -192,4 +227,4 @@ class RangeSlider(QWidget):
             self._high = new_high
             self.update()
             self._update_tooltip()
-            self.rangeChanged.emit(self._low / 100.0, self._high / 100.0)
+            self.rangeChanged.emit(self._low, self._high)
