@@ -49,6 +49,7 @@ class InferencePipeline:
         self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
         self.resample_kernel = {}
         self._long_tensor_cache = {}
+        self.last_pitch = 0.0  # 最新输入音高（Hz，非零帧平均，用于 GUI 显示）
 
         # 模型引用（load 后填充）
         self.hubert_model = None
@@ -124,6 +125,12 @@ class InferencePipeline:
             )
         else:
             cache_pitch = cache_pitchf = None
+
+        # 保存最新输入音高（非零帧平均，用于 GUI 显示，辅助调节音域映射参数）
+        if cache_pitchf is not None:
+            nonzero = cache_pitchf[cache_pitchf > 0]
+            if nonzero.numel() > 0:
+                self.last_pitch = float(nonzero.mean().item())
 
         # 特征上采样（含辅音保护混合）
         feats = upsample_features(feats, p_len, self.is_half, feats0, cache_pitchf, config.protect)

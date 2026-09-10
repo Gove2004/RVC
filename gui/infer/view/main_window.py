@@ -177,8 +177,8 @@ class MainWindow(QMainWindow):
         driver_w, self.refresh_btn = build_audio_driver_tab(self)
         tabs.addTab(driver_w, "设备驱动")
         tabs.addTab(build_global_params_tab(self), "参数调节")
+        tabs.addTab(build_experimental_tab(self), "高级功能")
         tabs.addTab(build_offline_tab(self), "离线推理")
-        tabs.addTab(build_experimental_tab(self), "实验功能")
         root.addWidget(tabs)
 
         # ── 底部控制栏 ──
@@ -196,7 +196,12 @@ class MainWindow(QMainWindow):
         spacer1 = QSpacerItem(40, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         btn_group.addSpacerItem(spacer1)
 
-        # 右侧：延迟显示（硬件时间戳实测）
+        # 右侧：输入音高 + 延迟显示
+        self.pitch_lbl = QLabel("音高: -")
+        self.pitch_lbl.setMinimumWidth(100)
+        self.pitch_lbl.setToolTip("当前输入音高（Hz，实时检测）：辅助调节高级功能中的音域映射参数")
+        btn_group.addWidget(self.pitch_lbl)
+
         self.delay_lbl = QLabel("延迟: -")
         self.delay_lbl.setMinimumWidth(120)
         self.delay_lbl.setToolTip("端到端实测延迟（含声卡缓冲）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
@@ -214,6 +219,13 @@ class MainWindow(QMainWindow):
     def _update_timer(self):
         if self.engine.running and self.engine.measure_ms > 0:
             self.delay_lbl.setText(f"延迟: {self.engine.measure_ms:.0f}ms")
+            # 显示当前输入音高（从 pipeline 获取）
+            if hasattr(self.engine, "_runner") and self.engine._runner.pipeline is not None:
+                pitch = self.engine._runner.pipeline.last_pitch
+                if pitch > 0:
+                    self.pitch_lbl.setText(f"音高: {pitch:.0f}Hz")
+                else:
+                    self.pitch_lbl.setText("音高: -")
         if self.tray is not None:
             self.tray.update_status()
 
@@ -259,6 +271,7 @@ class MainWindow(QMainWindow):
         self._timer.stop()
         self._set_toggle_button("开始", True, ButtonStyles.primary())
         self.delay_lbl.setText("延迟: -")
+        self.pitch_lbl.setText("音高: -")
 
     def _mark_loading(self):
         self._set_toggle_button("加载中", False, ButtonStyles.secondary())
