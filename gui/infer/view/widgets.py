@@ -82,7 +82,7 @@ class RangeSlider(QWidget):
         self._fmt = fmt
         self._unit = unit
         self._dragging = None  # 'low' or 'high'
-        self.setFixedHeight(18)
+        self.setMinimumHeight(18)
         self.setMinimumWidth(180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._update_tooltip()

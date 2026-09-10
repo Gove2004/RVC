@@ -66,7 +66,7 @@ def _build_global_stylesheet() -> str:
 
         /* Slider */
         QSlider {{
-            height: 18px;
+            min-height: 18px;
         }}
         QSlider::groove:horizontal {{
             height: 4px;
@@ -75,7 +75,7 @@ def _build_global_stylesheet() -> str:
         QSlider::handle:horizontal {{
             width: 10px;
             height: 10px;
-            margin: -4px 0;
+            margin: -3px 0;
             background-color: {Colors.PRIMARY};
             border: 1px solid {Colors.INPUT_BG};
             border-radius: 2px;
