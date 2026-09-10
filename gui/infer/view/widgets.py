@@ -177,10 +177,10 @@ class RangeSlider(QWidget):
 
     def _value_to_x(self, value):
         ratio = (value - self._min) / (self._max - self._min)
-        return int(8 + ratio * (self.width() - 16))
+        return int(6 + ratio * (self.width() - 12))
 
     def _x_to_value(self, x):
-        ratio = max(0.0, min(1.0, (x - 8) / (self.width() - 16)))
+        ratio = max(0.0, min(1.0, (x - 6) / (self.width() - 12)))
         value = self._min + ratio * (self._max - self._min)
         return round(value / self._step) * self._step
 
