@@ -72,8 +72,8 @@ def _build_global_stylesheet() -> str:
             height: 4px;
         }}
         QSlider::handle:horizontal {{
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             margin: -5px 0;
             background-color: {Colors.PRIMARY};
             border: 1px solid {Colors.INPUT_BG};
