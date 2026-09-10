@@ -87,8 +87,13 @@ class MainWindow(QMainWindow):
         self.apply_gui_state(state)
         # 加载实验参数并恢复控件值（所有 _slrow 创建的滑动条都是 X100 模式，恢复时需 ×100）
         experimental_config.from_dict(cfg.get("experimental", {}))
-        self.exp_protect_threshold_slider.setValue(int(round(experimental_config.protect_soft_threshold_hz * 100)))
-        self.exp_protect_width_slider.setValue(int(round(experimental_config.protect_soft_width * 100)))
+        # 过渡区域（RangeSlider 双滑块，从中心/宽度反推上下限）
+        _tc = experimental_config.protect_soft_threshold_hz
+        _tw = experimental_config.protect_soft_width
+        self.exp_protect_transition_range.setRange(
+            max(0.0, _tc - _tw / 2),
+            min(100.0, _tc + _tw / 2),
+        )
         # F0 清浊阈值
         self.exp_rmvpe_threshold_slider.setValue(int(round(experimental_config.rmvpe_threshold * 100)))
         self.exp_fcpe_threshold_slider.setValue(int(round(experimental_config.fcpe_confidence_threshold * 100)))

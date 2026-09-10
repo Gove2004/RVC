@@ -82,7 +82,7 @@ class RangeSlider(QWidget):
         self._fmt = fmt
         self._unit = unit
         self._dragging = None  # 'low' or 'high'
-        self.setMinimumHeight(36)
+        self.setMinimumHeight(28)
         self.setMinimumWidth(180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._update_tooltip()
@@ -113,8 +113,8 @@ class RangeSlider(QWidget):
         w = self.width()
         h = self.height()
         track_h = 4
-        track_y = h // 2 - track_h // 2
-        margin = 12
+        track_y = h - 10  # 轨道靠下，上方留空间给数值
+        margin = 10
         track_w = w - 2 * margin
 
         # 背景轨道
@@ -129,30 +129,30 @@ class RangeSlider(QWidget):
         painter.drawRoundedRect(QRect(low_x, track_y, high_x - low_x, track_h), 2, 2)
 
         # 滑块
-        handle_r = 7
+        handle_r = 6
         for x in (low_x, high_x):
             painter.setBrush(QColor("#ffffff"))
             painter.setPen(QPen(QColor("#0078D4"), 2))
             painter.drawEllipse(QPoint(x, track_y + track_h // 2), handle_r, handle_r)
 
-        # 数值标签（下限在左，上限在右）
-        painter.setPen(QColor("#cccccc"))
+        # 数值标签（下限在左上方，上限在右上方，小字体）
+        painter.setPen(QColor("#aaaaaa"))
         font = painter.font()
-        font.setPointSize(8)
+        font.setPointSize(7)
         painter.setFont(font)
-        low_text = f"{self._low/100:{self._fmt}}"
-        high_text = f"{self._high/100:{self._fmt}}"
-        painter.drawText(QRect(0, 0, margin * 2 + 20, h),
-                         Qt.AlignLeft | Qt.AlignVCenter, low_text)
-        painter.drawText(QRect(w - margin * 2 - 20, 0, margin * 2 + 20, h),
-                         Qt.AlignRight | Qt.AlignVCenter, high_text)
+        low_text = f"{self._low/100:{self._fmt}}{self._unit}"
+        high_text = f"{self._high/100:{self._fmt}}{self._unit}"
+        painter.drawText(QRect(margin, 0, 80, 12),
+                         Qt.AlignLeft | Qt.AlignTop, low_text)
+        painter.drawText(QRect(w - margin - 80, 0, 80, 12),
+                         Qt.AlignRight | Qt.AlignTop, high_text)
 
     def _value_to_x(self, value):
         ratio = (value - self._min) / (self._max - self._min)
-        return int(12 + ratio * (self.width() - 24))
+        return int(10 + ratio * (self.width() - 20))
 
     def _x_to_value(self, x):
-        ratio = max(0.0, min(1.0, (x - 12) / (self.width() - 24)))
+        ratio = max(0.0, min(1.0, (x - 10) / (self.width() - 20)))
         value = self._min + ratio * (self._max - self._min)
         return int(round(value / self._step) * self._step)
 
