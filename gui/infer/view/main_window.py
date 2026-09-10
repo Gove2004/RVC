@@ -96,10 +96,11 @@ class MainWindow(QMainWindow):
         # 过渡区域（RangeSlider 双滑块，从中心/宽度反推上下限，范围 0-50）
         _tc = experimental_config.protect_soft_threshold_hz
         _tw = experimental_config.protect_soft_width
-        self.exp_protect_transition_range.setRange(
-            max(0.0, _tc - _tw / 2),
-            min(50.0, _tc + _tw / 2),
-        )
+        _t_low = max(0.0, _tc - _tw / 2)
+        _t_high = min(50.0, _tc + _tw / 2)
+        self.exp_protect_transition_range.setRange(_t_low, _t_high)
+        if hasattr(self, 'exp_protect_transition_label'):
+            self.exp_protect_transition_label.setText(f'{_t_low:.0f}-{_t_high:.0f}Hz')
         # F0 清浊阈值（DoubleSlider，直接传物理值）
         self.exp_rmvpe_threshold_slider.setValue(experimental_config.rmvpe_threshold)
         self.exp_fcpe_threshold_slider.setValue(experimental_config.fcpe_confidence_threshold)
@@ -108,10 +109,14 @@ class MainWindow(QMainWindow):
             experimental_config.pitch_map_src_min,
             experimental_config.pitch_map_src_max,
         )
+        if hasattr(self, 'exp_pitch_map_src_label'):
+            self.exp_pitch_map_src_label.setText(f'{experimental_config.pitch_map_src_min:.0f}-{experimental_config.pitch_map_src_max:.0f}Hz')
         self.exp_pitch_map_dst_range.setRange(
             experimental_config.pitch_map_dst_min,
             experimental_config.pitch_map_dst_max,
         )
+        if hasattr(self, 'exp_pitch_map_dst_label'):
+            self.exp_pitch_map_dst_label.setText(f'{experimental_config.pitch_map_dst_min:.0f}-{experimental_config.pitch_map_dst_max:.0f}Hz')
         # 恢复完成后解除信号阻塞
         self.exp_protect_transition_range.blockSignals(False)
         self.exp_rmvpe_threshold_slider.blockSignals(False)
