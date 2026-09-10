@@ -45,7 +45,7 @@ class TestInferenceModuleImports(unittest.TestCase):
     def test_f0_extractor_import(self):
         from rvc.inference.f0_extractor import (
             F0Extractor, RMVPEExtractor, FCPEExtractor, create_f0_extractor,
-            postprocess_f0, apply_f0_break_protect,
+            postprocess_f0,
         )
         assert F0Extractor is not None
         assert issubclass(RMVPEExtractor, F0Extractor)
@@ -91,7 +91,6 @@ class TestConfigDefaults(unittest.TestCase):
         assert cfg.protect == 0.5
         assert cfg.f0_method == "rmvpe"
         assert cfg.rms_mix == 0.0
-        assert cfg.break_protect.enable is True
 
     def test_engine_config_defaults(self):
         from rvc.core.config import EngineConfig

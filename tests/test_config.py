@@ -3,7 +3,6 @@ import unittest
 
 from rvc.core.config import (
     AppConfig,
-    BreakProtectConfig,
     EngineConfig,
     InferenceConfig,
     ModelEntry,
@@ -19,22 +18,12 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertEqual(cfg.f0_method, "rmvpe")
         self.assertEqual(cfg.rms_mix, 0.0)
 
-    def test_nested_defaults(self):
-        cfg = InferenceConfig()
-        self.assertIsInstance(cfg.break_protect, BreakProtectConfig)
-        self.assertTrue(cfg.break_protect.enable)
-        self.assertEqual(cfg.break_protect.src_hz, 300.0)
-        self.assertEqual(cfg.break_protect.ratio, 0.4)
-        self.assertEqual(cfg.break_protect.knee, 0.12)
-
     def test_mutation(self):
         cfg = InferenceConfig()
         cfg.pitch = 12
         cfg.formant = 1.5
-        cfg.break_protect.enable = False
         self.assertEqual(cfg.pitch, 12)
         self.assertEqual(cfg.formant, 1.5)
-        self.assertFalse(cfg.break_protect.enable)
 
 
 class TestEngineConfig(unittest.TestCase):

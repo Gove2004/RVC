@@ -9,7 +9,6 @@ from rvc.inference.f0_extractor import (
     RMVPEExtractor,
     FCPEExtractor,
     postprocess_f0,
-    apply_f0_break_protect,
 )
 
 
@@ -33,7 +32,7 @@ class TestF0ExtractorABC(unittest.TestCase):
     def test_subclass_must_implement_clear_cuda_graph(self):
         """子类必须实现 clear_cuda_graph 方法。"""
         class IncompleteExtractor(F0Extractor):
-            def extract(self, audio, sr, f0_up_key, f0_proc=None):
+            def extract(self, audio, sr, f0_up_key):
                 pass
 
         with self.assertRaises(TypeError):
@@ -45,46 +44,18 @@ class TestPostprocessF0(unittest.TestCase):
 
     def test_basic(self):
         f0 = torch.tensor([100.0, 200.0, 0.0])
-        pitch, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu", f0_proc=None)
+        pitch, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
         assert pitch.shape == (3,)
         assert pitchf.shape == (3,)
         assert pitch.dtype == torch.long
 
     def test_pitch_shift(self):
         f0 = torch.tensor([100.0])
-        pitch_0, _ = postprocess_f0(f0, f0_up_key=0, device="cpu", f0_proc=None)
-        pitch_12, _ = postprocess_f0(f0, f0_up_key=12, device="cpu", f0_proc=None)
+        pitch_0, _ = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        pitch_12, _ = postprocess_f0(f0, f0_up_key=12, device="cpu")
         # 升高 12 半音，F0 应翻倍，离散 pitch 应增大
         assert pitch_12.item() > pitch_0.item()
 
-
-class TestBreakProtect(unittest.TestCase):
-    """破音保护函数测试。"""
-
-    def test_disabled_ratio_1(self):
-        """ratio=1 时不压缩。"""
-        f0 = torch.tensor([100.0, 500.0, 1000.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=1.0)
-        assert torch.allclose(result, f0)
-
-    def test_below_critical_unchanged(self):
-        """低于临界值不压缩。"""
-        f0 = torch.tensor([100.0, 200.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.5)
-        assert torch.allclose(result, f0)
-
-    def test_above_critical_compressed(self):
-        """高于临界值+膝宽应压缩。"""
-        f0 = torch.tensor([1000.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.5, knee=0.0)
-        # 压缩后应小于原值
-        assert result[0] < f0[0]
-
-    def test_zero_critical_no_op(self):
-        """critical_hz<=0 时原样返回。"""
-        f0 = torch.tensor([100.0, 200.0])
-        result = apply_f0_break_protect(f0, critical_hz=0.0)
-        assert torch.allclose(result, f0)
 
 
 class TestNormalizeF0(unittest.TestCase):

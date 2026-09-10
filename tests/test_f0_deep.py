@@ -3,9 +3,8 @@
 Covers:
 - _FilteredStream: prefix/contains filtering, empty text, flush, __getattr__
 - _normalize_f0_to_coarse: various F0 values, boundaries, UV
-- apply_f0_break_protect: thresholds, compression ratio, knee, boundaries
 - postprocess_f0: pitch shift, break protect toggle, numpy/tensor input
-- constants: FCPE_CONFIDENCE_THRESHOLD / BREAK_PROTECT_*
+- constants: FCPE_CONFIDENCE_THRESHOLD
 - create_f0_extractor: unknown method raises
 """
 import io
@@ -15,14 +14,10 @@ import unittest
 import torch
 
 from rvc.inference.f0_extractor import (
-    BREAK_PROTECT_DEFAULT_KNEE,
-    BREAK_PROTECT_DEFAULT_RATIO,
-    BREAK_PROTECT_DEFAULT_SRC_HZ,
     FCPE_CONFIDENCE_THRESHOLD,
     F0Extractor,
     _FilteredStream,
     _suppress_third_party_output,
-    apply_f0_break_protect,
     create_f0_extractor,
     postprocess_f0,
 )
@@ -193,87 +188,6 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
         self.assertLess(coarse[0].item(), 200)
 
 
-class TestApplyF0BreakProtect(unittest.TestCase):
-    """Tests for apply_f0_break_protect."""
-
-    def test_below_critical_unchanged(self):
-        """F0 below critical stays unchanged."""
-        f0 = torch.tensor([100.0, 200.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.4, knee=0.0)
-        self.assertTrue(torch.allclose(result, f0))
-
-    def test_above_critical_compressed(self):
-        """F0 above critical is compressed."""
-        f0 = torch.tensor([500.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.4, knee=0.0)
-        # y = C + ratio * (x - C) = 300 + 0.4 * 200 = 380
-        self.assertAlmostEqual(result[0].item(), 380.0, delta=1.0)
-
-    def test_ratio_one_unchanged(self):
-        """ratio=1 means no compression."""
-        f0 = torch.tensor([500.0, 1000.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=1.0, knee=0.0)
-        self.assertTrue(torch.allclose(result, f0))
-
-    def test_critical_zero_returns_input(self):
-        """critical_hz<=0 returns input unchanged."""
-        f0 = torch.tensor([500.0])
-        result = apply_f0_break_protect(f0, critical_hz=0.0, ratio=0.4, knee=0.0)
-        self.assertTrue(torch.allclose(result, f0))
-
-    def test_critical_negative_returns_input(self):
-        f0 = torch.tensor([500.0])
-        result = apply_f0_break_protect(f0, critical_hz=-100.0, ratio=0.4, knee=0.0)
-        self.assertTrue(torch.allclose(result, f0))
-
-    def test_none_input_returns_none(self):
-        result = apply_f0_break_protect(None, critical_hz=300.0)
-        self.assertIsNone(result)
-
-    def test_knee_smooths_transition(self):
-        """knee > 0 smooths the transition (value between hard knee and original)."""
-        f0 = torch.tensor([300.0])  # exactly at boundary
-        result_hard = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.4, knee=0.0)
-        result_soft = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.4, knee=0.12)
-        # knee smoothing should give value close to hard knee at boundary
-        self.assertAlmostEqual(result_hard[0].item(), result_soft[0].item(), delta=10.0)
-
-    def test_knee_zero_hard_knee(self):
-        """knee=0 is hard knee."""
-        f0 = torch.tensor([299.0, 301.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.5, knee=0.0)
-        # 299 < 300 -> unchanged 299
-        self.assertAlmostEqual(result[0].item(), 299.0, delta=0.1)
-        # 301 > 300 -> 300 + 0.5 * 1 = 300.5
-        self.assertAlmostEqual(result[1].item(), 300.5, delta=0.1)
-
-    def test_monotonic(self):
-        """Output is monotonically increasing."""
-        f0 = torch.linspace(100, 1000, 100)
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.4, knee=0.12)
-        diffs = torch.diff(result)
-        self.assertTrue(torch.all(diffs >= -0.01))  # allow tiny numerical error
-
-    def test_various_ratios(self):
-        for ratio in [0.1, 0.2, 0.3, 0.5, 0.7, 0.9]:
-            f0 = torch.tensor([600.0, 700.0])
-            result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=ratio, knee=0.0)
-            expected = 300 + ratio * 300
-            self.assertAlmostEqual(result[0].item(), expected, delta=1.0)
-
-    def test_various_criticals(self):
-        for critical in [200, 300, 400, 500]:
-            f0 = torch.tensor([100.0])  # below all criticals
-            result = apply_f0_break_protect(f0, critical_hz=float(critical), ratio=0.4, knee=0.0)
-            self.assertAlmostEqual(result[0].item(), 100.0, delta=0.1)
-
-    def test_batch_input(self):
-        f0 = torch.tensor([100.0, 300.0, 500.0, 1000.0])
-        result = apply_f0_break_protect(f0, critical_hz=300.0, ratio=0.4, knee=0.0)
-        self.assertEqual(result.shape, (4,))
-        self.assertAlmostEqual(result[0].item(), 100.0, delta=0.1)
-        self.assertAlmostEqual(result[2].item(), 380.0, delta=1.0)
-
 
 class TestPostprocessF0(unittest.TestCase):
     """Tests for postprocess_f0."""
@@ -305,27 +219,8 @@ class TestPostprocessF0(unittest.TestCase):
         self.assertEqual(pitchf.shape, (3,))
         self.assertAlmostEqual(pitchf[0].item(), 440.0, delta=1.0)
 
-    def test_break_protect_enabled(self):
-        """Break protect enabled compresses high pitch."""
-        f0 = torch.tensor([600.0, 700.0])
-        # f0_proc = (enabled, critical_hz, ratio, knee)
-        f0_proc = (True, 300.0, 0.4, 0.0)
-        _, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu", f0_proc=f0_proc)
-        # critical 300, 600 > 300, compressed = 300 + 0.4 * 300 = 420
-        self.assertAlmostEqual(pitchf[0].item(), 420.0, delta=2.0)
 
-    def test_break_protect_disabled(self):
-        """Break protect disabled does not compress."""
-        f0 = torch.tensor([600.0, 700.0])
-        f0_proc = (False, 300.0, 0.4, 0.0)
-        _, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu", f0_proc=f0_proc)
-        self.assertAlmostEqual(pitchf[0].item(), 600.0, delta=1.0)
 
-    def test_break_protect_none(self):
-        """f0_proc=None means no compression."""
-        f0 = torch.tensor([600.0, 700.0])
-        _, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu", f0_proc=None)
-        self.assertAlmostEqual(pitchf[0].item(), 600.0, delta=1.0)
 
     def test_output_shapes(self):
         f0 = torch.tensor([440.0, 500.0, 600.0])
@@ -350,21 +245,11 @@ class TestF0Constants(unittest.TestCase):
     def test_fcpe_confidence_threshold(self):
         self.assertEqual(FCPE_CONFIDENCE_THRESHOLD, 0.025)
 
-    def test_break_protect_default_src_hz(self):
-        self.assertEqual(BREAK_PROTECT_DEFAULT_SRC_HZ, 300.0)
 
-    def test_break_protect_default_ratio(self):
-        self.assertEqual(BREAK_PROTECT_DEFAULT_RATIO, 0.4)
 
-    def test_break_protect_default_knee(self):
-        self.assertEqual(BREAK_PROTECT_DEFAULT_KNEE, 0.12)
 
-    def test_ratio_between_0_and_1(self):
-        self.assertGreater(BREAK_PROTECT_DEFAULT_RATIO, 0)
-        self.assertLess(BREAK_PROTECT_DEFAULT_RATIO, 1)
 
-    def test_knee_positive(self):
-        self.assertGreater(BREAK_PROTECT_DEFAULT_KNEE, 0)
+
 
 
 class TestCreateF0Extractor(unittest.TestCase):

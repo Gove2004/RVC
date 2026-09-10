@@ -108,10 +108,6 @@ class InferencePipeline:
         factor = pow(2, formant_factor / 12)
         return_length2_val = int(math.ceil(return_length * factor))
 
-        # f0_proc = (开关, 源临界Hz, 压缩比, 膝宽) — 全部从 config 读取
-        bp = config.break_protect
-        f0_proc = (bp.enable, bp.src_hz, bp.ratio, bp.knee)
-
         # 特征提取：HuBERT → 辅音保护克隆
         feats = extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
         feats0 = clone_protect_source(feats, self.use_f0, config.protect)
@@ -125,7 +121,7 @@ class InferencePipeline:
                 config.f0_method,
                 self.pitch_cache, self.pitchf_cache,
                 self.device, self.is_half,
-                self.inference_cache, f0_proc,
+                self.inference_cache,
             )
         else:
             cache_pitch = cache_pitchf = None

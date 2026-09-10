@@ -107,8 +107,6 @@ class TestStateSerialization(unittest.TestCase):
         self.assertEqual(state.inference.protect, state2.inference.protect)
         self.assertEqual(state.inference.f0_method, state2.inference.f0_method)
         self.assertEqual(state.inference.rms_mix, state2.inference.rms_mix)
-        self.assertEqual(state.inference.break_protect.enable, state2.inference.break_protect.enable)
-        self.assertEqual(state.inference.break_protect.src_hz, state2.inference.break_protect.src_hz)
         self.assertEqual(state.engine.block_time, state2.engine.block_time)
         self.assertEqual(state.engine.crossfade_time, state2.engine.crossfade_time)
         self.assertEqual(state.engine.extra_time, state2.engine.extra_time)
@@ -120,8 +118,6 @@ class TestStateSerialization(unittest.TestCase):
         state.inference.protect = 0.3
         state.inference.f0_method = "fcpe"
         state.inference.rms_mix = 0.2
-        state.inference.break_protect.enable = False
-        state.inference.break_protect.src_hz = 500.0
         state.engine.block_time = 0.5
         state.engine.crossfade_time = 0.1
         state.engine.extra_time = 1.0
@@ -131,8 +127,6 @@ class TestStateSerialization(unittest.TestCase):
         self.assertEqual(state2.inference.protect, 0.3)
         self.assertEqual(state2.inference.f0_method, "fcpe")
         self.assertEqual(state2.inference.rms_mix, 0.2)
-        self.assertFalse(state2.inference.break_protect.enable)
-        self.assertEqual(state2.inference.break_protect.src_hz, 500.0)
         self.assertEqual(state2.engine.block_time, 0.5)
         self.assertEqual(state2.engine.crossfade_time, 0.1)
         self.assertEqual(state2.engine.extra_time, 1.0)
@@ -146,7 +140,6 @@ class TestStateSerialization(unittest.TestCase):
         self.assertIn("engine", d)
         self.assertIn("protect", d["inference"])
         self.assertIn("f0_method", d["inference"])
-        self.assertIn("break_protect", d["inference"])
         self.assertIn("block_time", d["engine"])
         self.assertIn("active_model", d)
 

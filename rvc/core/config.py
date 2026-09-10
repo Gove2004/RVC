@@ -5,21 +5,12 @@ HUBERT_DEFAULT = "chinese"
 
 
 @dataclass
-class BreakProtectConfig:
-    enable: bool = True
-    src_hz: float = 300.0
-    ratio: float = 0.4
-    knee: float = 0.12
-
-
-@dataclass
 class InferenceConfig:
     pitch: int = 0
     formant: float = 0.0
     protect: float = 0.5
     f0_method: str = "rmvpe"
     rms_mix: float = 0.0
-    break_protect: BreakProtectConfig = field(default_factory=BreakProtectConfig)
 
 
 @dataclass

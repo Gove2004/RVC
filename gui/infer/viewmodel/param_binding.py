@@ -30,8 +30,6 @@ BINDINGS = [
     ("inference.protect", "protect_slider", X100, 0.5),
     ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
     ("inference.rms_mix", "rms_mix_slider", X100, 0.0),
-    ("inference.break_protect.enable", "break_enable_checkbox", CHECK, True),
-    ("inference.break_protect.src_hz", "break_src_hz_slider", X100, 300.0),
     # ── 引擎参数（engine.*）──
     ("engine.block_time", "block_time_slider", X100, 0.25),
     ("engine.crossfade_time", "crossfade_slider", X100, 0.05),
@@ -46,7 +44,7 @@ BINDINGS = [
 ]
 
 # 需要按控件步长量化的字段：字段路径 → 量化步长
-QUANTIZE = {"inference.break_protect.src_hz": 5.0}
+QUANTIZE = {}
 
 
 def _get_nested(obj, path: str):
@@ -95,8 +93,6 @@ _OLD_KEY_MAPPING = {
     "protect": "inference.protect",
     "f0": "inference.f0_method",
     "rms": "inference.rms_mix",
-    "brk_en": "inference.break_protect.enable",
-    "brk_hz": "inference.break_protect.src_hz",
     "bl": "engine.block_time",
     "cf": "engine.crossfade_time",
     "ex": "engine.extra_time",

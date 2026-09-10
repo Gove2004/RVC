@@ -153,12 +153,6 @@ class TestInferenceConfigDefaults(unittest.TestCase):
         config = InferenceConfig()
         self.assertEqual(config.f0_method, "rmvpe")
 
-    def test_break_protect_defaults(self):
-        config = InferenceConfig()
-        self.assertTrue(config.break_protect.enable)
-        self.assertEqual(config.break_protect.src_hz, 300.0)
-        self.assertEqual(config.break_protect.ratio, 0.4)
-        self.assertEqual(config.break_protect.knee, 0.12)
 
 class TestInferencePipelineFormantCalculation(unittest.TestCase):
     """共振峰参数计算逻辑测试（从 _infer_impl 提取的纯计算逻辑）。"""

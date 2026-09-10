@@ -1,7 +1,7 @@
 """配置体系深度测试 — 所有 dataclass 的默认值、边界、序列化、继承。
 
 覆盖：
-- BreakProtectConfig / InferenceConfig / EngineConfig
+- InferenceConfig / EngineConfig
 - ModelEntry / AppConfig / OfflineConfig / TrainConfig
 - 默认值验证、字段覆盖、嵌套配置、继承关系
 """
@@ -11,7 +11,6 @@ from dataclasses import asdict, fields, is_dataclass
 
 from rvc.core.config import (
     AppConfig,
-    BreakProtectConfig,
     EngineConfig,
     HUBERT_DEFAULT,
     InferenceConfig,
@@ -20,65 +19,6 @@ from rvc.core.config import (
     TrainConfig,
 )
 
-
-class TestBreakProtectConfig(unittest.TestCase):
-    """BreakProtectConfig 断点保护配置测试。"""
-
-    def test_default_values(self):
-        cfg = BreakProtectConfig()
-        self.assertTrue(cfg.enable)
-        self.assertAlmostEqual(cfg.src_hz, 300.0)
-        self.assertAlmostEqual(cfg.ratio, 0.4)
-        self.assertAlmostEqual(cfg.knee, 0.12)
-
-    def test_custom_values(self):
-        cfg = BreakProtectConfig(enable=False, src_hz=500.0, ratio=0.6, knee=0.2)
-        self.assertFalse(cfg.enable)
-        self.assertAlmostEqual(cfg.src_hz, 500.0)
-        self.assertAlmostEqual(cfg.ratio, 0.6)
-        self.assertAlmostEqual(cfg.knee, 0.2)
-
-    def test_is_dataclass(self):
-        self.assertTrue(is_dataclass(BreakProtectConfig()))
-
-    def test_field_count(self):
-        self.assertEqual(len(fields(BreakProtectConfig)), 4)
-
-    def test_asdict(self):
-        cfg = BreakProtectConfig()
-        d = asdict(cfg)
-        self.assertEqual(set(d.keys()), {"enable", "src_hz", "ratio", "knee"})
-
-    def test_equality(self):
-        self.assertEqual(BreakProtectConfig(), BreakProtectConfig())
-        self.assertNotEqual(BreakProtectConfig(), BreakProtectConfig(enable=False))
-
-    def test_copy(self):
-        cfg = BreakProtectConfig(src_hz=400.0)
-        cfg2 = copy.copy(cfg)
-        self.assertEqual(cfg, cfg2)
-        cfg2.src_hz = 500.0
-        self.assertNotEqual(cfg.src_hz, cfg2.src_hz)
-
-    def test_deepcopy_independent(self):
-        cfg = BreakProtectConfig()
-        cfg2 = copy.deepcopy(cfg)
-        cfg2.enable = False
-        self.assertTrue(cfg.enable)
-
-    def test_zero_values(self):
-        cfg = BreakProtectConfig(enable=False, src_hz=0.0, ratio=0.0, knee=0.0)
-        self.assertFalse(cfg.enable)
-        self.assertAlmostEqual(cfg.src_hz, 0.0)
-
-    def test_negative_values_accepted(self):
-        """dataclass 不做校验，负值也能设置（由使用方校验）。"""
-        cfg = BreakProtectConfig(src_hz=-100.0, ratio=-0.5)
-        self.assertAlmostEqual(cfg.src_hz, -100.0)
-
-    def test_large_values(self):
-        cfg = BreakProtectConfig(src_hz=10000.0, ratio=100.0, knee=10.0)
-        self.assertAlmostEqual(cfg.src_hz, 10000.0)
 
 
 class TestInferenceConfig(unittest.TestCase):
@@ -92,24 +32,11 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertEqual(cfg.f0_method, "rmvpe")
         self.assertAlmostEqual(cfg.rms_mix, 0.0)
 
-    def test_nested_break_protect_default(self):
-        cfg = InferenceConfig()
-        self.assertIsInstance(cfg.break_protect, BreakProtectConfig)
-        self.assertTrue(cfg.break_protect.enable)
 
-    def test_custom_nested_config(self):
-        bp = BreakProtectConfig(enable=False, src_hz=400.0)
-        cfg = InferenceConfig(break_protect=bp)
-        self.assertFalse(cfg.break_protect.enable)
-        self.assertAlmostEqual(cfg.break_protect.src_hz, 400.0)
 
     def test_field_count(self):
-        self.assertEqual(len(fields(InferenceConfig)), 6)
+        self.assertEqual(len(fields(InferenceConfig)), 5)
 
-    def test_asdict_nested(self):
-        d = asdict(InferenceConfig())
-        self.assertIn("break_protect", d)
-        self.assertIsInstance(d["break_protect"], dict)
 
     def test_pitch_negative(self):
         cfg = InferenceConfig(pitch=-12)
@@ -152,17 +79,8 @@ class TestInferenceConfig(unittest.TestCase):
         self.assertEqual(InferenceConfig(), InferenceConfig())
         self.assertNotEqual(InferenceConfig(), InferenceConfig(pitch=1))
 
-    def test_nested_equality(self):
-        cfg1 = InferenceConfig()
-        cfg2 = InferenceConfig()
-        cfg2.break_protect.enable = False
-        self.assertNotEqual(cfg1, cfg2)
 
-    def test_deepcopy_nested_independent(self):
-        cfg = InferenceConfig()
-        cfg2 = copy.deepcopy(cfg)
-        cfg2.break_protect.enable = False
-        self.assertTrue(cfg.break_protect.enable)
+
 
 
 class TestEngineConfig(unittest.TestCase):
@@ -299,7 +217,6 @@ class TestOfflineConfig(unittest.TestCase):
         cfg = OfflineConfig()
         self.assertEqual(cfg.pitch, 0)
         self.assertEqual(cfg.f0_method, "rmvpe")
-        self.assertIsInstance(cfg.break_protect, BreakProtectConfig)
 
     def test_offline_specific_defaults(self):
         cfg = OfflineConfig()
@@ -321,14 +238,13 @@ class TestOfflineConfig(unittest.TestCase):
         self.assertTrue(issubclass(OfflineConfig, InferenceConfig))
 
     def test_field_count_includes_inherited(self):
-        """OfflineConfig 字段 = InferenceConfig 6 个 + 4 个特有 = 10 个。"""
-        self.assertEqual(len(fields(OfflineConfig)), 10)
+        """OfflineConfig 字段 = InferenceConfig 5 个 + 4 个特有 = 9 个。"""
+        self.assertEqual(len(fields(OfflineConfig)), 9)
 
     def test_asdict_includes_all(self):
         d = asdict(OfflineConfig())
         self.assertIn("pitch", d)  # 继承的
         self.assertIn("input_path", d)  # 特有的
-        self.assertIn("break_protect", d)  # 嵌套的
 
     def test_equality(self):
         self.assertEqual(OfflineConfig(), OfflineConfig())

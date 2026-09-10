@@ -16,8 +16,6 @@ OLD_FORMAT = {
     "protect": 0.8,
     "f0": "rmvpe",
     "rms": 0.5,
-    "brk_en": True,
-    "brk_hz": 260.0,
     "bl": 0.1,
     "cf": 0.15,
     "ex": 5.0,
@@ -35,7 +33,6 @@ NEW_FORMAT = {
         "protect": 0.8,
         "f0_method": "rmvpe",
         "rms_mix": 0.5,
-        "break_protect": {"enable": True, "src_hz": 260.0},
     },
     "engine": {
         "block_time": 0.1,
@@ -58,8 +55,6 @@ class TestMigrateOldFormat(unittest.TestCase):
         self.assertEqual(result["inference"]["protect"], 0.8)
         self.assertEqual(result["inference"]["f0_method"], "rmvpe")
         self.assertEqual(result["inference"]["rms_mix"], 0.5)
-        self.assertEqual(result["inference"]["break_protect"]["enable"], True)
-        self.assertEqual(result["inference"]["break_protect"]["src_hz"], 260.0)
         self.assertEqual(result["engine"]["block_time"], 0.1)
         self.assertEqual(result["engine"]["crossfade_time"], 0.15)
         self.assertEqual(result["engine"]["extra_time"], 5.0)
@@ -70,7 +65,6 @@ class TestMigrateOldFormat(unittest.TestCase):
         self.assertEqual(result["engine"]["output2_device"], "扬声器 (USB Audio Device)")
         self.assertEqual(result["active_model"], "E:/Projects/Python/RVC/assets/models/test.pth")
         # 旧短键应该被移除
-        self.assertNotIn("brk_hz", result)
         self.assertNotIn("bl", result)
 
     def test_new_format_not_migrated(self):
@@ -102,8 +96,6 @@ class TestStateFromDict(unittest.TestCase):
         self.assertEqual(cfg.inference.protect, 0.8)
         self.assertEqual(cfg.inference.f0_method, "rmvpe")
         self.assertEqual(cfg.inference.rms_mix, 0.5)
-        self.assertTrue(cfg.inference.break_protect.enable)
-        self.assertEqual(cfg.inference.break_protect.src_hz, 260.0)
         self.assertEqual(cfg.engine.block_time, 0.1)
         self.assertEqual(cfg.engine.crossfade_time, 0.15)
         self.assertEqual(cfg.engine.extra_time, 5.0)
@@ -127,8 +119,6 @@ class TestStateFromDict(unittest.TestCase):
         self.assertEqual(cfg.inference.protect, 0.5)
         self.assertEqual(cfg.inference.f0_method, "rmvpe")
         self.assertEqual(cfg.inference.rms_mix, 0.0)
-        self.assertTrue(cfg.inference.break_protect.enable)
-        self.assertEqual(cfg.inference.break_protect.src_hz, 300.0)
         self.assertEqual(cfg.engine.block_time, 0.25)
         self.assertEqual(cfg.engine.crossfade_time, 0.05)
         self.assertEqual(cfg.engine.extra_time, 2.5)
@@ -152,7 +142,6 @@ class TestStateToDict(unittest.TestCase):
         self.assertIn("inference", result)
         self.assertIn("engine", result)
         self.assertIn("active_model", result)
-        self.assertIn("break_protect", result["inference"])
         # 不应有旧短键
         self.assertNotIn("bl", result)
 
@@ -175,8 +164,6 @@ class TestRoundTripConsistency(unittest.TestCase):
         self.assertEqual(cfg1.inference.protect, cfg2.inference.protect)
         self.assertEqual(cfg1.inference.f0_method, cfg2.inference.f0_method)
         self.assertEqual(cfg1.inference.rms_mix, cfg2.inference.rms_mix)
-        self.assertEqual(cfg1.inference.break_protect.enable, cfg2.inference.break_protect.enable)
-        self.assertEqual(cfg1.inference.break_protect.src_hz, cfg2.inference.break_protect.src_hz)
         self.assertEqual(cfg1.engine.block_time, cfg2.engine.block_time)
         self.assertEqual(cfg1.engine.crossfade_time, cfg2.engine.crossfade_time)
         self.assertEqual(cfg1.engine.extra_time, cfg2.engine.extra_time)

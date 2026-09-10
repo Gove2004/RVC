@@ -214,7 +214,7 @@ gui/
       workers.py            # 训练工作线程（QThread）
 rvc/                        # 核心引擎（严禁 import gui 或 PySide6）
   core/                     # 核心配置与异常
-    config.py               # 统一配置体系（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry/BreakProtectConfig）
+    config.py               # 统一配置体系（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry）
     errors.py               # 统一异常体系（RVCError 基类 + 8 种具体异常）
     experimental.py         # 实验性功能开关与参数
   audio/                    # 音频处理层
@@ -376,7 +376,7 @@ A: 先看素材真实带宽。素材 bw99（99.9% 累积能量截止频率）<16
   - `controller/` = 业务逻辑 + 状态管理（main_controller, model/device/offline manager, workers）
   - `viewmodel/` = GUI 状态 ↔ 核心配置绑定（param_binding）
 - 运行时设备/路径配置来自 `rvc.runtime`；GUI 状态持久化来自 `gui.configs`
-- 配置体系统一为 `rvc/core/config.py` 的 dataclass（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry/BreakProtectConfig），新增参数 = dataclass 字段 + param_binding 绑定 + Tab 控件
+- 配置体系统一为 `rvc/core/config.py` 的 dataclass（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry），新增参数 = dataclass 字段 + param_binding 绑定 + Tab 控件
 - InferencePipeline 无状态化：`infer(input_wav, config: InferenceConfig, ...)`，参数每次传入，pipeline 只持缓存（pitch_cache/resample_kernel）；实时/离线统一走 `InferenceRunner.process_block()`
 - 模型生命周期统一由 `ModelSessionManager` 管理（HuBERT/Synthesizer/F0 提取器缓存）
 - RealtimeEngine 门面模式：委托给 `AudioStreamManager`（设备/流）+ `InferenceRunner`（分块推理/效果器）

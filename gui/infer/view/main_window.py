@@ -203,8 +203,6 @@ class MainWindow(QMainWindow):
         """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
         self.protect_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
         self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
-        self.break_src_hz_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
-        self.break_enable_checkbox.toggled.connect(lambda _: self._apply_runtime_params())
         self.f0_rmvp_btn.toggled.connect(lambda _: self._apply_runtime_params())
 
     def _update_timer(self):
@@ -246,8 +244,6 @@ class MainWindow(QMainWindow):
             protect=inf.protect,
             f0_method=inf.f0_method,
             rms_mix=inf.rms_mix,
-            break_enable=inf.break_protect.enable,
-            break_src_hz=inf.break_protect.src_hz,
         )
 
     # ── UI 状态管理 ──

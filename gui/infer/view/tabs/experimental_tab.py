@@ -78,17 +78,7 @@ def build_experimental_tab(win):
 
     root.addWidget(group1)
 
-    # ── 2. 破音保护 ──
-    win.break_enable_checkbox = QCheckBox("启用")
-    group2, g2 = _group_with_toggle("破音保护", win.break_enable_checkbox)
-    r = 0
-    win.break_src_hz_slider = _slrow(win, "break_src_hz_slider", 200.0, 400.0, 5.0, 300.0, fmt=".0f", unit="Hz", label_w=45)
-    g2.addWidget(QLabel("破音临界"), r, 0)
-    g2.addWidget(win.break_src_hz_slider, r, 1)
-    g2.addWidget(win.break_src_hz_label, r, 2); r += 1
-    root.addWidget(group2)
-
-    # ── 3. 半音尺度音域映射（实验功能，默认关闭） ──
+    # ── 2. 半音尺度音域映射（实验功能，默认关闭） ──
     win.exp_pitch_map_checkbox = QCheckBox("启用")
     win.exp_pitch_map_checkbox.setChecked(experimental_config.pitch_map_enabled)
     win.exp_pitch_map_checkbox.stateChanged.connect(
@@ -165,7 +155,7 @@ def build_experimental_tab(win):
 
     root.addWidget(group_pm)
 
-    # ── 4. F0 清浊阈值 ──
+    # ── 3. F0 清浊阈值 ──
     win.exp_rmvpe_threshold_slider = _slrow(
         win, "exp_rmvpe_threshold_slider", 0.01, 0.10, 0.01,
         experimental_config.rmvpe_threshold, fmt=".2f", label_w=45,
