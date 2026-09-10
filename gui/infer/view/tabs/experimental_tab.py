@@ -98,7 +98,7 @@ def build_experimental_tab(win):
     r = 0
 
     # 音调大小（全局 pitch，关闭音域映射时作为固定半音偏移生效）
-    win.pitch_slider = _slrow(win, "pitch_slider", -16, 16, 1, 0, fmt="+d")
+    win.pitch_slider = _slrow(win, "pitch_slider", -16, 16, 1, 0, fmt="+0.0f")
     gpm.addWidget(QLabel("音调大小"), r, 0)
     gpm.addWidget(win.pitch_slider, r, 1)
     gpm.addWidget(win.pitch_label, r, 2); r += 1
