@@ -21,6 +21,75 @@ PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 # 0.03 是 RMVPE 官方推荐值，与 FCPE 的 0.025 同档（底噪全判 uv）
 RMVPE_THRESHOLD = 0.03
 
+# MIDI 参考：A4 = 440Hz = MIDI 69
+MIDI_REF_FREQ = 440.0
+MIDI_REF_NOTE = 69
+
+
+def hz_to_midi(freq, xp=None):
+    """Hz → MIDI 半音（A4=440Hz = MIDI 69）。自动适配 torch/numpy。"""
+    if xp is None:
+        xp = torch if torch.is_tensor(freq) else np
+    if xp is torch and not torch.is_tensor(freq):
+        freq = torch.tensor(freq, dtype=torch.float32)
+    return 12.0 * xp.log2(freq / MIDI_REF_FREQ) + MIDI_REF_NOTE
+
+
+def midi_to_hz(midi, xp=None):
+    """MIDI 半音 → Hz。自动适配 torch/numpy。"""
+    if xp is None:
+        xp = torch if torch.is_tensor(midi) else np
+    if xp is torch and not torch.is_tensor(midi):
+        midi = torch.tensor(midi, dtype=torch.float32)
+    return MIDI_REF_FREQ * (2.0 ** ((midi - MIDI_REF_NOTE) / 12.0))
+
+
+def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
+    """半音尺度线性音域映射（保持音程不变，唱歌不跑调）。
+
+    在 MIDI 半音尺度上做线性映射，而不是 Hz 尺度。
+    Hz 尺度线性映射 y=kx+b（b≠0）会破坏半音音程，导致跑调。
+    半音尺度映射 y_semi = k*x_semi + b 保持音程比例，旋律不变形。
+
+    Args:
+        f0: 输入 F0（torch.Tensor 或 numpy.ndarray，单位 Hz），0=清音/UV
+        src_min/src_max: 原声音域（Hz）
+        dst_min/dst_max: 目标音域（Hz）
+
+    Returns:
+        映射后的 F0，类型与输入一致，清音保持 0
+    """
+    if torch.is_tensor(f0):
+        xp = torch
+        uv_mask = f0 <= 0
+        f0_safe = xp.clamp(f0, min=1e-6)
+    else:
+        xp = np
+        uv_mask = f0 <= 0
+        f0_safe = xp.clip(f0, 1e-6, None)
+
+    # Hz → MIDI 半音
+    src_min_m = hz_to_midi(src_min, xp)
+    src_max_m = hz_to_midi(src_max, xp)
+    dst_min_m = hz_to_midi(dst_min, xp)
+    dst_max_m = hz_to_midi(dst_max, xp)
+    f0_m = hz_to_midi(f0_safe, xp)
+
+    # 半音尺度线性映射
+    src_range = src_max_m - src_min_m
+    if src_range < 1e-6:
+        return f0  # 原声音域无效，原样返回
+    ratio = (f0_m - src_min_m) / src_range
+    out_m = dst_min_m + ratio * (dst_max_m - dst_min_m)
+
+    # 两端钳制到目标音域
+    out_m = xp.clamp(out_m, dst_min_m, dst_max_m) if xp is torch else xp.clip(out_m, dst_min_m, dst_max_m)
+
+    # MIDI → Hz
+    out = midi_to_hz(out_m, xp)
+    out[uv_mask] = 0
+    return out
+
 
 def _f0_to_mel(f0, xp):
     """将 F0(Hz) 转换为 Mel 频率（xp = numpy 或 torch）。"""

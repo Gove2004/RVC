@@ -16,6 +16,14 @@ class ExperimentalConfig:
         # ── F0 提取清浊判定阈值 ──
         self.rmvpe_threshold = 0.03  # RMVPE thred，越高越容易判清音（UV）
         self.fcpe_confidence_threshold = 0.025  # FCPE confidence，越高越容易判清音（UV）
+        # ── 半音尺度音域映射（实验功能，默认关闭） ──
+        # 把原声音域线性映射到目标音域（在 MIDI 半音尺度上，保持音程不变）
+        # 替代固定半音偏移，避免区间膨胀（低音太低/高音太高）
+        self.pitch_map_enabled = False
+        self.pitch_map_src_min = 100.0   # 原声音域下限 (Hz)
+        self.pitch_map_src_max = 200.0   # 原声音域上限 (Hz)
+        self.pitch_map_dst_min = 200.0   # 目标音域下限 (Hz)
+        self.pitch_map_dst_max = 400.0   # 目标音域上限 (Hz)
 
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""
@@ -25,6 +33,11 @@ class ExperimentalConfig:
             "protect_soft_width": self.protect_soft_width,
             "rmvpe_threshold": self.rmvpe_threshold,
             "fcpe_confidence_threshold": self.fcpe_confidence_threshold,
+            "pitch_map_enabled": self.pitch_map_enabled,
+            "pitch_map_src_min": self.pitch_map_src_min,
+            "pitch_map_src_max": self.pitch_map_src_max,
+            "pitch_map_dst_min": self.pitch_map_dst_min,
+            "pitch_map_dst_max": self.pitch_map_dst_max,
         }
 
     def from_dict(self, data: dict) -> None:
@@ -39,6 +52,16 @@ class ExperimentalConfig:
             self.rmvpe_threshold = float(data["rmvpe_threshold"])
         if "fcpe_confidence_threshold" in data:
             self.fcpe_confidence_threshold = float(data["fcpe_confidence_threshold"])
+        if "pitch_map_enabled" in data:
+            self.pitch_map_enabled = bool(data["pitch_map_enabled"])
+        if "pitch_map_src_min" in data:
+            self.pitch_map_src_min = float(data["pitch_map_src_min"])
+        if "pitch_map_src_max" in data:
+            self.pitch_map_src_max = float(data["pitch_map_src_max"])
+        if "pitch_map_dst_min" in data:
+            self.pitch_map_dst_min = float(data["pitch_map_dst_min"])
+        if "pitch_map_dst_max" in data:
+            self.pitch_map_dst_max = float(data["pitch_map_dst_max"])
 
 
 # 全局单例，GUI 和推理代码共用

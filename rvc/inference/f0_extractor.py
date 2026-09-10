@@ -12,7 +12,7 @@ from rvc.runtime.paths import RMVPE_PATH
 from rvc.inference.cuda_graph import run_cuda_graph
 from rvc.runtime.cuda_graph import cuda_graph_enabled
 from rvc.models.rmvpe.constants import F0_MIN, F0_MAX
-from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD
+from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD, apply_pitch_map
 from rvc.core.experimental import experimental_config
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,16 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
+    # 半音尺度音域映射（实验功能，默认关闭）：
+    # 在 MIDI 半音尺度上做线性映射，保持音程不变，替代固定半音偏移避免区间膨胀。
+    if experimental_config.pitch_map_enabled:
+        f0 = apply_pitch_map(
+            f0,
+            experimental_config.pitch_map_src_min,
+            experimental_config.pitch_map_src_max,
+            experimental_config.pitch_map_dst_min,
+            experimental_config.pitch_map_dst_max,
+        )
     # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz], 压缩比, 膝宽)。
     if f0_proc and f0_proc[0]:
         critical = f0_proc[1] * pow(2, f0_up_key / 12)

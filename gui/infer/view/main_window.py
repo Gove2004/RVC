@@ -94,6 +94,12 @@ class MainWindow(QMainWindow):
         self.exp_protect_soft_checkbox.setChecked(experimental_config.protect_soft_enabled)
         self.exp_protect_threshold_slider.setValue(int(round(experimental_config.protect_soft_threshold_hz * 100)))
         self.exp_protect_width_slider.setValue(int(round(experimental_config.protect_soft_width * 100)))
+        # 音域映射（步长 5Hz，直接设值）
+        self.exp_pitch_map_checkbox.setChecked(experimental_config.pitch_map_enabled)
+        self.exp_pitch_map_src_min_slider.setValue(int(round(experimental_config.pitch_map_src_min)))
+        self.exp_pitch_map_src_max_slider.setValue(int(round(experimental_config.pitch_map_src_max)))
+        self.exp_pitch_map_dst_min_slider.setValue(int(round(experimental_config.pitch_map_dst_min)))
+        self.exp_pitch_map_dst_max_slider.setValue(int(round(experimental_config.pitch_map_dst_max)))
 
     def _save_gui_config(self) -> None:
         """保存当前 GUI 状态到持久化配置（嵌套结构 + 实验参数）。"""
