@@ -207,15 +207,15 @@ class TestPostprocessF0(unittest.TestCase):
         """identity mapping（src=dst）时 pitch 不变。"""
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        coarse, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        coarse, pitchf = postprocess_f0(f0, device="cpu")
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_f0_up_key_ignored(self):
         """f0_up_key 已弃用，不影响输出。"""
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        _, pitchf_0 = postprocess_f0(f0, f0_up_key=0, device="cpu")
-        _, pitchf_12 = postprocess_f0(f0, f0_up_key=12, device="cpu")
+        _, pitchf_0 = postprocess_f0(f0, device="cpu")
+        _, pitchf_12 = postprocess_f0(f0, device="cpu")
         self.assertTrue(torch.allclose(pitchf_0, pitchf_12, atol=1.0))
 
     def test_numpy_input(self):
@@ -223,27 +223,27 @@ class TestPostprocessF0(unittest.TestCase):
         self._identity_config()
         import numpy as np
         f0 = np.array([200.0, 300.0, 400.0], dtype=np.float32)
-        coarse, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        coarse, pitchf = postprocess_f0(f0, device="cpu")
         self.assertEqual(pitchf.shape, (3,))
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_output_shapes(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0, 400.0])
-        coarse, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        coarse, pitchf = postprocess_f0(f0, device="cpu")
         self.assertEqual(coarse.shape, (3,))
         self.assertEqual(pitchf.shape, (3,))
 
     def test_coarse_dtype_long(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        coarse, _ = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        coarse, _ = postprocess_f0(f0, device="cpu")
         self.assertEqual(coarse.dtype, torch.long)
 
     def test_pitchf_dtype_float(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        _, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        _, pitchf = postprocess_f0(f0, device="cpu")
         self.assertEqual(pitchf.dtype, torch.float32)
 
 

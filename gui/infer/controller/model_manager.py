@@ -31,13 +31,12 @@ class ModelManager:
         self,
         name: str = "",
         pth: str = "",
-        pitch: int = 0,
         gender: float = 0.0,
         hubert: str = HUBERT_DEFAULT
     ) -> ModelCard:
         """添加模型卡片到列表"""
         card = ModelCard(
-            name, pth, pitch=pitch,
+            name, pth,
             gender=gender,
             hubert=hubert
         )

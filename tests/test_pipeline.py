@@ -118,7 +118,7 @@ class TestInferencePipelineStatelessDesign(unittest.TestCase):
 
     def test_no_runtime_param_attrs(self):
         """pipeline 不持有运行时参数（pitch/formant/protect 等）。"""
-        for attr in ("pitch", "formant", "protect", "rms_mix", "f0_method"):
+        for attr in ("formant", "protect", "rms_mix", "f0_method"):
             self.assertFalse(hasattr(self.pipeline, attr),
                              f"pipeline 不应持有 {attr}（无状态设计）")
 
@@ -135,7 +135,6 @@ class TestInferenceConfigDefaults(unittest.TestCase):
 
     def test_default_pitch(self):
         config = InferenceConfig()
-        self.assertEqual(config.pitch, 0)
 
     def test_default_formant(self):
         config = InferenceConfig()

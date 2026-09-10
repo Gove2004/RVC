@@ -78,7 +78,6 @@ class OfflineManager:
                 input_path=self.window.offline_input.text().strip(),
                 output_path=self.window.offline_output.text().strip(),
                 model_path=card.pth_edit.text().strip(),
-                pitch=inf.pitch,
                 formant=inf.formant,
                 protect=inf.protect,
                 f0_method=inf.f0_method,

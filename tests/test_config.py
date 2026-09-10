@@ -12,7 +12,6 @@ from rvc.core.config import (
 class TestInferenceConfig(unittest.TestCase):
     def test_defaults(self):
         cfg = InferenceConfig()
-        self.assertEqual(cfg.pitch, 0)
         self.assertEqual(cfg.formant, 0.0)
         self.assertEqual(cfg.protect, 0.5)
         self.assertEqual(cfg.f0_method, "rmvpe")
@@ -20,9 +19,7 @@ class TestInferenceConfig(unittest.TestCase):
 
     def test_mutation(self):
         cfg = InferenceConfig()
-        cfg.pitch = 12
         cfg.formant = 1.5
-        self.assertEqual(cfg.pitch, 12)
         self.assertEqual(cfg.formant, 1.5)
 
 
@@ -46,10 +43,8 @@ class TestAppConfig(unittest.TestCase):
 
     def test_nested_mutation(self):
         cfg = AppConfig()
-        cfg.inference.pitch = 6
         cfg.engine.block_time = 0.5
         cfg.active_model = "/path/to/model.pth"
-        self.assertEqual(cfg.inference.pitch, 6)
         self.assertEqual(cfg.engine.block_time, 0.5)
         self.assertEqual(cfg.active_model, "/path/to/model.pth")
 
@@ -59,7 +54,6 @@ class TestModelEntry(unittest.TestCase):
         m = ModelEntry()
         self.assertEqual(m.name, "")
         self.assertEqual(m.pth, "")
-        self.assertEqual(m.pitch, 0)
         self.assertEqual(m.formant, 0.0)
         self.assertEqual(m.hubert, "chinese")
 

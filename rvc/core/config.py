@@ -6,7 +6,6 @@ HUBERT_DEFAULT = "chinese"
 
 @dataclass
 class InferenceConfig:
-    pitch: int = 0
     formant: float = 0.0
     protect: float = 0.5
     f0_method: str = "rmvpe"
@@ -30,7 +29,6 @@ class EngineConfig:
 class ModelEntry:
     name: str = ""
     pth: str = ""
-    pitch: int = 0
     formant: float = 0.0
     hubert: str = "chinese"
 

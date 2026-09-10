@@ -44,7 +44,7 @@ class TestPostprocessF0(unittest.TestCase):
 
     def test_basic(self):
         f0 = torch.tensor([100.0, 200.0, 0.0])
-        pitch, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        pitch, pitchf = postprocess_f0(f0, device="cpu")
         assert pitch.shape == (3,)
         assert pitchf.shape == (3,)
         assert pitch.dtype == torch.long
@@ -58,8 +58,8 @@ class TestPostprocessF0(unittest.TestCase):
             mock_cfg.pitch_map_src_max = 500.0
             mock_cfg.pitch_map_dst_min = 100.0
             mock_cfg.pitch_map_dst_max = 500.0
-            pitch_0, _ = postprocess_f0(f0, f0_up_key=0, device="cpu")
-            pitch_12, _ = postprocess_f0(f0, f0_up_key=12, device="cpu")
+            pitch_0, _ = postprocess_f0(f0, device="cpu")
+            pitch_12, _ = postprocess_f0(f0, device="cpu")
         # identity mapping + f0_up_key 被忽略 → 输出相同
         assert pitch_0.item() == pitch_12.item()
 

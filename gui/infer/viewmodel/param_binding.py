@@ -3,7 +3,7 @@
 把「控件读值 → 配置对象」和「配置对象 → 控件写值」的重复搬运集中到这里，
 由 BINDINGS 表驱动，window.py 的 collect/apply 只需一行委托。
 
-路径用点号分隔（如 "inference.pitch"、"engine.block_time"），
+路径用点号分隔（如 "inference.formant"、"engine.block_time"），
 支持 AppConfig 的任意嵌套层级。
 
 新增参数时改动点：

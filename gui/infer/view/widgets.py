@@ -71,12 +71,12 @@ class ModelCard(QFrame):
     load_requested = Signal(str, str, str)
     params_changed = Signal()  # hubert 变化时发出（运行中实时同步用）
 
-    def __init__(self, name="", pth="", pitch=0,
+    def __init__(self, name="", pth="",
                  gender=0.0, hubert=HUBERT_DEFAULT, parent=None):
         super().__init__(parent)
-        self._build(name, pth, pitch, gender, hubert)
+        self._build(name, pth, gender, hubert)
 
-    def _build(self, name, pth, pitch, gender, hubert):
+    def _build(self, name, pth, gender, hubert):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(4)
 
         # ── 顶部栏 ──

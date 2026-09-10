@@ -227,11 +227,10 @@ class MainWindow(QMainWindow):
     # ── 参数应用（委托给 controller）──
 
     def _apply_model_params(self):
-        # pitch/formant 已移到全局参数（实验功能/参数调节），从全局状态读取
+        # formant 已移到全局参数（参数调节），从全局状态读取
         state = self.collect_gui_state()
         inf = state.inference
         self.controller.apply_model_params(
-            pitch=inf.pitch,
             formant=inf.formant,
         )
 

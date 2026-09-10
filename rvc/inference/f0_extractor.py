@@ -79,7 +79,7 @@ def _suppress_torchfcpe_output():
 
 
 
-def postprocess_f0(f0, f0_up_key: float, device) -> tuple[torch.Tensor, torch.Tensor]:
+def postprocess_f0(f0, device) -> tuple[torch.Tensor, torch.Tensor]:
     """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf)。
 
     RMVPE / FCPE 共用，避免两份重复实现：
@@ -87,7 +87,6 @@ def postprocess_f0(f0, f0_up_key: float, device) -> tuple[torch.Tensor, torch.Te
 
     Args:
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
-        f0_up_key: 音高偏移（半音，已弃用，保留参数兼容调用方）
         device: 目标设备
 
     Returns:
@@ -111,13 +110,12 @@ class F0Extractor(ABC):
     """F0 提取器抽象基类 — 统一接口。"""
 
     @abstractmethod
-    def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
         """提取 F0 (pitch)。
 
         Args:
             audio: 输入音频 (1D Tensor)
             sr: 采样率
-            f0_up_key: 音高偏移（半音）
 
         Returns:
             (pitch_coarse, pitchf): 离散化 pitch 和连续 pitch
@@ -147,9 +145,9 @@ class RMVPEExtractor(F0Extractor):
         self.model = RMVPE(mp, is_half=is_half, device=device)
         self.device = device
 
-    def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
         f0 = self.model.infer_from_audio(audio, thred=experimental_config.rmvpe_threshold)
-        return postprocess_f0(f0, f0_up_key, self.device)
+        return postprocess_f0(f0, self.device)
 
     def clear_cuda_graph(self) -> None:
         from rvc.inference.cuda_graph import clear_cuda_graph_cache
@@ -180,7 +178,7 @@ class FCPEExtractor(F0Extractor):
             self.local_offsets = None
         self.device = device
 
-    def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
         # 整个推理包一层 stdout 抑制：wav2mel 内部 MelModule 会在 |x|>1 时 print，
@@ -223,7 +221,7 @@ class FCPEExtractor(F0Extractor):
                     threshold=experimental_config.fcpe_confidence_threshold,
                 )
 
-        return postprocess_f0(f0, f0_up_key, self.device)
+        return postprocess_f0(f0, self.device)
 
     def clear_cuda_graph(self) -> None:
         from rvc.inference.cuda_graph import clear_cuda_graph_cache

@@ -26,7 +26,6 @@ class TestInferenceConfig(unittest.TestCase):
 
     def test_default_values(self):
         cfg = InferenceConfig()
-        self.assertEqual(cfg.pitch, 0)
         self.assertAlmostEqual(cfg.formant, 0.0)
         self.assertAlmostEqual(cfg.protect, 0.5)
         self.assertEqual(cfg.f0_method, "rmvpe")
@@ -35,16 +34,9 @@ class TestInferenceConfig(unittest.TestCase):
 
 
     def test_field_count(self):
-        self.assertEqual(len(fields(InferenceConfig)), 5)
+        self.assertEqual(len(fields(InferenceConfig)), 4)
 
 
-    def test_pitch_negative(self):
-        cfg = InferenceConfig(pitch=-12)
-        self.assertEqual(cfg.pitch, -12)
-
-    def test_pitch_positive(self):
-        cfg = InferenceConfig(pitch=12)
-        self.assertEqual(cfg.pitch, 12)
 
     def test_formant_negative(self):
         cfg = InferenceConfig(formant=-0.5)
@@ -77,7 +69,7 @@ class TestInferenceConfig(unittest.TestCase):
 
     def test_equality(self):
         self.assertEqual(InferenceConfig(), InferenceConfig())
-        self.assertNotEqual(InferenceConfig(), InferenceConfig(pitch=1))
+        self.assertNotEqual(InferenceConfig(), InferenceConfig(formant=1.0))
 
 
 
@@ -142,21 +134,19 @@ class TestModelEntry(unittest.TestCase):
         m = ModelEntry()
         self.assertEqual(m.name, "")
         self.assertEqual(m.pth, "")
-        self.assertEqual(m.pitch, 0)
         self.assertAlmostEqual(m.formant, 0.0)
         self.assertEqual(m.hubert, "chinese")
 
     def test_custom_values(self):
-        m = ModelEntry(name="test", pth="/path/model.pth", pitch=5, formant=0.3, hubert="base")
+        m = ModelEntry(name="test", pth="/path/model.pth", formant=0.3, hubert="base")
         self.assertEqual(m.name, "test")
-        self.assertEqual(m.pitch, 5)
 
     def test_field_count(self):
-        self.assertEqual(len(fields(ModelEntry)), 5)
+        self.assertEqual(len(fields(ModelEntry)), 4)
 
     def test_asdict(self):
         d = asdict(ModelEntry())
-        self.assertEqual(set(d.keys()), {"name", "pth", "pitch", "formant", "hubert"})
+        self.assertEqual(set(d.keys()), {"name", "pth", "formant", "hubert"})
 
     def test_equality(self):
         self.assertEqual(ModelEntry(), ModelEntry())
@@ -215,7 +205,6 @@ class TestOfflineConfig(unittest.TestCase):
 
     def test_inherits_inference_fields(self):
         cfg = OfflineConfig()
-        self.assertEqual(cfg.pitch, 0)
         self.assertEqual(cfg.f0_method, "rmvpe")
 
     def test_offline_specific_defaults(self):
@@ -228,22 +217,20 @@ class TestOfflineConfig(unittest.TestCase):
     def test_custom_values(self):
         cfg = OfflineConfig(
             input_path="/in.wav", output_path="/out.wav",
-            model_path="/model.pth", hubert="base", pitch=3,
+            model_path="/model.pth", hubert="base",
         )
         self.assertEqual(cfg.input_path, "/in.wav")
-        self.assertEqual(cfg.pitch, 3)
         self.assertEqual(cfg.hubert, "base")
 
     def test_is_inference_config_subclass(self):
         self.assertTrue(issubclass(OfflineConfig, InferenceConfig))
 
     def test_field_count_includes_inherited(self):
-        """OfflineConfig 字段 = InferenceConfig 5 个 + 4 个特有 = 9 个。"""
-        self.assertEqual(len(fields(OfflineConfig)), 9)
+        """OfflineConfig 字段 = InferenceConfig 4 个 + 4 个特有 = 8 个。"""
+        self.assertEqual(len(fields(OfflineConfig)), 8)
 
     def test_asdict_includes_all(self):
         d = asdict(OfflineConfig())
-        self.assertIn("pitch", d)  # 继承的
         self.assertIn("input_path", d)  # 特有的
 
     def test_equality(self):

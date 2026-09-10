@@ -117,7 +117,6 @@ class InferencePipeline:
             cache_pitch, cache_pitchf = update_realtime_pitch_cache(
                 input_wav, block_frame_16k, p_len,
                 return_length, return_length2_val,
-                config.pitch - formant_factor,  # f0_up_key
                 config.f0_method,
                 self.pitch_cache, self.pitchf_cache,
                 self.device, self.is_half,
