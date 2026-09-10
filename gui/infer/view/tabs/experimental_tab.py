@@ -74,7 +74,7 @@ def build_experimental_tab(win):
     _width = experimental_config.protect_soft_width
     win.exp_protect_transition_range = _range_row(
         win, "exp_protect_transition_range",
-        0.0, 100.0, 1.0,
+        0.0, 100.0, 5.0,
         max(0.0, _center - _width / 2), min(100.0, _center + _width / 2),
         fmt=".0f", unit="Hz",
     )
@@ -87,7 +87,7 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_protect_transition_label, r, 2); r += 1
 
     # ── 4. 辅音保护强度 ──
-    win.protect_slider = _slrow(win, "protect_slider", 0.0, 1.0, 0.01, 0.5)
+    win.protect_slider = _slrow(win, "protect_slider", 0.0, 1.0, 0.05, 0.5)
     g.addWidget(QLabel("辅音保护强度"), r, 0)
     g.addWidget(win.protect_slider, r, 1)
     g.addWidget(win.protect_label, r, 2); r += 1
