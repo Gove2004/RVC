@@ -93,7 +93,7 @@ def build_experimental_tab(win):
 
     # 原声音域下限
     win.exp_pitch_map_src_min_slider = _slrow(
-        win, "exp_pitch_map_src_min_slider", 50.0, 950.0, 5.0,
+        win, "exp_pitch_map_src_min_slider", 0.0, 1000.0, 5.0,
         experimental_config.pitch_map_src_min, fmt=".0f", unit="Hz", label_w=45,
     )
     win.exp_pitch_map_src_min_slider.valueChanged.connect(
@@ -108,7 +108,7 @@ def build_experimental_tab(win):
 
     # 原声音域上限
     win.exp_pitch_map_src_max_slider = _slrow(
-        win, "exp_pitch_map_src_max_slider", 50.0, 950.0, 5.0,
+        win, "exp_pitch_map_src_max_slider", 0.0, 1000.0, 5.0,
         experimental_config.pitch_map_src_max, fmt=".0f", unit="Hz", label_w=45,
     )
     win.exp_pitch_map_src_max_slider.valueChanged.connect(
@@ -123,7 +123,7 @@ def build_experimental_tab(win):
 
     # 目标音域下限
     win.exp_pitch_map_dst_min_slider = _slrow(
-        win, "exp_pitch_map_dst_min_slider", 50.0, 950.0, 5.0,
+        win, "exp_pitch_map_dst_min_slider", 0.0, 1000.0, 5.0,
         experimental_config.pitch_map_dst_min, fmt=".0f", unit="Hz", label_w=45,
     )
     win.exp_pitch_map_dst_min_slider.valueChanged.connect(
@@ -138,7 +138,7 @@ def build_experimental_tab(win):
 
     # 目标音域上限
     win.exp_pitch_map_dst_max_slider = _slrow(
-        win, "exp_pitch_map_dst_max_slider", 50.0, 950.0, 5.0,
+        win, "exp_pitch_map_dst_max_slider", 0.0, 1000.0, 5.0,
         experimental_config.pitch_map_dst_max, fmt=".0f", unit="Hz", label_w=45,
     )
     win.exp_pitch_map_dst_max_slider.valueChanged.connect(
