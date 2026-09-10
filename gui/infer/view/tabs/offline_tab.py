@@ -1,7 +1,8 @@
 """离线 Tab — 离线音频文件转换"""
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QPushButton,
-    QGridLayout, QProgressBar, QHBoxLayout,
+    QGridLayout, QProgressBar,
 )
 
 from gui.styles import ButtonStyles
@@ -24,20 +25,19 @@ def build_offline_tab(win):
     g.addWidget(win.offline_input_btn, r, 1, 1, 3)
     r += 1
 
-    # 输出文件行（输入框 + 浏览按钮）
+    # 输出文件行（输入框 + 浏览按钮，直接用 GridLayout）
     g.addWidget(QLabel("输出文件"), r, 0)
     win.offline_output = QLineEdit()
     win.offline_output.setMinimumHeight(24)
     win.offline_output.setPlaceholderText("输出文件路径（可直接输入）")
+    win.offline_output.setFocusPolicy(Qt.StrongFocus)
     btn_out = QPushButton("…")
     btn_out.setFixedWidth(36)
     btn_out.setMinimumHeight(24)
     btn_out.setStyleSheet(ButtonStyles.small())
     btn_out.clicked.connect(lambda: win._off_browse(win.offline_output, "out"))
-    out_row = QHBoxLayout()
-    out_row.addWidget(win.offline_output, 1)
-    out_row.addWidget(btn_out)
-    g.addLayout(out_row, r, 1, 1, 3)
+    g.addWidget(win.offline_output, r, 1, 1, 2)
+    g.addWidget(btn_out, r, 3)
     r += 1
 
     # 开始转换（占满整行）
