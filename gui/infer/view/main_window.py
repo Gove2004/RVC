@@ -92,11 +92,15 @@ class MainWindow(QMainWindow):
         # F0 清浊阈值
         self.exp_rmvpe_threshold_slider.setValue(int(round(experimental_config.rmvpe_threshold * 100)))
         self.exp_fcpe_threshold_slider.setValue(int(round(experimental_config.fcpe_confidence_threshold * 100)))
-        # 音域映射（_slrow X100 模式，恢复时需 ×100）
-        self.exp_pitch_map_src_min_slider.setValue(int(round(experimental_config.pitch_map_src_min * 100)))
-        self.exp_pitch_map_src_max_slider.setValue(int(round(experimental_config.pitch_map_src_max * 100)))
-        self.exp_pitch_map_dst_min_slider.setValue(int(round(experimental_config.pitch_map_dst_min * 100)))
-        self.exp_pitch_map_dst_max_slider.setValue(int(round(experimental_config.pitch_map_dst_max * 100)))
+        # 音域映射（RangeSlider 双滑块，直接传物理值）
+        self.exp_pitch_map_src_range.setRange(
+            experimental_config.pitch_map_src_min,
+            experimental_config.pitch_map_src_max,
+        )
+        self.exp_pitch_map_dst_range.setRange(
+            experimental_config.pitch_map_dst_min,
+            experimental_config.pitch_map_dst_max,
+        )
 
     def _save_gui_config(self) -> None:
         """保存当前 GUI 状态到持久化配置（嵌套结构 + 实验参数）。"""

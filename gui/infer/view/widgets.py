@@ -1,10 +1,11 @@
-"""推理 GUI 通用组件 — 滑动条辅助、加载线程"""
-from PySide6.QtWidgets import QSlider, QLabel
-from PySide6.QtCore import Qt, QThread, Signal
+"""推理 GUI 通用组件 — 滑动条辅助、加载线程、双滑块范围控件"""
+from PySide6.QtWidgets import QSlider, QLabel, QWidget, QHBoxLayout, QSizePolicy
+from PySide6.QtCore import Qt, QThread, Signal, QRect, QPoint
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush
 
 from rvc.core.config import HUBERT_DEFAULT
 
-__all__ = ["LoadThread", "_sl", "_slrow", "_sl_value_as_float"]
+__all__ = ["LoadThread", "_sl", "_slrow", "_sl_value_as_float", "RangeSlider"]
 
 
 def _sl(mn, mx, st, dv):
@@ -60,3 +61,142 @@ class LoadThread(QThread):
                     self.pth, True, self.hubert))
         except Exception as e:
             self.err.emit(str(e))
+
+
+class RangeSlider(QWidget):
+    """双滑块范围选择器 — 一个控件同时控制下限和上限。
+
+    采用 X100 编码（和 _slrow 兼容）：内部值为物理值×100，
+    low()/high() 返回物理值（float）。
+    """
+    rangeChanged = Signal(float, float)  # low, high（物理值）
+
+    def __init__(self, min_val, max_val, step, low_val, high_val,
+                 fmt=".0f", unit="Hz", parent=None):
+        super().__init__(parent)
+        self._min = int(min_val * 100)
+        self._max = int(max_val * 100)
+        self._step = int(step * 100)
+        self._low = int(low_val * 100)
+        self._high = int(high_val * 100)
+        self._fmt = fmt
+        self._unit = unit
+        self._dragging = None  # 'low' or 'high'
+        self.setMinimumHeight(36)
+        self.setMinimumWidth(180)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._update_tooltip()
+
+    def setRange(self, low_val, high_val):
+        """设置当前范围（物理值）。"""
+        self._low = max(self._min, int(low_val * 100))
+        self._high = min(self._max, int(high_val * 100))
+        if self._low > self._high:
+            self._low, self._high = self._high, self._low
+        self.update()
+        self._update_tooltip()
+
+    def low(self):
+        return self._low / 100.0
+
+    def high(self):
+        return self._high / 100.0
+
+    def _update_tooltip(self):
+        self.setToolTip(f"{self._low/100:{self._fmt}}{self._unit} - "
+                        f"{self._high/100:{self._fmt}}{self._unit}")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        w = self.width()
+        h = self.height()
+        track_h = 4
+        track_y = h // 2 - track_h // 2
+        margin = 12
+        track_w = w - 2 * margin
+
+        # 背景轨道
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#3a3a3a"))
+        painter.drawRoundedRect(QRect(margin, track_y, track_w, track_h), 2, 2)
+
+        # 选中范围
+        low_x = self._value_to_x(self._low)
+        high_x = self._value_to_x(self._high)
+        painter.setBrush(QColor("#0078D4"))
+        painter.drawRoundedRect(QRect(low_x, track_y, high_x - low_x, track_h), 2, 2)
+
+        # 滑块
+        handle_r = 7
+        for x in (low_x, high_x):
+            painter.setBrush(QColor("#ffffff"))
+            painter.setPen(QPen(QColor("#0078D4"), 2))
+            painter.drawEllipse(QPoint(x, track_y + track_h // 2), handle_r, handle_r)
+
+        # 数值标签（下限在左，上限在右）
+        painter.setPen(QColor("#cccccc"))
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        low_text = f"{self._low/100:{self._fmt}}"
+        high_text = f"{self._high/100:{self._fmt}}"
+        painter.drawText(QRect(0, 0, margin * 2 + 20, h),
+                         Qt.AlignLeft | Qt.AlignVCenter, low_text)
+        painter.drawText(QRect(w - margin * 2 - 20, 0, margin * 2 + 20, h),
+                         Qt.AlignRight | Qt.AlignVCenter, high_text)
+
+    def _value_to_x(self, value):
+        ratio = (value - self._min) / (self._max - self._min)
+        return int(12 + ratio * (self.width() - 24))
+
+    def _x_to_value(self, x):
+        ratio = max(0.0, min(1.0, (x - 12) / (self.width() - 24)))
+        value = self._min + ratio * (self._max - self._min)
+        return int(round(value / self._step) * self._step)
+
+    def mousePressEvent(self, event):
+        low_x = self._value_to_x(self._low)
+        high_x = self._value_to_x(self._high)
+        if abs(event.x() - low_x) < 12:
+            self._dragging = 'low'
+        elif abs(event.x() - high_x) < 12:
+            self._dragging = 'high'
+        else:
+            # 点击轨道时，移动最近的滑块
+            if abs(event.x() - low_x) < abs(event.x() - high_x):
+                self._dragging = 'low'
+                self._update_low(event.x())
+            else:
+                self._dragging = 'high'
+                self._update_high(event.x())
+
+    def mouseMoveEvent(self, event):
+        if self._dragging == 'low':
+            self._update_low(event.x())
+        elif self._dragging == 'high':
+            self._update_high(event.x())
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = None
+
+    def _update_low(self, x):
+        new_low = self._x_to_value(x)
+        new_low = min(new_low, self._high - self._step)
+        new_low = max(new_low, self._min)
+        if new_low != self._low:
+            self._low = new_low
+            self.update()
+            self._update_tooltip()
+            self.rangeChanged.emit(self._low / 100.0, self._high / 100.0)
+
+    def _update_high(self, x):
+        new_high = self._x_to_value(x)
+        new_high = max(new_high, self._low + self._step)
+        new_high = min(new_high, self._max)
+        if new_high != self._high:
+            self._high = new_high
+            self.update()
+            self._update_tooltip()
+            self.rangeChanged.emit(self._low / 100.0, self._high / 100.0)

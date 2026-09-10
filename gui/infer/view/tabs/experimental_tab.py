@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QGroupBox, QVBoxLayout,
 )
 
-from gui.infer.view.widgets import _slrow, _sl_value_as_float
+from gui.infer.view.widgets import _slrow, _sl_value_as_float, RangeSlider
 from rvc.core.experimental import experimental_config
 
 
@@ -91,65 +91,35 @@ def build_experimental_tab(win):
     gpm.setHorizontalSpacing(8)
     r = 0
 
-    # 原声音域下限
-    win.exp_pitch_map_src_min_slider = _slrow(
-        win, "exp_pitch_map_src_min_slider", 20.0, 1000.0, 5.0,
-        experimental_config.pitch_map_src_min, fmt=".0f", unit="Hz", label_w=45,
+    # 原声音域（双滑块范围控件）
+    win.exp_pitch_map_src_range = RangeSlider(
+        20.0, 1000.0, 5.0,
+        experimental_config.pitch_map_src_min, experimental_config.pitch_map_src_max,
+        fmt=".0f", unit="Hz",
     )
-    win.exp_pitch_map_src_min_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "pitch_map_src_min",
-            _sl_value_as_float(win.exp_pitch_map_src_min_slider),
+    win.exp_pitch_map_src_range.rangeChanged.connect(
+        lambda low, high: (
+            setattr(experimental_config, "pitch_map_src_min", low),
+            setattr(experimental_config, "pitch_map_src_max", high),
         )
     )
-    gpm.addWidget(QLabel("原声音域 下限"), r, 0)
-    gpm.addWidget(win.exp_pitch_map_src_min_slider, r, 1)
-    gpm.addWidget(win.exp_pitch_map_src_min_label, r, 2); r += 1
+    gpm.addWidget(QLabel("原声音域"), r, 0)
+    gpm.addWidget(win.exp_pitch_map_src_range, r, 1, 1, 2); r += 1
 
-    # 原声音域上限
-    win.exp_pitch_map_src_max_slider = _slrow(
-        win, "exp_pitch_map_src_max_slider", 20.0, 1000.0, 5.0,
-        experimental_config.pitch_map_src_max, fmt=".0f", unit="Hz", label_w=45,
+    # 目标音域（双滑块范围控件）
+    win.exp_pitch_map_dst_range = RangeSlider(
+        20.0, 1000.0, 5.0,
+        experimental_config.pitch_map_dst_min, experimental_config.pitch_map_dst_max,
+        fmt=".0f", unit="Hz",
     )
-    win.exp_pitch_map_src_max_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "pitch_map_src_max",
-            _sl_value_as_float(win.exp_pitch_map_src_max_slider),
+    win.exp_pitch_map_dst_range.rangeChanged.connect(
+        lambda low, high: (
+            setattr(experimental_config, "pitch_map_dst_min", low),
+            setattr(experimental_config, "pitch_map_dst_max", high),
         )
     )
-    gpm.addWidget(QLabel("原声音域 上限"), r, 0)
-    gpm.addWidget(win.exp_pitch_map_src_max_slider, r, 1)
-    gpm.addWidget(win.exp_pitch_map_src_max_label, r, 2); r += 1
-
-    # 目标音域下限
-    win.exp_pitch_map_dst_min_slider = _slrow(
-        win, "exp_pitch_map_dst_min_slider", 20.0, 1000.0, 5.0,
-        experimental_config.pitch_map_dst_min, fmt=".0f", unit="Hz", label_w=45,
-    )
-    win.exp_pitch_map_dst_min_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "pitch_map_dst_min",
-            _sl_value_as_float(win.exp_pitch_map_dst_min_slider),
-        )
-    )
-    gpm.addWidget(QLabel("目标音域 下限"), r, 0)
-    gpm.addWidget(win.exp_pitch_map_dst_min_slider, r, 1)
-    gpm.addWidget(win.exp_pitch_map_dst_min_label, r, 2); r += 1
-
-    # 目标音域上限
-    win.exp_pitch_map_dst_max_slider = _slrow(
-        win, "exp_pitch_map_dst_max_slider", 20.0, 1000.0, 5.0,
-        experimental_config.pitch_map_dst_max, fmt=".0f", unit="Hz", label_w=45,
-    )
-    win.exp_pitch_map_dst_max_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "pitch_map_dst_max",
-            _sl_value_as_float(win.exp_pitch_map_dst_max_slider),
-        )
-    )
-    gpm.addWidget(QLabel("目标音域 上限"), r, 0)
-    gpm.addWidget(win.exp_pitch_map_dst_max_slider, r, 1)
-    gpm.addWidget(win.exp_pitch_map_dst_max_label, r, 2); r += 1
+    gpm.addWidget(QLabel("目标音域"), r, 0)
+    gpm.addWidget(win.exp_pitch_map_dst_range, r, 1, 1, 2); r += 1
 
     root.addWidget(group_pm)
     root.addStretch()
