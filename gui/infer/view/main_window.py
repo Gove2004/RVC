@@ -129,6 +129,18 @@ class MainWindow(QMainWindow):
         from gui.configs import load_config, save_config
         from gui.infer.viewmodel.param_binding import state_to_dict
         from rvc.core.experimental import experimental_config
+        # 保存前从 RangeSlider 直接读取当前值，确保信号丢失时也不丢
+        if hasattr(self, "exp_protect_transition_range"):
+            _low = self.exp_protect_transition_range.low()
+            _high = self.exp_protect_transition_range.high()
+            experimental_config.protect_soft_threshold_hz = (_low + _high) / 2
+            experimental_config.protect_soft_width = _high - _low
+        if hasattr(self, "exp_pitch_map_src_range"):
+            experimental_config.pitch_map_src_min = self.exp_pitch_map_src_range.low()
+            experimental_config.pitch_map_src_max = self.exp_pitch_map_src_range.high()
+        if hasattr(self, "exp_pitch_map_dst_range"):
+            experimental_config.pitch_map_dst_min = self.exp_pitch_map_dst_range.low()
+            experimental_config.pitch_map_dst_max = self.exp_pitch_map_dst_range.high()
         cfg = load_config()
         cfg["gui"] = state_to_dict(self.collect_gui_state())
         cfg["experimental"] = experimental_config.to_dict()
