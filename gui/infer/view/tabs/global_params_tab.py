@@ -1,12 +1,12 @@
 """全局参数 Tab — 模型路径/特征器 + 采样/融合参数"""
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QLineEdit, QPushButton, QComboBox, QHBoxLayout,
+    QWidget, QGridLayout, QLabel, QPushButton, QComboBox,
 )
 from PySide6.QtWidgets import QFileDialog
 
 from gui.infer.view.widgets import _slrow
 from gui.styles.components import ButtonStyles
-from rvc.core.config import HUBERT_DEFAULT
+from pathlib import Path
 from rvc.runtime.paths import MODELS_DIR
 
 
@@ -64,6 +64,5 @@ def _browse_model(win):
     if path:
         win.model_path = path
         # 按钮上只显示文件名，完整路径存储在 win.model_path
-        from pathlib import Path
         win.model_path_btn.setText(Path(path).name)
         win.model_path_btn.setToolTip(path)

@@ -1,6 +1,6 @@
 """推理 GUI 通用组件 — 滑动条辅助、加载线程、双滑块范围控件"""
-from PySide6.QtWidgets import QSlider, QLabel, QWidget, QHBoxLayout, QSizePolicy
-from PySide6.QtCore import Qt, QThread, Signal, QRect, QPoint
+from PySide6.QtWidgets import QSlider, QLabel, QWidget, QSizePolicy
+from PySide6.QtCore import Qt, QThread, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush
 
 from rvc.core.config import HUBERT_DEFAULT
