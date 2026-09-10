@@ -219,13 +219,12 @@ class MainWindow(QMainWindow):
     def _update_timer(self):
         if self.engine.running and self.engine.measure_ms > 0:
             self.delay_lbl.setText(f"延迟: {self.engine.measure_ms:.0f}ms")
-            # 显示当前输入音高（从 pipeline 获取）
-            if hasattr(self.engine, "_runner") and self.engine._runner.pipeline is not None:
-                pitch = self.engine._runner.pipeline.last_pitch
-                if pitch > 0:
-                    self.pitch_lbl.setText(f"音高: {pitch:.0f}Hz")
-                else:
-                    self.pitch_lbl.setText("音高: -")
+            # 显示当前输入音高（从 f0_extractor 模块级变量获取，音域映射之前的原始值）
+            from rvc.inference.f0_extractor import last_input_pitch
+            if last_input_pitch > 0:
+                self.pitch_lbl.setText(f"音高: {last_input_pitch:.0f}Hz")
+            else:
+                self.pitch_lbl.setText("音高: -")
         if self.tray is not None:
             self.tray.update_status()
 

@@ -15,6 +15,9 @@ from rvc.models.rmvpe.constants import F0_MIN, F0_MAX
 from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD, apply_pitch_map
 from rvc.core.experimental import experimental_config
 
+# 最新原始输入音调（Hz，非零帧平均，音域映射之前的值，用于 GUI 显示）
+last_input_pitch = 0.0
+
 logger = logging.getLogger(__name__)
 
 # UV 判定的 confidence 阈值：FCPE 默认 0.006 在低电平底噪（麦克风底噪/呼吸/气声）100%
@@ -95,6 +98,11 @@ def postprocess_f0(f0, device) -> tuple[torch.Tensor, torch.Tensor]:
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
+    # 保存原始输入音调（音域映射之前，非零帧平均，用于 GUI 显示）
+    global last_input_pitch
+    nonzero = f0[f0 > 0]
+    if nonzero.numel() > 0:
+        last_input_pitch = float(nonzero.mean().item())
     # 音域映射（半音尺度，始终生效，替代固定 pitch 偏移）
     f0 = apply_pitch_map(
         f0,
