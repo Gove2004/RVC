@@ -74,8 +74,8 @@ def build_experimental_tab(win):
     _width = experimental_config.protect_soft_width
     win.exp_protect_transition_range = _range_row(
         win, "exp_protect_transition_range",
-        0.0, 100.0, 5.0,
-        max(0.0, _center - _width / 2), min(100.0, _center + _width / 2),
+        0.0, 50.0, 5.0,
+        max(0.0, _center - _width / 2), min(50.0, _center + _width / 2),
         fmt=".0f", unit="Hz",
     )
     def _on_transition_change(low, high):
