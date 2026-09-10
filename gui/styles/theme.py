@@ -70,12 +70,14 @@ def _build_global_stylesheet() -> str:
         }}
         QSlider::groove:horizontal {{
             height: 4px;
+            background: #3a3a3a;
             border-radius: 2px;
         }}
         QSlider::handle:horizontal {{
-            width: 10px;
-            height: 10px;
-            margin: -3px 0;
+            width: 12px;
+            height: 12px;
+            margin: -4px 0;
+            padding: 0px;
             background-color: {Colors.PRIMARY};
             border: 1px solid {Colors.INPUT_BG};
             border-radius: 2px;
