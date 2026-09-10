@@ -13,6 +13,9 @@ class ExperimentalConfig:
         self.protect_soft_enabled = True
         self.protect_soft_threshold_hz = 10.0  # 过渡中心（Hz）
         self.protect_soft_width = 20.0  # 过渡宽度（Hz，sigmoid 的 4σ）
+        # ── F0 提取清浊判定阈值 ──
+        self.rmvpe_threshold = 0.03  # RMVPE thred，越高越容易判清音（UV）
+        self.fcpe_confidence_threshold = 0.025  # FCPE confidence，越高越容易判清音（UV）
 
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""
@@ -20,6 +23,8 @@ class ExperimentalConfig:
             "protect_soft_enabled": self.protect_soft_enabled,
             "protect_soft_threshold_hz": self.protect_soft_threshold_hz,
             "protect_soft_width": self.protect_soft_width,
+            "rmvpe_threshold": self.rmvpe_threshold,
+            "fcpe_confidence_threshold": self.fcpe_confidence_threshold,
         }
 
     def from_dict(self, data: dict) -> None:
@@ -30,6 +35,10 @@ class ExperimentalConfig:
             self.protect_soft_threshold_hz = float(data["protect_soft_threshold_hz"])
         if "protect_soft_width" in data:
             self.protect_soft_width = float(data["protect_soft_width"])
+        if "rmvpe_threshold" in data:
+            self.rmvpe_threshold = float(data["rmvpe_threshold"])
+        if "fcpe_confidence_threshold" in data:
+            self.fcpe_confidence_threshold = float(data["fcpe_confidence_threshold"])
 
 
 # 全局单例，GUI 和推理代码共用

@@ -13,12 +13,13 @@ from rvc.inference.cuda_graph import run_cuda_graph
 from rvc.runtime.cuda_graph import cuda_graph_enabled
 from rvc.models.rmvpe.constants import F0_MIN, F0_MAX
 from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD
+from rvc.core.experimental import experimental_config
 
 logger = logging.getLogger(__name__)
 
 # UV 判定的 confidence 阈值：FCPE 默认 0.006 在低电平底噪（麦克风底噪/呼吸/气声）100%
 # 误判浊音给合成器喂假音高，与 RMVPE 的 thred=0.03 拉到同档（RMVPE 在该档底噪全判 uv）。
-FCPE_CONFIDENCE_THRESHOLD = 0.025
+FCPE_CONFIDENCE_THRESHOLD = 0.025  # 默认值，运行时从 experimental_config 读取
 
 
 class _FilteredStream:
@@ -199,7 +200,7 @@ class RMVPEExtractor(F0Extractor):
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int, f0_up_key: int, f0_proc: tuple | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        f0 = self.model.infer_from_audio(audio, thred=RMVPE_THRESHOLD)
+        f0 = self.model.infer_from_audio(audio, thred=experimental_config.rmvpe_threshold)
         return postprocess_f0(f0, f0_up_key, self.device, f0_proc)
 
     def clear_cuda_graph(self) -> None:
@@ -256,22 +257,22 @@ class FCPEExtractor(F0Extractor):
                     decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
 
                     confidence_mask = torch.ones_like(confidence)
-                    # FCPE_CONFIDENCE_THRESHOLD（默认 0.025）= RMVPE thred=0.03 同档：
+                    # experimental_config.fcpe_confidence_threshold（默认 0.025）= RMVPE thred=0.03 同档：
                     # 0.006（torchfcpe 默认）在低电平底噪（麦克风底噪/呼吸/气声）100% 误判浊音，
                     # 给合成器喂假音高。提到 0.025 后底噪全判 uv，与 RMVPE 行为一致。
-                    confidence_mask.masked_fill_(confidence <= FCPE_CONFIDENCE_THRESHOLD, float("-inf"))
+                    confidence_mask.masked_fill_(confidence <= experimental_config.fcpe_confidence_threshold, float("-inf"))
                     decoded = decoded * confidence_mask
                     return 10.0 * torch.pow(2.0, decoded / 1200.0)
 
                 f0 = run_cuda_graph(
                     self.model.model,
-                    f"fcpe-core-local_argmax-{FCPE_CONFIDENCE_THRESHOLD}",
+                    f"fcpe-core-local_argmax-{experimental_config.fcpe_confidence_threshold}",
                     graphable_infer, mel,
                 )
             else:
                 f0 = self.model.infer(
                     wav_t, sr=sr, decoder_mode="local_argmax",
-                    threshold=FCPE_CONFIDENCE_THRESHOLD,
+                    threshold=experimental_config.fcpe_confidence_threshold,
                 )
 
         return postprocess_f0(f0, f0_up_key, self.device, f0_proc)

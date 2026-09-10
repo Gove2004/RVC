@@ -92,8 +92,8 @@ class MainWindow(QMainWindow):
         # 加载实验参数并恢复控件值
         experimental_config.from_dict(cfg.get("experimental", {}))
         self.exp_protect_soft_checkbox.setChecked(experimental_config.protect_soft_enabled)
-        self.exp_protect_threshold_slider.setValue(int(round(experimental_config.protect_soft_threshold_hz)))
-        self.exp_protect_width_slider.setValue(int(round(experimental_config.protect_soft_width)))
+        self.exp_protect_threshold_slider.setValue(int(round(experimental_config.protect_soft_threshold_hz * 100)))
+        self.exp_protect_width_slider.setValue(int(round(experimental_config.protect_soft_width * 100)))
 
     def _save_gui_config(self) -> None:
         """保存当前 GUI 状态到持久化配置（嵌套结构 + 实验参数）。"""
