@@ -35,17 +35,24 @@ class OfflineManager:
             )
 
         if path:
-            target_widget.setText(path)
-            if kind == "in" and not self.window.offline_output.text():
-                base, _ = os.path.splitext(path)
-                self.window.offline_output.setText(base + "_converted.wav")
+            if kind == "in":
+                # 输入文件：更新按钮文本和完整路径
+                self.window.offline_input_path = path
+                from pathlib import Path
+                self.window.offline_input_btn.setText(Path(path).name)
+                self.window.offline_input_btn.setToolTip(path)
+                if not self.window.offline_output.text():
+                    base, _ = os.path.splitext(path)
+                    self.window.offline_output.setText(base + "_converted.wav")
+            else:
+                target_widget.setText(path)
 
     def start_conversion(self) -> None:
         """开始离线转换"""
         if self._converting:
             self.window._show_warning("已有转换任务正在运行")
             return
-        inp = self.window.offline_input.text().strip()
+        inp = self.window.offline_input_path.strip() if hasattr(self.window, 'offline_input_path') else ''
         out = self.window.offline_output.text().strip()
 
         if not inp:
@@ -70,7 +77,7 @@ class OfflineManager:
             state = collect_gui_state(self.window)
             inf = state.inference
             config = OfflineConfig(
-                input_path=self.window.offline_input.text().strip(),
+                input_path=self.window.offline_input_path.strip() if hasattr(self.window, 'offline_input_path') else '',
                 output_path=self.window.offline_output.text().strip(),
                 model_path=pth,
                 formant=inf.formant,
