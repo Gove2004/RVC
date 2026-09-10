@@ -14,7 +14,7 @@ def _sl(mn, mx, st, dv):
     return s
 
 
-def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=35):
+def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     """创建「滑杆 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
 
     参数为**物理值**（工厂内部按 ×100 编码到 QSlider；运行时 QSlider.value()/100

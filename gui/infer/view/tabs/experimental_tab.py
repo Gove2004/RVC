@@ -9,7 +9,7 @@ from rvc.core.experimental import experimental_config
 
 
 def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
-               fmt=".0f", unit="Hz", label_w=70):
+               fmt=".0f", unit="Hz", label_w=80):
     """创建「双滑块范围 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
 
     与 _slrow 类似，但用于 RangeSlider 双滑块。标签显示 "下限-上限 单位"。
@@ -36,13 +36,14 @@ def build_experimental_tab(win):
     # ── 1. 辅音保护（渐变式，始终生效） ──
     group1 = QGroupBox("辅音保护")
     g1 = QGridLayout(group1)
-    g1.setHorizontalSpacing(8)
+    g1.setSpacing(6)
+    g1.setContentsMargins(8, 8, 8, 8)
     r = 0
 
     # RMVPE 阈值
     win.exp_rmvpe_threshold_slider = _slrow(
         win, "exp_rmvpe_threshold_slider", 0.01, 0.10, 0.01,
-        experimental_config.rmvpe_threshold, fmt=".2f", label_w=45,
+        experimental_config.rmvpe_threshold, fmt=".2f",
     )
     win.exp_rmvpe_threshold_slider.valueChanged.connect(
         lambda: setattr(
@@ -57,7 +58,7 @@ def build_experimental_tab(win):
     # FCPE 阈值
     win.exp_fcpe_threshold_slider = _slrow(
         win, "exp_fcpe_threshold_slider", 0.01, 0.10, 0.01,
-        experimental_config.fcpe_confidence_threshold, fmt=".2f", label_w=45,
+        experimental_config.fcpe_confidence_threshold, fmt=".2f",
     )
     win.exp_fcpe_threshold_slider.valueChanged.connect(
         lambda: setattr(
@@ -97,7 +98,8 @@ def build_experimental_tab(win):
     # ── 2. 音域映射（半音尺度，始终生效，替代固定 pitch 偏移） ──
     group_pm = QGroupBox("音域保护")
     gpm = QGridLayout(group_pm)
-    gpm.setHorizontalSpacing(8)
+    gpm.setSpacing(6)
+    gpm.setContentsMargins(8, 8, 8, 8)
     r = 0
 
     # 原声音域（双滑块范围控件，标签在左，滑动条在右，值在最右）

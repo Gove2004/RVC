@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QFileDialog
 
 from gui.infer.view.widgets import _slrow
+from gui.styles.components import ButtonStyles
 from rvc.core.config import HUBERT_DEFAULT
 from rvc.runtime.paths import MODELS_DIR
 
@@ -12,56 +13,23 @@ from rvc.runtime.paths import MODELS_DIR
 def build_global_params_tab(win):
     w = QWidget()
     g = QGridLayout(w)
+    g.setSpacing(6)
+    g.setContentsMargins(8, 8, 8, 8)
     r = 0
 
     # ── 模型路径 + 特征器（同一行，最上面，路径选择按钮）──
     win.model_path = ""  # 完整路径存储在这里（ATTR 绑定）
     win.model_path_btn = QPushButton("选择模型...")
-    win.model_path_btn.setMinimumHeight(24)
+    win.model_path_btn.setMinimumHeight(28)
     win.model_path_btn.setToolTip("点击选择模型文件 (.pth)")
-    win.model_path_btn.setStyleSheet("""
-        QPushButton {
-            background-color: #1a1a1a;
-            color: white;
-            border: 1px solid #3a3a3a;
-            border-radius: 3px;
-            padding: 3px 8px;
-            text-align: left;
-        }
-        QPushButton:hover {
-            background-color: #252525;
-            border-color: #0078D4;
-        }
-    """)
+    win.model_path_btn.setStyleSheet(ButtonStyles.path_button())
     win.model_path_btn.clicked.connect(lambda: _browse_model(win))
 
     win.hubert_combo = QComboBox()
     win.hubert_combo.addItems(["base", "chinese"])
-    win.hubert_combo.setMinimumHeight(24)
+    win.hubert_combo.setMinimumHeight(28)
     win.hubert_combo.setToolTip("此模型训练时用的特征器（base=原版 hubert_base，chinese=腾讯中文 hubert）。训练与推理必须一致。")
     win.hubert_combo.setMaximumWidth(90)
-    win.hubert_combo.setStyleSheet("""
-        QComboBox {
-            background-color: #2a2a2a;
-            color: white;
-            border: 1px solid #3a3a3a;
-            border-radius: 3px;
-            padding: 3px 6px;
-        }
-        QComboBox:hover {
-            border-color: #0078D4;
-        }
-        QComboBox::drop-down {
-            border: none;
-            width: 20px;
-        }
-        QComboBox QAbstractItemView {
-            background-color: #2a2a2a;
-            color: white;
-            selection-background-color: #0078D4;
-            outline: none;
-        }
-    """)
 
     g.addWidget(QLabel("模型路径"), r, 0)
     g.addWidget(win.model_path_btn, r, 1)

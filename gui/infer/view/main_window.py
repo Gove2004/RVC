@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
 
         # 右侧：延迟显示（硬件时间戳实测）
         self.delay_lbl = QLabel("延迟: -")
-        self.delay_lbl.setMinimumWidth(100)
+        self.delay_lbl.setMinimumWidth(120)
         self.delay_lbl.setToolTip("端到端实测延迟（含声卡缓冲）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
         btn_group.addWidget(self.delay_lbl)
 
@@ -395,6 +395,12 @@ class MainWindow(QMainWindow):
         self.offline_manager.browse_file(tgt, kind)
 
     def _off_start(self):
+        # 保存配置（在开始转换前保存当前设置）
+        try:
+            self._save_gui_config()
+            logger.debug("配置已保存")
+        except Exception as e:
+            logger.warning("保存配置失败：%s", e)
         self.offline_manager.start_conversion()
 
     def closeEvent(self, event):

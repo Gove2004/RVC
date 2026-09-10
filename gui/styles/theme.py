@@ -80,12 +80,32 @@ def _build_global_stylesheet() -> str:
         }}
 
         /* 输入控件 */
-        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit {{
+        QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit {{
             border: 1px solid {Colors.BORDER};
             border-radius: {r}px;
             background-color: {Colors.INPUT_BG};
             padding: 3px 6px;
             selection-background-color: {Colors.PRIMARY};
+        }}
+        QComboBox {{
+            border: 1px solid {Colors.BORDER};
+            border-radius: {r}px;
+            background-color: {Colors.SECONDARY};
+            color: {Colors.TEXT_PRIMARY};
+            padding: 3px 6px;
+        }}
+        QComboBox:hover {{
+            border-color: {Colors.PRIMARY};
+        }}
+        QComboBox::drop-down {{
+            border: none;
+            width: 20px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: {Colors.SECONDARY};
+            color: {Colors.TEXT_PRIMARY};
+            selection-background-color: {Colors.PRIMARY};
+            outline: none;
         }}
         QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus {{
             border-color: {Colors.PRIMARY};

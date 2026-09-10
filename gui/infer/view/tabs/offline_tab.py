@@ -55,7 +55,7 @@ def build_offline_tab(win):
 
     # 进度条
     win.offline_progress = QProgressBar()
-    win.offline_progress.setMinimumHeight(20)
+    win.offline_progress.setMinimumHeight(24)
     g.addWidget(win.offline_progress, r, 0, 1, 4)
 
     return w

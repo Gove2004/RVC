@@ -10,6 +10,8 @@ from gui.styles import ButtonStyles
 def build_audio_driver_tab(win):
     w = QWidget()
     g = QGridLayout(w)
+    g.setSpacing(6)
+    g.setContentsMargins(8, 8, 8, 8)
     r = 0
 
     # ── 设备选择 ──
