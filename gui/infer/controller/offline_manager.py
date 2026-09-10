@@ -59,7 +59,7 @@ class OfflineManager:
             out = base + "_converted.wav"
             self.window.offline_output.setText(out)
 
-        pth = self.window.model_path_edit.text().strip()
+        pth = self.window.model_path.strip() if hasattr(self.window, 'model_path') else ''
         if not pth:
             self.window._show_warning("请先在「参数调节」中选择模型文件")
             return

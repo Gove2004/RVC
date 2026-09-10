@@ -19,6 +19,7 @@ X100 = "x100"        # QSlider，值 /100
 INT = "int"          # QSlider，整数值（不除 100）
 COMBO = "combo"      # QComboBox currentText / findText
 TEXT = "text"        # QLineEdit text
+ATTR = "attr"        # 普通属性（直接 getattr/setattr，非控件）
 RADIO_F0 = "radio_f0"  # RMVPE/FCPE 互斥
 RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 
@@ -39,7 +40,7 @@ BINDINGS = [
     ("engine.output_device", "output_combo", COMBO, ""),
     ("engine.output2_device", "output2_combo", COMBO, ""),
     # ── 顶层 ──
-    ("model_path", "model_path_edit", TEXT, ""),
+    ("model_path", "model_path", ATTR, ""),
     ("hubert", "hubert_combo", COMBO, "chinese"),
 ]
 
@@ -171,6 +172,8 @@ def _get(win, widget, kind):
         return w.currentText()
     if kind == TEXT:
         return w.text().strip()
+    if kind == ATTR:
+        return str(w) if w else ""
     if kind == RADIO_F0:
         return "rmvpe" if w.isChecked() else "fcpe"
     if kind == RADIO_SR:
@@ -191,6 +194,8 @@ def _set(win, widget, kind, value):
             getattr(win, widget).setCurrentIndex(idx)
     elif kind == TEXT:
         getattr(win, widget).setText(str(value))
+    elif kind == ATTR:
+        setattr(win, widget, str(value) if value else "")
     elif kind == RADIO_F0:
         win.f0_rmvp_btn.setChecked(value == "rmvpe")
         win.f0_fcpe_btn.setChecked(value != "rmvpe")
