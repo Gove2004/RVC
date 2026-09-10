@@ -51,6 +51,9 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     Hz 尺度线性映射 y=kx+b（b≠0）会破坏半音音程，导致跑调。
     半音尺度映射 y_semi = k*x_semi + b 保持音程比例，旋律不变形。
 
+    线性外推（不钳制）：低于原声音域下限的帧外推到低于目标下限，
+    避免弹舌音等瞬态清音的低 F0 误判帧被强制钳制到目标下限产生固定音高。
+
     Args:
         f0: 输入 F0（torch.Tensor 或 numpy.ndarray，单位 Hz），0=清音/UV
         src_min/src_max: 原声音域（Hz）
@@ -81,15 +84,13 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     dst_max_m = hz_to_midi(dst_max, xp)
     f0_m = hz_to_midi(f0_safe, xp)
 
-    # 半音尺度线性映射
+    # 半音尺度线性映射（线性外推，不钳制：低于原声音域下限的帧外推到低于目标下限，
+    # 避免弹舌音等瞬态清音的低 F0 误判帧被强制钳制到目标下限产生固定音高）
     src_range = src_max_m - src_min_m
     if src_range < 1e-6:
         return f0  # 原声音域无效，原样返回
     ratio = (f0_m - src_min_m) / src_range
     out_m = dst_min_m + ratio * (dst_max_m - dst_min_m)
-
-    # 两端钳制到目标音域
-    out_m = xp.clamp(out_m, dst_min_m, dst_max_m) if xp is torch else xp.clip(out_m, dst_min_m, dst_max_m)
 
     # MIDI → Hz
     out = midi_to_hz(out_m, xp)
