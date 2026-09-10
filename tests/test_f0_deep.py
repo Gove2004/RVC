@@ -3,7 +3,7 @@
 Covers:
 - _FilteredStream: prefix/contains filtering, empty text, flush, __getattr__
 - _normalize_f0_to_coarse: various F0 values, boundaries, UV
-- postprocess_f0: pitch shift, break protect toggle, numpy/tensor input
+- postprocess_f0: pitch map (semitone scale), numpy/tensor input
 - constants: FCPE_CONFIDENCE_THRESHOLD
 - create_f0_extractor: unknown method raises
 """
@@ -190,51 +190,59 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
 
 
 class TestPostprocessF0(unittest.TestCase):
-    """Tests for postprocess_f0."""
+    """Tests for postprocess_f0（音域映射始终生效，f0_up_key 已弃用）。"""
 
-    def test_zero_shift_unchanged(self):
-        """f0_up_key=0 means pitch unchanged."""
-        f0 = torch.tensor([440.0, 500.0])
+    def _identity_config(self):
+        """mock experimental_config 为 identity mapping（src=dst），f0 不变。"""
+        from unittest.mock import patch
+        patcher = patch("rvc.inference.f0_extractor.experimental_config")
+        mock_cfg = patcher.start()
+        mock_cfg.pitch_map_src_min = 100.0
+        mock_cfg.pitch_map_src_max = 500.0
+        mock_cfg.pitch_map_dst_min = 100.0
+        mock_cfg.pitch_map_dst_max = 500.0
+        self.addCleanup(patcher.stop)
+
+    def test_identity_mapping_unchanged(self):
+        """identity mapping（src=dst）时 pitch 不变。"""
+        self._identity_config()
+        f0 = torch.tensor([200.0, 300.0])
         coarse, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
-        self.assertAlmostEqual(pitchf[0].item(), 440.0, delta=1.0)
+        self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
-    def test_positive_shift_increases(self):
-        """Positive semitone shift increases pitch."""
-        f0 = torch.tensor([440.0, 500.0])
-        _, pitchf = postprocess_f0(f0, f0_up_key=12, device="cpu")
-        # 12 semitones = 1 octave = 2x
-        self.assertAlmostEqual(pitchf[0].item(), 880.0, delta=2.0)
-
-    def test_negative_shift_decreases(self):
-        """Negative semitone shift decreases pitch."""
-        f0 = torch.tensor([440.0, 500.0])
-        _, pitchf = postprocess_f0(f0, f0_up_key=-12, device="cpu")
-        self.assertAlmostEqual(pitchf[0].item(), 220.0, delta=1.0)
+    def test_f0_up_key_ignored(self):
+        """f0_up_key 已弃用，不影响输出。"""
+        self._identity_config()
+        f0 = torch.tensor([200.0, 300.0])
+        _, pitchf_0 = postprocess_f0(f0, f0_up_key=0, device="cpu")
+        _, pitchf_12 = postprocess_f0(f0, f0_up_key=12, device="cpu")
+        self.assertTrue(torch.allclose(pitchf_0, pitchf_12, atol=1.0))
 
     def test_numpy_input(self):
         """numpy array input also works."""
+        self._identity_config()
         import numpy as np
-        f0 = np.array([440.0, 500.0, 600.0], dtype=np.float32)
+        f0 = np.array([200.0, 300.0, 400.0], dtype=np.float32)
         coarse, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
         self.assertEqual(pitchf.shape, (3,))
-        self.assertAlmostEqual(pitchf[0].item(), 440.0, delta=1.0)
-
-
-
+        self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_output_shapes(self):
-        f0 = torch.tensor([440.0, 500.0, 600.0])
+        self._identity_config()
+        f0 = torch.tensor([200.0, 300.0, 400.0])
         coarse, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
         self.assertEqual(coarse.shape, (3,))
         self.assertEqual(pitchf.shape, (3,))
 
     def test_coarse_dtype_long(self):
-        f0 = torch.tensor([440.0, 500.0])
+        self._identity_config()
+        f0 = torch.tensor([200.0, 300.0])
         coarse, _ = postprocess_f0(f0, f0_up_key=0, device="cpu")
         self.assertEqual(coarse.dtype, torch.long)
 
     def test_pitchf_dtype_float(self):
-        f0 = torch.tensor([440.0, 500.0])
+        self._identity_config()
+        f0 = torch.tensor([200.0, 300.0])
         _, pitchf = postprocess_f0(f0, f0_up_key=0, device="cpu")
         self.assertEqual(pitchf.dtype, torch.float32)
 

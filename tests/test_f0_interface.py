@@ -49,12 +49,19 @@ class TestPostprocessF0(unittest.TestCase):
         assert pitchf.shape == (3,)
         assert pitch.dtype == torch.long
 
-    def test_pitch_shift(self):
-        f0 = torch.tensor([100.0])
-        pitch_0, _ = postprocess_f0(f0, f0_up_key=0, device="cpu")
-        pitch_12, _ = postprocess_f0(f0, f0_up_key=12, device="cpu")
-        # 升高 12 半音，F0 应翻倍，离散 pitch 应增大
-        assert pitch_12.item() > pitch_0.item()
+    def test_pitch_shift_ignored(self):
+        """f0_up_key 已弃用，音域映射始终生效，f0_up_key 不影响输出。"""
+        from unittest.mock import patch
+        f0 = torch.tensor([200.0])
+        with patch("rvc.inference.f0_extractor.experimental_config") as mock_cfg:
+            mock_cfg.pitch_map_src_min = 100.0
+            mock_cfg.pitch_map_src_max = 500.0
+            mock_cfg.pitch_map_dst_min = 100.0
+            mock_cfg.pitch_map_dst_max = 500.0
+            pitch_0, _ = postprocess_f0(f0, f0_up_key=0, device="cpu")
+            pitch_12, _ = postprocess_f0(f0, f0_up_key=12, device="cpu")
+        # identity mapping + f0_up_key 被忽略 → 输出相同
+        assert pitch_0.item() == pitch_12.item()
 
 
 

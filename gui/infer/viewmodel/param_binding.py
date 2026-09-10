@@ -25,7 +25,6 @@ RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 # 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 缺省默认值)
 BINDINGS = [
     # ── 推理参数（inference.*）──
-    ("inference.pitch", "pitch_slider", X100, 0),
     ("inference.formant", "formant_slider", X100, 0.0),
     ("inference.protect", "protect_slider", X100, 0.5),
     ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),

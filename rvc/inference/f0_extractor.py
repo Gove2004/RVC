@@ -83,12 +83,11 @@ def postprocess_f0(f0, f0_up_key: float, device) -> tuple[torch.Tensor, torch.Te
     """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf)。
 
     RMVPE / FCPE 共用，避免两份重复实现：
-    音高偏移 ×2^(key/12) → 转 GPU tensor → 离散化。
-    音域映射（实验功能）开启时替代固定 pitch 偏移。
+    音域映射（半音尺度，始终生效）→ 转 GPU tensor → 离散化。
 
     Args:
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
-        f0_up_key: 音高偏移（半音）
+        f0_up_key: 音高偏移（半音，已弃用，保留参数兼容调用方）
         device: 目标设备
 
     Returns:
@@ -97,17 +96,14 @@ def postprocess_f0(f0, f0_up_key: float, device) -> tuple[torch.Tensor, torch.Te
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-    # 音高控制：音域映射和固定 pitch 偏移互斥
-    if experimental_config.pitch_map_enabled:
-        f0 = apply_pitch_map(
-            f0,
-            experimental_config.pitch_map_src_min,
-            experimental_config.pitch_map_src_max,
-            experimental_config.pitch_map_dst_min,
-            experimental_config.pitch_map_dst_max,
-        )
-    else:
-        f0 = f0 * pow(2, f0_up_key / 12)
+    # 音域映射（半音尺度，始终生效，替代固定 pitch 偏移）
+    f0 = apply_pitch_map(
+        f0,
+        experimental_config.pitch_map_src_min,
+        experimental_config.pitch_map_src_max,
+        experimental_config.pitch_map_dst_min,
+        experimental_config.pitch_map_dst_max,
+    )
     return normalize_f0_to_coarse(f0), f0
 
 

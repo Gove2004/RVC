@@ -44,14 +44,11 @@ def protect_blend(feats_converted: torch.Tensor, feats_original: torch.Tensor, p
     # 软阈值（sigmoid）：在 pitchf 接近 0 的区域平滑过渡，减少浊音/清音边界突变，
     # 改善短辅音（b/p/d/t）被误判为浊音导致的咬字不清。
     from rvc.core.experimental import experimental_config
-    if experimental_config.protect_soft_enabled:
-        threshold = experimental_config.protect_soft_threshold_hz
-        width = experimental_config.protect_soft_width
-        # uv_prob: 0=浊音（全转换），1=UV/清音（按 protect 混合原特征）
-        uv_prob = torch.sigmoid((threshold - pitchf) / (width / 4))
-        mix = 1.0 - protect * uv_prob
-    else:
-        mix = torch.where(pitchf > 0, 1.0, 1.0 - protect)
+    threshold = experimental_config.protect_soft_threshold_hz
+    width = experimental_config.protect_soft_width
+    # uv_prob: 0=浊音（全转换），1=UV/清音（按 protect 混合原特征）
+    uv_prob = torch.sigmoid((threshold - pitchf) / (width / 4))
+    mix = 1.0 - protect * uv_prob
     pitchff = mix.unsqueeze(-1)
     return feats_converted * pitchff + feats_original * (1 - pitchff)
 
