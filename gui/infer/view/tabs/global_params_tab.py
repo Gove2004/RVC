@@ -15,6 +15,9 @@ def build_global_params_tab(win):
     g = QGridLayout(w)
     g.setSpacing(6)
     g.setContentsMargins(8, 8, 8, 8)
+    g.setColumnStretch(0, 2)
+    g.setColumnStretch(1, 6)
+    g.setColumnStretch(2, 2)
     r = 0
 
     # ── 模型路径 + 特征器（同一行，最上面，路径选择按钮）──

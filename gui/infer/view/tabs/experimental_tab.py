@@ -50,6 +50,9 @@ def build_experimental_tab(win):
     g1 = QGridLayout(group1)
     g1.setSpacing(6)
     g1.setContentsMargins(8, 8, 8, 8)
+    g1.setColumnStretch(0, 2)
+    g1.setColumnStretch(1, 6)
+    g1.setColumnStretch(2, 2)
     r = 0
 
     # RMVPE 阈值
@@ -112,6 +115,9 @@ def build_experimental_tab(win):
     gpm = QGridLayout(group_pm)
     gpm.setSpacing(6)
     gpm.setContentsMargins(8, 8, 8, 8)
+    gpm.setColumnStretch(0, 2)
+    gpm.setColumnStretch(1, 6)
+    gpm.setColumnStretch(2, 2)
     r = 0
 
     # 原声音域（双滑块范围控件，标签在左，滑动条在右，值在最右）
