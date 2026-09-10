@@ -1,6 +1,6 @@
 """实验功能 Tab — 辅音保护 / 音域映射"""
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QGroupBox, QVBoxLayout,
+    QWidget, QGridLayout, QLabel, QGroupBox, QVBoxLayout, QHBoxLayout,
 )
 
 from gui.infer.view.widgets import _slrow, _sl_value_as_float, RangeSlider
@@ -72,13 +72,11 @@ def build_experimental_tab(win):
 
     # ── 2. 音域映射（半音尺度，始终生效，替代固定 pitch 偏移） ──
     group_pm = QGroupBox("音域保护")
-    gpm = QHBoxLayout(group_pm)
-    gpm.setSpacing(12)
+    gpm = QGridLayout(group_pm)
+    gpm.setHorizontalSpacing(8)
+    r = 0
 
-    # 原声音域（双滑块范围控件，标签在上）
-    src_col = QVBoxLayout()
-    src_label = QLabel("原声音域")
-    src_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+    # 原声音域（双滑块范围控件，标签在左，滑动条在右，不换行）
     win.exp_pitch_map_src_range = RangeSlider(
         20.0, 1000.0, 5.0,
         experimental_config.pitch_map_src_min, experimental_config.pitch_map_src_max,
@@ -90,14 +88,10 @@ def build_experimental_tab(win):
             setattr(experimental_config, "pitch_map_src_max", high),
         )
     )
-    src_col.addWidget(src_label)
-    src_col.addWidget(win.exp_pitch_map_src_range)
-    gpm.addLayout(src_col, 1)
+    gpm.addWidget(QLabel("原声音域"), r, 0)
+    gpm.addWidget(win.exp_pitch_map_src_range, r, 1, 1, 2); r += 1
 
-    # 目标音域（双滑块范围控件，标签在上）
-    dst_col = QVBoxLayout()
-    dst_label = QLabel("目标音域")
-    dst_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+    # 目标音域（双滑块范围控件，标签在左，滑动条在右，不换行）
     win.exp_pitch_map_dst_range = RangeSlider(
         20.0, 1000.0, 5.0,
         experimental_config.pitch_map_dst_min, experimental_config.pitch_map_dst_max,
@@ -109,9 +103,8 @@ def build_experimental_tab(win):
             setattr(experimental_config, "pitch_map_dst_max", high),
         )
     )
-    dst_col.addWidget(dst_label)
-    dst_col.addWidget(win.exp_pitch_map_dst_range)
-    gpm.addLayout(dst_col, 1)
+    gpm.addWidget(QLabel("目标音域"), r, 0)
+    gpm.addWidget(win.exp_pitch_map_dst_range, r, 1, 1, 2); r += 1
 
     root.addWidget(group_pm)
     root.addStretch()
