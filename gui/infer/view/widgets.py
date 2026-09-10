@@ -22,6 +22,7 @@ def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     返回 slider。一处样板替换原先「建滑块 + 建 label + connect 格式化」三行。
     """
     s = QSlider(Qt.Orientation.Horizontal)
+    s.setFixedHeight(18)
     s.setRange(int(mn * 100), int(mx * 100))
     s.setSingleStep(int(st * 100))
     s.setValue(int(dv * 100))
