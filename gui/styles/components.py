@@ -125,6 +125,25 @@ class ButtonStyles:
         """
 
 
+    @staticmethod
+    def path_button():
+        """路径选择按钮（黑色背景，文字左对齐，用于模型路径、输入文件等）"""
+        return f"""
+            QPushButton {{
+                background-color: {Colors.INPUT_BG};
+                color: {Colors.TEXT_PRIMARY};
+                border: 1px solid {Colors.BORDER};
+                border-radius: {Layout.RADIUS_NORMAL}px;
+                padding: 3px 8px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background-color: {Colors.ALTERNATE_BG};
+                border-color: {Colors.PRIMARY};
+            }}
+        """
+
+
 class LabelStyles:
     """统一的标签样式"""
 
