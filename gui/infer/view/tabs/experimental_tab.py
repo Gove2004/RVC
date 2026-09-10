@@ -72,10 +72,11 @@ def build_experimental_tab(win):
 
     # ── 2. 音域映射（半音尺度，始终生效，替代固定 pitch 偏移） ──
     group_pm = QGroupBox("音域保护")
-    gpm = QVBoxLayout(group_pm)
-    gpm.setSpacing(6)
+    gpm = QHBoxLayout(group_pm)
+    gpm.setSpacing(12)
 
     # 原声音域（双滑块范围控件，标签在上）
+    src_col = QVBoxLayout()
     src_label = QLabel("原声音域")
     src_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
     win.exp_pitch_map_src_range = RangeSlider(
@@ -89,10 +90,12 @@ def build_experimental_tab(win):
             setattr(experimental_config, "pitch_map_src_max", high),
         )
     )
-    gpm.addWidget(src_label)
-    gpm.addWidget(win.exp_pitch_map_src_range)
+    src_col.addWidget(src_label)
+    src_col.addWidget(win.exp_pitch_map_src_range)
+    gpm.addLayout(src_col, 1)
 
     # 目标音域（双滑块范围控件，标签在上）
+    dst_col = QVBoxLayout()
     dst_label = QLabel("目标音域")
     dst_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
     win.exp_pitch_map_dst_range = RangeSlider(
@@ -106,8 +109,9 @@ def build_experimental_tab(win):
             setattr(experimental_config, "pitch_map_dst_max", high),
         )
     )
-    gpm.addWidget(dst_label)
-    gpm.addWidget(win.exp_pitch_map_dst_range)
+    dst_col.addWidget(dst_label)
+    dst_col.addWidget(win.exp_pitch_map_dst_range)
+    gpm.addLayout(dst_col, 1)
 
     root.addWidget(group_pm)
     root.addStretch()
