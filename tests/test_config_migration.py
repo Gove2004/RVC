@@ -24,7 +24,7 @@ OLD_FORMAT = {
     "in_dev": "麦克风 (USB Audio Device)",
     "out_dev": "CABLE Input (VB-Audio Virtual Cable)",
     "out2_dev": "扬声器 (USB Audio Device)",
-    "active_model": "E:/Projects/Python/RVC/assets/models/test.pth",
+    "model_path": "E:/Projects/Python/RVC/assets/models/test.pth",
 }
 
 # 对应的新嵌套结构
@@ -44,7 +44,7 @@ NEW_FORMAT = {
         "output_device": "CABLE Input (VB-Audio Virtual Cable)",
         "output2_device": "扬声器 (USB Audio Device)",
     },
-    "active_model": "E:/Projects/Python/RVC/assets/models/test.pth",
+    "model_path": "E:/Projects/Python/RVC/assets/models/test.pth",
 }
 
 
@@ -63,18 +63,18 @@ class TestMigrateOldFormat(unittest.TestCase):
         self.assertEqual(result["engine"]["input_device"], "麦克风 (USB Audio Device)")
         self.assertEqual(result["engine"]["output_device"], "CABLE Input (VB-Audio Virtual Cable)")
         self.assertEqual(result["engine"]["output2_device"], "扬声器 (USB Audio Device)")
-        self.assertEqual(result["active_model"], "E:/Projects/Python/RVC/assets/models/test.pth")
+        self.assertEqual(result["model_path"], "E:/Projects/Python/RVC/assets/models/test.pth")
         # 旧短键应该被移除
         self.assertNotIn("bl", result)
 
     def test_new_format_not_migrated(self):
-        # 新格式只有 active_model 一个键可能与旧键重合，不应触发迁移
+        # 新格式只有 model_path 一个键可能与旧键重合，不应触发迁移
         result = _migrate_old_format(NEW_FORMAT)
         self.assertIs(result, NEW_FORMAT)  # 原样返回（同一个对象）
 
     def test_partial_old_keys_no_migration(self):
-        # 只有 1-2 个旧键（比如只有 active_model），不应触发迁移
-        data = {"active_model": "test.pth", "inference": {"protect": 0.5}}
+        # 只有 1-2 个旧键（比如只有 model_path），不应触发迁移
+        data = {"model_path": "test.pth", "inference": {"protect": 0.5}}
         result = _migrate_old_format(data)
         self.assertIs(result, data)
 
@@ -104,14 +104,14 @@ class TestStateFromDict(unittest.TestCase):
         self.assertEqual(cfg.engine.input_device, "麦克风 (USB Audio Device)")
         self.assertEqual(cfg.engine.output_device, "CABLE Input (VB-Audio Virtual Cable)")
         self.assertEqual(cfg.engine.output2_device, "扬声器 (USB Audio Device)")
-        self.assertEqual(cfg.active_model, "E:/Projects/Python/RVC/assets/models/test.pth")
+        self.assertEqual(cfg.model_path, "E:/Projects/Python/RVC/assets/models/test.pth")
 
     def test_new_format_reads_correctly(self):
         cfg = state_from_dict(NEW_FORMAT)
         self.assertEqual(cfg.inference.protect, 0.8)
         self.assertEqual(cfg.inference.f0_method, "rmvpe")
         self.assertEqual(cfg.engine.block_time, 0.1)
-        self.assertEqual(cfg.active_model, "E:/Projects/Python/RVC/assets/models/test.pth")
+        self.assertEqual(cfg.model_path, "E:/Projects/Python/RVC/assets/models/test.pth")
 
     def test_empty_dict_uses_defaults(self):
         cfg = state_from_dict({})
@@ -141,7 +141,7 @@ class TestStateToDict(unittest.TestCase):
         # 验证是嵌套结构，不是短键
         self.assertIn("inference", result)
         self.assertIn("engine", result)
-        self.assertIn("active_model", result)
+        self.assertIn("model_path", result)
         # 不应有旧短键
         self.assertNotIn("bl", result)
 
@@ -151,7 +151,7 @@ class TestStateToDict(unittest.TestCase):
         self.assertEqual(result["inference"]["protect"], 0.8)
         self.assertEqual(result["inference"]["f0_method"], "rmvpe")
         self.assertEqual(result["engine"]["block_time"], 0.1)
-        self.assertEqual(result["active_model"], "E:/Projects/Python/RVC/assets/models/test.pth")
+        self.assertEqual(result["model_path"], "E:/Projects/Python/RVC/assets/models/test.pth")
 
 
 class TestRoundTripConsistency(unittest.TestCase):
@@ -172,7 +172,7 @@ class TestRoundTripConsistency(unittest.TestCase):
         self.assertEqual(cfg1.engine.input_device, cfg2.engine.input_device)
         self.assertEqual(cfg1.engine.output_device, cfg2.engine.output_device)
         self.assertEqual(cfg1.engine.output2_device, cfg2.engine.output2_device)
-        self.assertEqual(cfg1.active_model, cfg2.active_model)
+        self.assertEqual(cfg1.model_path, cfg2.model_path)
 
     def test_new_format_roundtrip(self):
         """新格式 → AppConfig → 新格式 → AppConfig，关键值一致。"""
@@ -181,7 +181,7 @@ class TestRoundTripConsistency(unittest.TestCase):
         cfg2 = state_from_dict(new_dict)
         self.assertEqual(cfg1.inference.protect, cfg2.inference.protect)
         self.assertEqual(cfg1.engine.block_time, cfg2.engine.block_time)
-        self.assertEqual(cfg1.active_model, cfg2.active_model)
+        self.assertEqual(cfg1.model_path, cfg2.model_path)
 
 
 if __name__ == "__main__":

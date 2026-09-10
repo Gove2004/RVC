@@ -39,7 +39,8 @@ BINDINGS = [
     ("engine.output_device", "output_combo", COMBO, ""),
     ("engine.output2_device", "output2_combo", COMBO, ""),
     # ── 顶层 ──
-    ("active_model", "", TEXT, ""),
+    ("model_path", "model_path_edit", TEXT, ""),
+    ("hubert", "hubert_combo", COMBO, "chinese"),
 ]
 
 # 需要按控件步长量化的字段：字段路径 → 量化步长
@@ -100,7 +101,6 @@ _OLD_KEY_MAPPING = {
     "in_dev": "engine.input_device",
     "out_dev": "engine.output_device",
     "out2_dev": "engine.output2_device",
-    "active_model": "active_model",
 }
 
 
@@ -108,10 +108,10 @@ def _migrate_old_format(data: dict) -> dict:
     """检测旧短键格式，自动转换成嵌套结构。已经是新格式则原样返回。
 
     判断标准：同时存在多个旧短键（如 nr_en + bl）才认为是旧格式，
-    避免新格式里的 active_model 单独触发误迁移。
+    避免新格式里的 model_path 单独触发误迁移。
     """
     old_keys_present = [k for k in _OLD_KEY_MAPPING if k in data]
-    # 旧格式至少有 3 个以上短键（新格式只有 active_model 一个顶层键可能重合）
+    # 旧格式至少有 3 个以上短键（新格式只有 model_path 一个顶层键可能重合）
     if len(old_keys_present) < 3:
         return data
     result = dict(data)  # 先复制所有键，避免丢失非配置字段
@@ -202,7 +202,7 @@ def _set(win, widget, kind, value):
 
 
 def collect_gui_state(win) -> AppConfig:
-    """从控件收集完整配置（含 active_model 特例）。"""
+    """从控件收集完整配置。"""
     cfg = AppConfig()
     for path, widget, kind, _d in BINDINGS:
         if widget:
@@ -210,25 +210,14 @@ def collect_gui_state(win) -> AppConfig:
     # enable_out2 无独立控件，根据 output2_combo 是否选了"不使用"自动推导
     out2_text = win.output2_combo.currentText()
     cfg.engine.enable_out2 = bool(out2_text) and out2_text != "不使用"
-    active = ""
-    card = win.model_manager.active_card
-    if card is not None:
-        active = card.pth_edit.text().strip()
-    cfg.active_model = active
     return cfg
 
 
 def apply_gui_state(win, state: AppConfig) -> None:
-    """将配置写回控件（含 active_model 特例）。"""
+    """将配置写回控件。"""
     for path, widget, kind, _d in BINDINGS:
         if widget:
             _set(win, widget, kind, _get_nested(state, path))
-    if state.active_model:
-        for card in win.model_manager.cards:
-            if card.pth_edit.text().strip() == state.active_model:
-                card.set_active(True)
-                win.model_manager.active_card = card
-                break
 
 
 def runtime_from_state(state: AppConfig) -> InferenceConfig:

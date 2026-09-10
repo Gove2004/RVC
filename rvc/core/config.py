@@ -26,19 +26,11 @@ class EngineConfig:
 
 
 @dataclass
-class ModelEntry:
-    name: str = ""
-    pth: str = ""
-    formant: float = 0.0
-    hubert: str = "chinese"
-
-
-@dataclass
 class AppConfig:
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
-    active_model: str = ""
-    models: list[ModelEntry] = field(default_factory=list)
+    model_path: str = ""
+    hubert: str = HUBERT_DEFAULT
 
 
 @dataclass

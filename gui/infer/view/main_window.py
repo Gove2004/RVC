@@ -31,10 +31,8 @@ from gui.infer.view.widgets import LoadThread, _sl_value_as_float
 from rvc.core.config import HUBERT_DEFAULT
 from gui.infer.view.tabs.audio_driver_tab import build_audio_driver_tab
 from gui.infer.view.tabs.global_params_tab import build_global_params_tab
-from gui.infer.view.tabs.models_tab import build_models_tab
 from gui.infer.view.tabs.offline_tab import build_offline_tab
 from gui.infer.view.tabs.experimental_tab import build_experimental_tab
-from gui.infer.controller.model_manager import ModelManager
 from gui.infer.controller.device_manager import DeviceManager
 from gui.infer.controller.offline_manager import OfflineManager
 from gui.styles import ButtonStyles, Layout
@@ -61,12 +59,10 @@ class MainWindow(QMainWindow):
         self._connect_runtime_param_signals()
 
         # 初始化管理器
-        self.model_manager = ModelManager(self, self._models_layout)
         self.device_manager = DeviceManager(self)
         self.offline_manager = OfflineManager(self)
 
         self.device_manager.load_hostapis()
-        self.model_manager.load_models()
         self._load_gui_config()
         # Connect refresh button after device_manager is ready
         self.refresh_btn.clicked.connect(self._reload_dev)
@@ -120,7 +116,6 @@ class MainWindow(QMainWindow):
             self._lt.wait(2000)
         try:
             self._save_gui_config()
-            self.model_manager.save_models()
         except Exception as e:
             logger.error("保存配置失败：%s", e, exc_info=True)
         self.controller.stop()
@@ -168,7 +163,6 @@ class MainWindow(QMainWindow):
         driver_w, self.refresh_btn = build_audio_driver_tab(self)
         tabs.addTab(driver_w, "设备驱动")
         tabs.addTab(build_global_params_tab(self), "参数调节")
-        tabs.addTab(build_models_tab(self), "模型列表")
         tabs.addTab(build_offline_tab(self), "离线推理")
         tabs.addTab(build_experimental_tab(self), "实验功能")
         root.addWidget(tabs)
@@ -210,9 +204,6 @@ class MainWindow(QMainWindow):
             self.tray.update_status()
 
     # ── 委托方法 ──
-
-    def _add_model(self):
-        self.model_manager.add_model_from_file()
 
     def _reload_dev(self):
         """委托给 DeviceManager（运行中禁止刷新，防止杀活动流）"""
@@ -256,8 +247,6 @@ class MainWindow(QMainWindow):
         self.delay_lbl.setText("延迟: -")
 
     def _mark_loading(self):
-        if self.model_manager.active_card:
-            self.model_manager.active_card.set_loading(True)
         self._set_toggle_button("加载中", False, ButtonStyles.secondary())
 
     def _mark_running(self):
@@ -279,21 +268,17 @@ class MainWindow(QMainWindow):
             self._start()
 
     def _start(self):
-        if not self.model_manager.active_card:
-            self._show_warning("请先在模型列表中选择一个模型")
-            return
-        pth = self.model_manager.active_card.pth_edit.text().strip()
+        pth = self.model_path_edit.text().strip()
         if not pth:
-            self._show_warning("模型文件路径为空")
+            self._show_warning("请先在参数调节中选择模型文件")
             return
-        hubert = self.model_manager.active_card.hubert_combo.currentText()
+        hubert = self.hubert_combo.currentText()
         self._apply_model_params()
         self._apply_runtime_params()
 
         # 保存配置（在启动前保存当前设置）
         try:
             self._save_gui_config()
-            self.model_manager.save_models()
             logger.debug("配置已保存")
         except Exception as e:
             logger.warning("保存配置失败：%s", e)
@@ -332,8 +317,6 @@ class MainWindow(QMainWindow):
             self._lt = None
 
     def _on_loaded(self, sr):
-        if self.model_manager.active_card:
-            self.model_manager.active_card.set_active(True)
         try:
             state = self.collect_gui_state()
             eng = state.engine
@@ -353,7 +336,6 @@ class MainWindow(QMainWindow):
             if self.tray is not None:
                 self.tray.update_status()
             self._save_gui_config()
-            self.model_manager.save_models()
         except Exception as e:
             self._on_err(str(e))
 
@@ -381,8 +363,6 @@ class MainWindow(QMainWindow):
             self._loading = False
             self.controller.end_load()
             self._reset_runtime_ui()
-            if self.model_manager.active_card:
-                self.model_manager.active_card.set_active(False)
             if self.tray is not None:
                 self.tray.update_status()
             return

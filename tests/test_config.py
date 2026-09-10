@@ -5,7 +5,6 @@ from rvc.core.config import (
     AppConfig,
     EngineConfig,
     InferenceConfig,
-    ModelEntry,
 )
 
 
@@ -38,25 +37,14 @@ class TestAppConfig(unittest.TestCase):
         cfg = AppConfig()
         self.assertIsInstance(cfg.inference, InferenceConfig)
         self.assertIsInstance(cfg.engine, EngineConfig)
-        self.assertEqual(cfg.active_model, "")
-        self.assertEqual(cfg.models, [])
+        self.assertEqual(cfg.model_path, "")
+        self.assertEqual(cfg.hubert, "chinese")
 
     def test_nested_mutation(self):
         cfg = AppConfig()
         cfg.engine.block_time = 0.5
-        cfg.active_model = "/path/to/model.pth"
+        cfg.model_path = "/path/to/model.pth"
         self.assertEqual(cfg.engine.block_time, 0.5)
-        self.assertEqual(cfg.active_model, "/path/to/model.pth")
+        self.assertEqual(cfg.model_path, "/path/to/model.pth")
 
 
-class TestModelEntry(unittest.TestCase):
-    def test_defaults(self):
-        m = ModelEntry()
-        self.assertEqual(m.name, "")
-        self.assertEqual(m.pth, "")
-        self.assertEqual(m.formant, 0.0)
-        self.assertEqual(m.hubert, "chinese")
-
-
-if __name__ == "__main__":
-    unittest.main()

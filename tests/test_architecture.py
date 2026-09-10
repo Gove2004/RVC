@@ -8,8 +8,7 @@ class TestCoreModuleImports(unittest.TestCase):
 
     def test_config_import(self):
         from rvc.core.config import (
-            InferenceConfig, EngineConfig, AppConfig, ModelEntry,
-            OfflineConfig, TrainConfig, HUBERT_DEFAULT,
+            InferenceConfig, OfflineConfig, TrainConfig, HUBERT_DEFAULT,
         )
         assert InferenceConfig is not None
         assert OfflineConfig is not None

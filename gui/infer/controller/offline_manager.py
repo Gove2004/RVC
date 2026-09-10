@@ -59,14 +59,9 @@ class OfflineManager:
             out = base + "_converted.wav"
             self.window.offline_output.setText(out)
 
-        if not self.window.model_manager.active_card:
-            self.window._show_warning("请先在「模型」中选择一个模型")
-            return
-
-        card = self.window.model_manager.active_card
-        pth = card.pth_edit.text().strip()
+        pth = self.window.model_path_edit.text().strip()
         if not pth:
-            self.window._show_warning("模型路径为空")
+            self.window._show_warning("请先在「参数调节」中选择模型文件")
             return
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
@@ -77,12 +72,12 @@ class OfflineManager:
             config = OfflineConfig(
                 input_path=self.window.offline_input.text().strip(),
                 output_path=self.window.offline_output.text().strip(),
-                model_path=card.pth_edit.text().strip(),
+                model_path=pth,
                 formant=inf.formant,
                 protect=inf.protect,
                 f0_method=inf.f0_method,
                 rms_mix=inf.rms_mix,
-                hubert=card.hubert_combo.currentText(),
+                hubert=self.window.hubert_combo.currentText(),
             )
         except Exception as exc:
             import traceback

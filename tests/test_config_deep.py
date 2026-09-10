@@ -14,7 +14,6 @@ from rvc.core.config import (
     EngineConfig,
     HUBERT_DEFAULT,
     InferenceConfig,
-    ModelEntry,
     OfflineConfig,
     TrainConfig,
 )
@@ -127,35 +126,6 @@ class TestEngineConfig(unittest.TestCase):
         self.assertEqual(cfg.output2_device, "")
 
 
-class TestModelEntry(unittest.TestCase):
-    """ModelEntry 模型条目测试。"""
-
-    def test_default_values(self):
-        m = ModelEntry()
-        self.assertEqual(m.name, "")
-        self.assertEqual(m.pth, "")
-        self.assertAlmostEqual(m.formant, 0.0)
-        self.assertEqual(m.hubert, "chinese")
-
-    def test_custom_values(self):
-        m = ModelEntry(name="test", pth="/path/model.pth", formant=0.3, hubert="base")
-        self.assertEqual(m.name, "test")
-
-    def test_field_count(self):
-        self.assertEqual(len(fields(ModelEntry)), 4)
-
-    def test_asdict(self):
-        d = asdict(ModelEntry())
-        self.assertEqual(set(d.keys()), {"name", "pth", "formant", "hubert"})
-
-    def test_equality(self):
-        self.assertEqual(ModelEntry(), ModelEntry())
-        self.assertNotEqual(ModelEntry(), ModelEntry(name="x"))
-
-    def test_hubert_default_constant(self):
-        m = ModelEntry()
-        self.assertEqual(m.hubert, HUBERT_DEFAULT)
-
 
 class TestAppConfig(unittest.TestCase):
     """AppConfig 应用配置测试。"""
@@ -164,14 +134,9 @@ class TestAppConfig(unittest.TestCase):
         cfg = AppConfig()
         self.assertIsInstance(cfg.inference, InferenceConfig)
         self.assertIsInstance(cfg.engine, EngineConfig)
-        self.assertEqual(cfg.active_model, "")
-        self.assertEqual(cfg.models, [])
+        self.assertEqual(cfg.model_path, "")
+        self.assertEqual(cfg.hubert, "chinese")
 
-    def test_custom_models(self):
-        models = [ModelEntry(name="a"), ModelEntry(name="b")]
-        cfg = AppConfig(models=models)
-        self.assertEqual(len(cfg.models), 2)
-        self.assertEqual(cfg.models[0].name, "a")
 
     def test_field_count(self):
         self.assertEqual(len(fields(AppConfig)), 4)
@@ -180,24 +145,14 @@ class TestAppConfig(unittest.TestCase):
         d = asdict(AppConfig())
         self.assertIn("inference", d)
         self.assertIn("engine", d)
-        self.assertIn("models", d)
+        self.assertIn("model_path", d)
+        self.assertIn("hubert", d)
         self.assertIsInstance(d["inference"], dict)
-        self.assertIsInstance(d["models"], list)
 
     def test_equality(self):
         self.assertEqual(AppConfig(), AppConfig())
-        self.assertNotEqual(AppConfig(), AppConfig(active_model="x"))
+        self.assertNotEqual(AppConfig(), AppConfig(model_path="x"))
 
-    def test_models_list_independent(self):
-        cfg1 = AppConfig()
-        cfg2 = copy.deepcopy(cfg1)
-        cfg2.models.append(ModelEntry(name="new"))
-        self.assertEqual(len(cfg1.models), 0)
-        self.assertEqual(len(cfg2.models), 1)
-
-    def test_active_model_set(self):
-        cfg = AppConfig(active_model="model_a")
-        self.assertEqual(cfg.active_model, "model_a")
 
 
 class TestOfflineConfig(unittest.TestCase):
@@ -331,8 +286,6 @@ class TestHubertDefaultConstant(unittest.TestCase):
     def test_value(self):
         self.assertEqual(HUBERT_DEFAULT, "chinese")
 
-    def test_used_in_model_entry(self):
-        self.assertEqual(ModelEntry().hubert, HUBERT_DEFAULT)
 
     def test_used_in_offline_config(self):
         self.assertEqual(OfflineConfig().hubert, HUBERT_DEFAULT)

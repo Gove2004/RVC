@@ -95,8 +95,7 @@ class TestParse(unittest.TestCase):
 class TestStateSerialization(unittest.TestCase):
     """state_from_dict / state_to_dict 往返测试。
 
-    注意：pitch/formant 是模型卡片级参数，不在全局 BINDINGS 表中，
-    由 model_manager 管理持久化。这里只测试 BINDINGS 表中的字段。
+    注意：所有参数都在全局 BINDINGS 表中，包括 model_path/hubert。
     """
 
     def test_roundtrip_default(self):
@@ -110,7 +109,7 @@ class TestStateSerialization(unittest.TestCase):
         self.assertEqual(state.engine.block_time, state2.engine.block_time)
         self.assertEqual(state.engine.crossfade_time, state2.engine.crossfade_time)
         self.assertEqual(state.engine.extra_time, state2.engine.extra_time)
-        self.assertEqual(state.active_model, state2.active_model)
+        self.assertEqual(state.model_path, state2.model_path)
 
     def test_roundtrip_custom(self):
         """自定义配置应能往返序列化。"""
@@ -121,7 +120,7 @@ class TestStateSerialization(unittest.TestCase):
         state.engine.block_time = 0.5
         state.engine.crossfade_time = 0.1
         state.engine.extra_time = 1.0
-        state.active_model = "test_model"
+        state.model_path = "test_model"
         d = state_to_dict(state)
         state2 = state_from_dict(d)
         self.assertEqual(state2.inference.protect, 0.3)
@@ -130,7 +129,7 @@ class TestStateSerialization(unittest.TestCase):
         self.assertEqual(state2.engine.block_time, 0.5)
         self.assertEqual(state2.engine.crossfade_time, 0.1)
         self.assertEqual(state2.engine.extra_time, 1.0)
-        self.assertEqual(state2.active_model, "test_model")
+        self.assertEqual(state2.model_path, "test_model")
 
     def test_dict_has_nested_structure(self):
         """序列化后的字典应有嵌套结构。"""
@@ -141,7 +140,7 @@ class TestStateSerialization(unittest.TestCase):
         self.assertIn("protect", d["inference"])
         self.assertIn("f0_method", d["inference"])
         self.assertIn("block_time", d["engine"])
-        self.assertIn("active_model", d)
+        self.assertIn("model_path", d)
 
     def test_formant_in_bindings(self):
         """formant 已移到全局参数（参数调节），应被序列化到全局配置。"""
@@ -172,8 +171,8 @@ class TestMigrateOldFormat(unittest.TestCase):
         self.assertEqual(result["inference"]["rms_mix"], 0.2)
 
     def test_few_old_keys_unchanged(self):
-        """少于 3 个旧短键应不变（可能是新格式的 active_model）。"""
-        data = {"active_model": "test"}
+        """少于 3 个旧短键应不变（可能是新格式的 model_path）。"""
+        data = {"model_path": "test"}
         result = _migrate_old_format(data)
         self.assertEqual(result, data)
 
