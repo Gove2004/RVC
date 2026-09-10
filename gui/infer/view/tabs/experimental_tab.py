@@ -1,4 +1,5 @@
 """实验功能 Tab — 辅音保护 / 音域映射"""
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QGroupBox, QVBoxLayout, QHBoxLayout,
 )
@@ -11,7 +12,7 @@ from rvc.core.experimental import experimental_config
 def _lbl(text, width=70):
     """创建固定宽度的标签，确保滑动条左对齐"""
     l = QLabel(text)
-    l.setMinimumWidth(width)
+    l.setFixedWidth(width)
     return l
 
 
@@ -24,7 +25,8 @@ def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
     """
     rs = RangeSlider(min_val, max_val, step, low_val, high_val, fmt=fmt, unit=unit)
     lbl = QLabel()
-    lbl.setMinimumWidth(label_w)
+    lbl.setFixedWidth(label_w)
+    lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
     def _fmt(low, high):
         return f"{low:{fmt}}-{high:{fmt}}{unit}"
