@@ -128,12 +128,15 @@ class RangeSlider(QWidget):
         painter.setBrush(QColor("#0078D4"))
         painter.drawRoundedRect(QRect(low_x, track_y, high_x - low_x, track_h), 2, 2)
 
-        # 滑块
-        handle_r = 6
+        # 滑块（方形，和 QSlider 样式一致）
+        handle_size = 12
         for x in (low_x, high_x):
-            painter.setBrush(QColor("#ffffff"))
-            painter.setPen(QPen(QColor("#0078D4"), 2))
-            painter.drawEllipse(QPoint(x, track_y + track_h // 2), handle_r, handle_r)
+            painter.setBrush(QColor("#0078D4"))
+            painter.setPen(QPen(QColor("#1a1a1a"), 1))
+            handle_rect = QRect(x - handle_size // 2,
+                                track_y + track_h // 2 - handle_size // 2,
+                                handle_size, handle_size)
+            painter.drawRoundedRect(handle_rect, 2, 2)
 
     def _value_to_x(self, value):
         ratio = (value - self._min) / (self._max - self._min)
