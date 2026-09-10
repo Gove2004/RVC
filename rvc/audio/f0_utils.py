@@ -63,6 +63,12 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
         xp = torch
         uv_mask = f0 <= 0
         f0_safe = xp.clamp(f0, min=1e-6)
+        # 标量参数转成和 f0 同设备的 tensor，避免 CPU/CUDA 设备不匹配
+        device = f0.device
+        src_min = torch.tensor(src_min, dtype=torch.float32, device=device)
+        src_max = torch.tensor(src_max, dtype=torch.float32, device=device)
+        dst_min = torch.tensor(dst_min, dtype=torch.float32, device=device)
+        dst_max = torch.tensor(dst_max, dtype=torch.float32, device=device)
     else:
         xp = np
         uv_mask = f0 <= 0
