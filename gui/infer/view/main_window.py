@@ -85,16 +85,22 @@ class MainWindow(QMainWindow):
         cfg = load_config()
         state = state_from_dict(cfg.get("gui", {}))
         self.apply_gui_state(state)
-        # 加载实验参数并恢复控件值（所有 _slrow 创建的滑动条都是 X100 模式，恢复时需 ×100）
+        # 加载实验参数
         experimental_config.from_dict(cfg.get("experimental", {}))
-        # 过渡区域（RangeSlider 双滑块，从中心/宽度反推上下限）
+        # 恢复控件值时阻塞信号，避免信号处理函数用控件值覆盖 experimental_config
+        self.exp_protect_transition_range.blockSignals(True)
+        self.exp_rmvpe_threshold_slider.blockSignals(True)
+        self.exp_fcpe_threshold_slider.blockSignals(True)
+        self.exp_pitch_map_src_range.blockSignals(True)
+        self.exp_pitch_map_dst_range.blockSignals(True)
+        # 过渡区域（RangeSlider 双滑块，从中心/宽度反推上下限，范围 0-50）
         _tc = experimental_config.protect_soft_threshold_hz
         _tw = experimental_config.protect_soft_width
         self.exp_protect_transition_range.setRange(
             max(0.0, _tc - _tw / 2),
-            min(100.0, _tc + _tw / 2),
+            min(50.0, _tc + _tw / 2),
         )
-        # F0 清浊阈值
+        # F0 清浊阈值（DoubleSlider，直接传物理值）
         self.exp_rmvpe_threshold_slider.setValue(experimental_config.rmvpe_threshold)
         self.exp_fcpe_threshold_slider.setValue(experimental_config.fcpe_confidence_threshold)
         # 音域映射（RangeSlider 双滑块，直接传物理值）
@@ -106,6 +112,12 @@ class MainWindow(QMainWindow):
             experimental_config.pitch_map_dst_min,
             experimental_config.pitch_map_dst_max,
         )
+        # 恢复完成后解除信号阻塞
+        self.exp_protect_transition_range.blockSignals(False)
+        self.exp_rmvpe_threshold_slider.blockSignals(False)
+        self.exp_fcpe_threshold_slider.blockSignals(False)
+        self.exp_pitch_map_src_range.blockSignals(False)
+        self.exp_pitch_map_dst_range.blockSignals(False)
         # 模型路径按钮：根据 win.model_path 更新显示文件名
         if hasattr(self, "model_path") and self.model_path:
             from pathlib import Path
