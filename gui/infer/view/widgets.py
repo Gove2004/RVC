@@ -116,7 +116,7 @@ class RangeSlider(QWidget):
         h = self.height()
         track_h = 4
         track_y = h // 2 - track_h // 2  # 轨道居中
-        margin = 8
+        margin = 6
         track_w = w - 2 * margin
 
         # 背景轨道
