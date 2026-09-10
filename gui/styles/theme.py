@@ -70,6 +70,7 @@ def _build_global_stylesheet() -> str:
         }}
         QSlider::groove:horizontal {{
             height: 4px;
+            margin: 0 6px;
             background: #3a3a3a;
             border-radius: 2px;
         }}

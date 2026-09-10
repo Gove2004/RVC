@@ -26,7 +26,7 @@ def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
     rs = RangeSlider(min_val, max_val, step, low_val, high_val, fmt=fmt, unit=unit)
     lbl = QLabel()
     lbl.setFixedWidth(label_w)
-    lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    lbl.setAlignment(Qt.AlignCenter)
 
     def _fmt(low, high):
         return f"{low:{fmt}}-{high:{fmt}}{unit}"

@@ -28,7 +28,7 @@ def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     s.setValue(int(dv * 100))
     lbl = QLabel()
     lbl.setFixedWidth(label_w)
-    lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    lbl.setAlignment(Qt.AlignCenter)
 
     def _fmt(v):
         return f"{v / 100:{fmt}}{unit}"
