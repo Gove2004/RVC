@@ -106,9 +106,10 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-    # 音高控制：音域映射和固定 pitch 偏移互斥
-    # - 开启音域映射：跳过固定 pitch 偏移，直接在半音尺度上映射（保持音程，避免区间膨胀）
-    # - 关闭音域映射：传统固定半音偏移
+    # 音高控制：音域映射和固定 pitch 偏移+破音保护互斥
+    # - 开启音域映射：跳过固定 pitch 偏移和破音保护，直接在半音尺度上映射
+    #   （两端钳制已防止高音过高，保持音程不变，避免区间膨胀）
+    # - 关闭音域映射：传统固定半音偏移 + 破音保护
     if experimental_config.pitch_map_enabled:
         f0 = apply_pitch_map(
             f0,
@@ -117,16 +118,14 @@ def postprocess_f0(f0, f0_up_key: float, device, f0_proc: tuple | None = None) -
             experimental_config.pitch_map_dst_min,
             experimental_config.pitch_map_dst_max,
         )
-        pitch_shift_factor = 1.0  # 音域映射模式下破音临界不乘 pitch 偏移
     else:
         f0 = f0 * pow(2, f0_up_key / 12)
-        pitch_shift_factor = pow(2, f0_up_key / 12)
-    # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz], 压缩比, 膝宽)。
-    if f0_proc and f0_proc[0]:
-        critical = f0_proc[1] * pitch_shift_factor
-        ratio = f0_proc[2]
-        knee = f0_proc[3]
-        f0 = apply_f0_break_protect(f0, critical, ratio, knee)
+        # 破音保护（变声后域）：f0_proc=(开关, 破音临界[源Hz], 压缩比, 膝宽)。
+        if f0_proc and f0_proc[0]:
+            critical = f0_proc[1] * pow(2, f0_up_key / 12)
+            ratio = f0_proc[2]
+            knee = f0_proc[3]
+            f0 = apply_f0_break_protect(f0, critical, ratio, knee)
     return normalize_f0_to_coarse(f0), f0
 
 
