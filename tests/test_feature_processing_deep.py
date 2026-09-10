@@ -111,7 +111,7 @@ class TestProtectBlendSoft(unittest.TestCase):
         feats_original = torch.zeros(1, 10, 768)
         pitchf = torch.linspace(0, 100, 10).unsqueeze(0)
         result = protect_blend(feats_converted, feats_original, pitchf, protect=0.5)
-        # 相邻帧的差异应该小于硬阈值模式
+        # 软阈值（sigmoid）过渡是平滑的，相邻帧差异不大
         diffs = torch.abs(torch.diff(result[0, :, 0]))
         self.assertTrue(torch.all(diffs < 0.5))
 

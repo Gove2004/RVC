@@ -190,7 +190,7 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
 
 
 class TestPostprocessF0(unittest.TestCase):
-    """Tests for postprocess_f0（音域映射始终生效，f0_up_key 已弃用）。"""
+    """Tests for postprocess_f0（音域映射始终生效）。"""
 
     def _identity_config(self):
         """mock experimental_config 为 identity mapping（src=dst），f0 不变。"""
@@ -209,14 +209,6 @@ class TestPostprocessF0(unittest.TestCase):
         f0 = torch.tensor([200.0, 300.0])
         coarse, pitchf = postprocess_f0(f0, device="cpu")
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
-
-    def test_f0_up_key_ignored(self):
-        """f0_up_key 已弃用，不影响输出。"""
-        self._identity_config()
-        f0 = torch.tensor([200.0, 300.0])
-        _, pitchf_0 = postprocess_f0(f0, device="cpu")
-        _, pitchf_12 = postprocess_f0(f0, device="cpu")
-        self.assertTrue(torch.allclose(pitchf_0, pitchf_12, atol=1.0))
 
     def test_numpy_input(self):
         """numpy array input also works."""
