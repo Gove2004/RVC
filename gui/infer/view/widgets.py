@@ -82,7 +82,7 @@ class RangeSlider(QWidget):
         self._fmt = fmt
         self._unit = unit
         self._dragging = None  # 'low' or 'high'
-        self.setMinimumHeight(28)
+        self.setMinimumHeight(22)
         self.setMinimumWidth(180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._update_tooltip()
@@ -113,8 +113,8 @@ class RangeSlider(QWidget):
         w = self.width()
         h = self.height()
         track_h = 4
-        track_y = h - 10  # 轨道靠下，上方留空间给数值
-        margin = 10
+        track_y = h // 2 - track_h // 2  # 轨道居中
+        margin = 8
         track_w = w - 2 * margin
 
         # 背景轨道
@@ -135,24 +135,12 @@ class RangeSlider(QWidget):
             painter.setPen(QPen(QColor("#0078D4"), 2))
             painter.drawEllipse(QPoint(x, track_y + track_h // 2), handle_r, handle_r)
 
-        # 数值标签（下限在左上方，上限在右上方，小字体）
-        painter.setPen(QColor("#aaaaaa"))
-        font = painter.font()
-        font.setPointSize(7)
-        painter.setFont(font)
-        low_text = f"{self._low/100:{self._fmt}}{self._unit}"
-        high_text = f"{self._high/100:{self._fmt}}{self._unit}"
-        painter.drawText(QRect(margin, 0, 80, 12),
-                         Qt.AlignLeft | Qt.AlignTop, low_text)
-        painter.drawText(QRect(w - margin - 80, 0, 80, 12),
-                         Qt.AlignRight | Qt.AlignTop, high_text)
-
     def _value_to_x(self, value):
         ratio = (value - self._min) / (self._max - self._min)
-        return int(10 + ratio * (self.width() - 20))
+        return int(8 + ratio * (self.width() - 16))
 
     def _x_to_value(self, x):
-        ratio = max(0.0, min(1.0, (x - 10) / (self.width() - 20)))
+        ratio = max(0.0, min(1.0, (x - 8) / (self.width() - 16)))
         value = self._min + ratio * (self._max - self._min)
         return int(round(value / self._step) * self._step)
 

@@ -7,6 +7,28 @@ from gui.infer.view.widgets import _slrow, _sl_value_as_float, RangeSlider
 from rvc.core.experimental import experimental_config
 
 
+
+def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
+               fmt=".0f", unit="Hz", label_w=70):
+    """创建「双滑块范围 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
+
+    与 _slrow 类似，但用于 RangeSlider 双滑块。标签显示 "下限-上限 单位"。
+    """
+    rs = RangeSlider(min_val, max_val, step, low_val, high_val, fmt=fmt, unit=unit)
+    lbl = QLabel()
+    lbl.setMinimumWidth(label_w)
+
+    def _fmt(low, high):
+        return f"{low:{fmt}}-{high:{fmt}}{unit}"
+
+    lbl.setText(_fmt(rs.low(), rs.high()))
+    rs.rangeChanged.connect(lambda low, high: lbl.setText(_fmt(low, high)))
+    setattr(win, attr, rs)
+    label_attr = attr[:-6] + "_label" if attr.endswith("_range") else attr + "_label"
+    setattr(win, label_attr, lbl)
+    return rs
+
+
 def build_experimental_tab(win):
     w = QWidget()
     root = QVBoxLayout(w)
@@ -50,17 +72,19 @@ def build_experimental_tab(win):
     # 过渡区域（双滑块：下限=中心-宽度/2，上限=中心+宽度/2）
     _center = experimental_config.protect_soft_threshold_hz
     _width = experimental_config.protect_soft_width
-    win.exp_protect_transition_range = RangeSlider(
+    win.exp_protect_transition_range = _range_row(
+        win, "exp_protect_transition_range",
         0.0, 100.0, 1.0,
         max(0.0, _center - _width / 2), min(100.0, _center + _width / 2),
-        fmt=".0f", unit="Hz",
+        fmt=".0f", unit="Hz", label_w=70,
     )
     def _on_transition_change(low, high):
         experimental_config.protect_soft_threshold_hz = (low + high) / 2
         experimental_config.protect_soft_width = high - low
     win.exp_protect_transition_range.rangeChanged.connect(_on_transition_change)
     g1.addWidget(QLabel("过渡区域"), r, 0)
-    g1.addWidget(win.exp_protect_transition_range, r, 1, 1, 2); r += 1
+    g1.addWidget(win.exp_protect_transition_range, r, 1)
+    g1.addWidget(win.exp_protect_transition_label, r, 2); r += 1
 
     # 保护强度
     win.protect_slider = _slrow(win, "protect_slider", 0.0, 1.0, 0.01, 0.5)
@@ -76,11 +100,12 @@ def build_experimental_tab(win):
     gpm.setHorizontalSpacing(8)
     r = 0
 
-    # 原声音域（双滑块范围控件，标签在左，滑动条在右，不换行）
-    win.exp_pitch_map_src_range = RangeSlider(
+    # 原声音域（双滑块范围控件，标签在左，滑动条在右，值在最右）
+    win.exp_pitch_map_src_range = _range_row(
+        win, "exp_pitch_map_src_range",
         20.0, 1000.0, 5.0,
         experimental_config.pitch_map_src_min, experimental_config.pitch_map_src_max,
-        fmt=".0f", unit="Hz",
+        fmt=".0f", unit="Hz", label_w=80,
     )
     win.exp_pitch_map_src_range.rangeChanged.connect(
         lambda low, high: (
@@ -89,13 +114,15 @@ def build_experimental_tab(win):
         )
     )
     gpm.addWidget(QLabel("原声音域"), r, 0)
-    gpm.addWidget(win.exp_pitch_map_src_range, r, 1, 1, 2); r += 1
+    gpm.addWidget(win.exp_pitch_map_src_range, r, 1)
+    gpm.addWidget(win.exp_pitch_map_src_label, r, 2); r += 1
 
-    # 目标音域（双滑块范围控件，标签在左，滑动条在右，不换行）
-    win.exp_pitch_map_dst_range = RangeSlider(
+    # 目标音域（双滑块范围控件，标签在左，滑动条在右，值在最右）
+    win.exp_pitch_map_dst_range = _range_row(
+        win, "exp_pitch_map_dst_range",
         20.0, 1000.0, 5.0,
         experimental_config.pitch_map_dst_min, experimental_config.pitch_map_dst_max,
-        fmt=".0f", unit="Hz",
+        fmt=".0f", unit="Hz", label_w=80,
     )
     win.exp_pitch_map_dst_range.rangeChanged.connect(
         lambda low, high: (
@@ -104,7 +131,8 @@ def build_experimental_tab(win):
         )
     )
     gpm.addWidget(QLabel("目标音域"), r, 0)
-    gpm.addWidget(win.exp_pitch_map_dst_range, r, 1, 1, 2); r += 1
+    gpm.addWidget(win.exp_pitch_map_dst_range, r, 1)
+    gpm.addWidget(win.exp_pitch_map_dst_label, r, 2); r += 1
 
     root.addWidget(group_pm)
     root.addStretch()
