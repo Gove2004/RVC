@@ -71,7 +71,7 @@ def build_experimental_tab(win):
     root.addWidget(group1)
 
     # ── 2. 音域映射（半音尺度，始终生效，替代固定 pitch 偏移） ──
-    group_pm = QGroupBox("音域映射（半音尺度，保持音程）")
+    group_pm = QGroupBox("音域保护")
     gpm = QVBoxLayout(group_pm)
     gpm.setSpacing(6)
 
