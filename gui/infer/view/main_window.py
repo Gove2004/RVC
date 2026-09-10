@@ -106,6 +106,11 @@ class MainWindow(QMainWindow):
             experimental_config.pitch_map_dst_min,
             experimental_config.pitch_map_dst_max,
         )
+        # 模型路径按钮：根据 win.model_path 更新显示文件名
+        if hasattr(self, "model_path") and self.model_path:
+            from pathlib import Path
+            self.model_path_btn.setText(Path(self.model_path).name)
+            self.model_path_btn.setToolTip(self.model_path)
 
     def _save_gui_config(self) -> None:
         """保存当前 GUI 状态到持久化配置（嵌套结构 + 实验参数）。"""
