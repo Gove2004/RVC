@@ -15,8 +15,12 @@ def build_audio_driver_tab(win):
     # ── 设备选择 ──
     win.hostapi_combo = QComboBox()
     win.hostapi_combo.currentTextChanged.connect(win._ha_changed)
+    refresh_btn = QPushButton("刷新")
+    refresh_btn.setStyleSheet(ButtonStyles.secondary())
+    # 连接将在 window 中进行
     g.addWidget(QLabel("音频驱动"), r, 0)
-    g.addWidget(win.hostapi_combo, r, 1, 1, 2)
+    g.addWidget(win.hostapi_combo, r, 1)
+    g.addWidget(refresh_btn, r, 2)
     r += 1
 
     win.input_combo = QComboBox()
@@ -45,11 +49,7 @@ def build_audio_driver_tab(win):
     sr_group.addButton(win.sr_model_radio)
     sr_group.addButton(win.sr_device_radio)
 
-    refresh_btn = QPushButton("刷新")
-    refresh_btn.setStyleSheet(ButtonStyles.secondary())
-    # 连接将在 window 中进行
-
-    g.addWidget(refresh_btn, r, 0)
+    g.addWidget(QLabel("采样率"), r, 0)
     g.addWidget(win.sr_model_radio, r, 1)
     g.addWidget(win.sr_device_radio, r, 2)
     r += 1
