@@ -78,8 +78,8 @@ class OfflineManager:
                 input_path=self.window.offline_input.text().strip(),
                 output_path=self.window.offline_output.text().strip(),
                 model_path=card.pth_edit.text().strip(),
-                pitch=card.pitch_slider.value(),
-                formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),  # 与实时同一换算
+                pitch=inf.pitch,
+                formant=inf.formant,
                 protect=inf.protect,
                 f0_method=inf.f0_method,
                 rms_mix=inf.rms_mix,

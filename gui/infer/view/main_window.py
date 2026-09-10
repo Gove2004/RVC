@@ -228,12 +228,12 @@ class MainWindow(QMainWindow):
     # ── 参数应用（委托给 controller）──
 
     def _apply_model_params(self):
-        card = self.model_manager.active_card
-        if not card:
-            return
+        # pitch/formant 已移到全局参数（实验功能/参数调节），从全局状态读取
+        state = self.collect_gui_state()
+        inf = state.inference
         self.controller.apply_model_params(
-            pitch=card.pitch_slider.value(),
-            formant=gender_to_formant(_sl_value_as_float(card.gender_slider)),
+            pitch=inf.pitch,
+            formant=inf.formant,
         )
 
     def _apply_runtime_params(self):

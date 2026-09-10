@@ -97,6 +97,12 @@ def build_experimental_tab(win):
     group_pm, gpm = _group_with_toggle("音域映射（半音尺度，保持音程）", win.exp_pitch_map_checkbox)
     r = 0
 
+    # 音调大小（全局 pitch，关闭音域映射时作为固定半音偏移生效）
+    win.pitch_slider = _slrow(win, "pitch_slider", -16, 16, 1, 0, fmt="+d")
+    gpm.addWidget(QLabel("音调大小"), r, 0)
+    gpm.addWidget(win.pitch_slider, r, 1)
+    gpm.addWidget(win.pitch_label, r, 2); r += 1
+
     # 原声音域下限
     win.exp_pitch_map_src_min_slider = _slrow(
         win, "exp_pitch_map_src_min_slider", 50.0, 300.0, 5.0,

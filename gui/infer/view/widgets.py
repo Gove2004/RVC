@@ -67,9 +67,9 @@ class ModelListData:
 class ModelCard(QFrame):
     """模型卡片：始终展开，顶部一行 [使用] [模型名居中] [删除]"""
 
-    # name, pth, pitch, gender, hubert
-    load_requested = Signal(str, str, int, float, str)
-    params_changed = Signal()  # pitch/gender/hubert 任一变化时发出（运行中实时同步用）
+    # name, pth, hubert（pitch/formant 已移到全局参数）
+    load_requested = Signal(str, str, str)
+    params_changed = Signal()  # hubert 变化时发出（运行中实时同步用）
 
     def __init__(self, name="", pth="", pitch=0,
                  gender=0.0, hubert=HUBERT_DEFAULT, parent=None):
@@ -118,20 +118,7 @@ class ModelCard(QFrame):
         _pbtn.clicked.connect(lambda: self._browse(self.pth_edit, "模型 (*.pth)"))
         r += 1
 
-        self.pitch_slider = _sl(-16, 16, 1, pitch); self.pitch_label = QLabel(str(pitch))
-        self.pitch_slider.valueChanged.connect(lambda v: self.pitch_label.setText(str(v)))
-        self.pitch_slider.valueChanged.connect(lambda _: self.params_changed.emit())
-        bl.addWidget(QLabel("音调大小"), r, 0); bl.addWidget(self.pitch_slider, r, 1); bl.addWidget(self.pitch_label, r, 2); r += 1
-
-        # 滑杆 [0,1] ↔ formant shift [-2.5,+2.5]，换算唯一来源在 param_binding
-        # （gender_to_formant / formant_to_gender），此处禁止内联手写公式
-        gender_slider_val = int(round(formant_to_gender(gender) * 100))
-        self.gender_slider = _sl(0, 100, 1, gender_slider_val); self.gender_label = QLabel(f"{gender:+.2f}")
-        self.gender_slider.valueChanged.connect(lambda v: self.gender_label.setText(f"{gender_to_formant(v / 100):+.2f}"))
-        self.gender_slider.valueChanged.connect(lambda _: self.params_changed.emit())
-        bl.addWidget(QLabel("性别因子"), r, 0); bl.addWidget(self.gender_slider, r, 1); bl.addWidget(self.gender_label, r, 2); r += 1
-
-        # HuBERT 特征器：base（原始 hubert_base）/ chinese（腾讯中文 hubert）。
+        # HuBERT 特征器（pitch/formant 已移到全局参数：实验功能/参数调节）：base（原始 hubert_base）/ chinese（腾讯中文 hubert）。
         # 硬约束：训练与推理必须用同一特征器——本模型训练时用的哪个，这里就要选哪个。
         self.hubert_combo = QComboBox()
         self.hubert_combo.addItems(["base", "chinese"])
@@ -154,8 +141,6 @@ class ModelCard(QFrame):
     def _on_load(self):
         self.load_requested.emit(
             self._name_label.text(), self.pth_edit.text().strip(),
-            self.pitch_slider.value(),
-            _sl_value_as_float(self.gender_slider),
             self.hubert_combo.currentText(),
         )
 
@@ -163,8 +148,6 @@ class ModelCard(QFrame):
         return {
             "name": self._name_label.text(),
             "pth": self.pth_edit.text().strip(),
-            "pitch": self.pitch_slider.value(),
-            "gender": gender_to_formant(self.gender_slider.value() / 100),
             "hubert": self.hubert_combo.currentText(),
         }
 

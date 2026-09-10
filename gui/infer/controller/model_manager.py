@@ -58,7 +58,7 @@ class ModelManager:
         self.save_models()
 
     def _on_card_params_changed(self, card: ModelCard) -> None:
-        """模型卡片参数（pitch/gender/hubert）变化时实时同步到 controller。
+        """模型卡片参数（hubert）变化时实时同步到 controller。
 
         只有当前 active_card 的参数变化才同步，避免非活动卡片干扰运行时参数。
         """
@@ -69,11 +69,9 @@ class ModelManager:
         self,
         name: str,
         pth: str,
-        pitch: int,
-        gender: float,
         hubert: str,
     ) -> None:
-        """处理卡片加载请求"""
+        """处理卡片加载请求（pitch/formant 已移到全局参数）"""
         if not pth:
             return
         if self.active_card:

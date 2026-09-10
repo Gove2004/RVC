@@ -24,4 +24,8 @@ def build_global_params_tab(win):
     win.rms_mix_slider = _slrow(win, "rms_mix_slider", 0.0, 1.0, 0.01, 0.0)
     g.addWidget(QLabel("响度因子"), r, 0); g.addWidget(win.rms_mix_slider, r, 1); g.addWidget(win.rms_mix_label, r, 2); r += 1
 
+    # 性别因子（formant）：共振峰缩放，-2.5~+2.5，0=不变
+    win.formant_slider = _slrow(win, "formant_slider", -2.5, 2.5, 0.1, 0.0, fmt="+.1f")
+    g.addWidget(QLabel("性别因子"), r, 0); g.addWidget(win.formant_slider, r, 1); g.addWidget(win.formant_label, r, 2); r += 1
+
     return w

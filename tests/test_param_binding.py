@@ -150,15 +150,17 @@ class TestStateSerialization(unittest.TestCase):
         self.assertIn("block_time", d["engine"])
         self.assertIn("active_model", d)
 
-    def test_pitch_not_in_bindings(self):
-        """pitch/formant 不在全局 BINDINGS 表中（模型卡片级参数）。"""
+    def test_pitch_formant_in_bindings(self):
+        """pitch/formant 已移到全局参数（实验功能/参数调节），应被序列化到全局配置。"""
         state = AppConfig()
         state.inference.pitch = 5
         state.inference.formant = 1.5
         d = state_to_dict(state)
-        # pitch/formant 不会被序列化到全局配置
-        self.assertNotIn("pitch", d.get("inference", {}))
-        self.assertNotIn("formant", d.get("inference", {}))
+        # pitch/formant 会被序列化到全局配置
+        self.assertIn("pitch", d.get("inference", {}))
+        self.assertIn("formant", d.get("inference", {}))
+        self.assertEqual(d["inference"]["pitch"], 5)
+        self.assertEqual(d["inference"]["formant"], 1.5)
 
 
 class TestMigrateOldFormat(unittest.TestCase):
