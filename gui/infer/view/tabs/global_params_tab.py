@@ -14,7 +14,7 @@ def build_global_params_tab(win):
     g = QGridLayout(w)
     r = 0
 
-    # ── 模型路径 + 特征器（同一行，最上面）──
+    # ── 模型路径 + 特征器（同一行，最上面，无标签，输入框占满空间）──
     win.model_path_edit = QLineEdit()
     win.model_path_edit.setMinimumHeight(24)
     win.model_path_edit.setPlaceholderText("选择模型文件 (.pth)")
@@ -29,10 +29,9 @@ def build_global_params_tab(win):
     win.hubert_combo.addItems(["base", "chinese"])
     win.hubert_combo.setMinimumHeight(24)
     win.hubert_combo.setToolTip("此模型训练时用的特征器（base=原版 hubert_base，chinese=腾讯中文 hubert）。训练与推理必须一致。")
-    win.hubert_combo.setMaximumWidth(100)
+    win.hubert_combo.setMaximumWidth(90)
 
-    g.addWidget(QLabel("模型路径"), r, 0)
-    g.addLayout(model_row, r, 1)
+    g.addLayout(model_row, r, 0, 1, 2)
     g.addWidget(win.hubert_combo, r, 2)
     r += 1
 
