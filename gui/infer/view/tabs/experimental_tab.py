@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QGroupBox, QVBoxLayout, QHBoxLayout,
 )
 
+
 from gui.infer.view.widgets import _slrow, _sl_value_as_float, RangeSlider
 from rvc.core.experimental import experimental_config
 
@@ -32,6 +33,8 @@ def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
 def build_experimental_tab(win):
     w = QWidget()
     root = QVBoxLayout(w)
+    root.setSpacing(6)
+    root.setContentsMargins(8, 8, 8, 8)
 
     # ── 1. 辅音保护（渐变式，始终生效） ──
     group1 = QGroupBox("辅音保护")
