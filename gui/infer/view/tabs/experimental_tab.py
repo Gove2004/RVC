@@ -95,7 +95,7 @@ def build_experimental_tab(win):
     # ── 5. 原声音域 ──
     win.exp_pitch_map_src_range = _range_row(
         win, "exp_pitch_map_src_range",
-        20.0, 1000.0, 5.0,
+        20.0, 1000.0, 10.0,
         experimental_config.pitch_map_src_min, experimental_config.pitch_map_src_max,
         fmt=".0f", unit="Hz",
     )
@@ -112,7 +112,7 @@ def build_experimental_tab(win):
     # ── 6. 目标音域 ──
     win.exp_pitch_map_dst_range = _range_row(
         win, "exp_pitch_map_dst_range",
-        20.0, 1000.0, 5.0,
+        20.0, 1000.0, 10.0,
         experimental_config.pitch_map_dst_min, experimental_config.pitch_map_dst_max,
         fmt=".0f", unit="Hz",
     )
