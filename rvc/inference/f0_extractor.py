@@ -121,10 +121,10 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
         experimental_config.pitch_map_dst_max,
     )
     # 清音帧 F0 保护：用原始 F0 和 confidence 判断清浊，
-    # 原始 F0 低于阈值（默认 20+30=50Hz）或 confidence 低的帧，
+    # 原始 F0 低于阈值（默认 20+30/2=35Hz，即 GUI 过渡区域上限）或 confidence 低的帧，
     # 很可能是清音误判（如 /s/ /t/ /k/），映射后 F0 设为 0，
     # 避免假 F0 被送入合成器产生奇怪音高。
-    uv_protect_threshold = experimental_config.protect_soft_threshold_hz + experimental_config.protect_soft_width
+    uv_protect_threshold = experimental_config.protect_soft_threshold_hz + experimental_config.protect_soft_width / 2
     uv_protect_mask = f0_raw < uv_protect_threshold
     if confidence is not None:
         uv_protect_mask = uv_protect_mask | (confidence < experimental_config.rmvpe_threshold)

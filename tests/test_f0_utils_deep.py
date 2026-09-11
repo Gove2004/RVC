@@ -128,8 +128,8 @@ class TestPostprocessF0Deep(unittest.TestCase):
 
     def test_low_f0_protected_as_unvoiced(self):
         """低 F0 帧（低于保护阈值）被设为 0，避免假 F0 送入合成器。"""
-        # 保护阈值 = protect_soft_threshold_hz + protect_soft_width = 20 + 30 = 50Hz
-        # 30Hz 低于 50Hz，应被保护为 0
+        # 保护阈值 = protect_soft_threshold_hz + protect_soft_width / 2 = 20 + 15 = 35Hz
+        # 30Hz 低于 35Hz，应被保护为 0
         f0 = torch.tensor([30.0, 100.0, 200.0])
         _, pitchf, _, _ = postprocess_f0(f0, "cpu")
         self.assertEqual(pitchf[0].item(), 0.0)
