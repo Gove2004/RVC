@@ -152,8 +152,7 @@ class InferencePipeline:
             uv_prob = torch.maximum(uv_prob, (cache_pitchf == 0).float())
 
         # 特征上采样（含辅音保护混合，uv_prob 多特征融合）
-        # pitchf 传原始F0（uv_prob 不为 None 时不会用到 pitchf，但保持语义一致）
-        feats = upsample_features(feats, p_len, self.is_half, feats0, cache_pitchf_raw, config.protect, uv_prob=uv_prob)
+        feats = upsample_features(feats, p_len, self.is_half, feats0, config.protect, uv_prob=uv_prob)
 
         # 合成 + 后处理（formant 重采样）
         infered_audio = self._synthesize_realtime(

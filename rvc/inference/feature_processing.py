@@ -39,20 +39,21 @@ def clone_protect_source(feats: torch.Tensor, use_f0: int, protect: float) -> to
 def protect_blend(
     feats_converted: torch.Tensor,
     feats_original: torch.Tensor,
-    pitchf: torch.Tensor,
     protect: float,
-    uv_prob: torch.Tensor | None = None,
+    uv_prob: torch.Tensor,
 ) -> torch.Tensor:
-    # 浊音（uv_prob 低）→ 全转换；清音（uv_prob 高）→ 按 protect 混合原特征。
-    # uv_prob 由 voicing.compute_uv_prob 多特征融合计算（F0 软阈值 + confidence 修正 + 因果中值滤波 + 因果移动平均）。
-    # 注意：以下回退路径（uv_prob=None）仅用于兼容旧调用/单元测试，实际推理永远传入 uv_prob。
-    # 此路径用 pitchf（映射后 F0）计算 sigmoid，与主路径用 f0_raw（映射前）不一致，
-    # 但仅在测试场景触发，不影响实际推理音质。
-    if uv_prob is None:
-        from rvc.core.experimental import experimental_config
-        threshold = experimental_config.protect_soft_threshold_hz
-        width = experimental_config.protect_soft_width
-        uv_prob = torch.sigmoid((threshold - pitchf) / (width / 4))
+    """辅音保护特征混合：浊音全转换，清音按 protect 混合原特征。
+
+    Args:
+        feats_converted: 转换后的 HuBERT 特征 (B, T, C)
+        feats_original: 原始 HuBERT 特征 (B, T, C)
+        protect: 辅音保护强度 0~1（0=全转换，1=清音全保留）
+        uv_prob: 清浊概率 (B, T)，0=浊音，1=清音/UV，
+                 由 voicing.compute_uv_prob 多特征融合计算
+
+    Returns:
+        混合后的特征 (B, T, C)
+    """
     mix = 1.0 - protect * uv_prob
     pitchff = mix.unsqueeze(-1)
     return feats_converted * pitchff + feats_original * (1 - pitchff)
@@ -62,16 +63,25 @@ def upsample_features(
     p_len: int,
     is_half: bool,
     feats0: torch.Tensor | None = None,
-    pitchf: torch.Tensor | None = None,
     protect: float = 0.0,
     uv_prob: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """特征上采样 + 辅音保护混合。
+
+    Args:
+        feats: HuBERT 特征 (B, T, C)
+        p_len: 目标长度（10ms 帧数）
+        is_half: 是否输出 half precision
+        feats0: 原始特征克隆（用于辅音保护混合），None 时不混合
+        protect: 辅音保护强度 0~1
+        uv_prob: 清浊概率 (B, T)，必须与 feats0 同时提供才进行混合
+    """
     feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
     feats = feats[:, :p_len, :]
-    if feats0 is not None and (pitchf is not None or uv_prob is not None):
+    if feats0 is not None and uv_prob is not None:
         feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         feats0 = feats0[:, :p_len, :]
-        feats = protect_blend(feats, feats0, pitchf, protect, uv_prob=uv_prob)
+        feats = protect_blend(feats, feats0, protect, uv_prob)
         if is_half:
             feats = feats.half()
     return feats
