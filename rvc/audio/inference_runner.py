@@ -194,8 +194,6 @@ class InferenceRunner:
 
         # 快照本回调内多次使用的参数
         p_rms_mix = params.rms_mix
-        from rvc.core.experimental import experimental_config
-        p_air_presence = experimental_config.air_presence_strength
 
         with torch.no_grad():
             # 阶段1-2: 输入准备 + 缓存轮换
@@ -208,12 +206,9 @@ class InferenceRunner:
             # 阶段3: 语音转换推理
             infer = self._run_inference()
 
-            # 阶段4-5-6: RMS 混合 → 空气感 → SOLA 对齐
+            # 阶段4-5: RMS 混合 + SOLA 对齐
             ref = self.input_wav[self.extra_samples:]
-            chunk = self.processor.process_output(
-                infer, ref, p_rms_mix, self.function == "vc",
-                air_presence=p_air_presence,
-            )
+            chunk = self.processor.process_output(infer, ref, p_rms_mix, self.function == "vc")
 
             # 阶段6: 输出写入（主输出 + 副输出路由由调用方处理）
             write_main_output(chunk, outdata, self.channels)

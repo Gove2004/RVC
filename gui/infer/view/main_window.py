@@ -94,7 +94,6 @@ class MainWindow(QMainWindow):
         self.exp_pitch_map_src_range.blockSignals(True)
         self.exp_pitch_map_dst_range.blockSignals(True)
         self.exp_input_neutralization_slider.blockSignals(True)
-        self.exp_air_presence_slider.blockSignals(True)
         # 过渡区域（RangeSlider 双滑块，从中心/宽度反推上下限，范围 0-50）
         _tc = experimental_config.protect_soft_threshold_hz
         _tw = experimental_config.protect_soft_width
@@ -121,7 +120,6 @@ class MainWindow(QMainWindow):
             self.exp_pitch_map_dst_label.setText(f'{experimental_config.pitch_map_dst_min:.0f}-{experimental_config.pitch_map_dst_max:.0f}Hz')
         # 输入语音中性化（DoubleSlider，直接传物理值）
         self.exp_input_neutralization_slider.setValue(experimental_config.input_neutralization_strength)
-        self.exp_air_presence_slider.setValue(experimental_config.air_presence_strength)
         # 恢复完成后解除信号阻塞
         self.exp_protect_transition_range.blockSignals(False)
         self.exp_rmvpe_threshold_slider.blockSignals(False)
@@ -129,7 +127,6 @@ class MainWindow(QMainWindow):
         self.exp_pitch_map_src_range.blockSignals(False)
         self.exp_pitch_map_dst_range.blockSignals(False)
         self.exp_input_neutralization_slider.blockSignals(False)
-        self.exp_air_presence_slider.blockSignals(False)
         # 模型路径按钮：根据 win.model_path 更新显示文件名
         if hasattr(self, "model_path") and self.model_path:
             from pathlib import Path
@@ -155,8 +152,6 @@ class MainWindow(QMainWindow):
             experimental_config.pitch_map_dst_max = self.exp_pitch_map_dst_range.high()
         if hasattr(self, "exp_input_neutralization_slider"):
             experimental_config.input_neutralization_strength = float(self.exp_input_neutralization_slider.value())
-        if hasattr(self, "exp_air_presence_slider"):
-            experimental_config.air_presence_strength = float(self.exp_air_presence_slider.value())
         cfg = load_config()
         cfg["gui"] = state_to_dict(self.collect_gui_state())
         cfg["experimental"] = experimental_config.to_dict()

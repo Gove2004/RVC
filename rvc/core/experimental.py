@@ -26,10 +26,6 @@ class ExperimentalConfig:
         # 对 HuBERT 内容特征做 Instance Normalization，剥离输入说话人音色信息，
         # 只保留纯内容（音素/发音），减少音色泄漏。0=关闭，100=完全归一化。
         self.input_neutralization_strength = 0.0
-        # ── 空气感（高频搁架提升，增加通透感和空间感） ──
-        # High Shelf 滤波器提升 8kHz 以上高频，让声音更亮、更有空气感。
-        # 0=关闭，100=最大提升（+12dB）。
-        self.air_presence_strength = 0.0
 
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""
@@ -43,7 +39,6 @@ class ExperimentalConfig:
             "pitch_map_dst_min": self.pitch_map_dst_min,
             "pitch_map_dst_max": self.pitch_map_dst_max,
             "input_neutralization_strength": self.input_neutralization_strength,
-            "air_presence_strength": self.air_presence_strength,
         }
 
     def from_dict(self, data: dict) -> None:
@@ -66,8 +61,6 @@ class ExperimentalConfig:
             self.pitch_map_dst_max = float(data["pitch_map_dst_max"])
         if "input_neutralization_strength" in data:
             self.input_neutralization_strength = float(data["input_neutralization_strength"])
-        if "air_presence_strength" in data:
-            self.air_presence_strength = float(data["air_presence_strength"])
 
 
 # 全局单例，GUI 和推理代码共用

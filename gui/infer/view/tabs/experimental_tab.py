@@ -141,19 +141,4 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_input_neutralization_slider, r, 1)
     g.addWidget(win.exp_input_neutralization_label, r, 2); r += 1
 
-    # ── 8. 空气感（高频搁架提升，增加通透感和空间感） ──
-    win.exp_air_presence_slider = _slrow(
-        win, "exp_air_presence_slider", 0.0, 100.0, 5.0,
-        experimental_config.air_presence_strength, fmt=".0f",
-    )
-    win.exp_air_presence_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "air_presence_strength",
-            _sl_value_as_float(win.exp_air_presence_slider),
-        )
-    )
-    g.addWidget(QLabel("空气感"), r, 0)
-    g.addWidget(win.exp_air_presence_slider, r, 1)
-    g.addWidget(win.exp_air_presence_label, r, 2); r += 1
-
     return w
