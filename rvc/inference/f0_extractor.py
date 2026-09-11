@@ -20,11 +20,6 @@ last_input_pitch = 0.0
 
 logger = logging.getLogger(__name__)
 
-# UV 判定的 confidence 阈值：FCPE 默认 0.006 在低电平底噪（麦克风底噪/呼吸/气声）100%
-# 误判浊音给合成器喂假音高，与 RMVPE 的 thred=0.03 拉到同档（RMVPE 在该档底噪全判 uv）。
-FCPE_CONFIDENCE_THRESHOLD = 0.025  # 默认值，运行时从 experimental_config 读取
-
-
 class _FilteredStream:
     def __init__(self, stream, blocked_prefixes, blocked_contains):
         self.stream = stream
@@ -134,7 +129,8 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
     if confidence is not None:
         uv_protect_mask = uv_protect_mask | (confidence < experimental_config.rmvpe_threshold)
     f0 = f0.masked_fill(uv_protect_mask, 0.0)
-    # F0中值滤波（因果，kernel=3）：去除孤立误判帧，减少气声和抖动
+    # F0中值滤波（因果，kernel=3）：硬阈值清零后，主要消除漏网的孤立浊音帧
+    # （清音段中突然出现的单个浊音帧），减少气声和抖动。因果实现不引入未来延迟。
     f0 = median_filter_f0(f0, kernel=3)
     # 最后处理 confidence（如果之前是 None，用滤波后的 F0 生成伪置信度）
     if confidence is None:

@@ -4,7 +4,6 @@ Covers:
 - _FilteredStream: prefix/contains filtering, empty text, flush, __getattr__
 - _normalize_f0_to_coarse: various F0 values, boundaries, UV
 - postprocess_f0: pitch map (semitone scale), numpy/tensor input
-- constants: FCPE_CONFIDENCE_THRESHOLD
 - create_f0_extractor: unknown method raises
 """
 import io
@@ -14,7 +13,6 @@ import unittest
 import torch
 
 from rvc.inference.f0_extractor import (
-    FCPE_CONFIDENCE_THRESHOLD,
     F0Extractor,
     _FilteredStream,
     _suppress_third_party_output,
@@ -241,15 +239,6 @@ class TestPostprocessF0(unittest.TestCase):
         f0 = torch.tensor([200.0, 300.0])
         _, pitchf, _, _ = postprocess_f0(f0, device="cpu")
         self.assertEqual(pitchf.dtype, torch.float32)
-
-
-class TestF0Constants(unittest.TestCase):
-    """Tests for F0 related constants."""
-
-    def test_fcpe_confidence_threshold(self):
-        self.assertEqual(FCPE_CONFIDENCE_THRESHOLD, 0.025)
-
-
 
 
 

@@ -45,7 +45,9 @@ def protect_blend(
 ) -> torch.Tensor:
     # 浊音（uv_prob 低）→ 全转换；清音（uv_prob 高）→ 按 protect 混合原特征。
     # uv_prob 由 voicing.compute_uv_prob 多特征融合计算（F0 软阈值 + confidence 修正 + 因果中值滤波 + 因果移动平均）。
-    # 若 uv_prob=None（兼容旧调用），退化为原有的 F0 单特征 sigmoid 软阈值。
+    # 注意：以下回退路径（uv_prob=None）仅用于兼容旧调用/单元测试，实际推理永远传入 uv_prob。
+    # 此路径用 pitchf（映射后 F0）计算 sigmoid，与主路径用 f0_raw（映射前）不一致，
+    # 但仅在测试场景触发，不影响实际推理音质。
     if uv_prob is None:
         from rvc.core.experimental import experimental_config
         threshold = experimental_config.protect_soft_threshold_hz
