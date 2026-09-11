@@ -14,6 +14,7 @@ import torch
 from rvc.core.config import InferenceConfig
 from rvc.inference.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
+from rvc.inference.voicing import compute_uv_prob
 from rvc.inference.model_session import ModelSessionManager
 from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
 from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
@@ -46,7 +47,7 @@ class InferencePipeline:
         self.hubert_variant = hubert
 
         # 仅缓存状态，不持有推理参数（参数每次 infer 从 config 传入）
-        self.pitch_cache, self.pitchf_cache = create_pitch_cache(self.device)
+        self.pitch_cache, self.pitchf_cache, self.confidence_cache, self.pitchf_raw_cache = create_pitch_cache(self.device)
         self.resample_kernel = {}
         self._long_tensor_cache = {}
 
@@ -72,6 +73,8 @@ class InferencePipeline:
         """重置音高缓存（切换模型/文件时调用，避免跨上下文污染）。"""
         self.pitch_cache.zero_()
         self.pitchf_cache.zero_()
+        self.pitchf_raw_cache.zero_()
+        self.confidence_cache.zero_()
 
     @torch.no_grad()
     def infer(self, input_wav: torch.Tensor, config: InferenceConfig,
@@ -112,21 +115,35 @@ class InferencePipeline:
         feats = extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
         feats0 = clone_protect_source(feats, self.use_f0, config.protect)
 
-        # 音高（F0）缓存更新
+        # 音高（F0）缓存更新 + confidence
         if self.use_f0 == 1:
-            cache_pitch, cache_pitchf = update_realtime_pitch_cache(
+            cache_pitch, cache_pitchf, cache_confidence, cache_pitchf_raw = update_realtime_pitch_cache(
                 input_wav, block_frame_16k, p_len,
                 return_length, return_length2_val,
                 config.f0_method,
-                self.pitch_cache, self.pitchf_cache,
+                self.pitch_cache, self.pitchf_cache, self.confidence_cache, self.pitchf_raw_cache,
                 self.device, self.is_half,
                 self.inference_cache,
             )
         else:
-            cache_pitch = cache_pitchf = None
+            cache_pitch = cache_pitchf = cache_confidence = cache_pitchf_raw = None
 
-        # 特征上采样（含辅音保护混合）
-        feats = upsample_features(feats, p_len, self.is_half, feats0, cache_pitchf, config.protect)
+        # 清浊分析：F0 confidence + 中值滤波计算 uv_prob
+        # 必须使用原始F0（映射前 cache_pitchf_raw），因为清浊阈值 threshold_hz=20Hz
+        # 是针对原始F0设计的；音域映射会改变F0绝对值，导致阈值失效。
+        uv_prob = None
+        if self.use_f0 == 1 and cache_pitchf_raw is not None and config.protect > 0:
+            from rvc.core.experimental import experimental_config as ec
+            uv_prob = compute_uv_prob(
+                cache_pitchf_raw, cache_confidence,
+                threshold_hz=ec.protect_soft_threshold_hz,
+                width_hz=ec.protect_soft_width,
+                conf_threshold=ec.rmvpe_threshold,
+            )
+
+        # 特征上采样（含辅音保护混合，uv_prob 多特征融合）
+        # pitchf 传原始F0（uv_prob 不为 None 时不会用到 pitchf，但保持语义一致）
+        feats = upsample_features(feats, p_len, self.is_half, feats0, cache_pitchf_raw, config.protect, uv_prob=uv_prob)
 
         # 合成 + 后处理（formant 重采样）
         infered_audio = self._synthesize_realtime(

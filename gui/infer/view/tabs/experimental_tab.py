@@ -1,4 +1,4 @@
-"""实验功能 Tab — 辅音保护 / 音域映射（无分组，直接罗列）"""
+"""实验功能 Tab — 辅音保护 / 清浊分析 / 音域映射（无分组，直接罗列）"""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
 
@@ -125,6 +125,5 @@ def build_experimental_tab(win):
     g.addWidget(QLabel("目标音域"), r, 0)
     g.addWidget(win.exp_pitch_map_dst_range, r, 1)
     g.addWidget(win.exp_pitch_map_dst_label, r, 2); r += 1
-
 
     return w

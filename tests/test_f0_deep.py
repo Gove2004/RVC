@@ -207,7 +207,7 @@ class TestPostprocessF0(unittest.TestCase):
         """identity mapping（src=dst）时 pitch 不变。"""
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        coarse, pitchf, _ = postprocess_f0(f0, device="cpu")
+        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu")
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_numpy_input(self):
@@ -215,27 +215,27 @@ class TestPostprocessF0(unittest.TestCase):
         self._identity_config()
         import numpy as np
         f0 = np.array([200.0, 300.0, 400.0], dtype=np.float32)
-        coarse, pitchf, _ = postprocess_f0(f0, device="cpu")
+        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu")
         self.assertEqual(pitchf.shape, (3,))
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_output_shapes(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0, 400.0])
-        coarse, pitchf, _ = postprocess_f0(f0, device="cpu")
+        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu")
         self.assertEqual(coarse.shape, (3,))
         self.assertEqual(pitchf.shape, (3,))
 
     def test_coarse_dtype_long(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        coarse, _, _ = postprocess_f0(f0, device="cpu")
+        coarse, _, _, _ = postprocess_f0(f0, device="cpu")
         self.assertEqual(coarse.dtype, torch.long)
 
     def test_pitchf_dtype_float(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        _, pitchf, _ = postprocess_f0(f0, device="cpu")
+        _, pitchf, _, _ = postprocess_f0(f0, device="cpu")
         self.assertEqual(pitchf.dtype, torch.float32)
 
 

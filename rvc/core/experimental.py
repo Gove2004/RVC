@@ -22,6 +22,9 @@ class ExperimentalConfig:
         self.pitch_map_src_max = 500.0   # 原声音域上限 (Hz)
         self.pitch_map_dst_min = 200.0   # 目标音域下限 (Hz)
         self.pitch_map_dst_max = 800.0   # 目标音域上限 (Hz)
+        # ── 清浊分析（F0 confidence + 中值滤波，始终生效） ──
+        # 学术依据：Morrison penn 连续 periodicity、Graf 2015 多特征融合、Takeda ATR 边界检测
+        # 中值滤波窗口固定为 3（30ms），无需调节
 
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""

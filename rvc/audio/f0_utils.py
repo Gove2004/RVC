@@ -129,6 +129,33 @@ def _f0_to_mel(f0, xp):
     return MEL_SLOPE * xp.log(1 + f0 / MEL_F0)
 
 
+def median_filter_f0(f0, kernel=3):
+    """一维中值滤波，去除 F0 孤立误判帧，减少气声和抖动。
+
+    清音帧（f0=0）始终保持 0；浊音帧（f0>0）如果被滤波成 0
+    （窗口中零值占多数，如浊音帧紧邻清音边界），恢复原值避免误清。
+    kernel=3 引入 1 帧（10ms）延迟，实时场景可接受。
+
+    Args:
+        f0: 连续 F0（1D torch.Tensor，Hz），0=清音/UV
+        kernel: 中值滤波窗口大小（奇数，默认3）
+
+    Returns:
+        滤波后的 F0（形状/设备/类型不变）
+    """
+    if not torch.is_tensor(f0) or f0.numel() < kernel or kernel < 3:
+        return f0
+    pad = kernel // 2
+    # replicate padding 避免边缘帧被零值污染
+    f0_padded = torch.nn.functional.pad(
+        f0.unsqueeze(0).unsqueeze(0), (pad, pad), mode="replicate"
+    ).squeeze()
+    windows = f0_padded.unfold(0, kernel, 1)
+    median_vals = windows.median(dim=-1).values
+    # 清音保持0；浊音被滤波成0时恢复原值
+    return torch.where(f0 > 0, torch.where(median_vals > 0, median_vals, f0), f0)
+
+
 def normalize_f0_to_coarse(f0):
     """将连续 F0(Hz) 归一化为离散 pitch 值 [1, 255]。
 

@@ -13,10 +13,12 @@ from rvc.inference.f0_extractor import create_f0_extractor
 PITCH_CACHE_SIZE = 2048
 
 
-def create_pitch_cache(device: str) -> tuple[torch.Tensor, torch.Tensor]:
+def create_pitch_cache(device: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     return (
         torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.long),
         torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.float32),
+        torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.float32),
+        torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.float32),  # f0_raw（映射前，辅音保护用）
     )
 
 
@@ -24,7 +26,8 @@ def extract_f0(x, method: str, device: str, is_half: bool, inference_cache):
     extractor = create_f0_extractor(method, device, is_half, inference_cache)
     if not torch.is_tensor(x):
         x = torch.from_numpy(x)
-    return extractor.extract(x, HUBERT_SAMPLE_RATE)
+    pitch, pitchf, confidence, f0_raw = extractor.extract(x, HUBERT_SAMPLE_RATE)
+    return pitch, pitchf, confidence, f0_raw
 
 
 def realtime_f0_window(block_frame_16k: int, method: str) -> int:
@@ -43,19 +46,30 @@ def update_realtime_pitch_cache(
     method: str,
     cache_pitch: torch.Tensor,
     cache_pitchf: torch.Tensor,
+    cache_confidence: torch.Tensor,
+    cache_pitchf_raw: torch.Tensor,
     device: str,
     is_half: bool,
     inference_cache,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     f0_extractor_frame = realtime_f0_window(block_frame_16k, method)
-    pitch, pitchf = extract_f0(
+    pitch, pitchf, confidence, f0_raw = extract_f0(
         input_wav[-f0_extractor_frame:], method, device, is_half, inference_cache,
     )
     shift = block_frame_16k // HUBERT_FRAME_SIZE
     cache_pitch[:-shift] = cache_pitch[shift:].clone()
     cache_pitchf[:-shift] = cache_pitchf[shift:].clone()
+    cache_confidence[:-shift] = cache_confidence[shift:].clone()
+    cache_pitchf_raw[:-shift] = cache_pitchf_raw[shift:].clone()
     # 帧对齐：F0 提取器输出与 HuBERT 特征帧存在固定偏移（下采样 320 + 上采样 x2），
     # pitch[3:-1] 去掉首尾边缘帧（提取器有限窗口导致的不准确帧），按偏移 4 写入缓存尾部。
     cache_pitch[4 - pitch.shape[0]:] = pitch[3:-1]
     cache_pitchf[4 - pitch.shape[0]:] = pitchf[3:-1]
-    return cache_pitch[None, -p_len:], cache_pitchf[None, -p_len:] * return_length2_val / return_length
+    cache_confidence[4 - confidence.shape[0]:] = confidence[3:-1]
+    cache_pitchf_raw[4 - f0_raw.shape[0]:] = f0_raw[3:-1]
+    return (
+        cache_pitch[None, -p_len:],
+        cache_pitchf[None, -p_len:] * return_length2_val / return_length,
+        cache_confidence[None, -p_len:],
+        cache_pitchf_raw[None, -p_len:],
+    )

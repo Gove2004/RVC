@@ -59,6 +59,19 @@ class RMVPE:
         # cents==0 即被判为清音的帧（旧版靠 f0==10 反查置零）
         return torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
 
+    def decode_with_confidence(self, hidden, thred=0.03):
+        """设备端解码 → (f0 (T,), confidence (T,))。全程无 CPU 同步。
+
+        confidence = salience 峰值（0~1），阈值前的原始置信度，
+        用于清浊多特征融合，不被 thred 二值化。
+        """
+        cents_pred, confidence = self.to_local_average_cents(
+            hidden, thred=thred, return_confidence=True,
+        )
+        f0 = 10 * torch.pow(2.0, cents_pred / 1200.0)
+        f0 = torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
+        return f0, confidence
+
     def infer_from_audio(self, audio, thred=0.03):
         """返回设备端 f0 tensor (T,) float32。
 
@@ -79,7 +92,25 @@ class RMVPE:
             lambda h: self.decode(h, thred=thred), hidden,
         )
 
-    def to_local_average_cents(self, salience, thred=0.05):
+    def infer_from_audio_with_confidence(self, audio, thred=0.03):
+        """返回设备端 (f0 (T,), confidence (T,)) float32。
+
+        与 infer_from_audio 共用 mel/hidden，仅解码阶段多返回一个 confidence。
+        """
+        if not torch.is_tensor(audio):
+            audio = torch.from_numpy(audio)
+        audio_t = audio.float().to(self.device).unsqueeze(0)
+        mel = run_cuda_graph(
+            self.mel_extractor, "rmvpe-mel-extractor",
+            lambda a: self.mel_extractor(a, center=True), audio_t,
+        )
+        hidden = self.mel2hidden(mel).squeeze(0)
+        return run_cuda_graph(
+            self.model, "rmvpe-decode-conf-%s" % thred,
+            lambda h: self.decode_with_confidence(h, thred=thred), hidden,
+        )
+
+    def to_local_average_cents(self, salience, thred=0.05, return_confidence=False):
         """局部加权平均解码（设备端，与旧 numpy 逐帧实现等价）。
 
         Args:
@@ -104,4 +135,7 @@ class RMVPE:
         )
         divided = (local_salience * local_cents).sum(1) / local_salience.sum(1)
         maxx = salience.max(dim=1).values
-        return torch.where(maxx > thred, divided, torch.zeros_like(divided))
+        cents = torch.where(maxx > thred, divided, torch.zeros_like(divided))
+        if return_confidence:
+            return cents, maxx
+        return cents
