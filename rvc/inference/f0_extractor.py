@@ -83,10 +83,10 @@ def _suppress_torchfcpe_output():
 
 
 def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf, confidence)。
+    """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf, confidence, f0_raw)。
 
     RMVPE / FCPE 共用，避免两份重复实现：
-    音域映射（半音尺度，始终生效）→ 转 GPU tensor → 离散化。
+    音域映射（半音尺度，始终生效）→ 清音帧保护 → 中值滤波 → 离散化。
 
     Args:
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
@@ -94,7 +94,8 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
         confidence: 逐帧置信度（0~1），None 时用 f0>0 伪置信度
 
     Returns:
-        (pitch_coarse, pitchf, confidence): 离散 pitch、连续 pitch、置信度
+        (pitch_coarse, pitchf, confidence, f0_raw):
+        离散 pitch、连续 pitch（映射+保护+滤波后）、置信度、原始 F0（映射前，用于清浊判断）
     """
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
@@ -109,9 +110,13 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
         if not torch.is_tensor(confidence):
             confidence = torch.from_numpy(confidence)
         confidence = confidence.float().to(device).squeeze()
+        # confidence 因果中值滤波（kernel=3）：避免孤立低值帧误杀
+        # （和 F0 中值滤波保持一致，只看当前和过去帧，不引入未来延迟）
+        confidence = median_filter_f0(confidence, kernel=3)
     # 原始F0（音域映射之前），用于辅音保护的清浊判断
     # （音域映射会改变F0绝对值，导致辅音保护的sigmoid阈值失效）
-    f0_raw = f0.clone()
+    # 注意：apply_pitch_map / median_filter_f0 都是纯函数，不修改输入，无需 clone
+    f0_raw = f0
     # 音域映射（半音尺度，始终生效，替代固定 pitch 偏移）
     f0 = apply_pitch_map(
         f0,
@@ -142,14 +147,15 @@ class F0Extractor(ABC):
 
     @abstractmethod
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """提取 F0 (pitch) + confidence。
+        """提取 F0 (pitch) + confidence + f0_raw。
 
         Args:
             audio: 输入音频 (1D Tensor)
             sr: 采样率
 
         Returns:
-            (pitch_coarse, pitchf, confidence): 离散 pitch、连续 pitch、逐帧置信度
+            (pitch_coarse, pitchf, confidence, f0_raw):
+            离散 pitch、连续 pitch、逐帧置信度、原始 F0（映射前）
         """
         pass
 

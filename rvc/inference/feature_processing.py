@@ -4,8 +4,6 @@ import torch.nn.functional as F
 
 from rvc.inference.cuda_graph import run_cuda_graph
 
-
-
 def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:
     """提取 HuBERT 特征，走 CUDA Graph 加速。
 
@@ -28,7 +26,6 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
     feats_result = torch.cat((feats_result, feats_result[:, -1:, :]), 1)
     return feats_result
 
-
 def clone_protect_source(feats: torch.Tensor, use_f0: int, protect: float) -> torch.Tensor | None:
     """返回需要保护的原始特征引用。
 
@@ -38,7 +35,6 @@ def clone_protect_source(feats: torch.Tensor, use_f0: int, protect: float) -> to
     if use_f0 == 1 and protect > 0:
         return feats
     return None
-
 
 def protect_blend(
     feats_converted: torch.Tensor,
@@ -59,7 +55,6 @@ def protect_blend(
     pitchff = mix.unsqueeze(-1)
     return feats_converted * pitchff + feats_original * (1 - pitchff)
 
-
 def upsample_features(
     feats: torch.Tensor,
     p_len: int,
@@ -71,7 +66,7 @@ def upsample_features(
 ) -> torch.Tensor:
     feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
     feats = feats[:, :p_len, :]
-    if feats0 is not None and pitchf is not None:
+    if feats0 is not None and (pitchf is not None or uv_prob is not None):
         feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         feats0 = feats0[:, :p_len, :]
         feats = protect_blend(feats, feats0, pitchf, protect, uv_prob=uv_prob)

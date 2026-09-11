@@ -134,12 +134,22 @@ class InferencePipeline:
         uv_prob = None
         if self.use_f0 == 1 and cache_pitchf_raw is not None and config.protect > 0:
             from rvc.core.experimental import experimental_config as ec
+            # P1-8: 根据 F0 方法选择对应的置信度阈值
+            # RMVPE 和 FCPE 的置信度分布不同，不应通用同一阈值
+            if config.f0_method == "fcpe":
+                conf_threshold = ec.fcpe_confidence_threshold
+            else:
+                conf_threshold = ec.rmvpe_threshold
             uv_prob = compute_uv_prob(
                 cache_pitchf_raw, cache_confidence,
                 threshold_hz=ec.protect_soft_threshold_hz,
                 width_hz=ec.protect_soft_width,
-                conf_threshold=ec.rmvpe_threshold,
+                conf_threshold=conf_threshold,
             )
+            # P1-10: 清浊判断统一 — postprocess_f0 中被硬阈值清零的帧（F0=0），
+            # 强制 uv_prob=1，避免合成器收到清音 F0 但浊音特征的不一致情况。
+            # cache_pitchf 是映射+保护+滤波后的 F0，F0=0 表示清音或被保护的帧。
+            uv_prob = torch.maximum(uv_prob, (cache_pitchf == 0).float())
 
         # 特征上采样（含辅音保护混合，uv_prob 多特征融合）
         # pitchf 传原始F0（uv_prob 不为 None 时不会用到 pitchf，但保持语义一致）
