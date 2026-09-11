@@ -46,7 +46,7 @@ def build_experimental_tab(win):
     )
     win.exp_rmvpe_threshold_slider.valueChanged.connect(
         lambda: setattr(
-            experimental_config, "rmvpe_threshold",
+            cfg, "rmvpe_threshold",
             _sl_value_as_float(win.exp_rmvpe_threshold_slider),
         )
     )
@@ -61,7 +61,7 @@ def build_experimental_tab(win):
     )
     win.exp_fcpe_threshold_slider.valueChanged.connect(
         lambda: setattr(
-            experimental_config, "fcpe_confidence_threshold",
+            cfg, "fcpe_confidence_threshold",
             _sl_value_as_float(win.exp_fcpe_threshold_slider),
         )
     )

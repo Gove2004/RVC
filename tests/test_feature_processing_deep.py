@@ -73,17 +73,13 @@ class TestProtectBlendSoft(unittest.TestCase):
     """protect_blend 测试（软阈值模式，始终生效）。"""
 
     def setUp(self):
-        self.experimental_patcher = patch("rvc.core.experimental.experimental_config")
-        self.mock_config = self.experimental_patcher.start()
-        self.mock_config.protect_soft_threshold_hz = 50.0
-        self.mock_config.protect_soft_width = 20.0
-        self.addCleanup(self.experimental_patcher.stop)
+        # 软阈值参数（与原 mock 一致）
+        self.protect_threshold = 50.0
+        self.protect_width = 20.0
 
     def _compute_uv_prob(self, pitchf):
         """与原回退路径一致的 sigmoid 计算，用于测试。"""
-        threshold = self.mock_config.protect_soft_threshold_hz
-        width = self.mock_config.protect_soft_width
-        return torch.sigmoid((threshold - pitchf) / (width / 4))
+        return torch.sigmoid((self.protect_threshold - pitchf) / (self.protect_width / 4))
 
     def test_high_pitch_full_conversion(self):
         """高音高 → 全转换。"""
@@ -156,12 +152,9 @@ class TestUpsampleFeatures(unittest.TestCase):
         feats = torch.randn(1, 10, 768)
         feats0 = torch.randn(1, 10, 768)
         pitchf = torch.ones(1, 20) * 200
-        with patch("rvc.core.experimental.experimental_config") as mock_config:
-            mock_config.protect_soft_threshold_hz = 20.0
-            mock_config.protect_soft_width = 30.0
-            uv_prob = torch.sigmoid((20.0 - pitchf) / (30.0 / 4))
-            result = upsample_features(feats, p_len=20, is_half=True,
-                                        feats0=feats0, protect=0.5, uv_prob=uv_prob)
+        uv_prob = torch.sigmoid((20.0 - pitchf) / (30.0 / 4))
+        result = upsample_features(feats, p_len=20, is_half=True,
+                                    feats0=feats0, protect=0.5, uv_prob=uv_prob)
         self.assertEqual(result.dtype, torch.float16)
 
     def test_is_half_false_no_feats0(self):
@@ -229,11 +222,8 @@ class TestFeatureProcessingEdgeCases(unittest.TestCase):
         feats_converted = torch.ones(1, 5, 768)
         feats_original = torch.zeros(1, 5, 768)
         pitchf = torch.zeros(1, 5)
-        with patch("rvc.core.experimental.experimental_config") as mock_config:
-            mock_config.protect_soft_threshold_hz = 20.0
-            mock_config.protect_soft_width = 30.0
-            uv_prob = torch.sigmoid((20.0 - pitchf) / (30.0 / 4))
-            result = protect_blend(feats_converted, feats_original, protect=-0.5, uv_prob=uv_prob)
+        uv_prob = torch.sigmoid((20.0 - pitchf) / (30.0 / 4))
+        result = protect_blend(feats_converted, feats_original, protect=-0.5, uv_prob=uv_prob)
         # 软阈值：uv_prob = sigmoid((20-0)/(30/4)) ≈ 0.935
         # mix = 1.0 - (-0.5) * 0.935 ≈ 1.4675
         uv_prob_val = torch.sigmoid(torch.tensor(20.0 / (30.0 / 4))).item()
@@ -264,11 +254,8 @@ class TestFeatureProcessingEdgeCases(unittest.TestCase):
         feats_converted = torch.ones(1, 10, 256)
         feats_original = torch.zeros(1, 10, 256)
         pitchf = torch.zeros(1, 10)
-        with patch("rvc.core.experimental.experimental_config") as mock_config:
-            mock_config.protect_soft_threshold_hz = 20.0
-            mock_config.protect_soft_width = 30.0
-            uv_prob = torch.sigmoid((20.0 - pitchf) / (30.0 / 4))
-            result = protect_blend(feats_converted, feats_original, protect=0.5, uv_prob=uv_prob)
+        uv_prob = torch.sigmoid((20.0 - pitchf) / (30.0 / 4))
+        result = protect_blend(feats_converted, feats_original, protect=0.5, uv_prob=uv_prob)
         # 软阈值：uv_prob = sigmoid((20-0)/(30/4)) ≈ 0.935
         # mix = 1.0 - 0.5 * 0.935 ≈ 0.5325
         uv_prob_val = torch.sigmoid(torch.tensor(20.0 / (30.0 / 4))).item()

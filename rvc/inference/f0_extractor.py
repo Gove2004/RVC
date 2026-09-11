@@ -13,7 +13,6 @@ from rvc.inference.cuda_graph import run_cuda_graph
 from rvc.runtime.cuda_graph import cuda_graph_enabled
 from rvc.models.rmvpe.constants import F0_MIN, F0_MAX
 from rvc.audio.f0_utils import median_filter_f0, normalize_f0_to_coarse, RMVPE_THRESHOLD, apply_pitch_map
-from rvc.core.experimental import experimental_config
 
 # 最新原始输入音调（Hz，非零帧平均，音域映射之前的值，用于 GUI 显示）
 last_input_pitch = 0.0
@@ -87,15 +86,15 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
         device: 目标设备
         confidence: 逐帧置信度（0~1），None 时用 f0>0 伪置信度
-        config: InferenceConfig，None 时回退到 global experimental_config（向后兼容）
+        config: InferenceConfig（必填，含实验参数：rmvpe_threshold/pitch_map_*等）
 
     Returns:
         (pitch_coarse, pitchf, confidence, f0_raw):
         离散 pitch、连续 pitch（映射+保护+滤波后）、置信度、原始 F0（映射前，用于清浊判断）
     """
-    # config 为 None 时回退到 global experimental_config（向后兼容）
     if config is None:
-        config = experimental_config
+        from rvc.core.config import InferenceConfig
+        config = InferenceConfig()
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
@@ -181,10 +180,11 @@ class RMVPEExtractor(F0Extractor):
         logger.info("加载 RMVPE")
         self.model = RMVPE(mp, is_half=is_half, device=device)
         self.device = device
-        self.config = config  # None 时回退到 global experimental_config
+        self.config = config  # InferenceConfig，含实验参数
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        cfg = self.config if self.config is not None else experimental_config
+        from rvc.core.config import InferenceConfig
+        cfg = self.config or InferenceConfig()
         f0, conf = self.model.infer_from_audio_with_confidence(audio, thred=cfg.rmvpe_threshold)
         return postprocess_f0(f0, self.device, confidence=conf, config=cfg)
 
@@ -200,7 +200,7 @@ class FCPEExtractor(F0Extractor):
     def __init__(self, device: torch.device, config=None) -> None:
         from torchfcpe import spawn_bundled_infer_model
         logger.info("加载 FCPE")
-        self.config = config  # None 时回退到 global experimental_config
+        self.config = config  # InferenceConfig，含实验参数
         # 抑制 torchfcpe 的日志
         fcpe_logger = logging.getLogger("torchfcpe")
         saved_level = fcpe_logger.level
@@ -219,7 +219,8 @@ class FCPEExtractor(F0Extractor):
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        cfg = self.config if self.config is not None else experimental_config
+        from rvc.core.config import InferenceConfig
+        cfg = self.config or InferenceConfig()
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
         # 整个推理包一层 stdout 抑制：wav2mel 内部 MelModule 会在 |x|>1 时 print，

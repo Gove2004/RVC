@@ -191,25 +191,24 @@ class TestPostprocessF0(unittest.TestCase):
     """Tests for postprocess_f0（音域映射始终生效）。"""
 
     def _identity_config(self):
-        """mock experimental_config 为 identity mapping（src=dst），f0 不变。"""
-        from unittest.mock import patch
-        patcher = patch("rvc.inference.f0_extractor.experimental_config")
-        mock_cfg = patcher.start()
-        mock_cfg.pitch_map_src_min = 100.0
-        mock_cfg.pitch_map_src_max = 500.0
-        mock_cfg.pitch_map_dst_min = 100.0
-        mock_cfg.pitch_map_dst_max = 500.0
-        # 清音帧保护相关配置（postprocess_f0 新增）
-        mock_cfg.protect_soft_threshold_hz = 20.0
-        mock_cfg.protect_soft_width = 30.0
-        mock_cfg.rmvpe_threshold = 0.05
-        self.addCleanup(patcher.stop)
+        """创建 identity mapping 配置（src=dst），f0 不变。"""
+        from rvc.core.config import InferenceConfig
+        cfg = InferenceConfig()
+        cfg.pitch_map_src_min = 100.0
+        cfg.pitch_map_src_max = 500.0
+        cfg.pitch_map_dst_min = 100.0
+        cfg.pitch_map_dst_max = 500.0
+        # 清音帧保护相关配置
+        cfg.protect_soft_threshold_hz = 20.0
+        cfg.protect_soft_width = 30.0
+        cfg.rmvpe_threshold = 0.05
+        return cfg
 
     def test_identity_mapping_unchanged(self):
         """identity mapping（src=dst）时 pitch 不变。"""
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu")
+        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu", config=self._identity_config())
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_numpy_input(self):
@@ -217,27 +216,27 @@ class TestPostprocessF0(unittest.TestCase):
         self._identity_config()
         import numpy as np
         f0 = np.array([200.0, 300.0, 400.0], dtype=np.float32)
-        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu")
+        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu", config=self._identity_config())
         self.assertEqual(pitchf.shape, (3,))
         self.assertAlmostEqual(pitchf[0].item(), 200.0, delta=1.0)
 
     def test_output_shapes(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0, 400.0])
-        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu")
+        coarse, pitchf, _, _ = postprocess_f0(f0, device="cpu", config=self._identity_config())
         self.assertEqual(coarse.shape, (3,))
         self.assertEqual(pitchf.shape, (3,))
 
     def test_coarse_dtype_long(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        coarse, _, _, _ = postprocess_f0(f0, device="cpu")
+        coarse, _, _, _ = postprocess_f0(f0, device="cpu", config=self._identity_config())
         self.assertEqual(coarse.dtype, torch.long)
 
     def test_pitchf_dtype_float(self):
         self._identity_config()
         f0 = torch.tensor([200.0, 300.0])
-        _, pitchf, _, _ = postprocess_f0(f0, device="cpu")
+        _, pitchf, _, _ = postprocess_f0(f0, device="cpu", config=self._identity_config())
         self.assertEqual(pitchf.dtype, torch.float32)
 
 
