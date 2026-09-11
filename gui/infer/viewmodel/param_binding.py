@@ -142,14 +142,42 @@ def state_from_dict(data: dict) -> AppConfig:
         _set_nested(cfg, path, val)
     # enable_out2 不在 BINDINGS 表（无独立控件），根据是否选择了副输出设备自动推导
     cfg.engine.enable_out2 = bool(cfg.engine.output2_device) and cfg.engine.output2_device != "不使用"
+    # 实验参数（不在 BINDINGS 表中，特殊处理）
+    inf = cfg.inference
+    if _has_nested(data, "inference.rmvpe_threshold"):
+        inf.rmvpe_threshold = float(_get_nested_dict(data, "inference.rmvpe_threshold"))
+    if _has_nested(data, "inference.fcpe_confidence_threshold"):
+        inf.fcpe_confidence_threshold = float(_get_nested_dict(data, "inference.fcpe_confidence_threshold"))
+    if _has_nested(data, "inference.protect_soft_threshold_hz"):
+        inf.protect_soft_threshold_hz = float(_get_nested_dict(data, "inference.protect_soft_threshold_hz"))
+    if _has_nested(data, "inference.protect_soft_width"):
+        inf.protect_soft_width = float(_get_nested_dict(data, "inference.protect_soft_width"))
+    if _has_nested(data, "inference.pitch_map_src_min"):
+        inf.pitch_map_src_min = float(_get_nested_dict(data, "inference.pitch_map_src_min"))
+    if _has_nested(data, "inference.pitch_map_src_max"):
+        inf.pitch_map_src_max = float(_get_nested_dict(data, "inference.pitch_map_src_max"))
+    if _has_nested(data, "inference.pitch_map_dst_min"):
+        inf.pitch_map_dst_min = float(_get_nested_dict(data, "inference.pitch_map_dst_min"))
+    if _has_nested(data, "inference.pitch_map_dst_max"):
+        inf.pitch_map_dst_max = float(_get_nested_dict(data, "inference.pitch_map_dst_max"))
     return cfg
 
 
 def state_to_dict(state: AppConfig) -> dict:
-    """AppConfig → 持久化字典（嵌套结构）。"""
+    """AppConfig → 持久化字典（嵌套结构，含实验参数）。"""
     result = {}
     for path, _w, _k, _d in BINDINGS:
         _set_nested_dict(result, path, _get_nested(state, path))
+    # 实验参数（不在 BINDINGS 表中，特殊处理）
+    inf = state.inference
+    _set_nested_dict(result, "inference.rmvpe_threshold", inf.rmvpe_threshold)
+    _set_nested_dict(result, "inference.fcpe_confidence_threshold", inf.fcpe_confidence_threshold)
+    _set_nested_dict(result, "inference.protect_soft_threshold_hz", inf.protect_soft_threshold_hz)
+    _set_nested_dict(result, "inference.protect_soft_width", inf.protect_soft_width)
+    _set_nested_dict(result, "inference.pitch_map_src_min", inf.pitch_map_src_min)
+    _set_nested_dict(result, "inference.pitch_map_src_max", inf.pitch_map_src_max)
+    _set_nested_dict(result, "inference.pitch_map_dst_min", inf.pitch_map_dst_min)
+    _set_nested_dict(result, "inference.pitch_map_dst_max", inf.pitch_map_dst_max)
     return result
 
 
@@ -200,7 +228,7 @@ def _set(win, widget, kind, value):
 
 
 def collect_gui_state(win) -> AppConfig:
-    """从控件收集完整配置。"""
+    """从控件收集完整配置（含实验参数）。"""
     cfg = AppConfig()
     for path, widget, kind, _d in BINDINGS:
         if widget:
@@ -208,14 +236,84 @@ def collect_gui_state(win) -> AppConfig:
     # enable_out2 无独立控件，根据 output2_combo 是否选了"不使用"自动推导
     out2_text = win.output2_combo.currentText()
     cfg.engine.enable_out2 = bool(out2_text) and out2_text != "不使用"
+    # 实验参数（RangeSlider 双滑块等，不在 BINDINGS 表中，特殊处理）
+    _collect_experimental(win, cfg)
     return cfg
 
 
+def _collect_experimental(win, cfg: AppConfig) -> None:
+    """从实验参数控件收集值到 cfg.inference。"""
+    inf = cfg.inference
+    # RMVPE / FCPE 阈值（DoubleSlider）
+    if hasattr(win, "exp_rmvpe_threshold_slider"):
+        inf.rmvpe_threshold = float(win.exp_rmvpe_threshold_slider.value())
+    if hasattr(win, "exp_fcpe_threshold_slider"):
+        inf.fcpe_confidence_threshold = float(win.exp_fcpe_threshold_slider.value())
+    # 过渡区域（RangeSlider 双滑块：中心=(low+high)/2，宽度=high-low）
+    if hasattr(win, "exp_protect_transition_range"):
+        _low = win.exp_protect_transition_range.low()
+        _high = win.exp_protect_transition_range.high()
+        inf.protect_soft_threshold_hz = (_low + _high) / 2
+        inf.protect_soft_width = _high - _low
+    # 原声音域 / 目标音域（RangeSlider 双滑块）
+    if hasattr(win, "exp_pitch_map_src_range"):
+        inf.pitch_map_src_min = win.exp_pitch_map_src_range.low()
+        inf.pitch_map_src_max = win.exp_pitch_map_src_range.high()
+    if hasattr(win, "exp_pitch_map_dst_range"):
+        inf.pitch_map_dst_min = win.exp_pitch_map_dst_range.low()
+        inf.pitch_map_dst_max = win.exp_pitch_map_dst_range.high()
+
+
 def apply_gui_state(win, state: AppConfig) -> None:
-    """将配置写回控件。"""
+    """将配置写回控件（含实验参数）。"""
     for path, widget, kind, _d in BINDINGS:
         if widget:
             _set(win, widget, kind, _get_nested(state, path))
+    _apply_experimental(win, state)
+
+
+def _apply_experimental(win, state: AppConfig) -> None:
+    """将实验参数从 state.inference 写回控件。"""
+    inf = state.inference
+    # 阻塞信号，避免信号处理函数用控件值覆盖配置
+    _widgets = [
+        "exp_rmvpe_threshold_slider", "exp_fcpe_threshold_slider",
+        "exp_protect_transition_range", "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
+    ]
+    for w in _widgets:
+        if hasattr(win, w):
+            getattr(win, w).blockSignals(True)
+    try:
+        # RMVPE / FCPE 阈值
+        if hasattr(win, "exp_rmvpe_threshold_slider"):
+            win.exp_rmvpe_threshold_slider.setValue(inf.rmvpe_threshold)
+        if hasattr(win, "exp_fcpe_threshold_slider"):
+            win.exp_fcpe_threshold_slider.setValue(inf.fcpe_confidence_threshold)
+        # 过渡区域
+        if hasattr(win, "exp_protect_transition_range"):
+            _low = max(0.0, inf.protect_soft_threshold_hz - inf.protect_soft_width / 2)
+            _high = min(50.0, inf.protect_soft_threshold_hz + inf.protect_soft_width / 2)
+            win.exp_protect_transition_range.setRange(_low, _high)
+            if hasattr(win, "exp_protect_transition_label"):
+                win.exp_protect_transition_label.setText(f"{_low:.0f}-{_high:.0f}Hz")
+        # 原声音域
+        if hasattr(win, "exp_pitch_map_src_range"):
+            win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)
+            if hasattr(win, "exp_pitch_map_src_label"):
+                win.exp_pitch_map_src_label.setText(
+                    f"{inf.pitch_map_src_min:.0f}-{inf.pitch_map_src_max:.0f}Hz"
+                )
+        # 目标音域
+        if hasattr(win, "exp_pitch_map_dst_range"):
+            win.exp_pitch_map_dst_range.setRange(inf.pitch_map_dst_min, inf.pitch_map_dst_max)
+            if hasattr(win, "exp_pitch_map_dst_label"):
+                win.exp_pitch_map_dst_label.setText(
+                    f"{inf.pitch_map_dst_min:.0f}-{inf.pitch_map_dst_max:.0f}Hz"
+                )
+    finally:
+        for w in _widgets:
+            if hasattr(win, w):
+                getattr(win, w).blockSignals(False)
 
 
 def runtime_from_state(state: AppConfig) -> InferenceConfig:

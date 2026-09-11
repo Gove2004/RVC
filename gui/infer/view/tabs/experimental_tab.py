@@ -3,7 +3,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
 
 from gui.infer.view.widgets import _slrow, _sl_value_as_float, RangeSlider
-from rvc.core.experimental import experimental_config
 
 
 def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
@@ -29,6 +28,7 @@ def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
 
 
 def build_experimental_tab(win):
+    cfg = win.runtime_params  # InferenceConfig，含实验参数
     w = QWidget()
     g = QGridLayout(w)
     g.setSpacing(6)
@@ -42,7 +42,7 @@ def build_experimental_tab(win):
     # ── 1. RMVPE 阈值 ──
     win.exp_rmvpe_threshold_slider = _slrow(
         win, "exp_rmvpe_threshold_slider", 0.01, 0.10, 0.01,
-        experimental_config.rmvpe_threshold, fmt=".2f",
+        cfg.rmvpe_threshold, fmt=".2f",
     )
     win.exp_rmvpe_threshold_slider.valueChanged.connect(
         lambda: setattr(
@@ -57,7 +57,7 @@ def build_experimental_tab(win):
     # ── 2. FCPE 阈值 ──
     win.exp_fcpe_threshold_slider = _slrow(
         win, "exp_fcpe_threshold_slider", 0.01, 0.10, 0.01,
-        experimental_config.fcpe_confidence_threshold, fmt=".2f",
+        cfg.fcpe_confidence_threshold, fmt=".2f",
     )
     win.exp_fcpe_threshold_slider.valueChanged.connect(
         lambda: setattr(
@@ -70,8 +70,8 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_fcpe_threshold_label, r, 2); r += 1
 
     # ── 3. 过渡区域（双滑块：下限=中心-宽度/2，上限=中心+宽度/2） ──
-    _center = experimental_config.protect_soft_threshold_hz
-    _width = experimental_config.protect_soft_width
+    _center = cfg.protect_soft_threshold_hz
+    _width = cfg.protect_soft_width
     win.exp_protect_transition_range = _range_row(
         win, "exp_protect_transition_range",
         0.0, 50.0, 5.0,
@@ -79,8 +79,8 @@ def build_experimental_tab(win):
         fmt=".0f", unit="Hz",
     )
     def _on_transition_change(low, high):
-        experimental_config.protect_soft_threshold_hz = (low + high) / 2
-        experimental_config.protect_soft_width = high - low
+        cfg.protect_soft_threshold_hz = (low + high) / 2
+        cfg.protect_soft_width = high - low
     win.exp_protect_transition_range.rangeChanged.connect(_on_transition_change)
     g.addWidget(QLabel("过渡区域"), r, 0)
     g.addWidget(win.exp_protect_transition_range, r, 1)
@@ -96,13 +96,13 @@ def build_experimental_tab(win):
     win.exp_pitch_map_src_range = _range_row(
         win, "exp_pitch_map_src_range",
         20.0, 1000.0, 10.0,
-        experimental_config.pitch_map_src_min, experimental_config.pitch_map_src_max,
+        cfg.pitch_map_src_min, cfg.pitch_map_src_max,
         fmt=".0f", unit="Hz",
     )
     win.exp_pitch_map_src_range.rangeChanged.connect(
         lambda low, high: (
-            setattr(experimental_config, "pitch_map_src_min", low),
-            setattr(experimental_config, "pitch_map_src_max", high),
+            setattr(cfg, "pitch_map_src_min", low),
+            setattr(cfg, "pitch_map_src_max", high),
         )
     )
     g.addWidget(QLabel("原声音域"), r, 0)
@@ -113,13 +113,13 @@ def build_experimental_tab(win):
     win.exp_pitch_map_dst_range = _range_row(
         win, "exp_pitch_map_dst_range",
         20.0, 1000.0, 10.0,
-        experimental_config.pitch_map_dst_min, experimental_config.pitch_map_dst_max,
+        cfg.pitch_map_dst_min, cfg.pitch_map_dst_max,
         fmt=".0f", unit="Hz",
     )
     win.exp_pitch_map_dst_range.rangeChanged.connect(
         lambda low, high: (
-            setattr(experimental_config, "pitch_map_dst_min", low),
-            setattr(experimental_config, "pitch_map_dst_max", high),
+            setattr(cfg, "pitch_map_dst_min", low),
+            setattr(cfg, "pitch_map_dst_max", high),
         )
     )
     g.addWidget(QLabel("目标音域"), r, 0)

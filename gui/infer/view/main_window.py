@@ -78,51 +78,28 @@ class MainWindow(QMainWindow):
             sys.exit(1)
 
     def _load_gui_config(self) -> None:
-        """从持久化配置加载 GUI 状态（嵌套结构 + 实验参数）。"""
+        """从持久化配置加载 GUI 状态（嵌套结构 + 实验参数，向后兼容旧格式）。"""
         from gui.configs import load_config
         from gui.infer.viewmodel.param_binding import state_from_dict
-        from rvc.core.experimental import experimental_config
         cfg = load_config()
-        state = state_from_dict(cfg.get("gui", {}))
+        # 向后兼容：旧格式有独立的 "experimental" 部分，合并到 "gui" 部分
+        gui_data = cfg.get("gui", {})
+        if "experimental" in cfg and "inference" not in gui_data:
+            exp = cfg["experimental"]
+            gui_data = dict(gui_data)
+            gui_data["inference"] = {
+                "rmvpe_threshold": exp.get("rmvpe_threshold", 0.05),
+                "fcpe_confidence_threshold": exp.get("fcpe_confidence_threshold", 0.05),
+                "protect_soft_threshold_hz": exp.get("protect_soft_threshold_hz", 20.0),
+                "protect_soft_width": exp.get("protect_soft_width", 30.0),
+                "pitch_map_src_min": exp.get("pitch_map_src_min", 100.0),
+                "pitch_map_src_max": exp.get("pitch_map_src_max", 500.0),
+                "pitch_map_dst_min": exp.get("pitch_map_dst_min", 200.0),
+                "pitch_map_dst_max": exp.get("pitch_map_dst_max", 800.0),
+            }
+        state = state_from_dict(gui_data)
+        # apply_gui_state 会处理实验参数（含信号阻塞）
         self.apply_gui_state(state)
-        # 加载实验参数
-        experimental_config.from_dict(cfg.get("experimental", {}))
-        # 恢复控件值时阻塞信号，避免信号处理函数用控件值覆盖 experimental_config
-        self.exp_protect_transition_range.blockSignals(True)
-        self.exp_rmvpe_threshold_slider.blockSignals(True)
-        self.exp_fcpe_threshold_slider.blockSignals(True)
-        self.exp_pitch_map_src_range.blockSignals(True)
-        self.exp_pitch_map_dst_range.blockSignals(True)
-        # 过渡区域（RangeSlider 双滑块，从中心/宽度反推上下限，范围 0-50）
-        _tc = experimental_config.protect_soft_threshold_hz
-        _tw = experimental_config.protect_soft_width
-        _t_low = max(0.0, _tc - _tw / 2)
-        _t_high = min(50.0, _tc + _tw / 2)
-        self.exp_protect_transition_range.setRange(_t_low, _t_high)
-        if hasattr(self, 'exp_protect_transition_label'):
-            self.exp_protect_transition_label.setText(f'{_t_low:.0f}-{_t_high:.0f}Hz')
-        # F0 清浊阈值（DoubleSlider，直接传物理值）
-        self.exp_rmvpe_threshold_slider.setValue(experimental_config.rmvpe_threshold)
-        self.exp_fcpe_threshold_slider.setValue(experimental_config.fcpe_confidence_threshold)
-        # 音域映射（RangeSlider 双滑块，直接传物理值）
-        self.exp_pitch_map_src_range.setRange(
-            experimental_config.pitch_map_src_min,
-            experimental_config.pitch_map_src_max,
-        )
-        if hasattr(self, 'exp_pitch_map_src_label'):
-            self.exp_pitch_map_src_label.setText(f'{experimental_config.pitch_map_src_min:.0f}-{experimental_config.pitch_map_src_max:.0f}Hz')
-        self.exp_pitch_map_dst_range.setRange(
-            experimental_config.pitch_map_dst_min,
-            experimental_config.pitch_map_dst_max,
-        )
-        if hasattr(self, 'exp_pitch_map_dst_label'):
-            self.exp_pitch_map_dst_label.setText(f'{experimental_config.pitch_map_dst_min:.0f}-{experimental_config.pitch_map_dst_max:.0f}Hz')
-        # 恢复完成后解除信号阻塞
-        self.exp_protect_transition_range.blockSignals(False)
-        self.exp_rmvpe_threshold_slider.blockSignals(False)
-        self.exp_fcpe_threshold_slider.blockSignals(False)
-        self.exp_pitch_map_src_range.blockSignals(False)
-        self.exp_pitch_map_dst_range.blockSignals(False)
         # 模型路径按钮：根据 win.model_path 更新显示文件名
         if hasattr(self, "model_path") and self.model_path:
             from pathlib import Path
@@ -130,25 +107,14 @@ class MainWindow(QMainWindow):
             self.model_path_btn.setToolTip(self.model_path)
 
     def _save_gui_config(self) -> None:
-        """保存当前 GUI 状态到持久化配置（嵌套结构 + 实验参数）。"""
+        """保存当前 GUI 状态到持久化配置（嵌套结构，含实验参数）。"""
         from gui.configs import load_config, save_config
         from gui.infer.viewmodel.param_binding import state_to_dict
-        from rvc.core.experimental import experimental_config
-        # 保存前从 RangeSlider 直接读取当前值，确保信号丢失时也不丢
-        if hasattr(self, "exp_protect_transition_range"):
-            _low = self.exp_protect_transition_range.low()
-            _high = self.exp_protect_transition_range.high()
-            experimental_config.protect_soft_threshold_hz = (_low + _high) / 2
-            experimental_config.protect_soft_width = _high - _low
-        if hasattr(self, "exp_pitch_map_src_range"):
-            experimental_config.pitch_map_src_min = self.exp_pitch_map_src_range.low()
-            experimental_config.pitch_map_src_max = self.exp_pitch_map_src_range.high()
-        if hasattr(self, "exp_pitch_map_dst_range"):
-            experimental_config.pitch_map_dst_min = self.exp_pitch_map_dst_range.low()
-            experimental_config.pitch_map_dst_max = self.exp_pitch_map_dst_range.high()
         cfg = load_config()
+        # collect_gui_state 会从控件收集实验参数
         cfg["gui"] = state_to_dict(self.collect_gui_state())
-        cfg["experimental"] = experimental_config.to_dict()
+        # 删除旧格式的 "experimental" 部分（已合并到 "gui.inference"）
+        cfg.pop("experimental", None)
         save_config(cfg)
 
     def _tray_quit(self):
