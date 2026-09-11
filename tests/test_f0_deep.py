@@ -201,6 +201,10 @@ class TestPostprocessF0(unittest.TestCase):
         mock_cfg.pitch_map_src_max = 500.0
         mock_cfg.pitch_map_dst_min = 100.0
         mock_cfg.pitch_map_dst_max = 500.0
+        # 清音帧保护相关配置（postprocess_f0 新增）
+        mock_cfg.protect_soft_threshold_hz = 20.0
+        mock_cfg.protect_soft_width = 30.0
+        mock_cfg.rmvpe_threshold = 0.05
         self.addCleanup(patcher.stop)
 
     def test_identity_mapping_unchanged(self):

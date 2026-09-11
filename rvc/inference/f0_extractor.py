@@ -104,6 +104,11 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
     nonzero = f0[f0 > 0]
     if nonzero.numel() > 0:
         last_input_pitch = float(nonzero.mean().item())
+    # 先处理 confidence（如果有的话），用于后续清音帧保护判断
+    if confidence is not None:
+        if not torch.is_tensor(confidence):
+            confidence = torch.from_numpy(confidence)
+        confidence = confidence.float().to(device).squeeze()
     # 原始F0（音域映射之前），用于辅音保护的清浊判断
     # （音域映射会改变F0绝对值，导致辅音保护的sigmoid阈值失效）
     f0_raw = f0.clone()
@@ -115,14 +120,20 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
         experimental_config.pitch_map_dst_min,
         experimental_config.pitch_map_dst_max,
     )
-    # F0中值滤波（kernel=3）：去除孤立误判帧，减少气声和抖动
+    # 清音帧 F0 保护：用原始 F0 和 confidence 判断清浊，
+    # 原始 F0 低于阈值（默认 20+30=50Hz）或 confidence 低的帧，
+    # 很可能是清音误判（如 /s/ /t/ /k/），映射后 F0 设为 0，
+    # 避免假 F0 被送入合成器产生奇怪音高。
+    uv_protect_threshold = experimental_config.protect_soft_threshold_hz + experimental_config.protect_soft_width
+    uv_protect_mask = f0_raw < uv_protect_threshold
+    if confidence is not None:
+        uv_protect_mask = uv_protect_mask | (confidence < experimental_config.rmvpe_threshold)
+    f0 = f0.masked_fill(uv_protect_mask, 0.0)
+    # F0中值滤波（因果，kernel=3）：去除孤立误判帧，减少气声和抖动
     f0 = median_filter_f0(f0, kernel=3)
+    # 最后处理 confidence（如果之前是 None，用滤波后的 F0 生成伪置信度）
     if confidence is None:
         confidence = (f0 > 0).float()
-    else:
-        if not torch.is_tensor(confidence):
-            confidence = torch.from_numpy(confidence)
-        confidence = confidence.float().to(device).squeeze()
     return normalize_f0_to_coarse(f0), f0, confidence, f0_raw
 
 

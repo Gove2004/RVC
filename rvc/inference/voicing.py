@@ -41,6 +41,7 @@ def causal_moving_average(x: torch.Tensor, kernel_size: int = 3) -> torch.Tensor
 
     中值滤波保留阶跃边界，但清浊切换处需要渐变来避免咔哒声。
     在中值滤波之后做轻度移动平均，恢复边界处的渐变过渡。
+    用 unfold + mean 实现，避免每次调用创建 conv1d kernel。
 
     Args:
         x: 输入张量，在最后一维做平均
@@ -52,10 +53,11 @@ def causal_moving_average(x: torch.Tensor, kernel_size: int = 3) -> torch.Tensor
     if kernel_size <= 1:
         return x
     original_shape = x.shape
-    x_flat = x.reshape(-1, 1, x.shape[-1])  # (N, 1, T) for conv1d
-    kernel = torch.ones(1, 1, kernel_size, device=x.device, dtype=x.dtype) / kernel_size
+    x_flat = x.reshape(-1, x.shape[-1])
+    # 因果 padding：只在左边补 kernel_size-1 个首帧值（不看未来）
     padded = F.pad(x_flat, (kernel_size - 1, 0), mode="replicate")
-    result = F.conv1d(padded, kernel).squeeze(1)
+    windows = padded.unfold(-1, kernel_size, 1)  # (N, T, kernel_size)
+    result = windows.mean(dim=-1)
     return result.reshape(original_shape)
 
 

@@ -48,7 +48,7 @@ def protect_blend(
     uv_prob: torch.Tensor | None = None,
 ) -> torch.Tensor:
     # 浊音（uv_prob 低）→ 全转换；清音（uv_prob 高）→ 按 protect 混合原特征。
-    # uv_prob 由 voicing.compute_uv_prob 多特征融合计算（F0+confidence+SFM+瞬态+中值滤波）。
+    # uv_prob 由 voicing.compute_uv_prob 多特征融合计算（F0 软阈值 + confidence 修正 + 因果中值滤波 + 因果移动平均）。
     # 若 uv_prob=None（兼容旧调用），退化为原有的 F0 单特征 sigmoid 软阈值。
     if uv_prob is None:
         from rvc.core.experimental import experimental_config

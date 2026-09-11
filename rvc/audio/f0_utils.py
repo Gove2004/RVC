@@ -44,6 +44,11 @@ def midi_to_hz(midi, xp=None):
     return MIDI_REF_FREQ * (2.0 ** ((midi - MIDI_REF_NOTE) / 12.0))
 
 
+# 音域映射预计算缓存：参数组合 → (src_min_m, src_max_m, dst_min_m, dst_max_m)
+# 避免每次调用重复计算 4 次 hz_to_midi（参数在运行时很少变化）
+_pitch_map_midi_cache: dict[tuple, tuple] = {}
+
+
 def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     """半音尺度线性音域映射（保持音程不变，唱歌不跑调）。
 
@@ -78,38 +83,47 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     if src_min >= src_max or dst_min >= dst_max:
         return f0  # 无效参数，原样返回
 
+    # 预计算 MIDI 值缓存（参数很少变化，避免每次调用重复计算）
+    cache_key = (src_min, src_max, dst_min, dst_max)
+    if cache_key not in _pitch_map_midi_cache:
+        src_min_m = float(hz_to_midi(src_min))
+        src_max_m = float(hz_to_midi(src_max))
+        dst_min_m = float(hz_to_midi(dst_min))
+        dst_max_m = float(hz_to_midi(dst_max))
+        _pitch_map_midi_cache[cache_key] = (src_min_m, src_max_m, dst_min_m, dst_max_m)
+        # 限制缓存大小，避免极端情况下无限增长
+        if len(_pitch_map_midi_cache) > 128:
+            _pitch_map_midi_cache.pop(next(iter(_pitch_map_midi_cache)))
+    src_min_m, src_max_m, dst_min_m, dst_max_m = _pitch_map_midi_cache[cache_key]
+
     if torch.is_tensor(f0):
         xp = torch
         uv_mask = f0 <= 0
         f0_safe = xp.clamp(f0, min=1e-6)
-        # 标量参数转成和 f0 同设备的 tensor，避免 CPU/CUDA 设备不匹配
         device = f0.device
-        src_min_t = torch.tensor(src_min, dtype=torch.float32, device=device)
-        src_max_t = torch.tensor(src_max, dtype=torch.float32, device=device)
-        dst_min_t = torch.tensor(dst_min, dtype=torch.float32, device=device)
-        dst_max_t = torch.tensor(dst_max, dtype=torch.float32, device=device)
+        # 预计算的 MIDI 标量转成和 f0 同设备的 tensor
+        src_min_m_t = torch.tensor(src_min_m, dtype=torch.float32, device=device)
+        src_max_m_t = torch.tensor(src_max_m, dtype=torch.float32, device=device)
+        dst_min_m_t = torch.tensor(dst_min_m, dtype=torch.float32, device=device)
+        dst_max_m_t = torch.tensor(dst_max_m, dtype=torch.float32, device=device)
     else:
         xp = np
         uv_mask = f0 <= 0
         f0_safe = xp.clip(f0, 1e-6, None)
-        src_min_t = src_min
-        src_max_t = src_max
-        dst_min_t = dst_min
-        dst_max_t = dst_max
+        src_min_m_t = src_min_m
+        src_max_m_t = src_max_m
+        dst_min_m_t = dst_min_m
+        dst_max_m_t = dst_max_m
 
-    # Hz → MIDI 半音
-    src_min_m = hz_to_midi(src_min_t, xp)
-    src_max_m = hz_to_midi(src_max_t, xp)
-    dst_min_m = hz_to_midi(dst_min_t, xp)
-    dst_max_m = hz_to_midi(dst_max_t, xp)
+    # Hz → MIDI 半音（只对 f0 计算，参数已缓存）
     f0_m = hz_to_midi(f0_safe, xp)
 
     # 半音尺度线性映射（线性外推，不钳制）
-    src_range = src_max_m - src_min_m
+    src_range = src_max_m_t - src_min_m_t
     if src_range < 1e-6:
         return f0  # 原声音域无效，原样返回
-    ratio = (f0_m - src_min_m) / src_range
-    out_m = dst_min_m + ratio * (dst_max_m - dst_min_m)
+    ratio = (f0_m - src_min_m_t) / src_range
+    out_m = dst_min_m_t + ratio * (dst_max_m_t - dst_min_m_t)
 
     # MIDI → Hz
     out = midi_to_hz(out_m, xp)
@@ -130,11 +144,11 @@ def _f0_to_mel(f0, xp):
 
 
 def median_filter_f0(f0, kernel=3):
-    """一维中值滤波，去除 F0 孤立误判帧，减少气声和抖动。
+    """因果一维中值滤波，去除 F0 孤立误判帧，减少气声和抖动。
 
+    因果实现：只看当前和过去帧，不引入未来延迟（与 voicing.causal_median_filter 一致）。
     清音帧（f0=0）始终保持 0；浊音帧（f0>0）如果被滤波成 0
     （窗口中零值占多数，如浊音帧紧邻清音边界），恢复原值避免误清。
-    kernel=3 引入 1 帧（10ms）延迟，实时场景可接受。
 
     Args:
         f0: 连续 F0（1D torch.Tensor，Hz），0=清音/UV
@@ -145,10 +159,9 @@ def median_filter_f0(f0, kernel=3):
     """
     if not torch.is_tensor(f0) or f0.numel() < kernel or kernel < 3:
         return f0
-    pad = kernel // 2
-    # replicate padding 避免边缘帧被零值污染
+    # 因果 padding：只在左边补 kernel-1 个首帧值（不看未来）
     f0_padded = torch.nn.functional.pad(
-        f0.unsqueeze(0).unsqueeze(0), (pad, pad), mode="replicate"
+        f0.unsqueeze(0).unsqueeze(0), (kernel - 1, 0), mode="replicate"
     ).squeeze()
     windows = f0_padded.unfold(0, kernel, 1)
     median_vals = windows.median(dim=-1).values
