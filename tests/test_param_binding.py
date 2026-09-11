@@ -10,7 +10,7 @@ from gui.infer.viewmodel.param_binding import (
     runtime_from_state, engine_from_state,
     gender_to_formant, formant_to_gender,
     format_error_message,
-    CHECK, X100, INT, COMBO, TEXT,
+    CHECK, FLOAT, INT, COMBO, TEXT,
 )
 
 
@@ -77,9 +77,9 @@ class TestParse(unittest.TestCase):
         self.assertFalse(_parse(CHECK, 0))
 
     def test_parse_x100(self):
-        """X100 类型转 float。"""
-        self.assertAlmostEqual(_parse(X100, "0.5"), 0.5)
-        self.assertAlmostEqual(_parse(X100, 50), 50.0)
+        """FLOAT 类型转 float。"""
+        self.assertAlmostEqual(_parse(FLOAT, "0.5"), 0.5)
+        self.assertAlmostEqual(_parse(FLOAT, 50), 50.0)
 
     def test_parse_int(self):
         """INT 类型转 int。"""

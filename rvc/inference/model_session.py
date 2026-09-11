@@ -93,7 +93,9 @@ class ModelSessionManager:
             method: "rmvpe" 或 "fcpe"
         """
         from rvc.inference.f0_extractor import create_f0_extractor
-        return create_f0_extractor(method, self.device, self.is_half, self.inference_cache)
+        # model_session 不持有 InferenceConfig，暂时传 None（回退到 global experimental_config）
+        # 后续可以把 config 传到 ModelSessionManager
+        return create_f0_extractor(method, self.device, self.is_half, self.inference_cache, config=None)
 
     def clear_all(self) -> None:
         """清除所有模型缓存和 CUDA Graph（停止/切换模型时调用）。

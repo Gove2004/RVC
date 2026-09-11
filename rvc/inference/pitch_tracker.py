@@ -22,8 +22,8 @@ def create_pitch_cache(device: str) -> tuple[torch.Tensor, torch.Tensor, torch.T
     )
 
 
-def extract_f0(x, method: str, device: str, is_half: bool, inference_cache):
-    extractor = create_f0_extractor(method, device, is_half, inference_cache)
+def extract_f0(x, method: str, device: str, is_half: bool, inference_cache, config=None):
+    extractor = create_f0_extractor(method, device, is_half, inference_cache, config=config)
     if not torch.is_tensor(x):
         x = torch.from_numpy(x)
     pitch, pitchf, confidence, f0_raw = extractor.extract(x, HUBERT_SAMPLE_RATE)
@@ -51,10 +51,11 @@ def update_realtime_pitch_cache(
     device: str,
     is_half: bool,
     inference_cache,
+    config=None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     f0_extractor_frame = realtime_f0_window(block_frame_16k, method)
     pitch, pitchf, confidence, f0_raw = extract_f0(
-        input_wav[-f0_extractor_frame:], method, device, is_half, inference_cache,
+        input_wav[-f0_extractor_frame:], method, device, is_half, inference_cache, config=config,
     )
     shift = block_frame_16k // HUBERT_FRAME_SIZE
     cache_pitch[:-shift] = cache_pitch[shift:].clone()

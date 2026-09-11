@@ -194,24 +194,24 @@ class Trainer:
                 self.loss_callback({
                     "epoch": epoch,
                     "batch": batch_idx,
-                    "loss_d": float(loss_disc.detach().cpu()),
+                    "loss_d": loss_disc.item(),
                     # G = 纯对抗分量，与上游 train.py loss_gen 口径一致（可逐字段对表）；
                     # loss_gen_all（对抗+FM+Mel+KL 的 backward 总目标）另以 loss_total 上报。
-                    "loss_g": float(loss_gen.detach().cpu()),
-                    "loss_total": float(loss_gen_all.detach().cpu()),
-                    "loss_mel": float(loss_mel.detach().cpu()),
-                    "loss_kl": float(loss_kl.detach().cpu()),
-                    "loss_fm": float(loss_fm.detach().cpu()),
+                    "loss_g": loss_gen.item(),
+                    "loss_total": loss_gen_all.item(),
+                    "loss_mel": loss_mel.item(),
+                    "loss_kl": loss_kl.item(),
+                    "loss_fm": loss_fm.item(),
                 })
 
             if self.batch_callback:
                 self.batch_callback(epoch, batch_idx, total_batches)
 
-            g_sum += float(loss_gen.detach().cpu())  # 纯对抗（loss_gen_all 不进 epoch 平均，口径同上）
-            mel_sum += float(loss_mel.detach().cpu())
-            kl_sum += float(loss_kl.detach().cpu())
-            fm_sum += float(loss_fm.detach().cpu())
-            d_sum += float(loss_disc.detach().cpu())
+            g_sum += loss_gen.item()  # 纯对抗（loss_gen_all 不进 epoch 平均，口径同上）
+            mel_sum += loss_mel.item()
+            kl_sum += loss_kl.item()
+            fm_sum += loss_fm.item()
+            d_sum += loss_disc.item()
             loss_count += 1
 
         n = max(loss_count, 1)

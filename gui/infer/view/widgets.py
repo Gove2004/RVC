@@ -21,8 +21,8 @@ class DoubleSlider(QSlider):
         整数值 = round(物理值 / step)
         物理值 = 整数值 × step
 
-    这样拖动时的最小变化量就是 step，而不是固定的 0.01（X100 编码的问题）。
-    存档直接存物理值，不需要 X100 转换。
+    这样拖动时的最小变化量就是 step，而不是固定的 0.01（旧编码的问题）。
+    存档直接存物理值，不需要编码转换。
     """
 
     def __init__(self, min_val, max_val, step, parent=None):
@@ -53,7 +53,7 @@ def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     """创建「滑杆 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
 
     使用 DoubleSlider，基于步长动态编码，对外直接暴露物理值（float）。
-    存档直接存物理值，不需要 X100 转换。拖动时的最小变化量 = step。
+    存档直接存物理值，不需要编码转换。拖动时的最小变化量 = step。
     fmt/unit 控制标签显示。
     返回 slider。
     """

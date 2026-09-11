@@ -12,7 +12,6 @@ import math
 import torch
 
 from rvc.core.config import InferenceConfig
-from rvc.core.experimental import experimental_config
 from rvc.inference.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.voicing import compute_uv_prob
@@ -125,6 +124,7 @@ class InferencePipeline:
                 self.pitch_cache, self.pitchf_cache, self.confidence_cache, self.pitchf_raw_cache,
                 self.device, self.is_half,
                 self.inference_cache,
+                config=config,
             )
         else:
             cache_pitch = cache_pitchf = cache_confidence = cache_pitchf_raw = None
@@ -137,13 +137,13 @@ class InferencePipeline:
             # P1-8: 根据 F0 方法选择对应的置信度阈值
             # RMVPE 和 FCPE 的置信度分布不同，不应通用同一阈值
             if config.f0_method == "fcpe":
-                conf_threshold = experimental_config.fcpe_confidence_threshold
+                conf_threshold = config.fcpe_confidence_threshold
             else:
-                conf_threshold = experimental_config.rmvpe_threshold
+                conf_threshold = config.rmvpe_threshold
             uv_prob = compute_uv_prob(
                 cache_pitchf_raw, cache_confidence,
-                threshold_hz=experimental_config.protect_soft_threshold_hz,
-                width_hz=experimental_config.protect_soft_width,
+                threshold_hz=config.protect_soft_threshold_hz,
+                width_hz=config.protect_soft_width,
                 conf_threshold=conf_threshold,
             )
             # P1-10: 清浊判断统一 — postprocess_f0 中被硬阈值清零的帧（F0=0），

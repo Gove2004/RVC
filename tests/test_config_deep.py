@@ -33,7 +33,8 @@ class TestInferenceConfig(unittest.TestCase):
 
 
     def test_field_count(self):
-        self.assertEqual(len(fields(InferenceConfig)), 4)
+        # 4 基础 + 4 辅音保护 + 4 音域映射 = 12
+        self.assertEqual(len(fields(InferenceConfig)), 12)
 
 
 
@@ -181,8 +182,8 @@ class TestOfflineConfig(unittest.TestCase):
         self.assertTrue(issubclass(OfflineConfig, InferenceConfig))
 
     def test_field_count_includes_inherited(self):
-        """OfflineConfig 字段 = InferenceConfig 4 个 + 4 个特有 = 8 个。"""
-        self.assertEqual(len(fields(OfflineConfig)), 8)
+        """OfflineConfig 字段 = InferenceConfig 12 个 + 4 个特有 = 16 个。"""
+        self.assertEqual(len(fields(OfflineConfig)), 16)
 
     def test_asdict_includes_all(self):
         d = asdict(OfflineConfig())

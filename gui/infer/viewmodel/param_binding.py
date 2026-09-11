@@ -15,7 +15,7 @@ from rvc.core.config import AppConfig, EngineConfig, InferenceConfig
 
 # 读写方式
 CHECK = "check"      # QCheckBox / bool
-X100 = "x100"        # DoubleSlider，直接读写物理值（float），历史命名保留
+FLOAT = "float"        # DoubleSlider，直接读写物理值（float）
 INT = "int"          # QSlider，整数值（不除 100）
 COMBO = "combo"      # QComboBox currentText / findText
 TEXT = "text"        # QLineEdit text
@@ -26,14 +26,14 @@ RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 # 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 缺省默认值)
 BINDINGS = [
     # ── 推理参数（inference.*）──
-    ("inference.formant", "formant_slider", X100, 0.0),
-    ("inference.protect", "protect_slider", X100, 0.5),
+    ("inference.formant", "formant_slider", FLOAT, 0.0),
+    ("inference.protect", "protect_slider", FLOAT, 0.5),
     ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
-    ("inference.rms_mix", "rms_mix_slider", X100, 0.0),
+    ("inference.rms_mix", "rms_mix_slider", FLOAT, 0.0),
     # ── 引擎参数（engine.*）──
-    ("engine.block_time", "block_time_slider", X100, 0.25),
-    ("engine.crossfade_time", "crossfade_slider", X100, 0.05),
-    ("engine.extra_time", "extra_time_slider", X100, 2.5),
+    ("engine.block_time", "block_time_slider", FLOAT, 0.25),
+    ("engine.crossfade_time", "crossfade_slider", FLOAT, 0.05),
+    ("engine.extra_time", "extra_time_slider", FLOAT, 2.5),
     ("engine.sr_mode", "sr_model_radio", RADIO_SR, "model"),
     ("engine.hostapi", "hostapi_combo", COMBO, ""),
     ("engine.input_device", "input_combo", COMBO, ""),
@@ -124,8 +124,8 @@ def _migrate_old_format(data: dict) -> dict:
 def _parse(kind, raw):
     if kind == CHECK:
         return bool(raw)
-    if kind in (X100, INT):
-        return float(raw) if kind == X100 else int(raw)
+    if kind in (FLOAT, INT):
+        return float(raw) if kind == FLOAT else int(raw)
     return str(raw)
 
 
@@ -157,7 +157,7 @@ def _get(win, widget, kind):
     w = getattr(win, widget)
     if kind == CHECK:
         return w.isChecked()
-    if kind == X100:
+    if kind == FLOAT:
         return float(w.value())
     if kind == INT:
         return w.value()
@@ -177,7 +177,7 @@ def _get(win, widget, kind):
 def _set(win, widget, kind, value):
     if kind == CHECK:
         getattr(win, widget).setChecked(bool(value))
-    elif kind == X100:
+    elif kind == FLOAT:
         getattr(win, widget).setValue(float(value))
     elif kind == INT:
         getattr(win, widget).setValue(int(value))

@@ -77,7 +77,7 @@ def _suppress_torchfcpe_output():
 
 
 
-def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf, confidence, f0_raw)。
 
     RMVPE / FCPE 共用，避免两份重复实现：
@@ -87,11 +87,15 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
         device: 目标设备
         confidence: 逐帧置信度（0~1），None 时用 f0>0 伪置信度
+        config: InferenceConfig，None 时回退到 global experimental_config（向后兼容）
 
     Returns:
         (pitch_coarse, pitchf, confidence, f0_raw):
         离散 pitch、连续 pitch（映射+保护+滤波后）、置信度、原始 F0（映射前，用于清浊判断）
     """
+    # config 为 None 时回退到 global experimental_config（向后兼容）
+    if config is None:
+        config = experimental_config
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
@@ -115,19 +119,19 @@ def postprocess_f0(f0, device, confidence=None) -> tuple[torch.Tensor, torch.Ten
     # 音域映射（半音尺度，始终生效，替代固定 pitch 偏移）
     f0 = apply_pitch_map(
         f0,
-        experimental_config.pitch_map_src_min,
-        experimental_config.pitch_map_src_max,
-        experimental_config.pitch_map_dst_min,
-        experimental_config.pitch_map_dst_max,
+        config.pitch_map_src_min,
+        config.pitch_map_src_max,
+        config.pitch_map_dst_min,
+        config.pitch_map_dst_max,
     )
     # 清音帧 F0 保护：用原始 F0 和 confidence 判断清浊，
     # 原始 F0 低于阈值（默认 20+30/2=35Hz，即 GUI 过渡区域上限）或 confidence 低的帧，
     # 很可能是清音误判（如 /s/ /t/ /k/），映射后 F0 设为 0，
     # 避免假 F0 被送入合成器产生奇怪音高。
-    uv_protect_threshold = experimental_config.protect_soft_threshold_hz + experimental_config.protect_soft_width / 2
+    uv_protect_threshold = config.protect_soft_threshold_hz + config.protect_soft_width / 2
     uv_protect_mask = f0_raw < uv_protect_threshold
     if confidence is not None:
-        uv_protect_mask = uv_protect_mask | (confidence < experimental_config.rmvpe_threshold)
+        uv_protect_mask = uv_protect_mask | (confidence < config.rmvpe_threshold)
     f0 = f0.masked_fill(uv_protect_mask, 0.0)
     # F0中值滤波（因果，kernel=3）：硬阈值清零后，主要消除漏网的孤立浊音帧
     # （清音段中突然出现的单个浊音帧），减少气声和抖动。因果实现不引入未来延迟。
@@ -164,7 +168,7 @@ class F0Extractor(ABC):
 class RMVPEExtractor(F0Extractor):
     """RMVPE F0 提取器"""
 
-    def __init__(self, model_path: str, device: torch.device, is_half: bool) -> None:
+    def __init__(self, model_path: str, device: torch.device, is_half: bool, config=None) -> None:
         from rvc.models.rmvpe import RMVPE
         mp = Path(model_path)
         if not mp.exists():
@@ -177,10 +181,12 @@ class RMVPEExtractor(F0Extractor):
         logger.info("加载 RMVPE")
         self.model = RMVPE(mp, is_half=is_half, device=device)
         self.device = device
+        self.config = config  # None 时回退到 global experimental_config
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        f0, conf = self.model.infer_from_audio_with_confidence(audio, thred=experimental_config.rmvpe_threshold)
-        return postprocess_f0(f0, self.device, confidence=conf)
+        cfg = self.config if self.config is not None else experimental_config
+        f0, conf = self.model.infer_from_audio_with_confidence(audio, thred=cfg.rmvpe_threshold)
+        return postprocess_f0(f0, self.device, confidence=conf, config=cfg)
 
     def clear_cuda_graph(self) -> None:
         from rvc.inference.cuda_graph import clear_cuda_graph_cache
@@ -191,9 +197,10 @@ class RMVPEExtractor(F0Extractor):
 class FCPEExtractor(F0Extractor):
     """FCPE F0 提取器"""
 
-    def __init__(self, device: torch.device) -> None:
+    def __init__(self, device: torch.device, config=None) -> None:
         from torchfcpe import spawn_bundled_infer_model
         logger.info("加载 FCPE")
+        self.config = config  # None 时回退到 global experimental_config
         # 抑制 torchfcpe 的日志
         fcpe_logger = logging.getLogger("torchfcpe")
         saved_level = fcpe_logger.level
@@ -212,6 +219,7 @@ class FCPEExtractor(F0Extractor):
         self.device = device
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        cfg = self.config if self.config is not None else experimental_config
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
         # 整个推理包一层 stdout 抑制：wav2mel 内部 MelModule 会在 |x|>1 时 print，
@@ -236,23 +244,23 @@ class FCPEExtractor(F0Extractor):
                     decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
 
                     confidence_mask = torch.ones_like(confidence)
-                    # experimental_config.fcpe_confidence_threshold（默认 0.025）= RMVPE thred=0.03 同档：
+                    # cfg.fcpe_confidence_threshold（默认 0.025）= RMVPE thred=0.03 同档：
                     # 0.006（torchfcpe 默认）在低电平底噪（麦克风底噪/呼吸/气声）100% 误判浊音，
                     # 给合成器喂假音高。提到 0.025 后底噪全判 uv，与 RMVPE 行为一致。
-                    confidence_mask.masked_fill_(confidence <= experimental_config.fcpe_confidence_threshold, float("-inf"))
+                    confidence_mask.masked_fill_(confidence <= cfg.fcpe_confidence_threshold, float("-inf"))
                     decoded = decoded * confidence_mask
                     f0 = 10.0 * torch.pow(2.0, decoded / 1200.0)
                     return f0, confidence.squeeze(-1)
 
                 f0, conf = run_cuda_graph(
                     self.model.model,
-                    f"fcpe-core-local_argmax-conf-{experimental_config.fcpe_confidence_threshold}",
+                    f"fcpe-core-local_argmax-conf-{cfg.fcpe_confidence_threshold}",
                     graphable_infer, mel,
                 )
             else:
                 f0 = self.model.infer(
                     wav_t, sr=sr, decoder_mode="local_argmax",
-                    threshold=experimental_config.fcpe_confidence_threshold,
+                    threshold=cfg.fcpe_confidence_threshold,
                 )
                 conf = None  # 非 CUDA Graph 路径用 f0>0 伪置信度
 
@@ -264,7 +272,7 @@ class FCPEExtractor(F0Extractor):
             clear_cuda_graph_cache(self.model.model)
 
 
-def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache) -> F0Extractor:
+def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache, config=None) -> F0Extractor:
     """F0 提取器工厂函数 — 支持缓存。
 
     注意：不要在此处清除 CUDA Graph！本函数每次推理都会被调用，
@@ -282,7 +290,7 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
         cache_key = device
         cached = inference_cache.get_fcpe(cache_key)
         if cached is None:
-            cached = FCPEExtractor(device)
+            cached = FCPEExtractor(device, config=config)
             inference_cache.set_fcpe(cache_key, cached)
         return cached
     else:
