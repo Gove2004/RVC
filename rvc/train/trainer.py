@@ -1,11 +1,15 @@
+"""RVC 训练器 — 封装数据加载、模型训练、检查点保存与导出。
+
+支持进度回调、日志回调、loss 回调，可被 GUI 或命令行调用。
+"""
 import random
-from rvc.core.config import TrainConfig
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from rvc.core.config import TrainConfig
 from rvc.nn import commons
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
 from rvc.synthesizer import SynthesizerTrnMsNSFsid
@@ -52,7 +56,8 @@ class Trainer:
     def cleanup(self):
         """释放 GPU 资源（用于训练停止后回收显存）"""
         for attr in ("synthesizer", "net_d", "optim_g", "optim_d", "scheduler_g", "scheduler_d"):
-            setattr(self, attr, None)
+            if hasattr(self, attr):
+                setattr(self, attr, None)
         torch.cuda.empty_cache()
 
     def checkpoints_dir(self) -> Path:

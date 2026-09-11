@@ -16,8 +16,6 @@ from rvc.audio.sola import apply_sola
 logger = logging.getLogger(__name__)
 
 
-
-
 class RmsMixEffect:
     """RMS 响度包络混合 — 让转换后音量参考原始音量。"""
 
@@ -71,8 +69,6 @@ class SolaEffect:
             self._fade_in, self._fade_out,
             self._block_samples, self._sola_buffer_samples, self._sola_search_samples,
         )
-
-
 
 
 class AudioProcessor:

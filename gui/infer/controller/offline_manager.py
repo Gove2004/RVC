@@ -14,6 +14,8 @@ from gui.infer.viewmodel.param_binding import collect_gui_state, format_error_me
 if TYPE_CHECKING:
     from gui.infer.view.main_window import MainWindow
 
+logger = logging.getLogger(__name__)
+
 
 class OfflineManager:
     """管理离线音频文件转换流程"""
@@ -87,7 +89,6 @@ class OfflineManager:
                 hubert=self.window.hubert_combo.currentText(),
             )
         except Exception as exc:
-            import traceback
             logger.error("离线转换初始化失败:\n%s", traceback.format_exc())
             self.window._show_error(f"离线转换初始化失败: {exc}")
             return
@@ -129,9 +130,6 @@ class OfflineManager:
         # 信号在 run() 内发出，此刻线程可能尚未真正退出，提前析构有竞态。
         # 引用保留到下次 start_conversion 时被新 worker 覆盖，一次只多占一个对象。
         self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
-
-
-logger = logging.getLogger(__name__)
 
 
 class OfflineWorker(QThread):

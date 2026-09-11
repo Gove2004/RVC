@@ -17,7 +17,6 @@ import time
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.effects import AudioProcessor
@@ -141,11 +140,14 @@ class InferenceRunner:
         frames = self.block_samples
         indata = np.zeros((frames, self.channels), dtype=np.float32)
         outdata = np.zeros((frames, self.channels), dtype=np.float32)
-        with torch.no_grad():
-            for _ in range(n):
-                self.process_block(indata, outdata, frames)
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        try:
+            with torch.no_grad():
+                for _ in range(n):
+                    self.process_block(indata, outdata, frames)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+        except Exception as exc:
+            logger.warning("预热失败，不影响运行: %s", exc)
 
     def reset_buffers(self) -> None:
         """重置所有被预热污染的缓冲区（pitch 缓存/效果器/输入缓存）。"""
@@ -249,6 +251,7 @@ class InferenceRunner:
         推理返回长度可能因 formant 重采样 / model2dev 重采样有少量偏差，
         这里统一修正到期望长度（截断或补零），避免下游 SOLA 越界。
         """
+        import torch.nn.functional as F
         if self.function == "vc" and self.pipeline:
             infer = self.pipeline.infer(
                 self.input_wav_res, self.runtime_params,

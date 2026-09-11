@@ -64,6 +64,7 @@ def apply_sola(
     best_score, offset = torch.max(score, dim=0)
     valid_match = (torch.max(energy) >= SOLA_MIN_ENERGY) & (best_score >= SOLA_MIN_CORR)
     offset.masked_fill_(~valid_match, 0)  # 原地清零，避免每回调分配
+    offset = int(offset.item())  # 0-d tensor 转 Python int，切片索引更清晰
 
     infer = infer[offset:]
 

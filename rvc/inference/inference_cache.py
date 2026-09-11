@@ -86,16 +86,20 @@ class InferenceCache:
         但 f0 提取器通过 inference_cache 独立缓存，旧 CUDA Graph 残留可能导致
         快速 stop/start 后 f0 提取异常（声音沙哑）。
         """
-        from rvc.inference.cuda_graph import clear_cuda_graph_cache
-
-        # RMVPE：CUDA Graph 在 model.mel_extractor 和 model 上
+        # 调用各提取器的抽象基类方法 clear_cuda_graph()，
+        # 不直接访问 model.mel_extractor / model.model 等内部属性
         for extractor in self._rmvpe.values():
-            clear_cuda_graph_cache(extractor.model.mel_extractor)
-            clear_cuda_graph_cache(extractor.model)
-
-        # FCPE：CUDA Graph 在 model.model（神经网络核心）上
+            extractor.clear_cuda_graph()
         for extractor in self._fcpe.values():
-            clear_cuda_graph_cache(extractor.model.model)
+            extractor.clear_cuda_graph()
+
+
+    def clear_synthesizer_cuda_graphs(self) -> None:
+        """清除所有缓存的 synthesizer 的 CUDA Graph（公共方法，避免外部访问私有属性）。"""
+        from rvc.inference.cuda_graph import clear_cuda_graph_cache
+        for syn_bundle in self._synthesizer.values():
+            if hasattr(syn_bundle, 'synthesizer'):
+                clear_cuda_graph_cache(syn_bundle.synthesizer)
 
 
 default_inference_cache = InferenceCache()

@@ -44,10 +44,6 @@ BINDINGS = [
     ("hubert", "hubert_combo", COMBO, "chinese"),
 ]
 
-# 需要按控件步长量化的字段：字段路径 → 量化步长
-QUANTIZE = {}
-
-
 def _get_nested(obj, path: str):
     """按点号路径递归读取嵌套字段。"""
     for part in path.split("."):
@@ -143,9 +139,6 @@ def state_from_dict(data: dict) -> AppConfig:
     for path, _w, kind, default in BINDINGS:
         raw = _get_nested_dict(data, path) if _has_nested(data, path) else default
         val = _parse(kind, raw)
-        step = QUANTIZE.get(path)
-        if step:
-            val = round(val / step) * step
         _set_nested(cfg, path, val)
     # enable_out2 不在 BINDINGS 表（无独立控件），根据是否选择了副输出设备自动推导
     cfg.engine.enable_out2 = bool(cfg.engine.output2_device) and cfg.engine.output2_device != "不使用"
