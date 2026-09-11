@@ -13,7 +13,7 @@ import torch
 
 from rvc.core.config import InferenceConfig
 from rvc.inference.inference_cache import default_inference_cache
-from rvc.inference.feature_processing import apply_instance_norm, clone_protect_source, extract_hubert_features, upsample_features
+from rvc.inference.feature_processing import clone_protect_source, extract_hubert_features, upsample_features
 from rvc.inference.model_session import ModelSessionManager
 from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
 from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
@@ -108,12 +108,8 @@ class InferencePipeline:
         factor = pow(2, formant_factor / 12)
         return_length2_val = int(math.ceil(return_length * factor))
 
-        # 特征提取：HuBERT → 输入语音中性化（实例归一化）→ 辅音保护克隆
+        # 特征提取：HuBERT → 辅音保护克隆
         feats = extract_hubert_features(self.hubert_model, input_wav, self.device, self.is_half)
-        from rvc.core.experimental import experimental_config
-        _norm_strength = experimental_config.input_neutralization_strength / 100.0
-        if _norm_strength > 0:
-            feats = apply_instance_norm(feats, _norm_strength)
         feats0 = clone_protect_source(feats, self.use_f0, config.protect)
 
         # 音高（F0）缓存更新

@@ -126,19 +126,5 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_pitch_map_dst_range, r, 1)
     g.addWidget(win.exp_pitch_map_dst_label, r, 2); r += 1
 
-    # ── 7. 输入语音中性化（实例归一化，去除输入音色泄漏） ──
-    win.exp_input_neutralization_slider = _slrow(
-        win, "exp_input_neutralization_slider", 0.0, 100.0, 5.0,
-        experimental_config.input_neutralization_strength, fmt=".0f",
-    )
-    win.exp_input_neutralization_slider.valueChanged.connect(
-        lambda: setattr(
-            experimental_config, "input_neutralization_strength",
-            _sl_value_as_float(win.exp_input_neutralization_slider),
-        )
-    )
-    g.addWidget(QLabel("输入中性化"), r, 0)
-    g.addWidget(win.exp_input_neutralization_slider, r, 1)
-    g.addWidget(win.exp_input_neutralization_label, r, 2); r += 1
 
     return w

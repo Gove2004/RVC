@@ -5,34 +5,6 @@ import torch.nn.functional as F
 from rvc.inference.cuda_graph import run_cuda_graph
 
 
-def apply_instance_norm(feats: torch.Tensor, strength: float) -> torch.Tensor:
-    """输入语音中性化：对 HuBERT 内容特征做 Instance Normalization。
-
-    沿特征维度（dim=-1）对每个时间步独立归一化，剥离输入说话人的音色信息，
-    只保留纯内容（音素/发音），减少音色泄漏。
-
-    数学公式（每个时间步 t）：
-        mean_t = mean(feats[:, t, :], dim=-1)
-        std_t  = std(feats[:, t, :], dim=-1)
-        normalized[:, t, :] = (feats[:, t, :] - mean_t) / (std_t + eps)
-        output = (1 - strength) * feats + strength * normalized
-
-    Args:
-        feats: HuBERT 输出特征，形状 [batch, time, 768]
-        strength: 归一化强度 0.0~1.0（0=关闭，1=完全归一化）
-
-    Returns:
-        归一化后的特征张量（形状不变）
-    """
-    if strength <= 0.0:
-        return feats
-    mean = feats.mean(dim=-1, keepdim=True)
-    std = feats.std(dim=-1, keepdim=True, unbiased=False)
-    normalized = (feats - mean) / (std + 1e-5)
-    if strength >= 1.0:
-        return normalized
-    return feats.lerp(normalized, strength)
-
 
 def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:
     """提取 HuBERT 特征，走 CUDA Graph 加速。

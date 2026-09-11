@@ -22,10 +22,6 @@ class ExperimentalConfig:
         self.pitch_map_src_max = 500.0   # 原声音域上限 (Hz)
         self.pitch_map_dst_min = 200.0   # 目标音域下限 (Hz)
         self.pitch_map_dst_max = 800.0   # 目标音域上限 (Hz)
-        # ── 输入语音中性化（实例归一化，去除输入音色泄漏） ──
-        # 对 HuBERT 内容特征做 Instance Normalization，剥离输入说话人音色信息，
-        # 只保留纯内容（音素/发音），减少音色泄漏。0=关闭，100=完全归一化。
-        self.input_neutralization_strength = 0.0
 
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""
@@ -38,7 +34,6 @@ class ExperimentalConfig:
             "pitch_map_src_max": self.pitch_map_src_max,
             "pitch_map_dst_min": self.pitch_map_dst_min,
             "pitch_map_dst_max": self.pitch_map_dst_max,
-            "input_neutralization_strength": self.input_neutralization_strength,
         }
 
     def from_dict(self, data: dict) -> None:
@@ -59,8 +54,6 @@ class ExperimentalConfig:
             self.pitch_map_dst_min = float(data["pitch_map_dst_min"])
         if "pitch_map_dst_max" in data:
             self.pitch_map_dst_max = float(data["pitch_map_dst_max"])
-        if "input_neutralization_strength" in data:
-            self.input_neutralization_strength = float(data["input_neutralization_strength"])
 
 
 # 全局单例，GUI 和推理代码共用
