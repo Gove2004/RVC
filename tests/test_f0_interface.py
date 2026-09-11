@@ -44,7 +44,7 @@ class TestPostprocessF0(unittest.TestCase):
 
     def test_basic(self):
         f0 = torch.tensor([100.0, 200.0, 0.0])
-        pitch, pitchf = postprocess_f0(f0, device="cpu")
+        pitch, pitchf, _ = postprocess_f0(f0, device="cpu")
         assert pitch.shape == (3,)
         assert pitchf.shape == (3,)
         assert pitch.dtype == torch.long
