@@ -261,42 +261,25 @@ def apply_gui_state(win, state: AppConfig) -> None:
 
 
 def _apply_experimental(win, state: AppConfig) -> None:
-    """将实验参数从 state.inference 写回控件。"""
+    """将实验参数从 state.inference 写回控件。
+
+    不阻塞信号：这些控件的 valueChanged/rangeChanged 只连接到值标签更新，
+    不会导致配置覆盖，让信号正常触发即可自动更新标签。
+    """
     inf = state.inference
-    # 阻塞信号，避免信号处理函数用控件值覆盖配置
-    _widgets = [
-        "exp_f0_threshold_slider",
-                "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
-    ]
-    for w in _widgets:
-        if hasattr(win, w):
-            getattr(win, w).blockSignals(True)
-    try:
-        # 音高算法阈值（根据当前 F0 方法加载对应值，更新标签）
-        if hasattr(win, "exp_f0_threshold_slider"):
-            is_rmvpe = hasattr(win, "f0_rmvp_btn") and win.f0_rmvp_btn.isChecked()
-            val = inf.rmvpe_threshold if is_rmvpe else inf.fcpe_confidence_threshold
-            win.exp_f0_threshold_slider.setValue(val)
-            if hasattr(win, "exp_f0_threshold_name"):
-                win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
-        # 原声音域
-        if hasattr(win, "exp_pitch_map_src_range"):
-            win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)
-            if hasattr(win, "exp_pitch_map_src_label"):
-                win.exp_pitch_map_src_label.setText(
-                    f"{inf.pitch_map_src_min:.0f}-{inf.pitch_map_src_max:.0f}Hz"
-                )
-        # 目标音域
-        if hasattr(win, "exp_pitch_map_dst_range"):
-            win.exp_pitch_map_dst_range.setRange(inf.pitch_map_dst_min, inf.pitch_map_dst_max)
-            if hasattr(win, "exp_pitch_map_dst_label"):
-                win.exp_pitch_map_dst_label.setText(
-                    f"{inf.pitch_map_dst_min:.0f}-{inf.pitch_map_dst_max:.0f}Hz"
-                )
-    finally:
-        for w in _widgets:
-            if hasattr(win, w):
-                getattr(win, w).blockSignals(False)
+    # 音高算法阈值（根据当前 F0 方法加载对应值，valueChanged 自动更新标签）
+    if hasattr(win, "exp_f0_threshold_slider"):
+        is_rmvpe = hasattr(win, "f0_rmvp_btn") and win.f0_rmvp_btn.isChecked()
+        val = inf.rmvpe_threshold if is_rmvpe else inf.fcpe_confidence_threshold
+        win.exp_f0_threshold_slider.setValue(val)
+        if hasattr(win, "exp_f0_threshold_name"):
+            win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+    # 原声音域（rangeChanged 自动更新标签）
+    if hasattr(win, "exp_pitch_map_src_range"):
+        win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)
+    # 目标音域（rangeChanged 自动更新标签）
+    if hasattr(win, "exp_pitch_map_dst_range"):
+        win.exp_pitch_map_dst_range.setRange(inf.pitch_map_dst_min, inf.pitch_map_dst_max)
 
 
 def runtime_from_state(state: AppConfig) -> InferenceConfig:
