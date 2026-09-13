@@ -1,7 +1,8 @@
 """推理运行器 — 封装实时推理的缓冲区管理、推理调用、效果器链。
 
 架构重构后：
-- 持有 EngineState（与 InferencePipeline 共享，跨块持续状态）
+- 所有跨块持续状态统一放在 EngineState（与 InferencePipeline 共享）
+- InferenceRunner 只持有 pipeline/runtime_params 引用，不重复持有状态字段
 - 每块复用 InferenceContext（单块临时状态）
 - process_block 按阶段执行：阶段1-2（输入+预处理）→ 阶段3-6（pipeline.infer）→ 阶段7-8（输出处理+输出）
 
@@ -26,7 +27,6 @@ import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
-from rvc.audio.effects import AudioProcessor
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.inference.synthesis import apply_formant_resample
 
@@ -36,63 +36,25 @@ logger = logging.getLogger(__name__)
 class InferenceRunner:
     """推理运行器 — 管理实时推理的缓冲区与处理流程。
 
-    持有 EngineState（与 InferencePipeline 共享），每块复用 InferenceContext。
+    所有跨块持续状态放在 EngineState（与 pipeline 共享），本类不重复持有。
     process_block 按 8 阶段闭环执行。
     """
 
     def __init__(self, pipeline, runtime_params, device: str, function: str = "vc"):
         self.pipeline = pipeline
         self.runtime_params = runtime_params
-        self._device = device
-        self.function = function
 
         # 共享 EngineState（pipeline 创建并持有）
         self.state = pipeline.state
+        self.state.device = device
         self.state.function = function
 
         # 单块上下文（复用实例，每块 reset()）
         self.ctx = pipeline.ctx
 
-        # 处理状态（init_processing 后填充）
-        self.sr = None
-        self.sr_model = None
-        self.hz_centis = None
-        self.channels = 1
-        self.block_samples = 0
-        self.block_samples_16k = 0
-        self.crossfade_samples = 0
-        self.sola_buffer_samples = 0
-        self.sola_search_samples = 0
-        self.extra_samples = 0
-        self.skip_head = 0
-        self.return_length = 0
-
-        # 缓冲区（也存在 state 中，这里保留引用方便访问）
-        self.input_wav = None
-        self.input_wav_res = None
-        self.input_wav_work = None
-        self.input_wav_res_work = None
-        self._in_pin = None
-
-        # 重采样器
-        self.resampler = None
-        self.resampler_model2dev = None
-
-        # 效果器
-        self.processor = AudioProcessor()
-
-        # 性能统计
-        self.infer_ms = 0.0
-
-        # 错误状态（音频回调中使用）
-        self.error_count = 0
-        self.max_error_count = 3
-        self.last_error = ""
-        self.runtime_error_pending = False
-
     def init_processing(self, sr: int, block_t: float, cf_t: float, extra_t: float,
                         channels: int, sr_model: int) -> None:
-        """初始化所有缓冲区和计算参数。
+        """初始化所有缓冲区和计算参数，直接写入 EngineState。
 
         Args:
             sr: 工作采样率
@@ -102,82 +64,65 @@ class InferenceRunner:
             channels: 通道数
             sr_model: 模型目标采样率
         """
-        self.sr = sr
-        self.sr_model = sr_model
-        self.channels = channels
+        state = self.state
+        state.target_sr = sr
+        state.sr_model = sr_model
+        state.channels = channels
         zc = sr // 100
-        self.hz_centis = zc
+        state.hz_centis = zc
 
         # 计算参数（对齐到 10ms 边界）
-        self.block_samples = int(np.round(block_t * sr / zc)) * zc
-        self.crossfade_samples = int(np.round(cf_t * sr / zc)) * zc
-        self.sola_buffer_samples = min(self.crossfade_samples, 4 * zc)
-        self.sola_search_samples = zc
-        self.extra_samples = int(np.round(extra_t * sr / zc)) * zc
+        state.block_samples = int(np.round(block_t * sr / zc)) * zc
+        state.crossfade_samples = int(np.round(cf_t * sr / zc)) * zc
+        state.sola_buffer_samples = min(state.crossfade_samples, 4 * zc)
+        state.sola_search_samples = zc
+        state.extra_samples = int(np.round(extra_t * sr / zc)) * zc
 
-        self.block_samples_16k = HUBERT_FRAME_SIZE * self.block_samples // zc
-        self.skip_head = self.extra_samples // zc
-        self.return_length = (self.block_samples + self.sola_buffer_samples + self.sola_search_samples) // zc
-
-        # 同步到 EngineState
-        self.state.target_sr = sr
-        self.state.block_samples = self.block_samples
-        self.state.crossfade_samples = self.crossfade_samples
-        self.state.sola_buffer_samples = self.sola_buffer_samples
-        self.state.sola_search_samples = self.sola_search_samples
-        self.state.extra_samples = self.extra_samples
-        self.state.skip_head = self.skip_head
-        self.state.return_length = self.return_length
-        self.state.hz_centis = self.hz_centis
-        self.state.channels = channels
-        self.state.block_samples_16k = self.block_samples_16k
+        state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
+        state.skip_head = state.extra_samples // zc
+        state.return_length = (state.block_samples + state.sola_buffer_samples + state.sola_search_samples) // zc
 
         # 48k 滚动缓冲区
-        n = self.extra_samples + self.crossfade_samples + self.sola_search_samples + self.block_samples
-        self.input_wav = torch.zeros(n, device=self._device)
-        self.input_wav_work = torch.empty_like(self.input_wav)
-        self.state.input_wav_48k = self.input_wav
+        n = state.extra_samples + state.crossfade_samples + state.sola_search_samples + state.block_samples
+        state.input_wav_48k = torch.zeros(n, device=state.device)
+        state.input_wav_48k_work = torch.empty_like(state.input_wav_48k)
 
         # 16k 滚动缓冲区（HuBERT / F0 用）
-        self.input_wav_res = torch.zeros(HUBERT_FRAME_SIZE * n // zc, device=self._device)
-        self.input_wav_res_work = torch.empty_like(self.input_wav_res)
-        self.state.input_wav_16k = self.input_wav_res
+        state.input_wav_16k = torch.zeros(HUBERT_FRAME_SIZE * n // zc, device=state.device)
+        state.input_wav_16k_work = torch.empty_like(state.input_wav_16k)
 
         # pinned memory 用于快速 CPU→GPU 传输
-        self._in_pin = torch.empty(self.block_samples, dtype=torch.float32, pin_memory=True)
+        state.in_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
 
         # 重采样器（48k → 16k）
-        self.resampler = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(self._device)
-        self.state.resampler_48k_to_16k = self.resampler
+        state.resampler_48k_to_16k = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(state.device)
 
         # 重采样器（模型采样率 → 48k）
         if sr_model != sr:
-            self.resampler_model2dev = TatResample(sr_model, sr, dtype=torch.float32).to(self._device)
-            self.state.resampler_model_to_48k = self.resampler_model2dev
+            state.resampler_model_to_48k = TatResample(sr_model, sr, dtype=torch.float32).to(state.device)
         else:
-            self.resampler_model2dev = None
-            self.state.resampler_model_to_48k = None
+            state.resampler_model_to_48k = None
 
         # 效果器（RMS + SOLA）
-        self.processor.setup(
-            sr, self.block_samples, self.crossfade_samples,
-            self.sola_search_samples, self._device,
+        state.audio_processor.setup(
+            sr, state.block_samples, state.crossfade_samples,
+            state.sola_search_samples, state.device,
         )
-        self.state.audio_processor = self.processor
 
         # SOLA 输出缓冲区
-        self.state.sola_buffer = torch.zeros(self.sola_buffer_samples, device=self._device, dtype=torch.float32)
+        state.sola_buffer = torch.zeros(state.sola_buffer_samples, device=state.device, dtype=torch.float32)
 
     def warmup(self, n: int = 2) -> None:
         """预热推理引擎（用静音数据跑 n 次，捕获 CUDA Graph）。
 
         失败只警告不影响运行。
         """
-        if self.pipeline is None or self.input_wav_res is None:
+        state = self.state
+        if self.pipeline is None or state.input_wav_16k is None:
             return
-        frames = self.block_samples
-        indata = np.zeros((frames, self.channels), dtype=np.float32)
-        outdata = np.zeros((frames, self.channels), dtype=np.float32)
+        frames = state.block_samples
+        indata = np.zeros((frames, state.channels), dtype=np.float32)
+        outdata = np.zeros((frames, state.channels), dtype=np.float32)
         try:
             with torch.no_grad():
                 for _ in range(n):
@@ -189,29 +134,23 @@ class InferenceRunner:
 
     def reset_buffers(self) -> None:
         """重置所有缓冲区（warmup 后调用，避免静音数据污染）。"""
+        state = self.state
         if self.pipeline is not None:
             self.pipeline.reset_pitch_cache()
-        self.processor.reset()
-        if self.input_wav is not None:
-            self.input_wav.zero_()
-        if self.input_wav_res is not None:
-            self.input_wav_res.zero_()
+        state.audio_processor.reset()
+        if state.input_wav_48k is not None:
+            state.input_wav_48k.zero_()
+        if state.input_wav_16k is not None:
+            state.input_wav_16k.zero_()
 
     def reset_error_state(self) -> None:
-        self.error_count = 0
-        self.last_error = ""
-        self.runtime_error_pending = False
+        self.state.reset_error_state()
 
     def reset_success_count(self) -> None:
-        self.error_count = 0
+        self.state.error_count = 0
 
     def handle_error(self, error: Exception) -> bool:
-        self.error_count += 1
-        self.last_error = str(error)
-        if self.error_count >= self.max_error_count and not self.runtime_error_pending:
-            self.runtime_error_pending = True
-            return True
-        return False
+        return self.state.handle_error(error)
 
     # ── 主处理入口 ──
 
@@ -223,9 +162,10 @@ class InferenceRunner:
             outdata: 输出音频缓冲区（numpy array，shape=(frames, channels)）
             frames: 帧数
         """
+        state = self.state
+        ctx = self.ctx
         t0 = time.perf_counter()
-        params = self.runtime_params
-        p_rms_mix = params.rms_mix
+        p_rms_mix = self.runtime_params.rms_mix
 
         with torch.no_grad():
             # 阶段1：硬件输入（单声道化）
@@ -242,15 +182,15 @@ class InferenceRunner:
             ctx.formanted_audio = infer
 
             # 阶段7b+7c：RMS 匹配 + SOLA 拼接
-            ref = self.input_wav[self.extra_samples:]
-            chunk = self.processor.process_output(infer, ref, p_rms_mix, self.function == "vc")
+            ref = state.input_wav_48k[state.extra_samples:]
+            chunk = state.audio_processor.process_output(infer, ref, p_rms_mix, state.function == "vc")
             ctx.final_output = chunk
 
             # 阶段8：硬件输出（写入 outdata）
-            write_main_output(chunk, outdata, self.channels)
+            write_main_output(chunk, outdata, state.channels)
             ctx.output_np = outdata
 
-        self.infer_ms = (time.perf_counter() - t0) * 1000
+        state.infer_ms = (time.perf_counter() - t0) * 1000
 
     def route_secondary_output(self, outdata: np.ndarray, stream2, out2_q: queue.Queue,
                                 enable_out2: bool) -> None:
@@ -264,11 +204,12 @@ class InferenceRunner:
 
         使用 pinned memory 加速传输。
         """
+        state = self.state
         mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
         mono = np.ascontiguousarray(mono)
         n = mono.shape[0]
-        self._in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
-        return self._in_pin[:n].to(self._device, non_blocking=True)
+        state.in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
+        return state.in_pin[:n].to(state.device, non_blocking=True)
 
     # ── 阶段2：输入预处理 ──
 
@@ -277,26 +218,24 @@ class InferenceRunner:
 
         使用双缓冲交换避免额外拷贝。16k 重采样只处理新块（带额外上下文抵消重采样延迟）。
         """
+        state = self.state
+
         # 48k 缓冲区左移（双缓冲交换）
-        self.input_wav_work[:-self.block_samples].copy_(self.input_wav[self.block_samples:])
-        self.input_wav_work[-self.block_samples:].zero_()
-        self.input_wav, self.input_wav_work = self.input_wav_work, self.input_wav
-        self.input_wav[-mono.shape[0]:] = mono
+        state.input_wav_48k_work[:-state.block_samples].copy_(state.input_wav_48k[state.block_samples:])
+        state.input_wav_48k_work[-state.block_samples:].zero_()
+        state.input_wav_48k, state.input_wav_48k_work = state.input_wav_48k_work, state.input_wav_48k
+        state.input_wav_48k[-mono.shape[0]:] = mono
 
         # 16k 缓冲区左移（双缓冲交换）
-        self.input_wav_res_work[:-self.block_samples_16k].copy_(self.input_wav_res[self.block_samples_16k:])
-        self.input_wav_res_work[-self.block_samples_16k:].zero_()
-        self.input_wav_res, self.input_wav_res_work = self.input_wav_res_work, self.input_wav_res
+        state.input_wav_16k_work[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
+        state.input_wav_16k_work[-state.block_samples_16k:].zero_()
+        state.input_wav_16k, state.input_wav_16k_work = state.input_wav_16k_work, state.input_wav_16k
 
         # 只重采样新块（带额外 2*hz_centis 上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
-        resampler_in = self.input_wav[-mono.shape[0] - 2 * self.hz_centis:]
-        resampler_out = self.resampler(resampler_in)[HUBERT_FRAME_SIZE:]
-        target_len = HUBERT_FRAME_SIZE * (mono.shape[0] // self.hz_centis + 1)
-        self.input_wav_res[-target_len:] = resampler_out
-
-        # 同步到 EngineState
-        self.state.input_wav_48k = self.input_wav
-        self.state.input_wav_16k = self.input_wav_res
+        resampler_in = state.input_wav_48k[-mono.shape[0] - 2 * state.hz_centis:]
+        resampler_out = state.resampler_48k_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
+        target_len = HUBERT_FRAME_SIZE * (mono.shape[0] // state.hz_centis + 1)
+        state.input_wav_16k[-target_len:] = resampler_out
 
     # ── 阶段3-6：推理（委托给 pipeline） ──
 
@@ -305,20 +244,21 @@ class InferenceRunner:
 
         委托给 InferencePipeline.infer，然后做模型→设备重采样和长度对齐。
         """
-        if self.function == "vc" and self.pipeline:
+        state = self.state
+        if state.function == "vc" and self.pipeline:
             infer = self.pipeline.infer(
-                self.input_wav_res, self.runtime_params,
-                self.block_samples_16k, self.skip_head, self.return_length,
+                state.input_wav_16k, self.runtime_params,
+                state.block_samples_16k, state.skip_head, state.return_length,
             )
             # 模型采样率 → 工作采样率 重采样（如果需要）
-            if self.resampler_model2dev:
-                infer = self.resampler_model2dev(infer)
+            if state.resampler_model_to_48k:
+                infer = state.resampler_model_to_48k(infer)
         else:
             # 直通模式（非 vc）：直接用原始输入
-            infer = self.input_wav[self.extra_samples:].clone()
+            infer = state.input_wav_48k[state.extra_samples:].clone()
 
         # 长度对齐
-        expected = self.block_samples + self.sola_buffer_samples + self.sola_search_samples
+        expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
         if infer.shape[0] > expected:
             infer = infer[:expected]
         elif infer.shape[0] < expected:
@@ -340,17 +280,18 @@ class InferenceRunner:
         Returns:
             formant 处理后的音频
         """
+        state = self.state
         formant = self.runtime_params.formant
         if formant == 0:
             return infer
 
         factor = pow(2, formant / 12)
-        target_sr = self.state.target_sr
+        target_sr = state.target_sr
         upp_res = int(math.floor(factor * target_sr // 100))
         if upp_res == target_sr // 100:
             return infer
 
         return apply_formant_resample(
-            infer[:, : self.state.return_length * upp_res],
-            factor, target_sr, self.state.resample_kernel, self.state.device,
+            infer[:, : state.return_length * upp_res],
+            factor, target_sr, state.resample_kernel, state.device,
         ).squeeze()

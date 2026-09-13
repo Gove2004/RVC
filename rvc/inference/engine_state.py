@@ -26,7 +26,8 @@ class EngineState:
     # ── 模型引用（load 后填充）──
     hubert_model = None
     synthesizer = None
-    target_sr: int | None = None  # 模型目标采样率（load 后填充）
+    target_sr: int | None = None  # 工作采样率（init_processing 后填充）
+    sr_model: int | None = None  # 模型目标采样率（init_processing 后填充）
     use_f0: int = 1
     device: str = "cuda"
     is_half: bool = True
@@ -53,6 +54,9 @@ class EngineState:
     block_samples_16k: int = 0
     resampler_48k_to_16k = None
     resampler_model_to_48k = None
+
+    # ── 输入传输（pinned memory，CPU→GPU 快速传输）──
+    in_pin: torch.Tensor | None = None
 
     # ── F0 滚动缓存（pitch_tracker）──
     pitch_cache: torch.Tensor | None = None
