@@ -1,11 +1,13 @@
-"""实时语音转换管线 — 阶段3-6（HuBERT → F0 → 合成预处理 → 合成）。
+"""实时语音转换管线 — 阶段2-4（特征提取 → 后处理 → 合成）。
 
 架构重构后：
 - 持有 EngineState（跨块持续状态：模型引用、F0缓存、合成器缓存等）
 - 每块复用 InferenceContext（单块临时状态）
-- infer() 按阶段执行，清辅音保护用简化版（F0阈值判断 + 原始特征混合）
+- 按5阶段拆分：extract_features（阶段2）→ postprocess_features（阶段3）→ synthesize_audio（阶段4）
+- infer() 保留为兼容方法，内部按5阶段调用子方法
+- formant 因子在 extract_features 中计算并存到 ctx.formant_factor，输出侧复用避免重复计算
 
-对外接口保持不变：__init__(device_config, pth_path, inference_cache, hubert) / load() / infer()
+对外接口：__init__ / load() / extract_features() / postprocess_features() / synthesize_audio() / infer()（兼容）
 """
 import logging
 import math
@@ -34,12 +36,14 @@ logger = logging.getLogger(__name__)
 
 
 class InferencePipeline:
-    """实时语音转换管线 — 阶段3-6。
+    """实时语音转换管线 — 阶段2-4（特征提取 → 后处理 → 合成）。
 
     用法:
         pipeline = InferencePipeline(device_config, pth_path, hubert="chinese")
         pipeline.load()
-        output = pipeline.infer(input_wav, inference_config, block_16k, skip_head, ret_len)
+        feats = pipeline.extract_features(input_wav, config, block_16k, skip_head, ret_len)
+        pitch, pitchf, feats = pipeline.postprocess_features(feats)
+        output = pipeline.synthesize_audio(feats, pitch, pitchf)
     """
 
     def __init__(self, device_config, pth_path, inference_cache=None, hubert: str = "chinese"):
@@ -110,28 +114,33 @@ class InferencePipeline:
         """重置音高缓存（切换模型/文件时调用，避免跨上下文污染）。"""
         self.state.reset_pitch_cache()
 
-    # ── 主推理入口 ──
+    # ── 阶段2：特征提取（HuBERT + F0原始提取，CUDA Stream 并行） ──
 
-    @torch.no_grad()
-    def infer(self, input_wav: torch.Tensor, config: InferenceConfig,
-              block_frame_16k: int, skip_head: int, return_length: int) -> torch.Tensor:
-        """实时推理一个音频块（阶段3-6）。
+    def extract_features(self, input_wav: torch.Tensor, config: InferenceConfig,
+                         block_frame_16k: int, skip_head: int, return_length: int) -> torch.Tensor:
+        """阶段2：特征提取 — formant因子 + HuBERT + F0原始提取（并行）。
+
+        注意：ctx.reset() 由 inference_runner 在调用本方法前执行（runner 管理 ctx 生命周期），
+        本方法不再 reset ctx，只填充本阶段字段。
+
+        formant 因子计算后存到 ctx.formant_factor，供输出侧 formant 重采样复用，
+        避免 inference_runner 重复计算 pow(2, formant/12)。
 
         Args:
             input_wav: 滚动缓冲区 (16kHz, GPU)
-            config: 推理参数（音高/音色/formant/pitch_map 等）
+            config: 推理参数
             block_frame_16k: 本块新增的 16kHz 采样数
             skip_head: 跳过的 10ms 帧数（上下文）
             return_length: 需要返回的 10ms 帧数
 
         Returns:
-            合成音频 (target_sr 采样率)
+            HuBERT 特征 (1, T, 768)，50fps
         """
         state = self.state
         ctx = self.ctx
 
-        # 重置单块上下文
-        ctx.reset(config, block_frame_16k, 0)
+        # ctx 已由 inference_runner 在调用前重置（ctx.reset）
+        # 这里只设置本块特有的 p_len
         ctx.p_len = input_wav.shape[0] // HUBERT_FRAME_SIZE
 
         # 把参数存到 state（runner 层也可能设置，这里确保一致）
@@ -139,15 +148,19 @@ class InferencePipeline:
         state.skip_head = skip_head
         state.return_length = return_length
 
-        # formant 因子计算
+        # formant 因子计算（存到 ctx，输出侧复用，避免重复计算）
         formant_factor = config.formant
         factor = pow(2, formant_factor / 12)
+        ctx.formant_factor = factor
         state.return_length2 = int(math.ceil(return_length * factor))
 
         # 阶段3+4 并行：HuBERT 特征提取和 F0 原始提取互不依赖，用 CUDA Stream 并行
         if _is_cuda(state.device):
             s_hubert = torch.cuda.Stream()
             s_f0 = torch.cuda.Stream()
+            current = torch.cuda.current_stream()
+            s_hubert.wait_stream(current)
+            s_f0.wait_stream(current)
             with torch.cuda.stream(s_hubert):
                 feats = self._stage_extract_hubert(ctx)
             with torch.cuda.stream(s_f0):
@@ -158,13 +171,33 @@ class InferencePipeline:
             feats = self._stage_extract_hubert(ctx)
             self._stage_extract_f0_raw(ctx)
 
+        return feats
+
+    # ── 阶段3：后处理（F0后处理 + 特征上采样，CUDA Stream 并行） ──
+
+    def postprocess_features(self, feats: torch.Tensor):
+        """阶段3：后处理 — F0后处理 + 特征上采样（并行）。
+
+        阶段5a: F0 后处理（音域映射 + 中值滤波 + 离散化）
+                供输出侧清辅音保护用
+        阶段5b: 特征上采样（50fps → 100fps）
+
+        Args:
+            feats: HuBERT 特征 (1, T, 768)，50fps
+
+        Returns:
+            (pitch, pitchf, feats_up): 离散F0、连续F0、上采样后的特征
+        """
+        state = self.state
+        ctx = self.ctx
+
         # 阶段5a+5b 并行：F0 后处理和特征上采样互不依赖，用 CUDA Stream 并行
-        # 阶段5a: F0 后处理（音域映射 + 中值滤波 + 离散化），结果存 ctx.pitchf_block 供输出侧清辅音保护用
-        # 阶段5b: 特征上采样（50fps → 100fps）
-        # 清辅音保护已移到输出侧（effects.py AudioProcessor），特征侧只做上采样
         if _is_cuda(state.device):
             s_post = torch.cuda.Stream()
             s_up = torch.cuda.Stream()
+            current = torch.cuda.current_stream()
+            s_post.wait_stream(current)
+            s_up.wait_stream(current)
             with torch.cuda.stream(s_post):
                 pitch, pitchf = self._stage_5a_postprocess_f0(ctx)
             with torch.cuda.stream(s_up):
@@ -177,13 +210,29 @@ class InferencePipeline:
             feats = self._stage_5b_upsample_features(ctx, feats)
         ctx.features_upsampled = feats
 
-        # 阶段6：合成（formant 后处理移到引擎层阶段7a）
-        return self._stage_synthesize(ctx, feats, pitch, pitchf)
+        return pitch, pitchf, feats
 
-    # ── 阶段3：HuBERT 特征提取 ──
+    # ── 阶段4：合成 ──
+
+    def synthesize_audio(self, feats: torch.Tensor, pitch, pitchf) -> torch.Tensor:
+        """阶段4：合成器推理。
+
+        formant 重采样已移到引擎层阶段4，这里只返回合成器原始输出。
+
+        Args:
+            feats: 上采样后的特征 (1, p_len, C)，100fps
+            pitch: 离散 F0 (1, p_len)，use_f0=0 时为 None
+            pitchf: 连续 F0 (1, p_len)，use_f0=0 时为 None
+
+        Returns:
+            合成音频张量（target_sr 采样率，未做 formant 后处理）
+        """
+        return self._stage_synthesize(self.ctx, feats, pitch, pitchf)
+
+    # ── 内部阶段方法 ──
 
     def _stage_extract_hubert(self, ctx: InferenceContext) -> torch.Tensor:
-        """阶段3：从 16k 滚动缓冲区提取 HuBERT 特征（50fps）。"""
+        """从 16k 滚动缓冲区提取 HuBERT 特征（50fps）。"""
         feats = extract_hubert_features(
             self.state.hubert_model,
             self.state.input_wav_16k,
@@ -193,14 +242,12 @@ class InferencePipeline:
         ctx.hubert_features = feats
         return feats
 
-    # ── 阶段4：F0 原始提取 ──
-
     def _stage_extract_f0_raw(self, ctx: InferenceContext) -> None:
-        """阶段4：F0 原始提取 + 缓存更新。
+        """F0 原始提取 + 缓存更新。
 
         只调用 extract_raw 获取原始 (f0, confidence)，写入缓存。
-        不做后处理（音域映射/中值滤波/离散化），后处理在阶段5完成。
-        结构上与阶段3（HuBERT）独立，预留 CUDA Stream 并行接口。
+        不做后处理（音域映射/中值滤波/离散化），后处理在阶段3完成。
+        结构上与 HuBERT 独立，用 CUDA Stream 并行。
 
         use_f0=0 时直接返回，不做任何操作。
         """
@@ -234,10 +281,8 @@ class InferencePipeline:
         ctx.f0_raw = f0_raw
         ctx.confidence_raw = confidence_raw
 
-    # ── 阶段5：F0 后处理（音域映射 + 中值滤波 + 离散化）──
-
     def _stage_5a_postprocess_f0(self, ctx: InferenceContext):
-        """阶段5：F0 后处理（音域映射 + 中值滤波 + 离散化）。
+        """F0 后处理（音域映射 + 中值滤波 + 离散化）。
 
         从 ctx 读取阶段4提取的原始 F0，调用 postprocess_f0 做后处理。
         后处理后的离散 F0 写入 cache_pitch 的最后 p_len 帧。
@@ -272,19 +317,14 @@ class InferencePipeline:
         ctx.f0_mapped = pitchf
         ctx.pitch_discrete = pitch[None, :]
         ctx.pitchf_continuous = pitchf[None, :]
-        # 存到 ctx 供输出侧清辅音保护用（100fps，连续 F0）
-        ctx.pitchf_block = pitchf.clone()
         return pitch[None, :], pitchf[None, :]
 
-
     def _stage_5b_upsample_features(self, ctx: InferenceContext, feats: torch.Tensor) -> torch.Tensor:
-        """阶段5b：特征上采样（50fps → 100fps，截取 p_len 帧）。
+        """特征上采样（50fps → 100fps，截取 p_len 帧）。
 
         清辅音保护已移到输出侧，这里只做纯上采样。
         """
         return upsample_features(feats, ctx.p_len, self.state.is_half)
-
-    # ── 阶段6：合成 ──
 
     def _stage_synthesize(
         self,
@@ -293,9 +333,9 @@ class InferencePipeline:
         pitch,
         pitchf,
     ) -> torch.Tensor:
-        """阶段6：合成器推理。
+        """合成器推理。
 
-        formant 重采样已移到引擎层阶段7a，这里只返回合成器原始输出。
+        formant 重采样已移到引擎层阶段4，这里只返回合成器原始输出。
 
         Args:
             feats: 上采样后的特征 (1, p_len, C)，100fps

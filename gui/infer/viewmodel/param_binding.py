@@ -243,12 +243,6 @@ def _collect_experimental(win, cfg: AppConfig) -> None:
             inf.rmvpe_threshold = val
         else:
             inf.fcpe_confidence_threshold = val
-    # 辅音保护
-    if hasattr(win, "exp_protect_slider"):
-        inf.protect = float(win.exp_protect_slider.value())
-    # 辅音保护阈值
-    if hasattr(win, "exp_protect_threshold_slider"):
-        inf.protect_threshold_hz = float(win.exp_protect_threshold_slider.value())
     # 原声音域 / 目标音域（RangeSlider 双滑块）
     if hasattr(win, "exp_pitch_map_src_range"):
         inf.pitch_map_src_min = win.exp_pitch_map_src_range.low()
@@ -272,8 +266,7 @@ def _apply_experimental(win, state: AppConfig) -> None:
     # 阻塞信号，避免信号处理函数用控件值覆盖配置
     _widgets = [
         "exp_f0_threshold_slider",
-        "exp_protect_slider", "exp_protect_threshold_slider",
-        "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
+                "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
     ]
     for w in _widgets:
         if hasattr(win, w):
@@ -286,12 +279,6 @@ def _apply_experimental(win, state: AppConfig) -> None:
             win.exp_f0_threshold_slider.setValue(val)
             if hasattr(win, "exp_f0_threshold_name"):
                 win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
-        # 辅音保护
-        if hasattr(win, "exp_protect_slider"):
-            win.exp_protect_slider.setValue(inf.protect)
-        # 辅音保护阈值
-        if hasattr(win, "exp_protect_threshold_slider"):
-            win.exp_protect_threshold_slider.setValue(inf.protect_threshold_hz)
         # 原声音域
         if hasattr(win, "exp_pitch_map_src_range"):
             win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)

@@ -1,9 +1,8 @@
-"""特征处理深度测试 — upsample_features + 清辅音保护。
+"""特征处理深度测试 — upsample_features。
 
 覆盖：
 - upsample_features: 各种输入形状/p_len/is_half
-- 清辅音保护: F0=0 帧混合原始特征，protect=0.5 关闭
-- 注意：extract_hubert_features 需要真实模型，只测试不调用真实模型的部分
+- - 注意：extract_hubert_features 需要真实模型，只测试不调用真实模型的部分
 """
 import unittest
 

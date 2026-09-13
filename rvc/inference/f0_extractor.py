@@ -3,7 +3,6 @@
 后处理流程（简化后）：
   原始 F0 → 音域映射（半音尺度）→ 因果中值滤波 → 离散化
 
-清辅音保护已移到输出侧（effects.py AudioProcessor._apply_consonant_protection），特征侧不再做保护。
 """
 import contextlib
 from rvc.core.errors import F0ExtractionError

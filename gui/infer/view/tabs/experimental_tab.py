@@ -53,24 +53,6 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_f0_threshold_slider, r, 1)
     g.addWidget(win.exp_f0_threshold_label, r, 2); r += 1
 
-    # ── 2. 辅音保护 ──
-    win.exp_protect_slider = _slrow(
-        win, "exp_protect_slider", 0.0, 1.0, 0.05,
-        cfg.protect, fmt=".2f",
-    )
-    g.addWidget(QLabel("辅音保护"), r, 0)
-    g.addWidget(win.exp_protect_slider, r, 1)
-    g.addWidget(win.exp_protect_label, r, 2); r += 1
-
-    # ── 2b. 辅音保护阈值（F0 低于此值视为清音）──
-    win.exp_protect_threshold_slider = _slrow(
-        win, "exp_protect_threshold_slider", 0.0, 50.0, 5.0,
-        cfg.protect_threshold_hz, fmt=".0f", unit="Hz",
-    )
-    g.addWidget(QLabel("辅音阈值"), r, 0)
-    g.addWidget(win.exp_protect_threshold_slider, r, 1)
-    g.addWidget(win.exp_protect_threshold_label, r, 2); r += 1
-
     # ── 4. 原声音域 ──
     win.exp_pitch_map_src_range = _range_row(
         win, "exp_pitch_map_src_range",

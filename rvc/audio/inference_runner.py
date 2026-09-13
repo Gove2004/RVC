@@ -1,16 +1,23 @@
 """推理运行器 — 封装实时推理的缓冲区管理、推理调用、效果器链。
 
-架构重构后：
+架构重构后（5阶段）：
 - 所有跨块持续状态统一放在 EngineState（与 InferencePipeline 共享）
 - InferenceRunner 只持有 pipeline/runtime_params 引用，不重复持有状态字段
 - 每块复用 InferenceContext（单块临时状态）
-- process_block 按阶段执行：阶段1-2（输入+预处理）→ 阶段3-6（pipeline.infer）→ 阶段7-8（输出处理+输出）
+- process_block 按 5 阶段执行：
+    阶段1：输入（硬件输入 + 缓冲区滚动 + 48k→16k重采样）
+    阶段2：特征提取（pipeline.extract_features：HuBERT + F0原始提取，CUDA Stream 并行）
+    阶段3：后处理（pipeline.postprocess_features：F0后处理 + 特征上采样，CUDA Stream 并行）
+    阶段4：合成（pipeline.synthesize_audio + 模型→设备重采样 + formant + 长度对齐）
+    阶段5：输出（RMS + SOLA + 硬件输出）
+- formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取避免重复计算
+- 清辅音保护的 pitchf 截取封装在 AudioProcessor 内部，本类只传 pitchf_cache
 
 从 RealtimeEngine 中拆分出的推理调度组件，负责：
 - 处理状态初始化（采样率/块大小/缓存/重采样/效果器）
 - 输入准备（单声道转换、缓存轮换）
-- 推理调用（InferencePipeline.infer + 模型→设备重采样）
-- 输出处理（RMS 混合、SOLA 对齐）
+- 推理调用（InferencePipeline 三阶段 + 模型→设备重采样）
+- 输出处理（RMS 混合、清辅音保护、SOLA 对齐）
 - 预热推理（CUDA Graph 捕获）
 - 缓冲区重置
 
@@ -37,7 +44,7 @@ class InferenceRunner:
     """推理运行器 — 管理实时推理的缓冲区与处理流程。
 
     所有跨块持续状态放在 EngineState（与 pipeline 共享），本类不重复持有。
-    process_block 按 8 阶段闭环执行。
+    process_block 按 5 阶段闭环执行。
     """
 
     def __init__(self, pipeline, runtime_params, device: str, function: str = "vc"):
@@ -152,10 +159,16 @@ class InferenceRunner:
     def handle_error(self, error: Exception) -> bool:
         return self.state.handle_error(error)
 
-    # ── 主处理入口 ──
+    # ── 主处理入口（5阶段闭环） ──
 
     def process_block(self, indata: np.ndarray, outdata: np.ndarray, frames: int) -> None:
-        """处理一块音频，执行完整的 8 阶段闭环，直接写入 outdata。
+        """处理一块音频，执行完整的 5 阶段闭环，直接写入 outdata。
+
+        阶段1：输入（硬件输入 + 缓冲区滚动 + 48k→16k重采样）
+        阶段2：特征提取（HuBERT + F0原始提取，CUDA Stream 并行）
+        阶段3：后处理（F0后处理 + 特征上采样，CUDA Stream 并行）
+        阶段4：合成（合成器推理 + 模型→设备重采样 + formant + 长度对齐）
+        阶段5：输出（RMS + SOLA + 硬件输出）
 
         Args:
             indata: 输入音频（numpy array，shape=(frames, channels)）
@@ -168,44 +181,61 @@ class InferenceRunner:
         p_rms_mix = self.runtime_params.rms_mix
 
         with torch.no_grad():
-            # 阶段1：硬件输入（单声道化 + CPU→GPU 传输）
-            # 方案 C：有预取数据时直接用，跳过 CPU→GPU 传输（离线推理预取和计算并行）
+            # ── 阶段1：输入（硬件输入 + 缓冲区滚动 + 48k→16k重采样） ──
+            # 有预取数据时直接用，跳过 CPU→GPU 传输（离线推理预取和计算并行）
             if state.prefetch_valid and state.prefetch_gpu is not None:
                 mono = state.prefetch_gpu
                 state.prefetch_valid = False
             else:
                 mono = self._stage_input(indata)
-
-            # 阶段2：输入预处理（缓冲区滚动 + 48k→16k 重采样）
             self._stage_preprocess(mono)
 
-            # 阶段3-6：HuBERT → F0 → 合成预处理 → 合成（委托给 pipeline）
-            infer = self._stage_inference()
+            # ── 阶段2：特征提取（HuBERT + F0原始提取，CUDA Stream 并行） ──
+            if state.function == "vc" and self.pipeline:
+                # ctx 生命周期由 runner 管理，每块开始时重置（pipeline 不再负责 reset）
+                ctx.reset(self.runtime_params, state.block_samples_16k, state.block_samples)
+                feats = self.pipeline.extract_features(
+                    state.input_wav_16k, self.runtime_params,
+                    state.block_samples_16k, state.skip_head, state.return_length,
+                )
+            else:
+                feats = None
 
-            # 阶段7a：formant 重采样（含长度对齐，从 pipeline 层移到引擎层）
+            # ── 阶段3：后处理（F0后处理 + 特征上采样，CUDA Stream 并行） ──
+            if feats is not None:
+                pitch, pitchf, feats = self.pipeline.postprocess_features(feats)
+            else:
+                pitch, pitchf = None, None
+
+            # ── 阶段4：合成（合成器推理 + 模型→设备重采样 + formant + 长度对齐） ──
+            if feats is not None:
+                infer = self.pipeline.synthesize_audio(feats, pitch, pitchf)
+                # 模型采样率 → 工作采样率 重采样（如果需要）
+                if state.resampler_model_to_48k:
+                    infer = state.resampler_model_to_48k(infer)
+            else:
+                # 直通模式（非 vc）：直接用原始输入
+                infer = state.input_wav_48k[state.extra_samples:].clone()
+
+            # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
             infer = self._stage_formant(infer)
             ctx.formanted_audio = infer
 
-            # 阶段7b+7c：RMS 匹配 → SOLA 拼接 → 清辅音保护（保护在SOLA之后）
+            # ── 阶段5：输出（RMS + SOLA + 硬件输出） ──
             ref = state.input_wav_48k[state.extra_samples:]
-            # F0 已在 pipeline 阶段5a存入 ctx.pitchf_block，直接用
-            pitchf_block = getattr(ctx, 'pitchf_block', None)
             chunk = state.audio_processor.process_output(
                 infer, ref, p_rms_mix, state.function == "vc",
-                pitchf=pitchf_block,
-                protect=self.runtime_params.protect,
-                protect_threshold_hz=self.runtime_params.protect_threshold_hz,
             )
             ctx.final_output = chunk
 
-            # 阶段8：硬件输出（写入 outdata）
+            # 硬件输出（写入 outdata）
             write_main_output(chunk, outdata, state.channels)
             ctx.output_np = outdata
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 
     def prefetch_input(self, indata: np.ndarray) -> None:
-        """方案 C：预取下一块输入（只做阶段1：单声道化 + CPU→GPU 传输）。
+        """预取下一块输入（只做阶段1：单声道化 + CPU→GPU 传输）。
 
         在离线推理中，当前块做 GPU 计算时，提前把下一块输入拷贝到 GPU，
         下一次 process_block 时直接用预取数据，跳过 CPU→GPU 传输等待。
@@ -232,7 +262,7 @@ class InferenceRunner:
     # ── 阶段1：硬件输入 ──
 
     def _stage_input(self, indata: np.ndarray) -> torch.Tensor:
-        """阶段1：从声卡获取原始音频，单声道化 + CPU→GPU 传输。
+        """从声卡获取原始音频，单声道化 + CPU→GPU 传输。
 
         使用 pinned memory 加速传输。
         """
@@ -243,25 +273,25 @@ class InferenceRunner:
         state.in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
         return state.in_pin[:n].to(state.device, non_blocking=True)
 
-    # ── 阶段2：输入预处理 ──
+    # ── 阶段1：输入预处理（缓冲区滚动 + 48k→16k重采样） ──
 
     def _stage_preprocess(self, mono: torch.Tensor) -> None:
-        """阶段2：缓冲区滚动 + 48k→16k 重采样。
+        """缓冲区滚动 + 48k→16k 重采样。
 
         使用双缓冲交换避免额外拷贝。16k 重采样只处理新块（带额外上下文抵消重采样延迟）。
         """
         state = self.state
+
+        # 16k 缓冲区左移（双缓冲交换）— 与 48k 滚动互不依赖，顺序可交换
+        state.input_wav_16k_work[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
+        state.input_wav_16k_work[-state.block_samples_16k:].zero_()
+        state.input_wav_16k, state.input_wav_16k_work = state.input_wav_16k_work, state.input_wav_16k
 
         # 48k 缓冲区左移（双缓冲交换）
         state.input_wav_48k_work[:-state.block_samples].copy_(state.input_wav_48k[state.block_samples:])
         state.input_wav_48k_work[-state.block_samples:].zero_()
         state.input_wav_48k, state.input_wav_48k_work = state.input_wav_48k_work, state.input_wav_48k
         state.input_wav_48k[-mono.shape[0]:] = mono
-
-        # 16k 缓冲区左移（双缓冲交换）
-        state.input_wav_16k_work[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
-        state.input_wav_16k_work[-state.block_samples_16k:].zero_()
-        state.input_wav_16k, state.input_wav_16k_work = state.input_wav_16k_work, state.input_wav_16k
 
         # 只重采样新块（带额外 2*hz_centis 上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
         resampler_in = state.input_wav_48k[-mono.shape[0] - 2 * state.hz_centis:]
@@ -272,34 +302,13 @@ class InferenceRunner:
         target_len = state.block_samples_16k
         state.input_wav_16k[-target_len:] = resampler_out[-target_len:]
 
-    # ── 阶段3-6：推理（委托给 pipeline） ──
-
-    def _stage_inference(self) -> torch.Tensor:
-        """阶段3-6：HuBERT → F0 → 合成预处理 → 合成。
-
-        委托给 InferencePipeline.infer，然后做模型→设备重采样和长度对齐。
-        """
-        state = self.state
-        if state.function == "vc" and self.pipeline:
-            infer = self.pipeline.infer(
-                state.input_wav_16k, self.runtime_params,
-                state.block_samples_16k, state.skip_head, state.return_length,
-            )
-            # 模型采样率 → 工作采样率 重采样（如果需要）
-            if state.resampler_model_to_48k:
-                infer = state.resampler_model_to_48k(infer)
-        else:
-            # 直通模式（非 vc）：直接用原始输入
-            infer = state.input_wav_48k[state.extra_samples:].clone()
-
-        return infer
-
-    # ── 阶段7a：formant 重采样 ──
+    # ── 阶段4：formant 重采样 + 长度对齐 ──
 
     def _stage_formant(self, infer: torch.Tensor) -> torch.Tensor:
-        """阶段7a：formant 共振峰偏移（重采样实现）+ 长度对齐。
+        """formant 共振峰偏移（重采样实现）+ 长度对齐。
 
-        从 pipeline 层移到引擎层，和 RMS/SOLA 统一在输出处理阶段。
+        formant 因子从 ctx.formant_factor 读取（pipeline.extract_features 中已计算），
+        避免重复计算 pow(2, formant/12)。
         formant=0 时直接做长度对齐返回。
         formant 重采样后统一对齐到 expected 长度（SOLA 期望固定长度）。
 
@@ -310,11 +319,13 @@ class InferenceRunner:
             formant 处理 + 长度对齐后的音频
         """
         state = self.state
+        ctx = self.ctx
         expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
 
+        # formant 因子从 ctx 读取（pipeline.extract_features 中已计算并存入）
         formant = self.runtime_params.formant
         if formant != 0:
-            factor = pow(2, formant / 12)
+            factor = ctx.formant_factor
             target_sr = state.target_sr
             upp_res = int(math.floor(factor * target_sr // 100))
             if upp_res != target_sr // 100:

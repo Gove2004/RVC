@@ -1,6 +1,5 @@
 """HuBERT 特征处理 — 特征提取 + 上采样。
 
-清辅音保护已移到输出侧（effects.py AudioProcessor._apply_consonant_protection），
 在特征侧不再做保护。
 """
 import torch
