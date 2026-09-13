@@ -256,9 +256,9 @@ class InferencePipeline:
         if breathiness <= 0:
             return torch.ones_like(confidence)
 
-        # 映射：confidence=1.0 → base=0.2（干净，噪声减80%），confidence=0.0 → base=6.0（气声，噪声增6倍）
-        base = 6.0 - 5.8 * confidence
-        base = base.clamp(0.2, 6.0)
+        # 映射：confidence=1.0 → base=0.05（几乎无噪声），confidence=0.0 → base=20.0（噪声增20倍，超级夸张）
+        base = 20.0 - 19.95 * confidence
+        base = base.clamp(0.05, 20.0)
 
         # 按 breathiness 强度混合：breathiness=0 → 全1.0，breathiness=1 → 完全启用
         noise_mod = 1.0 + breathiness * (base - 1.0)
