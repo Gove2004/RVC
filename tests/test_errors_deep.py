@@ -295,7 +295,7 @@ class TestConfigError(unittest.TestCase):
         self.assertFalse(issubclass(ConfigError, InferenceError))
 
     def test_with_field_name(self):
-        for field in ["pitch", "formant", "protect", "rms_mix", "block_time"]:
+        for field in ["pitch", "formant", "rms_mix", "block_time"]:
             err = ConfigError(f"{field} 参数越界")
             self.assertIn(field, str(err))
 

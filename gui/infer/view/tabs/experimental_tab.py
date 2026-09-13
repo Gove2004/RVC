@@ -1,4 +1,7 @@
-"""实验功能 Tab — 辅音保护 / 清浊分析 / 音域映射（无分组，直接罗列）"""
+"""实验功能 Tab — F0 阈值 / 音域映射（无分组，直接罗列）。
+
+清辅音保护（过渡区域 / 辅音保护强度）已移除，简化流程。
+"""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
 
@@ -28,7 +31,7 @@ def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
 
 
 def build_experimental_tab(win):
-    cfg = win.runtime_params  # InferenceConfig，含实验参数
+    cfg = win.runtime_params  # InferenceConfig
     w = QWidget()
     g = QGridLayout(w)
     g.setSpacing(6)
@@ -69,30 +72,7 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_fcpe_threshold_slider, r, 1)
     g.addWidget(win.exp_fcpe_threshold_label, r, 2); r += 1
 
-    # ── 3. 过渡区域（双滑块：下限=中心-宽度/2，上限=中心+宽度/2） ──
-    _center = cfg.protect_soft_threshold_hz
-    _width = cfg.protect_soft_width
-    win.exp_protect_transition_range = _range_row(
-        win, "exp_protect_transition_range",
-        0.0, 50.0, 5.0,
-        max(0.0, _center - _width / 2), min(50.0, _center + _width / 2),
-        fmt=".0f", unit="Hz",
-    )
-    def _on_transition_change(low, high):
-        cfg.protect_soft_threshold_hz = (low + high) / 2
-        cfg.protect_soft_width = high - low
-    win.exp_protect_transition_range.rangeChanged.connect(_on_transition_change)
-    g.addWidget(QLabel("过渡区域"), r, 0)
-    g.addWidget(win.exp_protect_transition_range, r, 1)
-    g.addWidget(win.exp_protect_transition_label, r, 2); r += 1
-
-    # ── 4. 辅音保护强度 ──
-    win.protect_slider = _slrow(win, "protect_slider", 0.0, 1.0, 0.05, 0.5)
-    g.addWidget(QLabel("辅音保护强度"), r, 0)
-    g.addWidget(win.protect_slider, r, 1)
-    g.addWidget(win.protect_label, r, 2); r += 1
-
-    # ── 5. 原声音域 ──
+    # ── 3. 原声音域 ──
     win.exp_pitch_map_src_range = _range_row(
         win, "exp_pitch_map_src_range",
         20.0, 1000.0, 10.0,
@@ -109,7 +89,7 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_pitch_map_src_range, r, 1)
     g.addWidget(win.exp_pitch_map_src_label, r, 2); r += 1
 
-    # ── 6. 目标音域 ──
+    # ── 4. 目标音域 ──
     win.exp_pitch_map_dst_range = _range_row(
         win, "exp_pitch_map_dst_range",
         20.0, 1000.0, 10.0,

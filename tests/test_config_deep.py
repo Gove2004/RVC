@@ -26,7 +26,6 @@ class TestInferenceConfig(unittest.TestCase):
     def test_default_values(self):
         cfg = InferenceConfig()
         self.assertAlmostEqual(cfg.formant, 0.0)
-        self.assertAlmostEqual(cfg.protect, 0.5)
         self.assertEqual(cfg.f0_method, "rmvpe")
         self.assertAlmostEqual(cfg.rms_mix, 0.0)
 
@@ -34,7 +33,7 @@ class TestInferenceConfig(unittest.TestCase):
 
     def test_field_count(self):
         # 4 基础 + 4 辅音保护 + 4 音域映射 = 12
-        self.assertEqual(len(fields(InferenceConfig)), 12)
+        self.assertEqual(len(fields(InferenceConfig)), 9)
 
 
 
@@ -50,14 +49,6 @@ class TestInferenceConfig(unittest.TestCase):
         for method in ["rmvpe", "fcpe", "crepe", "pm", "harvest"]:
             cfg = InferenceConfig(f0_method=method)
             self.assertEqual(cfg.f0_method, method)
-
-    def test_protect_zero(self):
-        cfg = InferenceConfig(protect=0.0)
-        self.assertAlmostEqual(cfg.protect, 0.0)
-
-    def test_protect_one(self):
-        cfg = InferenceConfig(protect=1.0)
-        self.assertAlmostEqual(cfg.protect, 1.0)
 
     def test_rms_mix_zero(self):
         cfg = InferenceConfig(rms_mix=0.0)
@@ -182,8 +173,8 @@ class TestOfflineConfig(unittest.TestCase):
         self.assertTrue(issubclass(OfflineConfig, InferenceConfig))
 
     def test_field_count_includes_inherited(self):
-        """OfflineConfig 字段 = InferenceConfig 12 个 + 4 个特有 = 16 个。"""
-        self.assertEqual(len(fields(OfflineConfig)), 16)
+        """OfflineConfig 字段 = InferenceConfig 9 个 + 4 个特有 = 13 个。"""
+        self.assertEqual(len(fields(OfflineConfig)), 13)
 
     def test_asdict_includes_all(self):
         d = asdict(OfflineConfig())

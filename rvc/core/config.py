@@ -1,4 +1,4 @@
-﻿"""统一配置体系 — 训练/推理/GUI 共用一套 dataclass。"""
+"""统一配置体系 — 训练/推理/GUI 共用一套 dataclass。"""
 from dataclasses import dataclass, field
 
 HUBERT_DEFAULT = "chinese"
@@ -6,20 +6,18 @@ HUBERT_DEFAULT = "chinese"
 
 @dataclass
 class InferenceConfig:
-    """推理参数 — 音频效果 + 辅音保护 + 音域映射 + F0 提取阈值。
+    """推理参数 — 音频效果 + 音域映射 + F0 提取阈值。
 
     原 experimental_config 中的核心参数已合并到此，统一管理。
+    清辅音保护（protect / protect_soft_*）已移除，简化流程。
     """
     # ── 基础音频效果 ──
     formant: float = 0.0
-    protect: float = 0.5
     f0_method: str = "rmvpe"
     rms_mix: float = 0.0
-    # ── 辅音保护（渐变式，始终生效） ──
+    # ── F0 提取阈值 ──
     rmvpe_threshold: float = 0.05  # RMVPE 清浊判定阈值
     fcpe_confidence_threshold: float = 0.05  # FCPE 清浊判定阈值
-    protect_soft_threshold_hz: float = 20.0  # 过渡中心（Hz）
-    protect_soft_width: float = 30.0  # 过渡宽度（Hz，sigmoid 的 4σ）
     # ── 音域映射（半音尺度，始终生效） ──
     pitch_map_src_min: float = 100.0   # 原声音域下限 (Hz)
     pitch_map_src_max: float = 500.0   # 原声音域上限 (Hz)
@@ -78,4 +76,3 @@ class TrainConfig:
     log_interval: int = 20
     keep_ckpts: int = 1
     keep_models: int = 0
-

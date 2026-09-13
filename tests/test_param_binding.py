@@ -103,7 +103,6 @@ class TestStateSerialization(unittest.TestCase):
         state = AppConfig()
         d = state_to_dict(state)
         state2 = state_from_dict(d)
-        self.assertEqual(state.inference.protect, state2.inference.protect)
         self.assertEqual(state.inference.f0_method, state2.inference.f0_method)
         self.assertEqual(state.inference.rms_mix, state2.inference.rms_mix)
         self.assertEqual(state.engine.block_time, state2.engine.block_time)
@@ -114,7 +113,6 @@ class TestStateSerialization(unittest.TestCase):
     def test_roundtrip_custom(self):
         """自定义配置应能往返序列化。"""
         state = AppConfig()
-        state.inference.protect = 0.3
         state.inference.f0_method = "fcpe"
         state.inference.rms_mix = 0.2
         state.engine.block_time = 0.5
@@ -123,7 +121,6 @@ class TestStateSerialization(unittest.TestCase):
         state.model_path = "test_model"
         d = state_to_dict(state)
         state2 = state_from_dict(d)
-        self.assertEqual(state2.inference.protect, 0.3)
         self.assertEqual(state2.inference.f0_method, "fcpe")
         self.assertEqual(state2.inference.rms_mix, 0.2)
         self.assertEqual(state2.engine.block_time, 0.5)
@@ -137,7 +134,6 @@ class TestStateSerialization(unittest.TestCase):
         d = state_to_dict(state)
         self.assertIn("inference", d)
         self.assertIn("engine", d)
-        self.assertIn("protect", d["inference"])
         self.assertIn("f0_method", d["inference"])
         self.assertIn("block_time", d["engine"])
         self.assertIn("model_path", d)
@@ -157,16 +153,15 @@ class TestMigrateOldFormat(unittest.TestCase):
 
     def test_new_format_unchanged(self):
         """新格式（嵌套结构）应不变。"""
-        data = {"inference": {"protect": 0.5}, "engine": {"block_time": 0.25}}
+        data = {"inference": {"formant": 1.0}, "engine": {"block_time": 0.25}}
         result = _migrate_old_format(data)
         self.assertEqual(result, data)
 
     def test_old_format_migrated(self):
         """旧格式（≥3 个短键）应迁移到嵌套结构。"""
-        data = {"protect": 0.3, "f0": "fcpe", "rms": 0.2}
+        data = {"bl": 0.5, "f0": "fcpe", "rms": 0.2}
         result = _migrate_old_format(data)
         self.assertIn("inference", result)
-        self.assertEqual(result["inference"]["protect"], 0.3)
         self.assertEqual(result["inference"]["f0_method"], "fcpe")
         self.assertEqual(result["inference"]["rms_mix"], 0.2)
 
@@ -178,9 +173,8 @@ class TestMigrateOldFormat(unittest.TestCase):
 
     def test_old_keys_removed_after_migration(self):
         """迁移后旧短键应被移除。"""
-        data = {"protect": 0.3, "f0": "fcpe", "rms": 0.2}
+        data = {"bl": 0.5, "f0": "fcpe", "rms": 0.2}
         result = _migrate_old_format(data)
-        self.assertNotIn("protect", result)
         self.assertNotIn("f0", result)
         self.assertNotIn("rms", result)
 
@@ -191,11 +185,9 @@ class TestStateConverters(unittest.TestCase):
     def test_runtime_from_state(self):
         """应从 AppConfig 提取 InferenceConfig。"""
         state = AppConfig()
-        state.inference.protect = 0.3
         state.inference.f0_method = "fcpe"
         runtime = runtime_from_state(state)
         self.assertIsInstance(runtime, InferenceConfig)
-        self.assertEqual(runtime.protect, 0.3)
         self.assertEqual(runtime.f0_method, "fcpe")
 
     def test_engine_from_state(self):

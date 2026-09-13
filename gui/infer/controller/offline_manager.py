@@ -83,7 +83,6 @@ class OfflineManager:
                 output_path=self.window.offline_output.text().strip(),
                 model_path=pth,
                 formant=inf.formant,
-                protect=inf.protect,
                 f0_method=inf.f0_method,
                 rms_mix=inf.rms_mix,
                 hubert=self.window.hubert_combo.currentText(),

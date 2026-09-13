@@ -27,7 +27,6 @@ RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
 BINDINGS = [
     # ── 推理参数（inference.*）──
     ("inference.formant", "formant_slider", FLOAT, 0.0),
-    ("inference.protect", "protect_slider", FLOAT, 0.5),
     ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
     ("inference.rms_mix", "rms_mix_slider", FLOAT, 0.0),
     # ── 引擎参数（engine.*）──
@@ -87,7 +86,6 @@ def _set_nested_dict(obj, path: str, value):
 
 # 旧短键格式 → 新嵌套路径的映射（用于一次性迁移）
 _OLD_KEY_MAPPING = {
-    "protect": "inference.protect",
     "f0": "inference.f0_method",
     "rms": "inference.rms_mix",
     "bl": "engine.block_time",
@@ -148,10 +146,6 @@ def state_from_dict(data: dict) -> AppConfig:
         inf.rmvpe_threshold = float(_get_nested_dict(data, "inference.rmvpe_threshold"))
     if _has_nested(data, "inference.fcpe_confidence_threshold"):
         inf.fcpe_confidence_threshold = float(_get_nested_dict(data, "inference.fcpe_confidence_threshold"))
-    if _has_nested(data, "inference.protect_soft_threshold_hz"):
-        inf.protect_soft_threshold_hz = float(_get_nested_dict(data, "inference.protect_soft_threshold_hz"))
-    if _has_nested(data, "inference.protect_soft_width"):
-        inf.protect_soft_width = float(_get_nested_dict(data, "inference.protect_soft_width"))
     if _has_nested(data, "inference.pitch_map_src_min"):
         inf.pitch_map_src_min = float(_get_nested_dict(data, "inference.pitch_map_src_min"))
     if _has_nested(data, "inference.pitch_map_src_max"):
@@ -172,8 +166,6 @@ def state_to_dict(state: AppConfig) -> dict:
     inf = state.inference
     _set_nested_dict(result, "inference.rmvpe_threshold", inf.rmvpe_threshold)
     _set_nested_dict(result, "inference.fcpe_confidence_threshold", inf.fcpe_confidence_threshold)
-    _set_nested_dict(result, "inference.protect_soft_threshold_hz", inf.protect_soft_threshold_hz)
-    _set_nested_dict(result, "inference.protect_soft_width", inf.protect_soft_width)
     _set_nested_dict(result, "inference.pitch_map_src_min", inf.pitch_map_src_min)
     _set_nested_dict(result, "inference.pitch_map_src_max", inf.pitch_map_src_max)
     _set_nested_dict(result, "inference.pitch_map_dst_min", inf.pitch_map_dst_min)
@@ -249,12 +241,6 @@ def _collect_experimental(win, cfg: AppConfig) -> None:
         inf.rmvpe_threshold = float(win.exp_rmvpe_threshold_slider.value())
     if hasattr(win, "exp_fcpe_threshold_slider"):
         inf.fcpe_confidence_threshold = float(win.exp_fcpe_threshold_slider.value())
-    # 过渡区域（RangeSlider 双滑块：中心=(low+high)/2，宽度=high-low）
-    if hasattr(win, "exp_protect_transition_range"):
-        _low = win.exp_protect_transition_range.low()
-        _high = win.exp_protect_transition_range.high()
-        inf.protect_soft_threshold_hz = (_low + _high) / 2
-        inf.protect_soft_width = _high - _low
     # 原声音域 / 目标音域（RangeSlider 双滑块）
     if hasattr(win, "exp_pitch_map_src_range"):
         inf.pitch_map_src_min = win.exp_pitch_map_src_range.low()
@@ -278,7 +264,7 @@ def _apply_experimental(win, state: AppConfig) -> None:
     # 阻塞信号，避免信号处理函数用控件值覆盖配置
     _widgets = [
         "exp_rmvpe_threshold_slider", "exp_fcpe_threshold_slider",
-        "exp_protect_transition_range", "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
+"exp_pitch_map_src_range", "exp_pitch_map_dst_range",
     ]
     for w in _widgets:
         if hasattr(win, w):
@@ -289,13 +275,6 @@ def _apply_experimental(win, state: AppConfig) -> None:
             win.exp_rmvpe_threshold_slider.setValue(inf.rmvpe_threshold)
         if hasattr(win, "exp_fcpe_threshold_slider"):
             win.exp_fcpe_threshold_slider.setValue(inf.fcpe_confidence_threshold)
-        # 过渡区域
-        if hasattr(win, "exp_protect_transition_range"):
-            _low = max(0.0, inf.protect_soft_threshold_hz - inf.protect_soft_width / 2)
-            _high = min(50.0, inf.protect_soft_threshold_hz + inf.protect_soft_width / 2)
-            win.exp_protect_transition_range.setRange(_low, _high)
-            if hasattr(win, "exp_protect_transition_label"):
-                win.exp_protect_transition_label.setText(f"{_low:.0f}-{_high:.0f}Hz")
         # 原声音域
         if hasattr(win, "exp_pitch_map_src_range"):
             win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)

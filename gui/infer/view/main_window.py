@@ -90,8 +90,6 @@ class MainWindow(QMainWindow):
             gui_data["inference"] = {
                 "rmvpe_threshold": exp.get("rmvpe_threshold", 0.05),
                 "fcpe_confidence_threshold": exp.get("fcpe_confidence_threshold", 0.05),
-                "protect_soft_threshold_hz": exp.get("protect_soft_threshold_hz", 20.0),
-                "protect_soft_width": exp.get("protect_soft_width", 30.0),
                 "pitch_map_src_min": exp.get("pitch_map_src_min", 100.0),
                 "pitch_map_src_max": exp.get("pitch_map_src_max", 500.0),
                 "pitch_map_dst_min": exp.get("pitch_map_dst_min", 200.0),
@@ -207,7 +205,6 @@ class MainWindow(QMainWindow):
 
     def _connect_runtime_param_signals(self):
         """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
-        self.protect_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
         self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
         self.f0_rmvp_btn.toggled.connect(lambda _: self._apply_runtime_params())
 
@@ -249,7 +246,6 @@ class MainWindow(QMainWindow):
         state = self.collect_gui_state()
         inf = state.inference
         self.controller.apply_runtime_params(
-            protect=inf.protect,
             f0_method=inf.f0_method,
             rms_mix=inf.rms_mix,
         )

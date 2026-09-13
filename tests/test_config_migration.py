@@ -13,7 +13,6 @@ from gui.infer.viewmodel.param_binding import (
 
 # 典型的旧短键格式（来自实际 save_state.json）
 OLD_FORMAT = {
-    "protect": 0.8,
     "f0": "rmvpe",
     "rms": 0.5,
     "bl": 0.1,
@@ -30,7 +29,6 @@ OLD_FORMAT = {
 # 对应的新嵌套结构
 NEW_FORMAT = {
     "inference": {
-        "protect": 0.8,
         "f0_method": "rmvpe",
         "rms_mix": 0.5,
     },
@@ -52,7 +50,6 @@ class TestMigrateOldFormat(unittest.TestCase):
     def test_old_format_migrates_to_nested(self):
         result = _migrate_old_format(OLD_FORMAT)
         # 验证嵌套结构
-        self.assertEqual(result["inference"]["protect"], 0.8)
         self.assertEqual(result["inference"]["f0_method"], "rmvpe")
         self.assertEqual(result["inference"]["rms_mix"], 0.5)
         self.assertEqual(result["engine"]["block_time"], 0.1)
@@ -74,7 +71,7 @@ class TestMigrateOldFormat(unittest.TestCase):
 
     def test_partial_old_keys_no_migration(self):
         # 只有 1-2 个旧键（比如只有 model_path），不应触发迁移
-        data = {"model_path": "test.pth", "inference": {"protect": 0.5}}
+        data = {"model_path": "test.pth", "inference": {"formant": 1.0}}
         result = _migrate_old_format(data)
         self.assertIs(result, data)
 
@@ -93,7 +90,6 @@ class TestMigrateOldFormat(unittest.TestCase):
 class TestStateFromDict(unittest.TestCase):
     def test_old_format_reads_correctly(self):
         cfg = state_from_dict(OLD_FORMAT)
-        self.assertEqual(cfg.inference.protect, 0.8)
         self.assertEqual(cfg.inference.f0_method, "rmvpe")
         self.assertEqual(cfg.inference.rms_mix, 0.5)
         self.assertEqual(cfg.engine.block_time, 0.1)
@@ -108,7 +104,6 @@ class TestStateFromDict(unittest.TestCase):
 
     def test_new_format_reads_correctly(self):
         cfg = state_from_dict(NEW_FORMAT)
-        self.assertEqual(cfg.inference.protect, 0.8)
         self.assertEqual(cfg.inference.f0_method, "rmvpe")
         self.assertEqual(cfg.engine.block_time, 0.1)
         self.assertEqual(cfg.model_path, "E:/Projects/Python/RVC/assets/models/test.pth")
@@ -116,7 +111,6 @@ class TestStateFromDict(unittest.TestCase):
     def test_empty_dict_uses_defaults(self):
         cfg = state_from_dict({})
         # 验证用的是 AppConfig 默认值
-        self.assertEqual(cfg.inference.protect, 0.5)
         self.assertEqual(cfg.inference.f0_method, "rmvpe")
         self.assertEqual(cfg.inference.rms_mix, 0.0)
         self.assertEqual(cfg.engine.block_time, 0.25)
@@ -148,7 +142,6 @@ class TestStateToDict(unittest.TestCase):
     def test_values_preserved(self):
         cfg = state_from_dict(OLD_FORMAT)
         result = state_to_dict(cfg)
-        self.assertEqual(result["inference"]["protect"], 0.8)
         self.assertEqual(result["inference"]["f0_method"], "rmvpe")
         self.assertEqual(result["engine"]["block_time"], 0.1)
         self.assertEqual(result["model_path"], "E:/Projects/Python/RVC/assets/models/test.pth")
@@ -161,7 +154,6 @@ class TestRoundTripConsistency(unittest.TestCase):
         new_dict = state_to_dict(cfg1)
         cfg2 = state_from_dict(new_dict)
         # 验证关键值一致
-        self.assertEqual(cfg1.inference.protect, cfg2.inference.protect)
         self.assertEqual(cfg1.inference.f0_method, cfg2.inference.f0_method)
         self.assertEqual(cfg1.inference.rms_mix, cfg2.inference.rms_mix)
         self.assertEqual(cfg1.engine.block_time, cfg2.engine.block_time)
@@ -179,7 +171,6 @@ class TestRoundTripConsistency(unittest.TestCase):
         cfg1 = state_from_dict(NEW_FORMAT)
         new_dict = state_to_dict(cfg1)
         cfg2 = state_from_dict(new_dict)
-        self.assertEqual(cfg1.inference.protect, cfg2.inference.protect)
         self.assertEqual(cfg1.engine.block_time, cfg2.engine.block_time)
         self.assertEqual(cfg1.model_path, cfg2.model_path)
 

@@ -12,7 +12,6 @@ class TestInferenceConfig(unittest.TestCase):
     def test_defaults(self):
         cfg = InferenceConfig()
         self.assertEqual(cfg.formant, 0.0)
-        self.assertEqual(cfg.protect, 0.5)
         self.assertEqual(cfg.f0_method, "rmvpe")
         self.assertEqual(cfg.rms_mix, 0.0)
 

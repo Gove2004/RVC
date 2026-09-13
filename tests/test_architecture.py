@@ -86,7 +86,6 @@ class TestConfigDefaults(unittest.TestCase):
         from rvc.core.config import InferenceConfig
         cfg = InferenceConfig()
         assert cfg.formant == 0.0
-        assert cfg.protect == 0.5
         assert cfg.f0_method == "rmvpe"
         assert cfg.rms_mix == 0.0
 
