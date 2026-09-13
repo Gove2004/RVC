@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
 
-from gui.infer.view.widgets import _slrow, _sl_value_as_float, RangeSlider
+from gui.infer.view.widgets import _slrow, RangeSlider
 
 
 def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
