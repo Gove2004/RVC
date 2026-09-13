@@ -1,7 +1,8 @@
-"""特征处理深度测试 — upsample_features（简化后 3 参数版本）。
+"""特征处理深度测试 — upsample_features + 清辅音保护。
 
 覆盖：
 - upsample_features: 各种输入形状/p_len/is_half
+- 清辅音保护: F0=0 帧混合原始特征，protect=0.5 关闭
 - 注意：extract_hubert_features 需要真实模型，只测试不调用真实模型的部分
 """
 import unittest
@@ -101,6 +102,76 @@ class TestUpsampleFeaturesEdgeCases(unittest.TestCase):
         feats = torch.randn(1, 10, 768)
         result = upsample_features(feats, p_len=20, is_half=True)
         self.assertEqual(result.dtype, torch.float16)
+
+
+class TestConsonantProtection(unittest.TestCase):
+    """清辅音保护测试 — F0=0 帧混合原始特征。"""
+
+    def test_protect_disabled_at_0_5(self):
+        """protect=0.5 时关闭保护，输出与不保护一致。"""
+        feats = torch.randn(1, 10, 768)
+        feats0 = torch.randn(1, 10, 768)
+        pitchf = torch.tensor([[0.0, 100.0, 0.0, 200.0, 0.0, 150.0, 0.0, 180.0, 0.0, 120.0]])
+        result_with = upsample_features(feats, 20, False, feats0=feats0, pitchf=pitchf, protect=0.5)
+        result_without = upsample_features(feats, 20, False)
+        self.assertTrue(torch.allclose(result_with, result_without, atol=1e-6))
+
+    def test_unvoiced_frames_mixed(self):
+        """F0=0 的清音帧混合原始特征。"""
+        feats = torch.ones(1, 5, 768) * 0.5  # 合成特征全 0.5
+        feats0 = torch.ones(1, 5, 768) * 1.0  # 原始特征全 1.0
+        # pitchf 长度 = p_len = 10（100fps，与上采样后特征对齐）
+        pitchf = torch.tensor([[0.0, 100.0, 0.0, 200.0, 150.0, 0.0, 100.0, 0.0, 200.0, 150.0]])
+        result = upsample_features(feats, 10, False, feats0=feats0, pitchf=pitchf, protect=0.0)
+        # protect=0.0 → strength=1.0，清音帧完全用原始特征
+        self.assertAlmostEqual(result[0, 0, 0].item(), 1.0, places=4)  # 清音
+        self.assertAlmostEqual(result[0, 1, 0].item(), 0.5, places=4)  # 浊音
+        self.assertAlmostEqual(result[0, 2, 0].item(), 1.0, places=4)  # 清音
+        self.assertAlmostEqual(result[0, 3, 0].item(), 0.5, places=4)  # 浊音
+
+    def test_voiced_frames_unchanged(self):
+        """浊音帧（F0!=0）不受保护影响。"""
+        feats = torch.randn(1, 5, 768)
+        feats0 = torch.randn(1, 5, 768)
+        pitchf = torch.ones(1, 10) * 100.0  # 全浊音，长度=p_len
+        result = upsample_features(feats, 10, False, feats0=feats0, pitchf=pitchf, protect=0.0)
+        result_no_protect = upsample_features(feats, 10, False)
+        self.assertTrue(torch.allclose(result, result_no_protect, atol=1e-6))
+
+    def test_partial_protection_strength(self):
+        """protect=0.25 时 strength=0.5，清音帧混合一半原始特征。"""
+        feats = torch.ones(1, 5, 768) * 0.0  # 合成特征全 0
+        feats0 = torch.ones(1, 5, 768) * 1.0  # 原始特征全 1
+        pitchf = torch.tensor([[0.0, 100.0, 0.0, 200.0, 150.0, 0.0, 100.0, 0.0, 200.0, 150.0]])
+        result = upsample_features(feats, 10, False, feats0=feats0, pitchf=pitchf, protect=0.25)
+        # strength = 1 - 0.25/0.5 = 0.5，清音帧 = 0.5*0 + 0.5*1 = 0.5
+        self.assertAlmostEqual(result[0, 0, 0].item(), 0.5, places=4)
+        # 浊音帧不受影响，还是 0
+        self.assertAlmostEqual(result[0, 1, 0].item(), 0.0, places=4)
+
+    def test_no_feats0_no_protection(self):
+        """feats0=None 时不启用保护。"""
+        feats = torch.randn(1, 5, 768)
+        pitchf = torch.tensor([[0.0, 100.0, 0.0, 200.0, 150.0, 0.0, 100.0, 0.0, 200.0, 150.0]])
+        result = upsample_features(feats, 10, False, feats0=None, pitchf=pitchf, protect=0.0)
+        result_no_protect = upsample_features(feats, 10, False)
+        self.assertTrue(torch.allclose(result, result_no_protect, atol=1e-6))
+
+    def test_no_pitchf_no_protection(self):
+        """pitchf=None 时不启用保护。"""
+        feats = torch.randn(1, 5, 768)
+        feats0 = torch.randn(1, 5, 768)
+        result = upsample_features(feats, 10, False, feats0=feats0, pitchf=None, protect=0.0)
+        result_no_protect = upsample_features(feats, 10, False)
+        self.assertTrue(torch.allclose(result, result_no_protect, atol=1e-6))
+
+    def test_output_shape_with_protection(self):
+        """启用保护时输出形状正确。"""
+        feats = torch.randn(1, 10, 768)
+        feats0 = torch.randn(1, 10, 768)
+        pitchf = torch.randn(1, 20).abs() * 100  # 长度=p_len=20
+        result = upsample_features(feats, 20, False, feats0=feats0, pitchf=pitchf, protect=0.33)
+        self.assertEqual(result.shape, (1, 20, 768))
 
 
 if __name__ == "__main__":

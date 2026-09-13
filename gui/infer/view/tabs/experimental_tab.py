@@ -1,7 +1,4 @@
-"""实验功能 Tab — F0 阈值 / 音域映射（无分组，直接罗列）。
-
-清辅音保护（过渡区域 / 辅音保护强度）已移除，简化流程。
-"""
+"""实验功能 Tab — F0 阈值 / 辅音保护 / 音域映射（无分组，直接罗列）。"""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
 
@@ -72,7 +69,22 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_fcpe_threshold_slider, r, 1)
     g.addWidget(win.exp_fcpe_threshold_label, r, 2); r += 1
 
-    # ── 3. 原声音域 ──
+    # ── 3. 辅音保护 ──
+    win.exp_protect_slider = _slrow(
+        win, "exp_protect_slider", 0.0, 0.5, 0.01,
+        cfg.protect, fmt=".2f",
+    )
+    win.exp_protect_slider.valueChanged.connect(
+        lambda: setattr(
+            cfg, "protect",
+            _sl_value_as_float(win.exp_protect_slider),
+        )
+    )
+    g.addWidget(QLabel("辅音保护"), r, 0)
+    g.addWidget(win.exp_protect_slider, r, 1)
+    g.addWidget(win.exp_protect_slider_label, r, 2); r += 1
+
+    # ── 4. 原声音域 ──
     win.exp_pitch_map_src_range = _range_row(
         win, "exp_pitch_map_src_range",
         20.0, 1000.0, 10.0,

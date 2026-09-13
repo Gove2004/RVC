@@ -85,6 +85,13 @@ class OfflineManager:
                 formant=inf.formant,
                 f0_method=inf.f0_method,
                 rms_mix=inf.rms_mix,
+                protect=inf.protect,
+                rmvpe_threshold=inf.rmvpe_threshold,
+                fcpe_confidence_threshold=inf.fcpe_confidence_threshold,
+                pitch_map_src_min=inf.pitch_map_src_min,
+                pitch_map_src_max=inf.pitch_map_src_max,
+                pitch_map_dst_min=inf.pitch_map_dst_min,
+                pitch_map_dst_max=inf.pitch_map_dst_max,
                 hubert=self.window.hubert_combo.currentText(),
             )
         except Exception as exc:

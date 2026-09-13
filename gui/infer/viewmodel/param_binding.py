@@ -241,6 +241,9 @@ def _collect_experimental(win, cfg: AppConfig) -> None:
         inf.rmvpe_threshold = float(win.exp_rmvpe_threshold_slider.value())
     if hasattr(win, "exp_fcpe_threshold_slider"):
         inf.fcpe_confidence_threshold = float(win.exp_fcpe_threshold_slider.value())
+    # 辅音保护
+    if hasattr(win, "exp_protect_slider"):
+        inf.protect = float(win.exp_protect_slider.value())
     # 原声音域 / 目标音域（RangeSlider 双滑块）
     if hasattr(win, "exp_pitch_map_src_range"):
         inf.pitch_map_src_min = win.exp_pitch_map_src_range.low()
@@ -264,7 +267,8 @@ def _apply_experimental(win, state: AppConfig) -> None:
     # 阻塞信号，避免信号处理函数用控件值覆盖配置
     _widgets = [
         "exp_rmvpe_threshold_slider", "exp_fcpe_threshold_slider",
-"exp_pitch_map_src_range", "exp_pitch_map_dst_range",
+        "exp_protect_slider",
+        "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
     ]
     for w in _widgets:
         if hasattr(win, w):
@@ -275,6 +279,9 @@ def _apply_experimental(win, state: AppConfig) -> None:
             win.exp_rmvpe_threshold_slider.setValue(inf.rmvpe_threshold)
         if hasattr(win, "exp_fcpe_threshold_slider"):
             win.exp_fcpe_threshold_slider.setValue(inf.fcpe_confidence_threshold)
+        # 辅音保护
+        if hasattr(win, "exp_protect_slider"):
+            win.exp_protect_slider.setValue(inf.protect)
         # 原声音域
         if hasattr(win, "exp_pitch_map_src_range"):
             win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)

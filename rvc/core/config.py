@@ -6,15 +6,15 @@ HUBERT_DEFAULT = "chinese"
 
 @dataclass
 class InferenceConfig:
-    """推理参数 — 音频效果 + 音域映射 + F0 提取阈值。
+    """推理参数 — 音频效果 + 音域映射 + F0 提取阈值 + 辅音保护。
 
     原 experimental_config 中的核心参数已合并到此，统一管理。
-    清辅音保护（protect / protect_soft_*）已移除，简化流程。
     """
     # ── 基础音频效果 ──
     formant: float = 0.0
     f0_method: str = "rmvpe"
     rms_mix: float = 0.0
+    protect: float = 0.33  # 清辅音保护（0-0.5，0.5=关闭，越小保护越强）
     # ── F0 提取阈值 ──
     rmvpe_threshold: float = 0.05  # RMVPE 清浊判定阈值
     fcpe_confidence_threshold: float = 0.05  # FCPE 清浊判定阈值
