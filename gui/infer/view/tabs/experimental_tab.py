@@ -64,8 +64,8 @@ def build_experimental_tab(win):
 
     # ── 2. 辅音保护 ──
     win.exp_protect_slider = _slrow(
-        win, "exp_protect_slider", 0.0, 1.0, 0.01,
-        cfg.protect, fmt=".0%",
+        win, "exp_protect_slider", 0.0, 1.0, 0.05,
+        cfg.protect, fmt=".2f",
     )
     win.exp_protect_slider.valueChanged.connect(
         lambda: setattr(
@@ -94,8 +94,8 @@ def build_experimental_tab(win):
 
     # ── 3. 呼吸感强度 ──
     win.exp_breathiness_slider = _slrow(
-        win, "exp_breathiness_slider", 0.0, 1.0, 0.01,
-        cfg.breathiness, fmt=".0%",
+        win, "exp_breathiness_slider", 0.0, 1.0, 0.05,
+        cfg.breathiness, fmt=".2f",
     )
     win.exp_breathiness_slider.valueChanged.connect(
         lambda: setattr(
