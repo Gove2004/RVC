@@ -61,7 +61,6 @@ class InferencePipeline:
         self.ctx = InferenceContext()
 
         # 呼吸感动态调制：因果 EMA 上一帧值（None 表示未初始化）
-        self._breathiness_ema_prev = None
 
     # ── 便捷属性（对外接口保持不变） ──
 
@@ -244,12 +243,11 @@ class InferencePipeline:
 
         用 F0 置信度作为呼吸感代理：confidence 低 = 周期性弱 = 气声多 → 增大噪声。
         breathiness 控制整体调制强度（0=关闭，1=完全启用）。
-        只对浊音帧应用调制，清音帧保持默认 1.0。
-        因果 EMA 平滑避免逐帧突变导致噪声颗粒感。
+        对所有帧应用调制（清音帧 confidence 低，噪声自然增大）。
 
         Args:
             confidence: 置信度 (1, T)，0-1
-            pitchf: 连续 F0 (1, T)，>0 为浊音帧
+            pitchf: 连续 F0 (1, T)，保留参数兼容性
             breathiness: 呼吸感强度 (0-1)
 
         Returns:
@@ -258,29 +256,12 @@ class InferencePipeline:
         if breathiness <= 0:
             return torch.ones_like(confidence)
 
-        # 映射：confidence=1.0 → base=0.6（干净），confidence=0.0 → base=1.8（气声）
-        base = 1.8 - 1.2 * confidence
-        base = base.clamp(0.5, 2.5)
+        # 映射：confidence=1.0 → base=0.2（干净，噪声减80%），confidence=0.0 → base=6.0（气声，噪声增6倍）
+        base = 6.0 - 5.8 * confidence
+        base = base.clamp(0.2, 6.0)
 
         # 按 breathiness 强度混合：breathiness=0 → 全1.0，breathiness=1 → 完全启用
         noise_mod = 1.0 + breathiness * (base - 1.0)
-
-        # 因果 EMA 平滑（alpha=0.3，约 30ms 时间常数）
-        alpha = 0.3
-        if self._breathiness_ema_prev is None or self._breathiness_ema_prev.shape[1] != noise_mod.shape[1]:
-            self._breathiness_ema_prev = noise_mod[:, :1].clone()
-        T = noise_mod.shape[1]
-        smoothed = torch.zeros_like(noise_mod)
-        prev = self._breathiness_ema_prev[:, 0:1]
-        for i in range(T):
-            cur = noise_mod[:, i:i+1]
-            prev = prev + alpha * (cur - prev)
-            smoothed[:, i:i+1] = prev
-        self._breathiness_ema_prev = smoothed[:, -1:].clone()
-
-        # 只对浊音帧应用调制，清音帧保持 1.0
-        voiced_mask = (pitchf > 0).float()
-        noise_mod = voiced_mask * smoothed + (1 - voiced_mask)
 
         return noise_mod
 
