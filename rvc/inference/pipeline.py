@@ -238,32 +238,6 @@ class InferencePipeline:
         ctx.pitchf_continuous = pitchf[None, :]
         return pitch[None, :], pitchf[None, :]
 
-    def _compute_noise_mod(self, confidence: torch.Tensor, pitchf: torch.Tensor, breathiness: float) -> torch.Tensor:
-        """计算逐帧噪声调制系数（呼吸感动态建模）。
-
-        用 F0 置信度作为呼吸感代理：confidence 低 = 周期性弱 = 气声多 → 增大噪声。
-        breathiness 控制整体调制强度（0=关闭，1=完全启用）。
-        对所有帧应用调制（清音帧 confidence 低，噪声自然增大）。
-
-        Args:
-            confidence: 置信度 (1, T)，0-1
-            pitchf: 连续 F0 (1, T)，保留参数兼容性
-            breathiness: 呼吸感强度 (0-1)
-
-        Returns:
-            noise_mod: 噪声调制系数 (1, T)，1.0=默认
-        """
-        if breathiness <= 0:
-            return torch.ones_like(confidence)
-
-        # 映射：confidence=1.0 → base=0.05（几乎无噪声），confidence=0.0 → base=20.0（噪声增20倍，超级夸张）
-        base = 20.0 - 19.95 * confidence
-        base = base.clamp(0.05, 20.0)
-
-        # 按 breathiness 强度混合：breathiness=0 → 全1.0，breathiness=1 → 完全启用
-        noise_mod = 1.0 + breathiness * (base - 1.0)
-
-        return noise_mod
 
     # ── 阶段6：合成 ──
 
@@ -288,13 +262,6 @@ class InferencePipeline:
         """
         state = self.state
 
-        # 呼吸感动态调制：用 confidence 计算逐帧噪声调制系数
-        noise_mod = None
-        if state.use_f0 == 1 and state.confidence_cache is not None and pitchf is not None:
-            conf = state.confidence_cache[-ctx.p_len:][None, :]
-            pf = pitchf if pitchf.dim() == 2 else pitchf[None, :]
-            noise_mod = self._compute_noise_mod(conf, pf, ctx.config.breathiness)
-
         # 合成器推理
         p_len_t = cached_long_tensor(state.long_tensor_cache, ctx.p_len, state.device)
         sid = cached_long_tensor(state.long_tensor_cache, state.sid, state.device)
@@ -305,7 +272,6 @@ class InferencePipeline:
             skip_head=state.skip_head,
             return_length=state.return_length,
             return_length2=state.return_length2,
-            noise_mod=noise_mod,
         )
         infered_audio = infered_audio.squeeze(1).float()
         ctx.synthesized_audio = infered_audio

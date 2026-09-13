@@ -168,7 +168,6 @@ class _SynthesizerTrnMsBase(nn.Module):
         skip_head: int = 0,
         return_length: int = 0,
         return_length2: int | torch.Tensor | None = None,
-        noise_mod=None,
     ):
         """推理 — 统一接口，根据 use_f0 自动处理 pitch/nsff0 参数。"""
         g = self.emb_g(sid).unsqueeze(-1)
@@ -189,8 +188,6 @@ class _SynthesizerTrnMsBase(nn.Module):
             x_mask = x_mask[:, :, dec_head : dec_head + length]
             if self.use_f0 and nsff0 is not None:
                 nsff0 = nsff0[:, head : head + length]
-                if noise_mod is not None:
-                    noise_mod = noise_mod[:, head : head + length]
         else:
             if self.use_f0:
                 assert pitch is not None
@@ -203,7 +200,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         # Decoder — 根据 use_f0 传递参数
         if self.use_f0:
             assert nsff0 is not None
-            o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2, noise_mod=noise_mod)
+            o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2)
         else:
             o = self.dec(z * x_mask, g=g, n_res=return_length2)
 

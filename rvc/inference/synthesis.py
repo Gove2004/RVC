@@ -31,20 +31,17 @@ def infer_synth_audio(
     skip_head: int | None = None,
     return_length: int | None = None,
     return_length2: int | None = None,
-    noise_mod=None,
 ):
     """Synthesizer 推理调用（实时/离线共用），走 CUDA Graph（如果启用）。
 
     离线路径不传 skip_head/return_length/return_length2（synthesizer.infer 走 5 参签名）；
     实时路径三者必传（8 参签名，含 skip_head/return_length/return_length2）。
 
-    noise_mod: 逐帧噪声调制系数 (batch, length)，作为 tensor 输入参与 CUDA Graph；
-               None 时使用固定噪声幅度。
     """
     realtime = skip_head is not None
     # tail 是标量参数（skip_head/return_length/return_length2），不是张量，
     # 不能作为 CUDA Graph 输入，必须通过闭包捕获。
-    # 但 feats/p_len_t/pitch/pitchf/sid/noise_mod 是张量，必须作为参数传入，
+    # 但 feats/p_len_t/pitch/pitchf/sid 是张量，必须作为参数传入，
     # 否则 CUDA Graph 捕获/回放时用的是外部变量地址而非静态张量地址，
     # 重开时外部变量地址变化导致 CUDA Graph 使用错误数据（声音沙哑/失真）。
     tail = (skip_head, return_length, return_length2) if realtime else ()
@@ -52,18 +49,10 @@ def infer_synth_audio(
 
     if use_f0 == 1:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
-        if noise_mod is not None:
-            graph_key = f"synth-{mode}-f0-breath"
-            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid, noise_mod)
-            def call(feats_, p_len_t_, pitch_, pitchf_, sid_, noise_mod_):
-                return synthesizer.infer(
-                    feats_, p_len_t_, pitch_, pitchf_, sid_, *tail, noise_mod=noise_mod_
-                )
-        else:
-            graph_key = f"synth-{mode}-f0"
-            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
-            def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
-                return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)
+        graph_key = f"synth-{mode}-f0"
+        tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
+        def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
+            return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)
     else:
         graph_key = f"synth-{mode}-no-f0"
         tensor_inputs = (feats, p_len_t, sid)
