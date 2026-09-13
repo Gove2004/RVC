@@ -20,7 +20,6 @@ from rvc.runtime.cuda_graph import cuda_graph_enabled
 from rvc.audio.f0_utils import median_filter_f0, normalize_f0_to_coarse, apply_pitch_map
 
 # 最新原始输入音调（Hz，非零帧平均，音域映射之前的值，用于 GUI 显示）
-last_input_pitch = 0.0
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +98,6 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-
-    # 保存原始输入音调（音域映射之前，非零帧平均，用于 GUI 显示）
-    global last_input_pitch
-    nonzero = f0[f0 > 0]
-    if nonzero.numel() > 0:
-        last_input_pitch = float(nonzero.mean().item())
 
     # confidence 因果中值滤波（kernel=3）：避免孤立低值帧
     if confidence is not None:

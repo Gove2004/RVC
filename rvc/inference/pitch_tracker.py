@@ -40,6 +40,7 @@ def update_realtime_pitch_cache_raw(
     is_half: bool,
     inference_cache,
     config=None,
+    extractor=None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """阶段4：只做 F0 原始提取 + 缓存更新，不做后处理。
 
@@ -57,12 +58,14 @@ def update_realtime_pitch_cache_raw(
             - cache_pitch 只左移，新值由阶段5后处理后写入
         device/is_half/inference_cache: 设备和缓存
         config: InferenceConfig
+        extractor: 已缓存的 F0 提取器实例（None 时内部创建）
 
     Returns:
         (f0_raw, confidence_raw): 当前块需要的原始 F0 (1, p_len) 和 confidence (1, p_len)
     """
     f0_extractor_frame = realtime_f0_window(block_frame_16k, method)
-    extractor = create_f0_extractor(method, device, is_half, inference_cache, config=config)
+    if extractor is None:
+        extractor = create_f0_extractor(method, device, is_half, inference_cache, config=config)
     f0_raw, confidence_raw = extractor.extract_raw(
         input_wav[-f0_extractor_frame:], HUBERT_SAMPLE_RATE,
     )

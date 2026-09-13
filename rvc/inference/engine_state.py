@@ -73,12 +73,16 @@ class EngineState:
 
     # ── F0 提取器实例（带模型权重，跨块复用）──
     f0_extractor = None
+    f0_extractor_method: str = ""
 
     # ── inference_cache（模型/F0 提取器缓存）──
     inference_cache = None
 
     # ── 性能统计 ──
     infer_ms: float = 0.0
+
+    # ── 输入音高（GUI 显示用，音域映射之前的原始值）──
+    last_input_pitch: float = 0.0
 
     # ── 错误状态 ──
     error_count: int = 0

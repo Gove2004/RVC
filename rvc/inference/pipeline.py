@@ -19,6 +19,12 @@ from rvc.inference.engine_state import EngineState
 from rvc.inference.inference_context import InferenceContext
 from rvc.inference.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import extract_hubert_features, upsample_features
+
+
+def _is_cuda(device) -> bool:
+    """判断设备是否为 CUDA（用于决定是否启用 Stream 并行）。"""
+    return str(device).startswith("cuda")
+
 from rvc.inference.f0_extractor import postprocess_f0
 from rvc.inference.model_session import ModelSessionManager
 from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache_raw
@@ -138,18 +144,35 @@ class InferencePipeline:
         factor = pow(2, formant_factor / 12)
         state.return_length2 = int(math.ceil(return_length * factor))
 
-        # 阶段3：HuBERT 特征提取（50fps）
-        feats = self._stage_extract_hubert(ctx)
+        # 阶段3+4 并行：HuBERT 特征提取和 F0 原始提取互不依赖，用 CUDA Stream 并行
+        if _is_cuda(state.device):
+            s_hubert = torch.cuda.Stream()
+            s_f0 = torch.cuda.Stream()
+            with torch.cuda.stream(s_hubert):
+                feats = self._stage_extract_hubert(ctx)
+            with torch.cuda.stream(s_f0):
+                self._stage_extract_f0_raw(ctx)
+            torch.cuda.current_stream().wait_stream(s_hubert)
+            torch.cuda.current_stream().wait_stream(s_f0)
+        else:
+            feats = self._stage_extract_hubert(ctx)
+            self._stage_extract_f0_raw(ctx)
 
-        # 阶段4：F0 原始提取（只提取原始 F0 + confidence，更新缓存）
-        self._stage_extract_f0_raw(ctx)
-
-        # 阶段5：合成预处理（音域映射 + 中值滤波 + 离散化）
-        pitch, pitchf = self._stage_postprocess_f0(ctx)
-
-        # 阶段5：特征上采样（50fps → 100fps，截取 p_len 帧）
-        # 清辅音保护已移到输出侧（effects.py AudioProcessor），特征侧不再做
-        feats = upsample_features(feats, ctx.p_len, state.is_half)
+        # 阶段5a+5b 并行：F0 后处理和特征上采样互不依赖，用 CUDA Stream 并行
+        # 清辅音保护已移到输出侧（effects.py AudioProcessor），特征侧只做上采样
+        if _is_cuda(state.device):
+            s_post = torch.cuda.Stream()
+            s_up = torch.cuda.Stream()
+            with torch.cuda.stream(s_post):
+                pitch, pitchf = self._stage_postprocess_f0(ctx)
+            with torch.cuda.stream(s_up):
+                feats_up = upsample_features(feats, ctx.p_len, state.is_half)
+            torch.cuda.current_stream().wait_stream(s_post)
+            torch.cuda.current_stream().wait_stream(s_up)
+            feats = feats_up
+        else:
+            pitch, pitchf = self._stage_postprocess_f0(ctx)
+            feats = upsample_features(feats, ctx.p_len, state.is_half)
         ctx.features_upsampled = feats
 
         # 阶段6：合成（formant 后处理移到引擎层阶段7a）
@@ -183,11 +206,20 @@ class InferencePipeline:
         if state.use_f0 == 0:
             return
 
+        # F0 提取器缓存：method 变化时重建，否则跨块复用
+        method = ctx.config.f0_method
+        if state.f0_extractor is None or state.f0_extractor_method != method:
+            from rvc.inference.f0_extractor import create_f0_extractor
+            state.f0_extractor = create_f0_extractor(
+                method, state.device, state.is_half, state.inference_cache, config=ctx.config,
+            )
+            state.f0_extractor_method = method
+
         f0_raw, confidence_raw = update_realtime_pitch_cache_raw(
             state.input_wav_16k,
             ctx.block_frame_16k,
             ctx.p_len,
-            ctx.config.f0_method,
+            method,
             state.pitch_cache,
             state.pitchf_cache,
             state.confidence_cache,
@@ -195,6 +227,7 @@ class InferencePipeline:
             state.is_half,
             state.inference_cache,
             config=ctx.config,
+            extractor=state.f0_extractor,
         )
         ctx.f0_raw = f0_raw
         ctx.confidence_raw = confidence_raw
@@ -215,6 +248,12 @@ class InferencePipeline:
         state = self.state
         if state.use_f0 == 0:
             return None, None
+
+        # 计算原始输入音高（音域映射之前，非零帧平均，用于 GUI 显示）
+        f0_raw_flat = ctx.f0_raw.squeeze(0)
+        nonzero = f0_raw_flat[f0_raw_flat > 0]
+        if nonzero.numel() > 0:
+            state.last_input_pitch = float(nonzero.mean().item())
 
         pitch, pitchf, confidence = postprocess_f0(
             ctx.f0_raw.squeeze(0),
