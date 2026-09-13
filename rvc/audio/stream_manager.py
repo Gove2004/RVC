@@ -205,8 +205,8 @@ class AudioStreamManager:
         return {
             "main_active": self.stream is not None and self.stream.active,
             "secondary_active": self.stream2 is not None and self.stream2.active,
-            "stream_error_count": error_count,
-            "last_stream_error": last_stream_error,
+            "error_count": error_count,
+            "last_error": last_error,
         }
 
     @staticmethod

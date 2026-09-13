@@ -241,8 +241,11 @@ class InferenceRunner:
         # 只重采样新块（带额外 2*hz_centis 上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
         resampler_in = state.input_wav_48k[-mono.shape[0] - 2 * state.hz_centis:]
         resampler_out = state.resampler_48k_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
-        target_len = HUBERT_FRAME_SIZE * (mono.shape[0] // state.hz_centis + 1)
-        state.input_wav_16k[-target_len:] = resampler_out
+        # 只写当前块（最后 block_samples_16k 样本），不写修正帧（前 160 样本）。
+        # 修正帧会覆盖上一块最后10ms，导致 HuBERT 看到的历史在每次推理中都被"修正"，
+        # 连续累积后特征漂移（如"凤凰"连续读越读越飘成"废黄"）。
+        target_len = state.block_samples_16k
+        state.input_wav_16k[-target_len:] = resampler_out[-target_len:]
 
     # ── 阶段3-6：推理（委托给 pipeline） ──
 
