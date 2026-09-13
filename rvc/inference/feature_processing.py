@@ -59,7 +59,7 @@ def upsample_features(
         is_half: 是否输出 half precision
         feats0: 原始输入特征 (B, T, C)，用于清音保护；None 时不保护
         pitchf: 连续 F0 (B, T)，F0=0 的帧视为清音；None 时不保护
-        protect: 保护强度（0-0.5，0.5=关闭，越小保护越强）
+        protect: 保护强度（0-1，0=不保护，1=完全保护）
 
     Returns:
         上采样后的特征 (B, p_len, C)，100fps
@@ -68,8 +68,8 @@ def upsample_features(
     feats = feats[:, :p_len, :]
 
     # 清辅音保护：F0=0 的清音帧混合原始特征
-    if feats0 is not None and pitchf is not None and protect < 0.5:
-        strength = 1.0 - protect / 0.5  # protect=0.33 → strength=0.34
+    if feats0 is not None and pitchf is not None and protect > 0:
+        strength = protect  # 0=不保护，1=完全用原始特征
         feats0_up = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         feats0_up = feats0_up[:, :p_len, :]
         # pitchf 长度对齐到 p_len（不足补 0 视为清音，超出截断）

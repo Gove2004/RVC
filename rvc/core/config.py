@@ -14,7 +14,7 @@ class InferenceConfig:
     formant: float = 0.0
     f0_method: str = "rmvpe"
     rms_mix: float = 0.0
-    protect: float = 0.33  # 清辅音保护（0-0.5，0.5=关闭，越小保护越强）
+    protect: float = 0.5  # 清辅音保护强度（0-1，0=不保护，1=完全保护）
     # ── F0 提取阈值 ──
     rmvpe_threshold: float = 0.05  # RMVPE 清浊判定阈值
     fcpe_confidence_threshold: float = 0.05  # FCPE 清浊判定阈值

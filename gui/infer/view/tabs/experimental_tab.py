@@ -71,8 +71,8 @@ def build_experimental_tab(win):
 
     # ── 3. 辅音保护 ──
     win.exp_protect_slider = _slrow(
-        win, "exp_protect_slider", 0.0, 0.5, 0.01,
-        cfg.protect, fmt=".2f",
+        win, "exp_protect_slider", 0.0, 1.0, 0.01,
+        cfg.protect, fmt=".0%",
     )
     win.exp_protect_slider.valueChanged.connect(
         lambda: setattr(
