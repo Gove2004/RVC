@@ -3,7 +3,7 @@
 架构重构后：
 - 持有 EngineState（跨块持续状态：模型引用、F0缓存、合成器缓存等）
 - 每块复用 InferenceContext（单块临时状态）
-- infer() 按阶段执行，去掉了清辅音保护（uv_prob / protect_blend / 清音保护）
+- infer() 按阶段执行，清辅音保护用简化版（F0阈值判断 + 原始特征混合）
 
 对外接口保持不变：__init__(device_config, pth_path, inference_cache, hubert) / load() / infer()
 """
