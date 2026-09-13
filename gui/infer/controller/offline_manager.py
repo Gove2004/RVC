@@ -86,6 +86,7 @@ class OfflineManager:
                 f0_method=inf.f0_method,
                 rms_mix=inf.rms_mix,
                 protect=inf.protect,
+                breathiness=inf.breathiness,
                 rmvpe_threshold=inf.rmvpe_threshold,
                 fcpe_confidence_threshold=inf.fcpe_confidence_threshold,
                 pitch_map_src_min=inf.pitch_map_src_min,

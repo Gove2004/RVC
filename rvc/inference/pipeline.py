@@ -238,6 +238,51 @@ class InferencePipeline:
         ctx.pitchf_continuous = pitchf[None, :]
         return pitch[None, :], pitchf[None, :]
 
+    def _compute_noise_mod(self, confidence: torch.Tensor, pitchf: torch.Tensor, breathiness: float) -> torch.Tensor:
+        """计算逐帧噪声调制系数（呼吸感动态建模）。
+
+        用 F0 置信度作为呼吸感代理：confidence 低 = 周期性弱 = 气声多 → 增大噪声。
+        breathiness 控制整体调制强度（0=关闭，1=完全启用）。
+        只对浊音帧应用调制，清音帧保持默认 1.0。
+        因果 EMA 平滑避免逐帧突变导致噪声颗粒感。
+
+        Args:
+            confidence: 置信度 (1, T)，0-1
+            pitchf: 连续 F0 (1, T)，>0 为浊音帧
+            breathiness: 呼吸感强度 (0-1)
+
+        Returns:
+            noise_mod: 噪声调制系数 (1, T)，1.0=默认
+        """
+        if breathiness <= 0:
+            return torch.ones_like(confidence)
+
+        # 映射：confidence=1.0 → base=0.6（干净），confidence=0.0 → base=1.8（气声）
+        base = 1.8 - 1.2 * confidence
+        base = base.clamp(0.5, 2.5)
+
+        # 按 breathiness 强度混合：breathiness=0 → 全1.0，breathiness=1 → 完全启用
+        noise_mod = 1.0 + breathiness * (base - 1.0)
+
+        # 因果 EMA 平滑（alpha=0.3，约 30ms 时间常数）
+        alpha = 0.3
+        if self._breathiness_ema_prev is None or self._breathiness_ema_prev.shape[1] != noise_mod.shape[1]:
+            self._breathiness_ema_prev = noise_mod[:, :1].clone()
+        T = noise_mod.shape[1]
+        smoothed = torch.zeros_like(noise_mod)
+        prev = self._breathiness_ema_prev[:, 0:1]
+        for i in range(T):
+            cur = noise_mod[:, i:i+1]
+            prev = prev + alpha * (cur - prev)
+            smoothed[:, i:i+1] = prev
+        self._breathiness_ema_prev = smoothed[:, -1:].clone()
+
+        # 只对浊音帧应用调制，清音帧保持 1.0
+        voiced_mask = (pitchf > 0).float()
+        noise_mod = voiced_mask * smoothed + (1 - voiced_mask) * 1.0
+
+        return noise_mod
+
     # ── 阶段6：合成 ──
 
     def _stage_synthesize(
@@ -261,6 +306,13 @@ class InferencePipeline:
         """
         state = self.state
 
+        # 呼吸感动态调制：用 confidence 计算逐帧噪声调制系数
+        noise_mod = None
+        if state.use_f0 == 1 and state.confidence_cache is not None and pitchf is not None:
+            conf = state.confidence_cache[-ctx.p_len:][None, :]
+            pf = pitchf if pitchf.dim() == 2 else pitchf[None, :]
+            noise_mod = self._compute_noise_mod(conf, pf, ctx.config.breathiness)
+
         # 合成器推理
         p_len_t = cached_long_tensor(state.long_tensor_cache, ctx.p_len, state.device)
         sid = cached_long_tensor(state.long_tensor_cache, state.sid, state.device)
@@ -271,6 +323,7 @@ class InferencePipeline:
             skip_head=state.skip_head,
             return_length=state.return_length,
             return_length2=state.return_length2,
+            noise_mod=noise_mod,
         )
         infered_audio = infered_audio.squeeze(1).float()
         ctx.synthesized_audio = infered_audio

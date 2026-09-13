@@ -84,6 +84,21 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_protect_slider, r, 1)
     g.addWidget(win.exp_protect_label, r, 2); r += 1
 
+    # ── 4. 呼吸感强度 ──
+    win.exp_breathiness_slider = _slrow(
+        win, "exp_breathiness_slider", 0.0, 1.0, 0.01,
+        cfg.breathiness, fmt=".0%",
+    )
+    win.exp_breathiness_slider.valueChanged.connect(
+        lambda: setattr(
+            cfg, "breathiness",
+            _sl_value_as_float(win.exp_breathiness_slider),
+        )
+    )
+    g.addWidget(QLabel("呼吸感强度"), r, 0)
+    g.addWidget(win.exp_breathiness_slider, r, 1)
+    g.addWidget(win.exp_breathiness_label, r, 2); r += 1
+
     # ── 4. 原声音域 ──
     win.exp_pitch_map_src_range = _range_row(
         win, "exp_pitch_map_src_range",
