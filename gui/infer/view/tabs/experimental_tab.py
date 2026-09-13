@@ -82,7 +82,7 @@ def build_experimental_tab(win):
     )
     g.addWidget(QLabel("辅音保护"), r, 0)
     g.addWidget(win.exp_protect_slider, r, 1)
-    g.addWidget(win.exp_protect_slider_label, r, 2); r += 1
+    g.addWidget(win.exp_protect_label, r, 2); r += 1
 
     # ── 4. 原声音域 ──
     win.exp_pitch_map_src_range = _range_row(
