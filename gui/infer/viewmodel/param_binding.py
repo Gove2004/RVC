@@ -246,6 +246,9 @@ def _collect_experimental(win, cfg: AppConfig) -> None:
     # 辅音保护
     if hasattr(win, "exp_protect_slider"):
         inf.protect = float(win.exp_protect_slider.value())
+    # 辅音保护阈值
+    if hasattr(win, "exp_protect_threshold_slider"):
+        inf.protect_threshold_hz = float(win.exp_protect_threshold_slider.value())
     # 呼吸感强度
     if hasattr(win, "exp_breathiness_slider"):
         inf.breathiness = float(win.exp_breathiness_slider.value())
@@ -272,7 +275,8 @@ def _apply_experimental(win, state: AppConfig) -> None:
     # 阻塞信号，避免信号处理函数用控件值覆盖配置
     _widgets = [
         "exp_f0_threshold_slider",
-        "exp_protect_slider", "exp_breathiness_slider",
+        "exp_protect_slider", "exp_protect_threshold_slider",
+        "exp_breathiness_slider",
         "exp_pitch_map_src_range", "exp_pitch_map_dst_range",
     ]
     for w in _widgets:
@@ -289,6 +293,9 @@ def _apply_experimental(win, state: AppConfig) -> None:
         # 辅音保护
         if hasattr(win, "exp_protect_slider"):
             win.exp_protect_slider.setValue(inf.protect)
+        # 辅音保护阈值
+        if hasattr(win, "exp_protect_threshold_slider"):
+            win.exp_protect_threshold_slider.setValue(inf.protect_threshold_hz)
         # 呼吸感强度
         if hasattr(win, "exp_breathiness_slider"):
             win.exp_breathiness_slider.setValue(inf.breathiness)

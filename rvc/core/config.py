@@ -15,6 +15,7 @@ class InferenceConfig:
     f0_method: str = "rmvpe"
     rms_mix: float = 0.0
     protect: float = 0.5  # 清辅音保护强度（0-1，0=不保护，1=完全保护）
+    protect_threshold_hz: float = 30.0  # 清辅音保护阈值（Hz），F0 低于此值视为清音
     breathiness: float = 0.5  # 呼吸感动态调制强度（0-1，0=关闭，1=完全启用）
     # ── F0 提取阈值 ──
     rmvpe_threshold: float = 0.05  # RMVPE 清浊判定阈值

@@ -77,6 +77,21 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_protect_slider, r, 1)
     g.addWidget(win.exp_protect_label, r, 2); r += 1
 
+    # ── 2b. 辅音保护阈值（F0 低于此值视为清音）──
+    win.exp_protect_threshold_slider = _slrow(
+        win, "exp_protect_threshold_slider", 10.0, 100.0, 5.0,
+        cfg.protect_threshold_hz, fmt=".0f",
+    )
+    win.exp_protect_threshold_slider.valueChanged.connect(
+        lambda: setattr(
+            cfg, "protect_threshold_hz",
+            _sl_value_as_float(win.exp_protect_threshold_slider),
+        )
+    )
+    g.addWidget(QLabel("辅音阈值"), r, 0)
+    g.addWidget(win.exp_protect_threshold_slider, r, 1)
+    g.addWidget(win.exp_protect_threshold_label, r, 2); r += 1
+
     # ── 3. 呼吸感强度 ──
     win.exp_breathiness_slider = _slrow(
         win, "exp_breathiness_slider", 0.0, 1.0, 0.01,

@@ -154,6 +154,7 @@ class InferencePipeline:
         feats = upsample_features(
             feats, ctx.p_len, state.is_half,
             feats0=feats, pitchf=pitchf, protect=config.protect,
+            protect_threshold_hz=config.protect_threshold_hz,
         )
         ctx.features_upsampled = feats
 
