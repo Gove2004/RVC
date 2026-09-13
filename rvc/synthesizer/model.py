@@ -189,6 +189,8 @@ class _SynthesizerTrnMsBase(nn.Module):
             x_mask = x_mask[:, :, dec_head : dec_head + length]
             if self.use_f0 and nsff0 is not None:
                 nsff0 = nsff0[:, head : head + length]
+                if noise_mod is not None:
+                    noise_mod = noise_mod[:, head : head + length]
         else:
             if self.use_f0:
                 assert pitch is not None
