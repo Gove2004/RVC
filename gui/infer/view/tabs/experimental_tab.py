@@ -49,15 +49,6 @@ def build_experimental_tab(win):
     # 阈值标签（动态显示 RMVPE/FCPE）
     win.exp_f0_threshold_name = QLabel("RMVPE 阈值" if cfg.f0_method == "rmvpe" else "FCPE 阈值")
 
-    def _on_f0_threshold_changed():
-        """滑动条值变化时，写入当前 F0 方法对应的配置字段。"""
-        val = _sl_value_as_float(win.exp_f0_threshold_slider)
-        if hasattr(win, "f0_rmvp_btn") and win.f0_rmvp_btn.isChecked():
-            cfg.rmvpe_threshold = val
-        else:
-            cfg.fcpe_confidence_threshold = val
-
-    win.exp_f0_threshold_slider.valueChanged.connect(_on_f0_threshold_changed)
     g.addWidget(win.exp_f0_threshold_name, r, 0)
     g.addWidget(win.exp_f0_threshold_slider, r, 1)
     g.addWidget(win.exp_f0_threshold_label, r, 2); r += 1
@@ -67,12 +58,6 @@ def build_experimental_tab(win):
         win, "exp_protect_slider", 0.0, 1.0, 0.05,
         cfg.protect, fmt=".2f",
     )
-    win.exp_protect_slider.valueChanged.connect(
-        lambda: setattr(
-            cfg, "protect",
-            _sl_value_as_float(win.exp_protect_slider),
-        )
-    )
     g.addWidget(QLabel("辅音保护"), r, 0)
     g.addWidget(win.exp_protect_slider, r, 1)
     g.addWidget(win.exp_protect_label, r, 2); r += 1
@@ -81,12 +66,6 @@ def build_experimental_tab(win):
     win.exp_protect_threshold_slider = _slrow(
         win, "exp_protect_threshold_slider", 0.0, 50.0, 5.0,
         cfg.protect_threshold_hz, fmt=".0f", unit="Hz",
-    )
-    win.exp_protect_threshold_slider.valueChanged.connect(
-        lambda: setattr(
-            cfg, "protect_threshold_hz",
-            _sl_value_as_float(win.exp_protect_threshold_slider),
-        )
     )
     g.addWidget(QLabel("辅音阈值"), r, 0)
     g.addWidget(win.exp_protect_threshold_slider, r, 1)
@@ -99,12 +78,6 @@ def build_experimental_tab(win):
         cfg.pitch_map_src_min, cfg.pitch_map_src_max,
         fmt=".0f", unit="Hz",
     )
-    win.exp_pitch_map_src_range.rangeChanged.connect(
-        lambda low, high: (
-            setattr(cfg, "pitch_map_src_min", low),
-            setattr(cfg, "pitch_map_src_max", high),
-        )
-    )
     g.addWidget(QLabel("原声音域"), r, 0)
     g.addWidget(win.exp_pitch_map_src_range, r, 1)
     g.addWidget(win.exp_pitch_map_src_label, r, 2); r += 1
@@ -115,12 +88,6 @@ def build_experimental_tab(win):
         20.0, 1000.0, 10.0,
         cfg.pitch_map_dst_min, cfg.pitch_map_dst_max,
         fmt=".0f", unit="Hz",
-    )
-    win.exp_pitch_map_dst_range.rangeChanged.connect(
-        lambda low, high: (
-            setattr(cfg, "pitch_map_dst_min", low),
-            setattr(cfg, "pitch_map_dst_max", high),
-        )
     )
     g.addWidget(QLabel("目标音域"), r, 0)
     g.addWidget(win.exp_pitch_map_dst_range, r, 1)
