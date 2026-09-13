@@ -147,12 +147,9 @@ class InferencePipeline:
         # 阶段5：合成预处理（音域映射 + 中值滤波 + 离散化）
         pitch, pitchf = self._stage_postprocess_f0(ctx)
 
-        # 阶段5：特征上采样（50fps → 100fps，截取 p_len 帧）+ 清辅音保护
-        feats = upsample_features(
-            feats, ctx.p_len, state.is_half,
-            feats0=feats, pitchf=pitchf, protect=config.protect,
-            protect_threshold_hz=config.protect_threshold_hz,
-        )
+        # 阶段5：特征上采样（50fps → 100fps，截取 p_len 帧）
+        # 清辅音保护已移到输出侧（effects.py AudioProcessor），特征侧不再做
+        feats = upsample_features(feats, ctx.p_len, state.is_half)
         ctx.features_upsampled = feats
 
         # 阶段6：合成（formant 后处理移到引擎层阶段7a）

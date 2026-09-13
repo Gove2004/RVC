@@ -188,9 +188,20 @@ class InferenceRunner:
             elif infer.shape[0] < expected:
                 infer = F.pad(infer, (0, expected - infer.shape[0]))
 
-            # 阶段7b+7c：RMS 匹配 + SOLA 拼接
+            # 阶段7b+7c：RMS 匹配 + 清辅音保护 + SOLA 拼接
             ref = state.input_wav_48k[state.extra_samples:]
-            chunk = state.audio_processor.process_output(infer, ref, p_rms_mix, state.function == "vc")
+            # 获取当前块输出对应的 F0（从 pitchf_cache 尾部取，100fps）
+            pitchf_block = None
+            if state.pitchf_cache is not None and state.function == "vc":
+                samples_per_frame = state.target_sr // 100
+                f0_frames = max(1, infer.shape[0] // samples_per_frame)
+                pitchf_block = state.pitchf_cache[-f0_frames:].clone()
+            chunk = state.audio_processor.process_output(
+                infer, ref, p_rms_mix, state.function == "vc",
+                pitchf=pitchf_block,
+                protect=self.runtime_params.protect,
+                protect_threshold_hz=self.runtime_params.protect_threshold_hz,
+            )
             ctx.final_output = chunk
 
             # 阶段8：硬件输出（写入 outdata）
