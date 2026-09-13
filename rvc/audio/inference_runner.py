@@ -168,8 +168,13 @@ class InferenceRunner:
         p_rms_mix = self.runtime_params.rms_mix
 
         with torch.no_grad():
-            # 阶段1：硬件输入（单声道化）
-            mono = self._stage_input(indata)
+            # 阶段1：硬件输入（单声道化 + CPU→GPU 传输）
+            # 方案 C：有预取数据时直接用，跳过 CPU→GPU 传输（离线推理预取和计算并行）
+            if state.prefetch_valid and state.prefetch_gpu is not None:
+                mono = state.prefetch_gpu
+                state.prefetch_valid = False
+            else:
+                mono = self._stage_input(indata)
 
             # 阶段2：输入预处理（缓冲区滚动 + 48k→16k 重采样）
             self._stage_preprocess(mono)
@@ -177,25 +182,14 @@ class InferenceRunner:
             # 阶段3-6：HuBERT → F0 → 合成预处理 → 合成（委托给 pipeline）
             infer = self._stage_inference()
 
-            # 阶段7a：formant 重采样（从 pipeline 层移到引擎层）
+            # 阶段7a：formant 重采样（含长度对齐，从 pipeline 层移到引擎层）
             infer = self._stage_formant(infer)
             ctx.formanted_audio = infer
 
-            # 长度对齐（formant 重采样可能改变长度，SOLA 期望固定长度）
-            expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
-            if infer.shape[0] > expected:
-                infer = infer[:expected]
-            elif infer.shape[0] < expected:
-                infer = F.pad(infer, (0, expected - infer.shape[0]))
-
-            # 阶段7b+7c：RMS 匹配 + 清辅音保护 + SOLA 拼接
+            # 阶段7b+7c：RMS 匹配 → SOLA 拼接 → 清辅音保护（保护在SOLA之后）
             ref = state.input_wav_48k[state.extra_samples:]
-            # 获取当前块输出对应的 F0（从 pitchf_cache 尾部取，100fps）
-            pitchf_block = None
-            if state.pitchf_cache is not None and state.function == "vc":
-                samples_per_frame = state.target_sr // 100
-                f0_frames = max(1, infer.shape[0] // samples_per_frame)
-                pitchf_block = state.pitchf_cache[-f0_frames:].clone()
+            # F0 已在 pipeline 阶段5a存入 ctx.pitchf_block，直接用
+            pitchf_block = getattr(ctx, 'pitchf_block', None)
             chunk = state.audio_processor.process_output(
                 infer, ref, p_rms_mix, state.function == "vc",
                 pitchf=pitchf_block,
@@ -209,6 +203,26 @@ class InferenceRunner:
             ctx.output_np = outdata
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
+
+    def prefetch_input(self, indata: np.ndarray) -> None:
+        """方案 C：预取下一块输入（只做阶段1：单声道化 + CPU→GPU 传输）。
+
+        在离线推理中，当前块做 GPU 计算时，提前把下一块输入拷贝到 GPU，
+        下一次 process_block 时直接用预取数据，跳过 CPU→GPU 传输等待。
+
+        实时推理中不调用此方法（下一块输入还没到达），prefetch_valid 保持 False。
+        """
+        state = self.state
+        if state.in_pin is None:
+            return
+        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
+        mono = np.ascontiguousarray(mono)
+        n = mono.shape[0]
+        state.in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
+        if state.prefetch_gpu is None or state.prefetch_gpu.shape[0] < n:
+            state.prefetch_gpu = torch.empty(n, device=state.device, dtype=torch.float32)
+        state.prefetch_gpu[:n].copy_(state.in_pin[:n], non_blocking=True)
+        state.prefetch_valid = True
 
     def route_secondary_output(self, outdata: np.ndarray, stream2, out2_q: queue.Queue,
                                 enable_out2: bool) -> None:
@@ -278,41 +292,40 @@ class InferenceRunner:
             # 直通模式（非 vc）：直接用原始输入
             infer = state.input_wav_48k[state.extra_samples:].clone()
 
-        # 长度对齐
-        expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
-        if infer.shape[0] > expected:
-            infer = infer[:expected]
-        elif infer.shape[0] < expected:
-            infer = F.pad(infer, (0, expected - infer.shape[0]))
-
         return infer
 
     # ── 阶段7a：formant 重采样 ──
 
     def _stage_formant(self, infer: torch.Tensor) -> torch.Tensor:
-        """阶段7a：formant 共振峰偏移（重采样实现）。
+        """阶段7a：formant 共振峰偏移（重采样实现）+ 长度对齐。
 
         从 pipeline 层移到引擎层，和 RMS/SOLA 统一在输出处理阶段。
-        formant=0 时直接返回，不做重采样。
+        formant=0 时直接做长度对齐返回。
+        formant 重采样后统一对齐到 expected 长度（SOLA 期望固定长度）。
 
         Args:
             infer: 合成器输出音频（target_sr 采样率）
 
         Returns:
-            formant 处理后的音频
+            formant 处理 + 长度对齐后的音频
         """
         state = self.state
+        expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
+
         formant = self.runtime_params.formant
-        if formant == 0:
-            return infer
+        if formant != 0:
+            factor = pow(2, formant / 12)
+            target_sr = state.target_sr
+            upp_res = int(math.floor(factor * target_sr // 100))
+            if upp_res != target_sr // 100:
+                infer = apply_formant_resample(
+                    infer[: state.return_length * upp_res],
+                    factor, target_sr, state.resample_kernel, state.device,
+                ).squeeze()
 
-        factor = pow(2, formant / 12)
-        target_sr = state.target_sr
-        upp_res = int(math.floor(factor * target_sr // 100))
-        if upp_res == target_sr // 100:
-            return infer
-
-        return apply_formant_resample(
-            infer[: state.return_length * upp_res],
-            factor, target_sr, state.resample_kernel, state.device,
-        ).squeeze()
+        # 统一长度对齐（formant 重采样可能改变长度，SOLA 期望固定长度）
+        if infer.shape[0] > expected:
+            infer = infer[:expected]
+        elif infer.shape[0] < expected:
+            infer = F.pad(infer, (0, expected - infer.shape[0]))
+        return infer

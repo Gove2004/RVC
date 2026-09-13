@@ -57,6 +57,9 @@ class EngineState:
 
     # ── 输入传输（pinned memory，CPU→GPU 快速传输）──
     in_pin: torch.Tensor | None = None
+    # 预取缓冲区（方案 C：离线推理时提前把下一块输入拷贝到 GPU，和当前块计算并行）
+    prefetch_gpu: torch.Tensor | None = None
+    prefetch_valid: bool = False
 
     # ── F0 滚动缓存（pitch_tracker）──
     pitch_cache: torch.Tensor | None = None

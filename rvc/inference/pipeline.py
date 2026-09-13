@@ -159,20 +159,22 @@ class InferencePipeline:
             self._stage_extract_f0_raw(ctx)
 
         # 阶段5a+5b 并行：F0 后处理和特征上采样互不依赖，用 CUDA Stream 并行
+        # 阶段5a: F0 后处理（音域映射 + 中值滤波 + 离散化），结果存 ctx.pitchf_block 供输出侧清辅音保护用
+        # 阶段5b: 特征上采样（50fps → 100fps）
         # 清辅音保护已移到输出侧（effects.py AudioProcessor），特征侧只做上采样
         if _is_cuda(state.device):
             s_post = torch.cuda.Stream()
             s_up = torch.cuda.Stream()
             with torch.cuda.stream(s_post):
-                pitch, pitchf = self._stage_postprocess_f0(ctx)
+                pitch, pitchf = self._stage_5a_postprocess_f0(ctx)
             with torch.cuda.stream(s_up):
-                feats_up = upsample_features(feats, ctx.p_len, state.is_half)
+                feats_up = self._stage_5b_upsample_features(ctx, feats)
             torch.cuda.current_stream().wait_stream(s_post)
             torch.cuda.current_stream().wait_stream(s_up)
             feats = feats_up
         else:
-            pitch, pitchf = self._stage_postprocess_f0(ctx)
-            feats = upsample_features(feats, ctx.p_len, state.is_half)
+            pitch, pitchf = self._stage_5a_postprocess_f0(ctx)
+            feats = self._stage_5b_upsample_features(ctx, feats)
         ctx.features_upsampled = feats
 
         # 阶段6：合成（formant 后处理移到引擎层阶段7a）
@@ -234,7 +236,7 @@ class InferencePipeline:
 
     # ── 阶段5：F0 后处理（音域映射 + 中值滤波 + 离散化）──
 
-    def _stage_postprocess_f0(self, ctx: InferenceContext):
+    def _stage_5a_postprocess_f0(self, ctx: InferenceContext):
         """阶段5：F0 后处理（音域映射 + 中值滤波 + 离散化）。
 
         从 ctx 读取阶段4提取的原始 F0，调用 postprocess_f0 做后处理。
@@ -270,8 +272,17 @@ class InferencePipeline:
         ctx.f0_mapped = pitchf
         ctx.pitch_discrete = pitch[None, :]
         ctx.pitchf_continuous = pitchf[None, :]
+        # 存到 ctx 供输出侧清辅音保护用（100fps，连续 F0）
+        ctx.pitchf_block = pitchf.clone()
         return pitch[None, :], pitchf[None, :]
 
+
+    def _stage_5b_upsample_features(self, ctx: InferenceContext, feats: torch.Tensor) -> torch.Tensor:
+        """阶段5b：特征上采样（50fps → 100fps，截取 p_len 帧）。
+
+        清辅音保护已移到输出侧，这里只做纯上采样。
+        """
+        return upsample_features(feats, ctx.p_len, self.state.is_half)
 
     # ── 阶段6：合成 ──
 

@@ -140,13 +140,18 @@ class AudioProcessor:
 
     def process_output(self, infer, ref, rms_mix, is_vc=True,
                        pitchf=None, protect=0.0, protect_threshold_hz=25.0):
-        """输出侧处理：RMS 混合 → 清辅音保护 → SOLA。
+        """输出侧处理：RMS 混合 → SOLA → 清辅音保护。
+
+        清辅音保护放在 SOLA 之后：SOLA 是块间相位对齐，应该在纯合成输出上做；
+        保护只影响当前块最终输出，不干扰块间对齐。
 
         is_vc=False（直通模式）时跳过 RMS 混合和清辅音保护。
         """
         if is_vc:
             infer = self.rms_mix.process(infer, ref, rms_mix)
+        infer = self.sola.process(infer)
+        if is_vc:
             infer = self._apply_consonant_protection(
                 infer, ref, pitchf, protect, protect_threshold_hz,
             )
-        return self.sola.process(infer)
+        return infer

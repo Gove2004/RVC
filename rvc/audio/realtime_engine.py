@@ -1,248 +1,496 @@
-"""实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果。
-
-架构重构后：RealtimeEngine 作为门面（Facade），内部委托给子组件：
-- AudioStreamManager: 设备/流管理（PortAudio 封装）
-- InferenceRunner: 推理调度（缓冲区/推理/效果器）
-- ModelSessionManager: 模型生命周期（通过 InferencePipeline 间接使用）
-
-对外接口（start/stop/load_model/process_file）保持不变，GUI 层无需修改。
-"""
-import logging
-import threading
-import time
-
-import numpy as np
-import sounddevice as sd
-import torch
-
-from rvc.audio.inference_runner import InferenceRunner
-from rvc.audio.stream_manager import AudioStreamManager
-from rvc.core.config import InferenceConfig
-from rvc.runtime import Config
-
-logger = logging.getLogger(__name__)
-
-
-class RealtimeEngine:
-    """实时音频引擎 — 门面类，内部委托给 AudioStreamManager 和 InferenceRunner。"""
-
-    def __init__(self, runtime_params, inference_cache=None, on_runtime_error=None):
-        self.runtime_params = runtime_params
-        self.inference_cache = inference_cache
-        self.on_runtime_error = on_runtime_error
-        self.pipeline = None
-        self.running = False
-        self.function = "vc"
-
-        # 子组件
-        self._stream_mgr = AudioStreamManager()
-        self._runner = None  # InferenceRunner（setup 时创建）
-
-        # 性能统计
-        self.infer_ms = 0.0
-        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
-
-        # 错误状态由 InferenceRunner 管理（通过属性代理访问）
-
-        self._cfg = Config()  # 单例缓存，避免多处重复获取
-        self.pth_path = ""
-
-    # ── 错误状态属性代理（委托给 InferenceRunner） ──
-
-    @property
-    def error_count(self):
-        return self._runner.state.error_count if self._runner else 0
-
-    @property
-    def last_error(self):
-        return self._runner.state.last_error if self._runner else ""
-
-    @property
-    def runtime_error_pending(self):
-        return self._runner.state.runtime_error_pending if self._runner else False
-
-    @runtime_error_pending.setter
-    def runtime_error_pending(self, value):
-        if self._runner:
-            self._runner.state.runtime_error_pending = value
-
-    # ── 模型加载 ──
-
-    def load_model(self, pth, force=False, hubert="chinese"):
-        """加载模型（创建 InferencePipeline）。
-
-        切换模型时清除 f0 提取器的旧 CUDA Graph 缓存。
-        """
-        if self.inference_cache:
-            self.inference_cache.clear_f0_cuda_graph_caches()
-        if not force and self.pipeline and self.pth_path == pth:
-            return self.pipeline.target_sr
-        from rvc.inference.pipeline import InferencePipeline
-        try:
-            self.pipeline = InferencePipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
-            self.pipeline.load()
-            self.pth_path = pth
-            return self.pipeline.target_sr
-        except Exception as e:
-            logger.error("模型加载失败：%s", e, exc_info=True)
-            self.pipeline = None
-            raise
-
-    # ── 引擎启动/停止 ──
-
-    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
-        """启动实时变声引擎。"""
-        if self._stream_mgr.stream is not None:
-            self.stop()
-        sd.default.device = [in_dev, out_dev]
-        self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.sr_model = self.pipeline.target_sr
-        sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
-
-        # 设备校验与日志
-        self._stream_mgr.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
-        channels = self._stream_mgr.channels
-
-        # 推理运行器初始化（实时模式：预热后重置缓冲区）
-        self._create_runner(sr, channels, block_t, cf_t, extra_t, self.sr_model, reset_buffers=True)
-
-        # 启动主流（显式指定设备，不依赖 sd.default.device）
-        self._stream_mgr.start_main_stream(
-            self._cb, sr, channels, self._runner.state.block_samples,
-            in_dev=in_dev, out_dev=out_dev,
-        )
-        self.running = True
-
-        # 启动副输出（如果指定）
-        if out2_dev_idx is not None:
-            self.setup_out2(out2_dev_idx)
-
-    def _create_runner(self, sr, channels, block_t, cf_t, extra_t, sr_model, *, reset_buffers=True):
-        """创建并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
-
-        Args:
-            sr: 工作采样率
-            channels: 通道数
-            block_t: 块时长（秒）
-            cf_t: 交叉淡化时长（秒）
-            extra_t: 额外上下文时长（秒）
-            sr_model: 模型目标采样率
-            reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
-        """
-        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
-        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
-        self._runner.reset_error_state()
-        self._runner.warmup(2)
-        if reset_buffers:
-            self._runner.reset_buffers()
-
-    def setup_out2(self, dev_idx):
-        """启动副输出流。"""
-        if self._runner is None:
-            raise RuntimeError("请先启动主引擎再设置副输出")
-        self._stream_mgr.start_secondary_output(
-            dev_idx, self._runner.state.target_sr, self._runner.state.channels, self._runner.state.block_samples
-        )
-
-    def stop(self):
-        """停止引擎，关闭所有流。"""
-        self.running = False
-        if self._runner:
-            self._runner.reset_error_state()
-        self._stream_mgr.stop_all()
-        # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-
-    # ── 音频回调 ──
-
-    def _cb(self, indata, outdata, frames, times, status):
-        """sounddevice 回调函数 — 委托给 InferenceRunner.process_block。"""
-        try:
-            # 硬件时间戳实测端到端延迟
-            d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
-            if 0 < d < 2:
-                ms = d * 1000
-                self.measure_ms = ms
-
-            # 委托给推理运行器
-            self._runner.process_block(indata, outdata, frames)
-            self.infer_ms = self._runner.state.infer_ms
-
-            # 副输出路由
-            if self._stream_mgr.enable_out2:
-                self._runner.route_secondary_output(
-                    outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
-                )
-
-            self._runner.reset_success_count()
-        except Exception as e:
-            should_stop = self._runner.handle_error(e)
-            logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
-            outdata[:] = 0
-            if should_stop:
-                self.running = False
-                if self.on_runtime_error:
-                    self.on_runtime_error(self._runner.state.last_error or "实时推理失败")
-                raise sd.CallbackStop
-
-    # ── 离线文件推理 ──
-
-    def process_file(self, task, *, block_t=0.25, cf_t=0.05, extra_t=2.5,
-                     pad_sec=3.0, progress_cb=None):
-        """离线文件流式推理：「模拟播放→转换→写录」。
-
-        把整段音频当作持续输入流，逐块走实时 process_block（RMS/SOLA/缓存轮换），
-        与实时完全同一算法。显存封顶，音质 = 实时音质。
-        """
-        sr_model = self.pipeline.target_sr
-        tgt_sr = sr_model
-        wav = self._load_audio_at_sr(task.input_path, tgt_sr)
-
-        self.runtime_params = task
-        if self.pipeline:
-            self.pipeline.reset_pitch_cache()
-        self.function = "vc"
-
-        # 创建推理运行器（离线模式：不重置缓冲区，避免清除 pad 上下文）
-        self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
-
-        result = self._infer_stream(wav, self._runner.state.block_samples, int(tgt_sr * pad_sec), progress_cb)
-        self._write_output_wav(result, task.output_path, tgt_sr)
-        return result
-
-    def _load_audio_at_sr(self, input_path, tgt_sr):
-        """加载音频并重采样到目标采样率（float32, 单声道）。"""
-        from rvc.audio.loader import load_audio
-        wav, _ = load_audio(input_path, tgt_sr)
-        return np.ascontiguousarray(wav, dtype=np.float32)
-
-    def _infer_stream(self, wav, block, pad, progress_cb):
-        """把整段音频按块走实时 process_block，返回裁剪掉 pad 的输出。"""
-        padded = np.pad(wav, (pad, pad), mode="reflect")
-        if len(padded) % block:
-            padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
-
-        total_blocks = len(padded) // block
-        out_chunks = []
-        for i in range(total_blocks):
-            seg = padded[i * block: (i + 1) * block]
-            outdata = np.zeros((block, 1), dtype=np.float32)
-            self._runner.process_block(seg, outdata, block)
-            out_chunks.append(outdata[:, 0])
-            if progress_cb:
-                progress_cb(i + 1, total_blocks)
-        return np.concatenate(out_chunks)[pad: pad + len(wav)]
-
-    def _write_output_wav(self, result, output_path, tgt_sr):
-        """峰值归一化（防削波）后写出 wav。"""
-        from rvc.audio.wav_io import write_wav
-
-        if len(result) == 0:
-            write_wav(output_path, result, tgt_sr, subtype="FLOAT")
-            return
-
-        audio_max = np.abs(result).max() / 0.99
-        if audio_max > 1:
-            result = result / audio_max
-        write_wav(output_path, result, tgt_sr, subtype="FLOAT")
+"""实时音频引擎 — 管理 sounddevice 流、缓冲区、SOLA、声学效果。
+
+
+
+架构重构后：RealtimeEngine 作为门面（Facade），内部委托给子组件：
+
+- AudioStreamManager: 设备/流管理（PortAudio 封装）
+
+- InferenceRunner: 推理调度（缓冲区/推理/效果器）
+
+- ModelSessionManager: 模型生命周期（通过 InferencePipeline 间接使用）
+
+
+
+对外接口（start/stop/load_model/process_file）保持不变，GUI 层无需修改。
+
+"""
+
+import logging
+
+import threading
+
+import time
+
+
+
+import numpy as np
+
+import sounddevice as sd
+
+import torch
+
+
+
+from rvc.audio.inference_runner import InferenceRunner
+
+from rvc.audio.stream_manager import AudioStreamManager
+
+from rvc.core.config import InferenceConfig
+
+from rvc.runtime import Config
+
+
+
+logger = logging.getLogger(__name__)
+
+
+
+
+
+class RealtimeEngine:
+
+    """实时音频引擎 — 门面类，内部委托给 AudioStreamManager 和 InferenceRunner。"""
+
+
+
+    def __init__(self, runtime_params, inference_cache=None, on_runtime_error=None):
+
+        self.runtime_params = runtime_params
+
+        self.inference_cache = inference_cache
+
+        self.on_runtime_error = on_runtime_error
+
+        self.pipeline = None
+
+        self.running = False
+
+        self.function = "vc"
+
+
+
+        # 子组件
+
+        self._stream_mgr = AudioStreamManager()
+
+        self._runner = None  # InferenceRunner（setup 时创建）
+
+
+
+        # 性能统计
+
+        self.infer_ms = 0.0
+
+        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
+
+
+
+        # 错误状态由 InferenceRunner 管理（通过属性代理访问）
+
+
+
+        self._cfg = Config()  # 单例缓存，避免多处重复获取
+
+        self.pth_path = ""
+
+
+
+    # ── 错误状态属性代理（委托给 InferenceRunner） ──
+
+
+
+    @property
+
+    def error_count(self):
+
+        return self._runner.state.error_count if self._runner else 0
+
+
+
+    @property
+
+    def last_error(self):
+
+        return self._runner.state.last_error if self._runner else ""
+
+
+
+    @property
+
+    def runtime_error_pending(self):
+
+        return self._runner.state.runtime_error_pending if self._runner else False
+
+
+
+    @runtime_error_pending.setter
+
+    def runtime_error_pending(self, value):
+
+        if self._runner:
+
+            self._runner.state.runtime_error_pending = value
+
+
+
+    # ── 模型加载 ──
+
+
+
+    def load_model(self, pth, force=False, hubert="chinese"):
+
+        """加载模型（创建 InferencePipeline）。
+
+
+
+        切换模型时清除 f0 提取器的旧 CUDA Graph 缓存。
+
+        """
+
+        if self.inference_cache:
+
+            self.inference_cache.clear_f0_cuda_graph_caches()
+
+        if not force and self.pipeline and self.pth_path == pth:
+
+            return self.pipeline.target_sr
+
+        from rvc.inference.pipeline import InferencePipeline
+
+        try:
+
+            self.pipeline = InferencePipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
+
+            self.pipeline.load()
+
+            self.pth_path = pth
+
+            return self.pipeline.target_sr
+
+        except Exception as e:
+
+            logger.error("模型加载失败：%s", e, exc_info=True)
+
+            self.pipeline = None
+
+            raise
+
+
+
+    # ── 引擎启动/停止 ──
+
+
+
+    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
+
+        """启动实时变声引擎。"""
+
+        if self._stream_mgr.stream is not None:
+
+            self.stop()
+
+        sd.default.device = [in_dev, out_dev]
+
+        self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
+
+        self.sr_model = self.pipeline.target_sr
+
+        sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
+
+
+
+        # 设备校验与日志
+
+        self._stream_mgr.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
+
+        channels = self._stream_mgr.channels
+
+
+
+        # 推理运行器初始化（实时模式：预热后重置缓冲区）
+
+        self._create_runner(sr, channels, block_t, cf_t, extra_t, self.sr_model, reset_buffers=True)
+
+
+
+        # 启动主流（显式指定设备，不依赖 sd.default.device）
+
+        self._stream_mgr.start_main_stream(
+
+            self._cb, sr, channels, self._runner.state.block_samples,
+
+            in_dev=in_dev, out_dev=out_dev,
+
+        )
+
+        self.running = True
+
+
+
+        # 启动副输出（如果指定）
+
+        if out2_dev_idx is not None:
+
+            self.setup_out2(out2_dev_idx)
+
+
+
+    def _create_runner(self, sr, channels, block_t, cf_t, extra_t, sr_model, *, reset_buffers=True):
+
+        """创建并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
+
+
+
+        Args:
+
+            sr: 工作采样率
+
+            channels: 通道数
+
+            block_t: 块时长（秒）
+
+            cf_t: 交叉淡化时长（秒）
+
+            extra_t: 额外上下文时长（秒）
+
+            sr_model: 模型目标采样率
+
+            reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
+
+        """
+
+        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
+
+        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
+
+        self._runner.reset_error_state()
+
+        self._runner.warmup(2)
+
+        if reset_buffers:
+
+            self._runner.reset_buffers()
+
+
+
+    def setup_out2(self, dev_idx):
+
+        """启动副输出流。"""
+
+        if self._runner is None:
+
+            raise RuntimeError("请先启动主引擎再设置副输出")
+
+        self._stream_mgr.start_secondary_output(
+
+            dev_idx, self._runner.state.target_sr, self._runner.state.channels, self._runner.state.block_samples
+
+        )
+
+
+
+    def stop(self):
+
+        """停止引擎，关闭所有流。"""
+
+        self.running = False
+
+        if self._runner:
+
+            self._runner.reset_error_state()
+
+        self._stream_mgr.stop_all()
+
+        # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
+
+        if torch.cuda.is_available():
+
+            torch.cuda.synchronize()
+
+
+
+    # ── 音频回调 ──
+
+
+
+    def _cb(self, indata, outdata, frames, times, status):
+
+        """sounddevice 回调函数 — 委托给 InferenceRunner.process_block。"""
+
+        try:
+
+            # 硬件时间戳实测端到端延迟
+
+            d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
+
+            if 0 < d < 2:
+
+                ms = d * 1000
+
+                self.measure_ms = ms
+
+
+
+            # 委托给推理运行器
+
+            self._runner.process_block(indata, outdata, frames)
+
+            self.infer_ms = self._runner.state.infer_ms
+
+
+
+            # 副输出路由
+
+            if self._stream_mgr.enable_out2:
+
+                self._runner.route_secondary_output(
+
+                    outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
+
+                )
+
+
+
+            self._runner.reset_success_count()
+
+        except Exception as e:
+
+            should_stop = self._runner.handle_error(e)
+
+            logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
+
+            outdata[:] = 0
+
+            if should_stop:
+
+                self.running = False
+
+                if self.on_runtime_error:
+
+                    self.on_runtime_error(self._runner.state.last_error or "实时推理失败")
+
+                raise sd.CallbackStop
+
+
+
+    # ── 离线文件推理 ──
+
+
+
+    def process_file(self, task, *, block_t=0.25, cf_t=0.05, extra_t=2.5,
+
+                     pad_sec=3.0, progress_cb=None):
+
+        """离线文件流式推理：「模拟播放→转换→写录」。
+
+
+
+        把整段音频当作持续输入流，逐块走实时 process_block（RMS/SOLA/缓存轮换），
+
+        与实时完全同一算法。显存封顶，音质 = 实时音质。
+
+        """
+
+        sr_model = self.pipeline.target_sr
+
+        tgt_sr = sr_model
+
+        wav = self._load_audio_at_sr(task.input_path, tgt_sr)
+
+
+
+        self.runtime_params = task
+
+        if self.pipeline:
+
+            self.pipeline.reset_pitch_cache()
+
+        self.function = "vc"
+
+
+
+        # 创建推理运行器（离线模式：不重置缓冲区，避免清除 pad 上下文）
+
+        self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
+
+
+
+        result = self._infer_stream(wav, self._runner.state.block_samples, int(tgt_sr * pad_sec), progress_cb)
+
+        self._write_output_wav(result, task.output_path, tgt_sr)
+
+        return result
+
+
+
+    def _load_audio_at_sr(self, input_path, tgt_sr):
+
+        """加载音频并重采样到目标采样率（float32, 单声道）。"""
+
+        from rvc.audio.loader import load_audio
+
+        wav, _ = load_audio(input_path, tgt_sr)
+
+        return np.ascontiguousarray(wav, dtype=np.float32)
+
+
+
+    def _infer_stream(self, wav, block, pad, progress_cb):
+
+        """把整段音频按块走实时 process_block，返回裁剪掉 pad 的输出。"""
+
+        padded = np.pad(wav, (pad, pad), mode="reflect")
+
+        if len(padded) % block:
+
+            padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
+
+
+
+        total_blocks = len(padded) // block
+
+        out_chunks = []
+
+        for i in range(total_blocks):
+
+            seg = padded[i * block: (i + 1) * block]
+
+            outdata = np.zeros((block, 1), dtype=np.float32)
+
+            self._runner.process_block(seg, outdata, block)
+
+            out_chunks.append(outdata[:, 0])
+
+            if progress_cb:
+
+                progress_cb(i + 1, total_blocks)
+
+        return np.concatenate(out_chunks)[pad: pad + len(wav)]
+
+
+
+    def _write_output_wav(self, result, output_path, tgt_sr):
+
+        """峰值归一化（防削波）后写出 wav。"""
+
+        from rvc.audio.wav_io import write_wav
+
+
+
+        if len(result) == 0:
+
+            write_wav(output_path, result, tgt_sr, subtype="FLOAT")
+
+            return
+
+
+
+        audio_max = np.abs(result).max() / 0.99
+
+        if audio_max > 1:
+
+            result = result / audio_max
+
+        write_wav(output_path, result, tgt_sr, subtype="FLOAT")
+
