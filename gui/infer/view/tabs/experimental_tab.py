@@ -39,35 +39,28 @@ def build_experimental_tab(win):
     g.setColumnStretch(2, 3)
     r = 0
 
-    # ── 1. RMVPE 阈值 ──
-    win.exp_rmvpe_threshold_slider = _slrow(
-        win, "exp_rmvpe_threshold_slider", 0.01, 0.10, 0.01,
-        cfg.rmvpe_threshold, fmt=".2f",
+    # ── 1. 音高算法阈值（根据当前选择的 F0 方法动态切换） ──
+    # 统一用一个滑动条，RMVPE/FCPE 切换时自动加载对应阈值
+    initial_threshold = cfg.rmvpe_threshold if cfg.f0_method == "rmvpe" else cfg.fcpe_confidence_threshold
+    win.exp_f0_threshold_slider = _slrow(
+        win, "exp_f0_threshold_slider", 0.01, 0.10, 0.01,
+        initial_threshold, fmt=".2f",
     )
-    win.exp_rmvpe_threshold_slider.valueChanged.connect(
-        lambda: setattr(
-            cfg, "rmvpe_threshold",
-            _sl_value_as_float(win.exp_rmvpe_threshold_slider),
-        )
-    )
-    g.addWidget(QLabel("RMVPE 阈值"), r, 0)
-    g.addWidget(win.exp_rmvpe_threshold_slider, r, 1)
-    g.addWidget(win.exp_rmvpe_threshold_label, r, 2); r += 1
+    # 阈值标签（动态显示 RMVPE/FCPE）
+    win.exp_f0_threshold_name = QLabel("RMVPE 阈值" if cfg.f0_method == "rmvpe" else "FCPE 阈值")
 
-    # ── 2. FCPE 阈值 ──
-    win.exp_fcpe_threshold_slider = _slrow(
-        win, "exp_fcpe_threshold_slider", 0.01, 0.10, 0.01,
-        cfg.fcpe_confidence_threshold, fmt=".2f",
-    )
-    win.exp_fcpe_threshold_slider.valueChanged.connect(
-        lambda: setattr(
-            cfg, "fcpe_confidence_threshold",
-            _sl_value_as_float(win.exp_fcpe_threshold_slider),
-        )
-    )
-    g.addWidget(QLabel("FCPE 阈值"), r, 0)
-    g.addWidget(win.exp_fcpe_threshold_slider, r, 1)
-    g.addWidget(win.exp_fcpe_threshold_label, r, 2); r += 1
+    def _on_f0_threshold_changed():
+        """滑动条值变化时，写入当前 F0 方法对应的配置字段。"""
+        val = _sl_value_as_float(win.exp_f0_threshold_slider)
+        if hasattr(win, "f0_rmvp_btn") and win.f0_rmvp_btn.isChecked():
+            cfg.rmvpe_threshold = val
+        else:
+            cfg.fcpe_confidence_threshold = val
+
+    win.exp_f0_threshold_slider.valueChanged.connect(_on_f0_threshold_changed)
+    g.addWidget(win.exp_f0_threshold_name, r, 0)
+    g.addWidget(win.exp_f0_threshold_slider, r, 1)
+    g.addWidget(win.exp_f0_threshold_label, r, 2); r += 1
 
     # ── 3. 辅音保护 ──
     win.exp_protect_slider = _slrow(

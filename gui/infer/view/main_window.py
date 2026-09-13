@@ -208,7 +208,19 @@ class MainWindow(QMainWindow):
     def _connect_runtime_param_signals(self):
         """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
         self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
-        self.f0_rmvp_btn.toggled.connect(lambda _: self._apply_runtime_params())
+        self.f0_rmvp_btn.toggled.connect(lambda _: self._on_f0_method_changed())
+
+    def _on_f0_method_changed(self):
+        """F0 方法切换时，更新实验功能 Tab 中的阈值滑动条。"""
+        if hasattr(self, "exp_f0_threshold_slider") and hasattr(self, "exp_f0_threshold_name"):
+            is_rmvpe = self.f0_rmvp_btn.isChecked()
+            cfg = self.runtime_params
+            val = cfg.rmvpe_threshold if is_rmvpe else cfg.fcpe_confidence_threshold
+            self.exp_f0_threshold_slider.blockSignals(True)
+            self.exp_f0_threshold_slider.setValue(val)
+            self.exp_f0_threshold_slider.blockSignals(False)
+            self.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+        self._apply_runtime_params()
 
     def _update_timer(self):
         if self.engine.running and self.engine.measure_ms > 0:
