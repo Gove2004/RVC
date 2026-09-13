@@ -279,7 +279,7 @@ class InferencePipeline:
 
         # 只对浊音帧应用调制，清音帧保持 1.0
         voiced_mask = (pitchf > 0).float()
-        noise_mod = voiced_mask * smoothed + (1 - voiced_mask) * 1.0
+        noise_mod = voiced_mask * smoothed + (1 - voiced_mask)
 
         return noise_mod
 

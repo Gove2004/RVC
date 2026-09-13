@@ -62,7 +62,7 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_f0_threshold_slider, r, 1)
     g.addWidget(win.exp_f0_threshold_label, r, 2); r += 1
 
-    # ── 3. 辅音保护 ──
+    # ── 2. 辅音保护 ──
     win.exp_protect_slider = _slrow(
         win, "exp_protect_slider", 0.0, 1.0, 0.01,
         cfg.protect, fmt=".0%",
@@ -77,7 +77,7 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_protect_slider, r, 1)
     g.addWidget(win.exp_protect_label, r, 2); r += 1
 
-    # ── 4. 呼吸感强度 ──
+    # ── 3. 呼吸感强度 ──
     win.exp_breathiness_slider = _slrow(
         win, "exp_breathiness_slider", 0.0, 1.0, 0.01,
         cfg.breathiness, fmt=".0%",
@@ -109,7 +109,7 @@ def build_experimental_tab(win):
     g.addWidget(win.exp_pitch_map_src_range, r, 1)
     g.addWidget(win.exp_pitch_map_src_label, r, 2); r += 1
 
-    # ── 4. 目标音域 ──
+    # ── 5. 目标音域 ──
     win.exp_pitch_map_dst_range = _range_row(
         win, "exp_pitch_map_dst_range",
         20.0, 1000.0, 10.0,
