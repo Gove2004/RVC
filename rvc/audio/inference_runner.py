@@ -181,6 +181,13 @@ class InferenceRunner:
             infer = self._stage_formant(infer)
             ctx.formanted_audio = infer
 
+            # 长度对齐（formant 重采样可能改变长度，SOLA 期望固定长度）
+            expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
+            if infer.shape[0] > expected:
+                infer = infer[:expected]
+            elif infer.shape[0] < expected:
+                infer = F.pad(infer, (0, expected - infer.shape[0]))
+
             # 阶段7b+7c：RMS 匹配 + SOLA 拼接
             ref = state.input_wav_48k[state.extra_samples:]
             chunk = state.audio_processor.process_output(infer, ref, p_rms_mix, state.function == "vc")
