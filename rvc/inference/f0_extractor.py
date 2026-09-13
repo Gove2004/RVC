@@ -267,7 +267,9 @@ class FCPEExtractor(F0Extractor):
                     threshold=cfg.fcpe_confidence_threshold,
                 )
                 conf = None
-        return f0.squeeze() if f0.dim() > 1 else f0, conf
+        f0_out = f0.squeeze() if f0.dim() > 1 else f0
+        conf_out = conf.squeeze() if conf is not None and conf.dim() > 1 else conf
+        return f0_out, conf_out
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         f0, conf = self.extract_raw(audio, sr)
