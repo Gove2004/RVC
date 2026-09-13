@@ -106,11 +106,11 @@ class TestRealtimeEngineStop(unittest.TestCase):
         self.assertFalse(self.engine.running)
 
     def test_stop_resets_error_count(self):
-        self.engine._runner.error_count = 5
+        self.engine._runner.state.error_count = 5
         self.engine.stop()
         self.engine._runner.reset_error_state.assert_called_once()
     def test_stop_resets_runtime_error_pending(self):
-        self.engine._runner.runtime_error_pending = True
+        self.engine._runner.state.runtime_error_pending = True
         self.engine.stop()
         self.engine._runner.reset_error_state.assert_called_once()
 
@@ -146,7 +146,7 @@ class TestRealtimeEngineCallback(unittest.TestCase):
         self.runtime_params.rms_mix = 0.0
         self.engine = RealtimeEngine(self.runtime_params)
         self.engine._runner = MagicMock()
-        self.engine._runner.infer_ms = 5.0
+        self.engine._runner.state.infer_ms = 5.0
         self.engine._stream_mgr = MagicMock()
         self.engine._stream_mgr.enable_out2 = False
 
@@ -170,18 +170,18 @@ class TestRealtimeEngineCallback(unittest.TestCase):
         self.assertEqual(self.engine.infer_ms, 5.0)
 
     def test_callback_resets_error_count_on_success(self):
-        self.engine._runner.error_count = 2
+        self.engine._runner.state.error_count = 2
         # mock 的 reset_success_count 需要真正修改 error_count
-        self.engine._runner.reset_success_count.side_effect = lambda: setattr(self.engine._runner, "error_count", 0)
+        self.engine._runner.reset_success_count.side_effect = lambda: setattr(self.engine._runner.state, "error_count", 0)
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
         self.engine._runner.reset_success_count.assert_called_once()
-        self.assertEqual(self.engine._runner.error_count, 0)
+        self.assertEqual(self.engine._runner.state.error_count, 0)
     def test_callback_error_increments_count(self):
         self.engine._runner.process_block.side_effect = RuntimeError("test error")
         self.engine._runner.handle_error.return_value = False
-        self.engine._runner.error_count = 0
+        self.engine._runner.state.error_count = 0
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
@@ -189,7 +189,7 @@ class TestRealtimeEngineCallback(unittest.TestCase):
     def test_callback_error_sets_last_error(self):
         self.engine._runner.process_block.side_effect = RuntimeError("test error message")
         self.engine._runner.handle_error.return_value = False
-        self.engine._runner.last_error = "test error message"
+        self.engine._runner.state.last_error = "test error message"
         indata = np.zeros((100, 1), dtype=np.float32)
         outdata = np.zeros((100, 1), dtype=np.float32)
         self.engine._cb(indata, outdata, 100, self.times, None)
@@ -329,9 +329,9 @@ class TestSetupOut2(unittest.TestCase):
     def test_setup_out2_calls_stream_mgr(self):
         """主引擎已启动时调用 stream_mgr.start_secondary_output。"""
         self.engine._runner = MagicMock()
-        self.engine._runner.sr = 48000
-        self.engine._runner.channels = 2
-        self.engine._runner.block_samples = 12000
+        self.engine._runner.state.target_sr = 48000
+        self.engine._runner.state.channels = 2
+        self.engine._runner.state.block_samples = 12000
         self.engine._stream_mgr = MagicMock()
         self.engine.setup_out2(3)
         self.engine._stream_mgr.start_secondary_output.assert_called_once_with(

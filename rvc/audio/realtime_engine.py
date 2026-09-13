@@ -51,20 +51,20 @@ class RealtimeEngine:
 
     @property
     def error_count(self):
-        return self._runner.error_count if self._runner else 0
+        return self._runner.state.error_count if self._runner else 0
 
     @property
     def last_error(self):
-        return self._runner.last_error if self._runner else ""
+        return self._runner.state.last_error if self._runner else ""
 
     @property
     def runtime_error_pending(self):
-        return self._runner.runtime_error_pending if self._runner else False
+        return self._runner.state.runtime_error_pending if self._runner else False
 
     @runtime_error_pending.setter
     def runtime_error_pending(self, value):
         if self._runner:
-            self._runner.runtime_error_pending = value
+            self._runner.state.runtime_error_pending = value
 
     # ── 模型加载 ──
 
@@ -108,7 +108,7 @@ class RealtimeEngine:
 
         # 启动主流（显式指定设备，不依赖 sd.default.device）
         self._stream_mgr.start_main_stream(
-            self._cb, sr, channels, self._runner.block_samples,
+            self._cb, sr, channels, self._runner.state.block_samples,
             in_dev=in_dev, out_dev=out_dev,
         )
         self.running = True
@@ -141,7 +141,7 @@ class RealtimeEngine:
         if self._runner is None:
             raise RuntimeError("请先启动主引擎再设置副输出")
         self._stream_mgr.start_secondary_output(
-            dev_idx, self._runner.sr, self._runner.channels, self._runner.block_samples
+            dev_idx, self._runner.state.target_sr, self._runner.state.channels, self._runner.state.block_samples
         )
 
     def stop(self):
@@ -167,7 +167,7 @@ class RealtimeEngine:
 
             # 委托给推理运行器
             self._runner.process_block(indata, outdata, frames)
-            self.infer_ms = self._runner.infer_ms
+            self.infer_ms = self._runner.state.infer_ms
 
             # 副输出路由
             if self._stream_mgr.enable_out2:
@@ -178,12 +178,12 @@ class RealtimeEngine:
             self._runner.reset_success_count()
         except Exception as e:
             should_stop = self._runner.handle_error(e)
-            logger.error("音频回调异常(%d/%d)：%s", self._runner.error_count, self._runner.max_error_count, e, exc_info=True)
+            logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
             outdata[:] = 0
             if should_stop:
                 self.running = False
                 if self.on_runtime_error:
-                    self.on_runtime_error(self._runner.last_error or "实时推理失败")
+                    self.on_runtime_error(self._runner.state.last_error or "实时推理失败")
                 raise sd.CallbackStop
 
     # ── 离线文件推理 ──
@@ -207,7 +207,7 @@ class RealtimeEngine:
         # 创建推理运行器（离线模式：不重置缓冲区，避免清除 pad 上下文）
         self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
 
-        result = self._infer_stream(wav, self._runner.block_samples, int(tgt_sr * pad_sec), progress_cb)
+        result = self._infer_stream(wav, self._runner.state.block_samples, int(tgt_sr * pad_sec), progress_cb)
         self._write_output_wav(result, task.output_path, tgt_sr)
         return result
 

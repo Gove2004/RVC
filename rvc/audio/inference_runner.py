@@ -292,6 +292,6 @@ class InferenceRunner:
             return infer
 
         return apply_formant_resample(
-            infer[:, : state.return_length * upp_res],
+            infer[: state.return_length * upp_res],
             factor, target_sr, state.resample_kernel, state.device,
         ).squeeze()
