@@ -46,7 +46,7 @@ def build_global_params_tab(win):
     win.crossfade_slider = _slrow(win, "crossfade_slider", 0.01, 0.05, 0.01, 0.05)
     g.addWidget(QLabel("淡入长度"), r, 0); g.addWidget(win.crossfade_slider, r, 1); g.addWidget(win.crossfade_label, r, 2); r += 1
 
-    win.extra_time_slider = _slrow(win, "extra_time_slider", 0.05, 5.0, 0.01, 2.5)
+    win.extra_time_slider = _slrow(win, "extra_time_slider", 0.10, 5.0, 0.10, 2.5)
     g.addWidget(QLabel("额外上下文"), r, 0); g.addWidget(win.extra_time_slider, r, 1); g.addWidget(win.extra_time_label, r, 2); r += 1
 
     win.rms_mix_slider = _slrow(win, "rms_mix_slider", 0.0, 1.0, 0.05, 0.0)
