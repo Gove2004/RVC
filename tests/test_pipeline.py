@@ -123,10 +123,10 @@ class TestInferencePipelineStatelessDesign(unittest.TestCase):
             self.assertFalse(hasattr(self.pipeline, attr),
                              f"pipeline should not hold {attr} (stateless design)")
 
-    def test_infer_requires_config_param(self):
-        """infer method signature requires config param."""
+    def test_extract_features_requires_config_param(self):
+        """extract_features method signature requires config param."""
         import inspect
-        sig = inspect.signature(self.pipeline.infer)
+        sig = inspect.signature(self.pipeline.extract_features)
         self.assertIn("config", sig.parameters)
         self.assertEqual(sig.parameters["config"].annotation, InferenceConfig)
 

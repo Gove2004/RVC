@@ -200,6 +200,9 @@ class MainWindow(QMainWindow):
 
         self.apply_gui_state(state)
 
+        # 同步配置值到 runtime_params，避免 _on_f0_method_changed 用默认值覆盖滑动条
+        self.runtime_params.__dict__.update(state.inference.__dict__)
+
         # 模型路径按钮：根据 win.model_path 更新显示文件名
 
         if hasattr(self, "model_path") and self.model_path:
@@ -507,18 +510,9 @@ class MainWindow(QMainWindow):
 
 
     def _apply_runtime_params(self):
-
+        """全量同步所有 inference 参数到 runtime_params（启动时和点击开始时调用）。"""
         state = self.collect_gui_state()
-
-        inf = state.inference
-
-        self.controller.apply_runtime_params(
-
-            f0_method=inf.f0_method,
-
-            rms_mix=inf.rms_mix,
-
-        )
+        self.runtime_params.__dict__.update(state.inference.__dict__)
 
 
 
@@ -601,8 +595,6 @@ class MainWindow(QMainWindow):
             return
 
         hubert = self.hubert_combo.currentText()
-
-        self._apply_model_params()
 
         self._apply_runtime_params()
 

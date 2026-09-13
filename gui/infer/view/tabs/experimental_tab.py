@@ -1,4 +1,4 @@
-"""实验功能 Tab — F0 阈值 / 辅音保护 / 音域映射（无分组，直接罗列）。"""
+"""实验功能 Tab — F0 阈值 / 音域映射（无分组，直接罗列）。"""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
 

@@ -138,9 +138,11 @@ class TestInferencePipelineAttributes(unittest.TestCase):
         pipeline = InferencePipeline(self.device_config, "/path/model.pth")
         self.assertTrue(callable(pipeline.load))
 
-    def test_has_infer_method(self):
+    def test_has_stage_methods(self):
         pipeline = InferencePipeline(self.device_config, "/path/model.pth")
-        self.assertTrue(callable(pipeline.infer))
+        self.assertTrue(callable(pipeline.extract_features))
+        self.assertTrue(callable(pipeline.postprocess_features))
+        self.assertTrue(callable(pipeline.synthesize_audio))
 
     def test_has_reset_pitch_cache_method(self):
         pipeline = InferencePipeline(self.device_config, "/path/model.pth")
