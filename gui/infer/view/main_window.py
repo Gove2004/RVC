@@ -91,7 +91,7 @@ class MainWindow(QMainWindow):
                 "rmvpe_threshold": exp.get("rmvpe_threshold", 0.05),
                 "fcpe_confidence_threshold": exp.get("fcpe_confidence_threshold", 0.05),
                 "protect": exp.get("protect", 0.5),
-                "protect_threshold_hz": exp.get("protect_threshold_hz", 30.0),
+                "protect_threshold_hz": exp.get("protect_threshold_hz", 25.0),
                 "breathiness": exp.get("breathiness", 0.5),
                 "pitch_map_src_min": exp.get("pitch_map_src_min", 100.0),
                 "pitch_map_src_max": exp.get("pitch_map_src_max", 500.0),
