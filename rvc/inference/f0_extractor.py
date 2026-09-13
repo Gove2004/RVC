@@ -3,7 +3,7 @@
 后处理流程（简化后）：
   原始 F0 → 音域映射（半音尺度）→ 因果中值滤波 → 离散化
 
-去掉了清辅音保护（F0 清零）逻辑，简化流程。
+清辅音保护在 feature_processing.upsample_features 中用简化版实现（F0阈值判断 + 原始特征混合）。
 """
 import contextlib
 from rvc.core.errors import F0ExtractionError

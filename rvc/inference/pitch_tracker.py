@@ -61,8 +61,6 @@ def update_realtime_pitch_cache_raw(
     Returns:
         (f0_raw, confidence_raw): 当前块需要的原始 F0 (1, p_len) 和 confidence (1, p_len)
     """
-    from rvc.inference.f0_extractor import create_f0_extractor
-
     f0_extractor_frame = realtime_f0_window(block_frame_16k, method)
     extractor = create_f0_extractor(method, device, is_half, inference_cache, config=config)
     f0_raw, confidence_raw = extractor.extract_raw(

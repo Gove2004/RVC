@@ -19,7 +19,7 @@ from rvc.audio.effects import AudioProcessor
 class EngineState:
     """跨块持续状态。
 
-    由 InferenceRunner 持有，每块推理时传给各阶段函数。
+    由 InferencePipeline 创建并持有，InferenceRunner 共享引用，每块推理时使用。
     单块临时状态放在 InferenceContext，不在这里。
     """
 

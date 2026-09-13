@@ -1,5 +1,6 @@
 """Synthesizer 推理调用。"""
 import torch
+from torchaudio.transforms import Resample as TatResample
 
 from rvc.inference.cuda_graph import run_cuda_graph
 
@@ -64,8 +65,6 @@ def infer_synth_audio(
 
 
 def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, resample_kernel: dict, device: str) -> torch.Tensor:
-    from torchaudio.transforms import Resample as TatResample
-
     upp_res = int((factor * target_sr // 100))
     if upp_res == target_sr // 100:
         return audio
