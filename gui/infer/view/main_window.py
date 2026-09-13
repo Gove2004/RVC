@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
     def _connect_runtime_param_signals(self):
         """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
         self.rms_mix_slider.valueChanged.connect(lambda _: self._apply_runtime_params())
+        self.formant_slider.valueChanged.connect(lambda _: self._apply_model_params())
         self.f0_rmvp_btn.toggled.connect(lambda _: self._on_f0_method_changed())
 
     def _on_f0_method_changed(self):

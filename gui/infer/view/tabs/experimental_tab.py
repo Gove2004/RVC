@@ -80,7 +80,7 @@ def build_experimental_tab(win):
     # ── 2b. 辅音保护阈值（F0 低于此值视为清音）──
     win.exp_protect_threshold_slider = _slrow(
         win, "exp_protect_threshold_slider", 0.0, 50.0, 5.0,
-        cfg.protect_threshold_hz, fmt=".0f",
+        cfg.protect_threshold_hz, fmt=".0f", unit="Hz",
     )
     win.exp_protect_threshold_slider.valueChanged.connect(
         lambda: setattr(
