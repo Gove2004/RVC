@@ -60,6 +60,9 @@ class InferencePipeline:
         # 单块上下文（复用实例，每块 reset()）
         self.ctx = InferenceContext()
 
+        # 呼吸感动态调制：因果 EMA 上一帧值（None 表示未初始化）
+        self._breathiness_ema_prev = None
+
     # ── 便捷属性（对外接口保持不变） ──
 
     @property

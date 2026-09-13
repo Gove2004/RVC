@@ -145,10 +145,12 @@ class SineGen(torch.nn.Module):
         sines = torch.sin(2 * np.pi * rad)
         return sines
         
-    def forward(self, f0: torch.Tensor, upp: int):
+    def forward(self, f0: torch.Tensor, upp: int, noise_mod: torch.Tensor | None = None):
         """sine_tensor, uv = forward(f0)
         input F0: tensor(batchsize=1, length, dim=1)
                   f0 for unvoiced steps should be 0
+        noise_mod: 逐帧噪声调制系数 (batch, length)，1.0=默认，>1=更多噪声
+                   None 时使用固定噪声幅度
         output sine_tensor: tensor(batchsize=1, length, dim)
         output uv: tensor(batchsize=1, length, 1)
         """
@@ -160,6 +162,12 @@ class SineGen(torch.nn.Module):
                 uv.transpose(2, 1), scale_factor=float(upp), mode="nearest"
             ).transpose(2, 1)
             noise_amp = uv * self.noise_std + (1 - uv) * self.sine_amp / 3
+            # 动态噪声调制：逐帧系数上采样到采样点级
+            if noise_mod is not None:
+                noise_mod_up = F.interpolate(
+                    noise_mod.unsqueeze(1), scale_factor=float(upp), mode="nearest"
+                ).transpose(1, 2)
+                noise_amp = noise_amp * noise_mod_up
             noise = noise_amp * torch.randn_like(sine_waves)
             sine_waves = sine_waves * uv + noise
         return sine_waves, uv, noise
@@ -206,8 +214,8 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.l_linear = torch.nn.Linear(harmonic_num + 1, 1)
         self.l_tanh = torch.nn.Tanh()
 
-    def forward(self, x: torch.Tensor, upp: int = 1):
-        sine_wavs, uv, _ = self.l_sin_gen(x, upp)
+    def forward(self, x: torch.Tensor, upp: int = 1, noise_mod=None):
+        sine_wavs, uv, _ = self.l_sin_gen(x, upp, noise_mod=noise_mod)
         sine_wavs = sine_wavs.to(dtype=self.l_linear.weight.dtype)
         sine_merge = self.l_tanh(self.l_linear(sine_wavs))
         return sine_merge, None, None  # noise, uv
@@ -293,8 +301,9 @@ class GeneratorNSF(torch.nn.Module):
         f0,
         g: Optional[torch.Tensor] = None,
         n_res: int | torch.Tensor | None = None,
+        noise_mod=None,
     ):
-        har_source, noi_source, uv = self.m_source(f0, self.upp)
+        har_source, noi_source, uv = self.m_source(f0, self.upp, noise_mod=noise_mod)
         har_source = har_source.transpose(1, 2)
         if n_res is not None:
             n = int(n_res) if isinstance(n_res, torch.Tensor) else n_res
