@@ -19,9 +19,10 @@ from rvc.inference.engine_state import EngineState
 from rvc.inference.inference_context import InferenceContext
 from rvc.inference.inference_cache import default_inference_cache
 from rvc.inference.feature_processing import extract_hubert_features, upsample_features
+from rvc.inference.f0_extractor import postprocess_f0
 from rvc.inference.model_session import ModelSessionManager
-from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache
-from rvc.inference.synthesis import apply_formant_resample, cached_long_tensor, infer_synth_audio
+from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache_raw
+from rvc.inference.synthesis import cached_long_tensor, infer_synth_audio
 
 logger = logging.getLogger(__name__)
 
@@ -140,15 +141,18 @@ class InferencePipeline:
         # 阶段3：HuBERT 特征提取（50fps）
         feats = self._stage_extract_hubert(ctx)
 
-        # 阶段4+5：F0 提取 + 合成预处理（音域映射 + 中值滤波 + 离散化）
-        pitch, pitchf = self._stage_process_f0(ctx)
+        # 阶段4：F0 原始提取（只提取原始 F0 + confidence，更新缓存）
+        self._stage_extract_f0_raw(ctx)
+
+        # 阶段5：合成预处理（音域映射 + 中值滤波 + 离散化）
+        pitch, pitchf = self._stage_postprocess_f0(ctx)
 
         # 阶段5：特征上采样（50fps → 100fps，截取 p_len 帧）
         feats = upsample_features(feats, ctx.p_len, state.is_half)
         ctx.features_upsampled = feats
 
-        # 阶段6：合成 + formant 后处理
-        return self._stage_synthesize_and_postprocess(ctx, feats, pitch, pitchf, factor)
+        # 阶段6：合成（formant 后处理移到引擎层阶段7a）
+        return self._stage_synthesize(ctx, feats, pitch, pitchf)
 
     # ── 阶段3：HuBERT 特征提取 ──
 
@@ -163,30 +167,25 @@ class InferencePipeline:
         ctx.hubert_features = feats
         return feats
 
-    # ── 阶段4+5：F0 提取 + 合成预处理 ──
+    # ── 阶段4：F0 原始提取 ──
 
-    def _stage_process_f0(self, ctx: InferenceContext):
-        """阶段4+5：F0 提取 + 合成预处理（映射+滤波+离散化）+ 滚动缓存更新。
+    def _stage_extract_f0_raw(self, ctx: InferenceContext) -> None:
+        """阶段4：F0 原始提取 + 缓存更新。
 
-        update_realtime_pitch_cache 内部完成：
-        - 阶段4：从 16k 缓冲区提取原始 F0 + confidence
-        - 阶段5：音域映射（半音尺度）→ 因果中值滤波 → 离散化
-        - F0 滚动缓存左移 + 写入新帧
+        只调用 extract_raw 获取原始 (f0, confidence)，写入缓存。
+        不做后处理（音域映射/中值滤波/离散化），后处理在阶段5完成。
+        结构上与阶段3（HuBERT）独立，预留 CUDA Stream 并行接口。
 
-        Returns:
-            (pitch, pitchf): 离散 F0 (1, p_len)、连续 F0 (1, p_len)
-            use_f0=0 时返回 (None, None)
+        use_f0=0 时直接返回，不做任何操作。
         """
         state = self.state
         if state.use_f0 == 0:
-            return None, None
+            return
 
-        cache_pitch, cache_pitchf, cache_confidence = update_realtime_pitch_cache(
+        f0_raw, confidence_raw = update_realtime_pitch_cache_raw(
             state.input_wav_16k,
             ctx.block_frame_16k,
             ctx.p_len,
-            state.return_length,
-            state.return_length2,
             ctx.config.f0_method,
             state.pitch_cache,
             state.pitchf_cache,
@@ -196,30 +195,63 @@ class InferencePipeline:
             state.inference_cache,
             config=ctx.config,
         )
-        ctx.pitch_discrete = cache_pitch
-        ctx.pitchf_continuous = cache_pitchf
-        return cache_pitch, cache_pitchf
+        ctx.f0_raw = f0_raw
+        ctx.confidence_raw = confidence_raw
 
-    # ── 阶段6：合成 + formant 后处理 ──
+    # ── 阶段5：F0 后处理（音域映射 + 中值滤波 + 离散化）──
 
-    def _stage_synthesize_and_postprocess(
+    def _stage_postprocess_f0(self, ctx: InferenceContext):
+        """阶段5：F0 后处理（音域映射 + 中值滤波 + 离散化）。
+
+        从 ctx 读取阶段4提取的原始 F0，调用 postprocess_f0 做后处理。
+        后处理后的离散 F0 写入 cache_pitch 的最后 p_len 帧。
+        pitchf 乘以 return_length2/return_length 做 formant 缩放。
+
+        Returns:
+            (pitch, pitchf): 离散 F0 (1, p_len)、连续 F0 (1, p_len)
+            use_f0=0 时返回 (None, None)
+        """
+        state = self.state
+        if state.use_f0 == 0:
+            return None, None
+
+        pitch, pitchf, confidence = postprocess_f0(
+            ctx.f0_raw.squeeze(0),
+            state.device,
+            confidence=ctx.confidence_raw.squeeze(0),
+            config=ctx.config,
+        )
+        # formant 缩放（pitchf 需要乘以 return_length2 / return_length）
+        pitchf = pitchf * state.return_length2 / state.return_length
+
+        # 把后处理后的离散 F0 写入 cache_pitch 的最后 p_len 帧
+        state.pitch_cache[-ctx.p_len:] = pitch
+
+        ctx.f0_mapped = pitchf
+        ctx.pitch_discrete = pitch[None, :]
+        ctx.pitchf_continuous = pitchf[None, :]
+        return pitch[None, :], pitchf[None, :]
+
+    # ── 阶段6：合成 ──
+
+    def _stage_synthesize(
         self,
         ctx: InferenceContext,
         feats: torch.Tensor,
         pitch,
         pitchf,
-        factor: float,
     ) -> torch.Tensor:
-        """阶段6：合成器推理 + formant 重采样后处理。
+        """阶段6：合成器推理。
+
+        formant 重采样已移到引擎层阶段7a，这里只返回合成器原始输出。
 
         Args:
             feats: 上采样后的特征 (1, p_len, C)，100fps
             pitch: 离散 F0 (1, p_len)，use_f0=0 时为 None
             pitchf: 连续 F0 (1, p_len)，use_f0=0 时为 None
-            factor: formant 缩放因子（2^(formant/12)）
 
         Returns:
-            合成 + 后处理后的音频张量（target_sr 采样率）
+            合成音频张量（target_sr 采样率，未做 formant 后处理）
         """
         state = self.state
 
@@ -236,13 +268,5 @@ class InferencePipeline:
         )
         infered_audio = infered_audio.squeeze(1).float()
         ctx.synthesized_audio = infered_audio
-
-        # formant 重采样后处理（如果需要）
-        upp_res = int(math.floor(factor * state.target_sr // 100))
-        if upp_res != state.target_sr // 100:
-            infered_audio = apply_formant_resample(
-                infered_audio[:, : state.return_length * upp_res],
-                factor, state.target_sr, state.resample_kernel, state.device,
-            )
 
         return infered_audio.squeeze()

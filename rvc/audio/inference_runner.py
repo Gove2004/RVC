@@ -16,6 +16,7 @@
 RealtimeEngine 保留对外接口，内部委托给本组件处理推理逻辑。
 """
 import logging
+import math
 import queue
 import time
 
@@ -27,6 +28,7 @@ from torchaudio.transforms import Resample as TatResample
 from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from rvc.audio.effects import AudioProcessor
 from rvc.audio.output_router import route_secondary_output, write_main_output
+from rvc.inference.synthesis import apply_formant_resample
 
 logger = logging.getLogger(__name__)
 
@@ -235,12 +237,18 @@ class InferenceRunner:
             # 阶段3-6：HuBERT → F0 → 合成预处理 → 合成（委托给 pipeline）
             infer = self._stage_inference()
 
-            # 阶段7：输出处理（RMS 匹配 + SOLA 拼接）
+            # 阶段7a：formant 重采样（从 pipeline 层移到引擎层）
+            infer = self._stage_formant(infer)
+            ctx.formanted_audio = infer
+
+            # 阶段7b+7c：RMS 匹配 + SOLA 拼接
             ref = self.input_wav[self.extra_samples:]
             chunk = self.processor.process_output(infer, ref, p_rms_mix, self.function == "vc")
+            ctx.final_output = chunk
 
             # 阶段8：硬件输出（写入 outdata）
             write_main_output(chunk, outdata, self.channels)
+            ctx.output_np = outdata
 
         self.infer_ms = (time.perf_counter() - t0) * 1000
 
@@ -317,3 +325,32 @@ class InferenceRunner:
             infer = F.pad(infer, (0, expected - infer.shape[0]))
 
         return infer
+
+    # ── 阶段7a：formant 重采样 ──
+
+    def _stage_formant(self, infer: torch.Tensor) -> torch.Tensor:
+        """阶段7a：formant 共振峰偏移（重采样实现）。
+
+        从 pipeline 层移到引擎层，和 RMS/SOLA 统一在输出处理阶段。
+        formant=0 时直接返回，不做重采样。
+
+        Args:
+            infer: 合成器输出音频（target_sr 采样率）
+
+        Returns:
+            formant 处理后的音频
+        """
+        formant = self.runtime_params.formant
+        if formant == 0:
+            return infer
+
+        factor = pow(2, formant / 12)
+        target_sr = self.state.target_sr
+        upp_res = int(math.floor(factor * target_sr // 100))
+        if upp_res == target_sr // 100:
+            return infer
+
+        return apply_formant_resample(
+            infer[:, : self.state.return_length * upp_res],
+            factor, target_sr, self.state.resample_kernel, self.state.device,
+        ).squeeze()
