@@ -14,8 +14,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rvc.audio.realtime_mix import apply_rms_mix
-from rvc.audio.sola import apply_sola
+from rvc.streaming.mix import apply_rms_mix
+from rvc.streaming.alignment import apply_sola
 
 logger = logging.getLogger(__name__)
 

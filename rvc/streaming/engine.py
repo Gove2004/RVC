@@ -32,9 +32,9 @@ import torch
 
 
 
-from rvc.audio.inference_runner import InferenceRunner
+from rvc.streaming.runner import InferenceRunner
 
-from rvc.audio.stream_manager import AudioStreamManager
+from rvc.streaming.stream import AudioStreamManager
 
 from rvc.core.config import InferenceParams
 

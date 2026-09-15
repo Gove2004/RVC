@@ -1,6 +1,6 @@
 import torch
 
-from rvc.audio.mel import mel_filter_bank
+from rvc.train.mel import mel_filter_bank
 
 MAX_WAV_VALUE = 32768.0
 

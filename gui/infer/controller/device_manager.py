@@ -1,6 +1,6 @@
 """设备管理器 — 负责音频设备的枚举和选择"""
 from typing import List
-from rvc.audio import get_audio_devices
+from rvc.io.devices import get_audio_devices
 
 class DeviceManager:
     """管理音频设备的加载和选择"""

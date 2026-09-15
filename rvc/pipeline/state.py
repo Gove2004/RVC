@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 if TYPE_CHECKING:
-    from rvc.audio.effects import AudioProcessor
+    from rvc.streaming.loudness import AudioProcessor
 
 
 @dataclass

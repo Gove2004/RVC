@@ -307,7 +307,7 @@ class OfflineWorker(QThread):
 
     def _do_run(self):
 
-        from rvc.audio.realtime_engine import RealtimeEngine
+        from rvc.streaming.engine import RealtimeEngine
 
 
 
