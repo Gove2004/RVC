@@ -50,7 +50,7 @@ def build_group(win) -> QGroupBox:
 
 
 def _run_inspect(win):
-    from rvc.train.ckpt_utils import inspect_model
+    from rvc.train.checkpoint import inspect_model
 
     path = win.inspect_path.text().strip()
     if not path:
@@ -80,7 +80,7 @@ def _on_inspect_done(win, success, result):
 
 
 def _run_rename_zip(win):
-    from rvc.train.ckpt_utils import change_archive_name
+    from rvc.train.checkpoint import change_archive_name
 
     path = win.inspect_path.text().strip()
     new_name = win.rename_edit.text().strip()

@@ -13,7 +13,7 @@ from rvc.core.config import TrainConfig
 from rvc.nn import commons
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
 from rvc.models.synthesizer_model import SynthesizerTrnMsNSFsid
-from rvc.train.ckpt_utils import (
+from rvc.train.checkpoint import (
     checkpoints_dir,
     exported_epoch,
     export_model,

@@ -586,8 +586,8 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
 
 # ── 4. 参数向导 ──────────────────────────────────────────────────────
 def _detect_ckpt_epoch(exp_dir: Path) -> int:
-    from rvc.train.ckpt_utils import checkpoints_dir as _ckpt_dir
-    from rvc.train.ckpt_utils import checkpoint_epoch, latest_checkpoint_path
+    from rvc.train.checkpoint import checkpoints_dir as _ckpt_dir
+    from rvc.train.checkpoint import checkpoint_epoch, latest_checkpoint_path
 
     directory = _ckpt_dir(exp_dir)
     g = latest_checkpoint_path(str(directory), "G") or latest_checkpoint_path(str(exp_dir), "G")
