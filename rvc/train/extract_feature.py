@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from rvc.audio.loader import load_audio
+from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
 
 

@@ -412,7 +412,7 @@ def _probe_ffmpeg(log: TrainLogger) -> str:
         # 防御：把 loader 硬编码的 Windows exe 指空，让它报清晰的 FileNotFoundError
         # 而不是在 Linux 上执行 .exe 报 PermissionError
         try:
-            import rvc.audio.loader as _loader
+            import rvc.io.audio_file as _loader
 
             _loader.FFMPEG_EXE = Path("")
         except Exception:
@@ -434,10 +434,10 @@ def _probe_ffmpeg(log: TrainLogger) -> str:
     log.log(f"ffmpeg      : {chosen}（来自 {source}）")
     if Path(chosen).resolve() != local_exe.resolve():
         try:
-            import rvc.audio.loader as _loader
+            import rvc.io.audio_file as _loader
 
             _loader.FFMPEG_EXE = Path(chosen)  # 函数体内是全局查找，改模块属性即生效
-            log.log("             → 已重定向 rvc.audio.loader 的 ffmpeg 路径")
+            log.log("             → 已重定向 rvc.io.audio_file 的 ffmpeg 路径")
         except Exception as exc:
             log.log(f"重定向 ffmpeg 路径失败（忽略）: {exc}", "WARN")
     return chosen
@@ -552,7 +552,7 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
     log.log(f"素材目录    : {input_dir.resolve()}")
     log.log(f"音频文件    : {len(files)} 个，共 {_human_size(total_bytes)}")
 
-    from rvc.audio.wav_io import read_audio_info
+    from rvc.io.wav_file import read_audio_info
 
     limit = 300
     sample = files[:limit]

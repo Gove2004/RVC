@@ -126,7 +126,7 @@ def read_audio_info(path: str | Path, ffmpeg_path: str | None = None) -> dict:
 
     # 非 WAV：用 ffmpeg 解析
     if ffmpeg_path is None:
-        from rvc.audio.loader import _ffmpeg
+        from rvc.io.audio_file import _ffmpeg
         ffmpeg_path = str(_ffmpeg())
 
     result = subprocess.run(

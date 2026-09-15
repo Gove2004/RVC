@@ -29,17 +29,17 @@ __all__ = [
 ]
 
 _MODULE_MAP = {
-    "load_audio": "rvc.audio.loader",
-    "write_wav": "rvc.audio.wav_io",
-    "read_wav_info": "rvc.audio.wav_io",
-    "read_audio_info": "rvc.audio.wav_io",
+    "load_audio": "rvc.io.audio_file",
+    "write_wav": "rvc.io.wav_file",
+    "read_wav_info": "rvc.io.wav_file",
+    "read_audio_info": "rvc.io.wav_file",
     "RealtimeEngine": "rvc.audio.realtime_engine",
     "InferenceRunner": "rvc.audio.inference_runner",
     "AudioStreamManager": "rvc.audio.stream_manager",
     "AudioProcessor": "rvc.audio.effects",
     "RmsMixEffect": "rvc.audio.effects",
     "SolaEffect": "rvc.audio.effects",
-    "get_audio_devices": "rvc.audio.device_query",
+    "get_audio_devices": "rvc.io.devices",
 }
 
 

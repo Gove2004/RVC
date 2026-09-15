@@ -431,7 +431,7 @@ class RealtimeEngine:
 
         """加载音频并重采样到目标采样率（float32, 单声道）。"""
 
-        from rvc.audio.loader import load_audio
+        from rvc.io.audio_file import load_audio
 
         wav, _ = load_audio(input_path, tgt_sr)
 
@@ -477,7 +477,7 @@ class RealtimeEngine:
 
         """峰值归一化（防削波）后写出 wav。"""
 
-        from rvc.audio.wav_io import write_wav
+        from rvc.io.wav_file import write_wav
 
 
 
