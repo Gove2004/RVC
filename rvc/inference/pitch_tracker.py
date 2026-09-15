@@ -1,5 +1,5 @@
 """实时 pitch 跟踪与缓存。"""
-from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import torch
 
 from rvc.inference.f0_extractor import create_f0_extractor

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import torch
 
-from rvc.audio.constants import HUBERT_FRAME_SIZE
+from rvc.core.constants import HUBERT_FRAME_SIZE
 from rvc.core.config import InferenceParams
 from rvc.inference.engine_state import EngineState
 from rvc.inference.inference_context import InferenceContext

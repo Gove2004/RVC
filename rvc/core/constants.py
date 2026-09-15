@@ -1,0 +1,4 @@
+"""音频常量 — HuBERT 采样率与帧长，跨层共享。"""
+
+HUBERT_SAMPLE_RATE = 16000
+HUBERT_FRAME_SIZE = 160

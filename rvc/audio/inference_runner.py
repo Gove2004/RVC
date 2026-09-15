@@ -33,7 +33,7 @@ import torch
 import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from rvc.audio.output_router import route_secondary_output, write_main_output
 from rvc.inference.synthesis import apply_formant_resample
 

@@ -1,5 +1,5 @@
 """RMVPE 模型 — F0 提取推理接口"""
-from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import logging
 
 import numpy as np
