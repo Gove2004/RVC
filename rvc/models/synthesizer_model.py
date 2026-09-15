@@ -8,9 +8,9 @@ import torch
 from torch import nn
 
 from rvc.nn import commons
-from rvc.synthesizer.encoder import TextEncoder, PosteriorEncoder
-from rvc.synthesizer.decoder import Generator, GeneratorNSF
-from rvc.synthesizer.flow import ResidualCouplingBlock
+from rvc.models.synthesizer_encoder import TextEncoder, PosteriorEncoder
+from rvc.models.synthesizer_decoder import Generator, GeneratorNSF
+from rvc.models.synthesizer_flow import ResidualCouplingBlock
 
 sr2sr = {
     "32k": 32000,

@@ -10,6 +10,6 @@ __all__ = ["Config", "config_path", "train_config_path"]
 
 def __getattr__(name):
     if name == "Config":
-        from rvc.runtime.device_config import Config
+        from rvc.runtime.device import Config
         return Config
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
