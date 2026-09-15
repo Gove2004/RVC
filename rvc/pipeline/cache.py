@@ -96,7 +96,7 @@ class InferenceCache:
 
     def clear_synthesizer_cuda_graphs(self) -> None:
         """清除所有缓存的 synthesizer 的 CUDA Graph（公共方法，避免外部访问私有属性）。"""
-        from rvc.inference.cuda_graph import clear_cuda_graph_cache
+        from rvc.pipeline.cuda_graph import clear_cuda_graph_cache
         for syn_bundle in self._synthesizer.values():
             if hasattr(syn_bundle, 'synthesizer'):
                 clear_cuda_graph_cache(syn_bundle.synthesizer)

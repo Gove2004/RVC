@@ -2,7 +2,7 @@
 from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import torch
 
-from rvc.inference.f0_extractor import create_f0_extractor
+from rvc.pipeline.pitch.extractor import create_f0_extractor
 
 # 实时 pitch 缓存长度：必须 ≥ 最大可能 p_len（16k 缓冲总帧数）。
 # p_len = 总时长(extra_time + block + 交叉淡化 + SOLA搜索) × 100 帧/秒；

@@ -13,10 +13,10 @@ import os
 from dataclasses import dataclass
 
 from rvc.core.errors import ModelLoadError
-from rvc.inference.model_loader import SynthesizerLoader
+from rvc.pipeline.loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
-from rvc.inference.cuda_graph import clear_cuda_graph_cache
-from rvc.inference.inference_cache import default_inference_cache
+from rvc.pipeline.cuda_graph import clear_cuda_graph_cache
+from rvc.pipeline.cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class ModelSessionManager:
             method: "rmvpe" 或 "fcpe"
             config: InferenceParams（含实验参数），None 时用默认值
         """
-        from rvc.inference.f0_extractor import create_f0_extractor
+        from rvc.pipeline.pitch.extractor import create_f0_extractor
         from rvc.core.config import InferenceParams
         if config is None:
             config = InferenceParams()

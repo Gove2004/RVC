@@ -17,20 +17,20 @@ import torch
 
 from rvc.core.constants import HUBERT_FRAME_SIZE
 from rvc.core.config import InferenceParams
-from rvc.inference.engine_state import EngineState
-from rvc.inference.inference_context import InferenceContext
-from rvc.inference.inference_cache import default_inference_cache
-from rvc.inference.feature_processing import extract_hubert_features, upsample_features
+from rvc.pipeline.state import EngineState
+from rvc.pipeline.context import InferenceContext
+from rvc.pipeline.cache import default_inference_cache
+from rvc.pipeline.features import extract_hubert_features, upsample_features
 
 
 def _is_cuda(device) -> bool:
     """判断设备是否为 CUDA（用于决定是否启用 Stream 并行）。"""
     return str(device).startswith("cuda")
 
-from rvc.inference.f0_extractor import postprocess_f0
-from rvc.inference.model_session import ModelSessionManager
-from rvc.inference.pitch_tracker import create_pitch_cache, update_realtime_pitch_cache_raw
-from rvc.inference.synthesis import cached_long_tensor, infer_synth_audio
+from rvc.pipeline.pitch.extractor import postprocess_f0
+from rvc.pipeline.registry import ModelSessionManager
+from rvc.pipeline.pitch.tracker import create_pitch_cache, update_realtime_pitch_cache_raw
+from rvc.pipeline.synthesis import cached_long_tensor, infer_synth_audio
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class InferencePipeline:
 
     @property
     def target_sr(self) -> int:
-        return self.state.target_sr
+        return self.state.model_sr
 
     @property
     def use_f0(self) -> int:
@@ -107,7 +107,7 @@ class InferencePipeline:
         session = manager.load(self.pth_path, hubert_variant=self.hubert_variant)
         self.state.hubert_model = session.hubert
         self.state.synthesizer = session.synthesizer
-        self.state.target_sr = session.target_sr
+        self.state.model_sr = session.target_sr
         self.state.use_f0 = session.use_f0
 
     def reset_pitch_cache(self) -> None:
@@ -258,7 +258,7 @@ class InferencePipeline:
         # F0 提取器缓存：method 变化时重建，否则跨块复用
         method = ctx.config.f0.method
         if state.f0_extractor is None or state.f0_extractor_method != method:
-            from rvc.inference.f0_extractor import create_f0_extractor
+            from rvc.pipeline.pitch.extractor import create_f0_extractor
             state.f0_extractor = create_f0_extractor(
                 method, state.device, state.is_half, state.inference_cache, config=ctx.config,
             )

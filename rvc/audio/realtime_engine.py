@@ -161,7 +161,7 @@ class RealtimeEngine:
 
             return self.pipeline.target_sr
 
-        from rvc.inference.pipeline import InferencePipeline
+        from rvc.pipeline.pipeline import InferencePipeline
 
         try:
 
@@ -293,7 +293,7 @@ class RealtimeEngine:
 
         self._stream_mgr.start_secondary_output(
 
-            dev_idx, self._runner.state.target_sr, self._runner.state.channels, self._runner.state.block_samples
+            dev_idx, self._runner.state.work_sr, self._runner.state.channels, self._runner.state.block_samples
 
         )
 

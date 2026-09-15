@@ -2,7 +2,7 @@
 import torch
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.inference.cuda_graph import run_cuda_graph
+from rvc.pipeline.cuda_graph import run_cuda_graph
 
 
 def cached_long_tensor(cache: dict, value: int, device: str) -> torch.Tensor:

@@ -35,7 +35,7 @@ from torchaudio.transforms import Resample as TatResample
 
 from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from rvc.audio.output_router import route_secondary_output, write_main_output
-from rvc.inference.synthesis import apply_formant_resample
+from rvc.pipeline.synthesis import apply_formant_resample
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +72,8 @@ class InferenceRunner:
             sr_model: 模型目标采样率
         """
         state = self.state
-        state.target_sr = sr
-        state.sr_model = sr_model
+        state.work_sr = sr
+        state.model_sr = sr_model
         state.channels = channels
         zc = sr // 100
         state.hz_centis = zc
@@ -326,7 +326,7 @@ class InferenceRunner:
         formant = self.runtime_params.voice.formant
         if formant != 0:
             factor = ctx.formant_factor
-            target_sr = state.target_sr
+            target_sr = state.work_sr
             upp_res = int(math.floor(factor * target_sr // 100))
             if upp_res != target_sr // 100:
                 infer = apply_formant_resample(

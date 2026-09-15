@@ -1,18 +1,24 @@
-"""引擎跨块持续状态 — 启动时创建，关闭时销毁，每块推理时复用。
+"""推理管线跨块持续状态 — 启动时创建，关闭时销毁，每块推理时复用。
 
 所有需要在块与块之间保持的数据都放这里：
-- 模型引用（load 后填充）
+- 模型引用（load 后注入）
 - 48k / 16k 滚动缓冲区
 - F0 滚动缓存
 - 合成器缓存（resample_kernel / long_tensor）
 - 输出拼接缓存（sola_buffer / AudioProcessor）
 - F0 提取器实例
+
+单块临时状态放在 InferenceContext，不在这里。
 """
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import torch
 
-from rvc.audio.effects import AudioProcessor
+if TYPE_CHECKING:
+    from rvc.audio.effects import AudioProcessor
 
 
 @dataclass
@@ -20,19 +26,23 @@ class EngineState:
     """跨块持续状态。
 
     由 InferencePipeline 创建并持有，InferenceRunner 共享引用，每块推理时使用。
-    单块临时状态放在 InferenceContext，不在这里。
+    所有字段均为正式 dataclass 字段，可被 fields()/asdict()/replace() 正确处理。
     """
 
-    # ── 模型引用（load 后填充）──
-    hubert_model = None
-    synthesizer = None
-    target_sr: int | None = None  # 工作采样率（init_processing 后填充）
-    sr_model: int | None = None  # 模型目标采样率（init_processing 后填充）
+    # ── 模型引用（load 后注入）──
+    hubert_model: Any = None
+    synthesizer: Any = None
+    f0_extractor: Any = None
+    f0_extractor_method: str = ""
+
+    # ── 采样率（语义明确，不再互相覆盖）──
+    model_sr: int | None = None   # 模型原生采样率，load() 时设置，只读
+    work_sr: int | None = None    # 工作采样率，setup() 时设置
     use_f0: int = 1
     device: str = "cuda"
     is_half: bool = True
-    sid: int = 0  # 说话人 ID（从模型卡牌获取）
-    function: str = "vc"  # 功能类型（"vc" / 其他）
+    sid: int = 0
+    function: str = "vc"
 
     # ── 48kHz 滚动缓冲区（引擎层）──
     input_wav_48k: torch.Tensor | None = None
@@ -44,7 +54,7 @@ class EngineState:
     extra_samples: int = 0
     skip_head: int = 0
     return_length: int = 0
-    return_length2: int = 0  # formant 调整后的返回长度
+    return_length2: int = 0
     hz_centis: int = 0
     channels: int = 1
 
@@ -52,12 +62,11 @@ class EngineState:
     input_wav_16k: torch.Tensor | None = None
     input_wav_16k_work: torch.Tensor | None = None
     block_samples_16k: int = 0
-    resampler_48k_to_16k = None
-    resampler_model_to_48k = None
+    resampler_48k_to_16k: Any = None
+    resampler_model_to_48k: Any = None
 
     # ── 输入传输（pinned memory，CPU→GPU 快速传输）──
     in_pin: torch.Tensor | None = None
-    # 预取缓冲区（方案 C：离线推理时提前把下一块输入拷贝到 GPU，和当前块计算并行）
     prefetch_gpu: torch.Tensor | None = None
     prefetch_valid: bool = False
 
@@ -70,16 +79,12 @@ class EngineState:
     resample_kernel: dict = field(default_factory=dict)
     long_tensor_cache: dict = field(default_factory=dict)
 
-    # ── 输出拼接缓存（effects）──
+    # ── 输出拼接缓存（effects / SOLA）──
     sola_buffer: torch.Tensor | None = None
     audio_processor: AudioProcessor = field(default_factory=AudioProcessor)
 
-    # ── F0 提取器实例（带模型权重，跨块复用）──
-    f0_extractor = None
-    f0_extractor_method: str = ""
-
-    # ── inference_cache（模型/F0 提取器缓存）──
-    inference_cache = None
+    # ── 模型缓存（ModelCache 实例）──
+    inference_cache: Any = None
 
     # ── 性能统计 ──
     infer_ms: float = 0.0
