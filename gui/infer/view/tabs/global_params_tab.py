@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QFileDialog
 
-from gui.infer.view.widgets import _slrow
+from gui.infer.view.widgets import _create_slider_row
 from gui.styles.components import ButtonStyles
 from pathlib import Path
 from rvc.runtime.paths import MODELS_DIR
@@ -40,20 +40,20 @@ def build_global_params_tab(win):
     r += 1
 
     # ── 采样与融合参数 ──
-    win.block_time_slider = _slrow(win, "block_time_slider", 0.05, 0.50, 0.01, 0.25)
+    win.block_time_slider = _create_slider_row(win, "block_time_slider", 0.05, 0.50, 0.01, 0.25)
     g.addWidget(QLabel("采样长度"), r, 0); g.addWidget(win.block_time_slider, r, 1); g.addWidget(win.block_time_label, r, 2); r += 1
 
-    win.crossfade_slider = _slrow(win, "crossfade_slider", 0.01, 0.05, 0.01, 0.05)
+    win.crossfade_slider = _create_slider_row(win, "crossfade_slider", 0.01, 0.05, 0.01, 0.05)
     g.addWidget(QLabel("淡入长度"), r, 0); g.addWidget(win.crossfade_slider, r, 1); g.addWidget(win.crossfade_label, r, 2); r += 1
 
-    win.extra_time_slider = _slrow(win, "extra_time_slider", 0.10, 5.0, 0.10, 2.5)
+    win.extra_time_slider = _create_slider_row(win, "extra_time_slider", 0.10, 5.0, 0.10, 2.5)
     g.addWidget(QLabel("额外上下文"), r, 0); g.addWidget(win.extra_time_slider, r, 1); g.addWidget(win.extra_time_label, r, 2); r += 1
 
-    win.rms_mix_slider = _slrow(win, "rms_mix_slider", 0.0, 1.0, 0.05, 0.0)
+    win.rms_mix_slider = _create_slider_row(win, "rms_mix_slider", 0.0, 1.0, 0.05, 0.0)
     g.addWidget(QLabel("响度因子"), r, 0); g.addWidget(win.rms_mix_slider, r, 1); g.addWidget(win.rms_mix_label, r, 2); r += 1
 
     # 性别因子（formant）：共振峰缩放，-2.5~+2.5，0=不变
-    win.formant_slider = _slrow(win, "formant_slider", -2.5, 2.5, 0.05, 0.0, fmt="+.2f")
+    win.formant_slider = _create_slider_row(win, "formant_slider", -2.5, 2.5, 0.05, 0.0, fmt="+.2f")
     g.addWidget(QLabel("性别因子"), r, 0); g.addWidget(win.formant_slider, r, 1); g.addWidget(win.formant_label, r, 2); r += 1
 
     return w
@@ -63,6 +63,9 @@ def _browse_model(win):
     path, _ = QFileDialog.getOpenFileName(win, "选择模型", str(MODELS_DIR), "模型 (*.pth)")
     if path:
         win.model_path = path
+        # 同步更新 runtime_params（ATTR 类型无控件信号，需手动同步）
+        if hasattr(win, 'runtime_params'):
+            win.runtime_params.model_path = path
         # 按钮上只显示文件名，完整路径存储在 win.model_path
         win.model_path_btn.setText(Path(path).name)
         win.model_path_btn.setToolTip(path)

@@ -36,7 +36,7 @@ from rvc.audio.inference_runner import InferenceRunner
 
 from rvc.audio.stream_manager import AudioStreamManager
 
-from rvc.core.config import InferenceConfig
+from rvc.core.config import InferenceParams
 
 from rvc.runtime import Config
 
@@ -83,6 +83,7 @@ class RealtimeEngine:
         self.infer_ms = 0.0
 
         self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
+        self._debug_block_count = 0  # 调试：块计数器
 
 
 
@@ -93,6 +94,10 @@ class RealtimeEngine:
         self._cfg = Config()  # 单例缓存，避免多处重复获取
 
         self.pth_path = ""
+
+        self.sr_model = 0  # 模型目标采样率（setup 时赋值）
+
+        self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
 
 
 
@@ -196,7 +201,7 @@ class RealtimeEngine:
 
         self.sr_model = self.pipeline.target_sr
 
-        sr = self.sr_model if sr_type == "sr_model" else self.sr_dev
+        sr = self.pipeline.target_sr if sr_type == "sr_model" else self.sr_dev
 
 
 
@@ -210,7 +215,7 @@ class RealtimeEngine:
 
         # 推理运行器初始化（实时模式：预热后重置缓冲区）
 
-        self._create_runner(sr, channels, block_t, cf_t, extra_t, self.sr_model, reset_buffers=True)
+        self._create_runner(sr, channels, block_t, cf_t, extra_t, self.pipeline.target_sr, reset_buffers=True)
 
 
 
@@ -266,7 +271,11 @@ class RealtimeEngine:
 
         self._runner.reset_error_state()
 
-        self._runner.warmup(2)
+        # 预热 30 次：2 次只够捕获 CUDA Graph，不足以让 GPU 升频/缓存预热。
+        # 笔记本 GPU 冷启动时频率低、cuDNN 未调优、L2 缓存为空，
+        # 首次实际推理会卡顿；停止重开后 GPU 仍热所以流畅。
+        # 30 次约 300-600ms，换来首次启动即流畅。
+        self._runner.warmup(30)
 
         if reset_buffers:
 
@@ -338,6 +347,8 @@ class RealtimeEngine:
 
             self.infer_ms = self._runner.state.infer_ms
 
+            # 调试：记录前 50 块的推理时间
+
 
 
             # 副输出路由
@@ -358,6 +369,9 @@ class RealtimeEngine:
 
             should_stop = self._runner.handle_error(e)
 
+            self._debug_block_count += 1
+            logger.error("[DEBUG] block=%d EXCEPTION infer_ms=%.2f error=%s",
+                self._debug_block_count, self.infer_ms, e, exc_info=True)
             logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
 
             outdata[:] = 0
@@ -378,40 +392,29 @@ class RealtimeEngine:
 
 
 
-    def process_file(self, task, *, block_t=0.25, cf_t=0.05, extra_t=2.5,
-
-                     pad_sec=3.0, progress_cb=None):
-
+    def process_file(self, task, *, pad_sec=3.0, progress_cb=None):
         """离线文件流式推理：「模拟播放→转换→写录」。
 
-
-
         把整段音频当作持续输入流，逐块走实时 process_block（RMS/SOLA/缓存轮换），
-
         与实时完全同一算法。显存封顶，音质 = 实时音质。
-
+        块/交叉淡化/额外上下文参数从 task（InferenceParams）中读取，与实时一致。
         """
-
         sr_model = self.pipeline.target_sr
-
         tgt_sr = sr_model
-
         wav = self._load_audio_at_sr(task.input_path, tgt_sr)
 
-
-
-        self.runtime_params = task
-
+        # 原地更新 runtime_params 字段（不替换对象引用，已创建的 runner 自动生效）
+        self.runtime_params.update_from(task)
         if self.pipeline:
-
             self.pipeline.reset_pitch_cache()
-
         self.function = "vc"
 
-
+        # 从 task 中读取缓冲区参数，与实时 setup 保持一致
+        block_t = task.buffer.block_time
+        cf_t = task.buffer.crossfade_time
+        extra_t = task.buffer.extra_time
 
         # 创建推理运行器（离线模式：不重置缓冲区，避免清除 pad 上下文）
-
         self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
 
 

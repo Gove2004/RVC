@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import torch
 
 from rvc.audio.constants import HUBERT_FRAME_SIZE
-from rvc.core.config import InferenceConfig
+from rvc.core.config import InferenceParams
 from rvc.inference.engine_state import EngineState
 from rvc.inference.inference_context import InferenceContext
 from rvc.inference.inference_cache import default_inference_cache
@@ -116,7 +116,7 @@ class InferencePipeline:
 
     # ── 阶段2：特征提取（HuBERT + F0原始提取，CUDA Stream 并行） ──
 
-    def extract_features(self, input_wav: torch.Tensor, config: InferenceConfig,
+    def extract_features(self, input_wav: torch.Tensor, config: InferenceParams,
                          block_frame_16k: int, skip_head: int, return_length: int) -> torch.Tensor:
         """阶段2：特征提取 — formant因子 + HuBERT + F0原始提取（并行）。
 
@@ -149,7 +149,7 @@ class InferencePipeline:
         state.return_length = return_length
 
         # formant 因子计算（存到 ctx，输出侧复用，避免重复计算）
-        formant_factor = config.formant
+        formant_factor = config.voice.formant
         factor = pow(2, formant_factor / 12)
         ctx.formant_factor = factor
         state.return_length2 = int(math.ceil(return_length * factor))
@@ -256,7 +256,7 @@ class InferencePipeline:
             return
 
         # F0 提取器缓存：method 变化时重建，否则跨块复用
-        method = ctx.config.f0_method
+        method = ctx.config.f0.method
         if state.f0_extractor is None or state.f0_extractor_method != method:
             from rvc.inference.f0_extractor import create_f0_extractor
             state.f0_extractor = create_f0_extractor(

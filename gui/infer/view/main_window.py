@@ -40,20 +40,13 @@ from PySide6.QtCore import QTimer, Qt, Signal
 
 
 
-from rvc.core.config import AppConfig
+from rvc.core.config import InferenceParams
 
 from gui.infer.controller.main_controller import InferController
 
 from gui.infer.viewmodel.param_binding import (
-
-    collect_gui_state,
-
-    apply_gui_state,
-
-    format_error_message,
-
-    gender_to_formant,
-
+    collect_params,
+    apply_params,
 )
 
 from gui.infer.view.widgets import LoadThread, _sl_value_as_float
@@ -114,7 +107,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
 
-        self._connect_runtime_param_signals()
+        self._connect_all_param_signals()
 
 
 
@@ -162,7 +155,7 @@ class MainWindow(QMainWindow):
 
         from gui.configs import load_config
 
-        from gui.infer.viewmodel.param_binding import state_from_dict
+        from gui.infer.viewmodel.param_binding import params_from_dict
 
         cfg = load_config()
 
@@ -194,14 +187,11 @@ class MainWindow(QMainWindow):
 
             }
 
-        state = state_from_dict(gui_data)
-
-        # apply_gui_state 会处理实验参数（含信号阻塞）
-
+        state = params_from_dict(gui_data)
+        # 原地更新 runtime_params 字段（不替换对象引用，engine/runner 自动生效）
+        self.runtime_params.update_from(state)
+        # apply_params 把控件值设置为 params 的值
         self.apply_gui_state(state)
-
-        # 同步配置值到 runtime_params，避免 _on_f0_method_changed 用默认值覆盖滑动条
-        self.runtime_params.__dict__.update(state.inference.__dict__)
 
         # 模型路径按钮：根据 win.model_path 更新显示文件名
 
@@ -221,13 +211,13 @@ class MainWindow(QMainWindow):
 
         from gui.configs import load_config, save_config
 
-        from gui.infer.viewmodel.param_binding import state_to_dict
+        from gui.infer.viewmodel.param_binding import params_to_dict
 
         cfg = load_config()
 
         # collect_gui_state 会从控件收集实验参数
 
-        cfg["gui"] = state_to_dict(self.collect_gui_state())
+        cfg["gui"] = params_to_dict(self.collect_gui_state())
 
         # 删除旧格式的 "experimental" 部分（已合并到 "gui.inference"）
 
@@ -413,32 +403,83 @@ class MainWindow(QMainWindow):
 
 
 
-    def _connect_runtime_param_signals(self):
+    def _connect_all_param_signals(self) -> None:
+        """统一连接所有参数控件的变化信号 → 实时更新 runtime_params。
 
-        """连接运行时参数控件的变化信号，实现引擎运行中拖动滑动条实时生效。"""
+        覆盖 BINDINGS 表中的所有控件类型（FLOAT/INT/COMBO/CHECK/RADIO_F0/RADIO_SR），
+        以及特殊控件（RangeSlider、exp_f0_threshold_slider）。
+        使用 _signals_connected 标志确保只连接一次，避免重复连接。
+        """
+        if getattr(self, '_signals_connected', False):
+            return
+        self._signals_connected = True
 
-        self.f0_rmvp_btn.toggled.connect(lambda _: self._on_f0_method_changed())
+        from gui.infer.viewmodel.param_binding import (
+            BINDINGS, FLOAT, INT, COMBO, CHECK, RADIO_F0, RADIO_SR, _set_nested,
+        )
+
+        # 1. BINDINGS 表中的所有控件
+        for path, widget, kind, _default in BINDINGS:
+            if not widget or not hasattr(self, widget):
+                continue
+            w = getattr(self, widget)
+            if kind in (FLOAT, INT):
+                # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，
+                # 所以必须读取 w.value() 获取物理值，而不是用信号参数
+                def _on_val(_v, p=path, slider=w):
+                    _set_nested(self.runtime_params, p, slider.value())
+                w.valueChanged.connect(_on_val)
+            elif kind == COMBO:
+                def _on_text(_t, p=path):
+                    _set_nested(self.runtime_params, p, _t)
+                w.currentTextChanged.connect(_on_text)
+            elif kind == CHECK:
+                def _on_check(_s, p=path):
+                    _set_nested(self.runtime_params, p, bool(_s))
+                w.stateChanged.connect(_on_check)
+            elif kind == RADIO_F0:
+                w.toggled.connect(lambda _: self._on_f0_method_changed())
+            elif kind == RADIO_SR:
+                w.toggled.connect(lambda _: self._on_sr_mode_changed())
+
+        # 2. RangeSlider（音域映射）— rangeChanged 信号
+        if hasattr(self, "exp_pitch_map_src_range"):
+            def _on_src_range(low, high):
+                self.runtime_params.voice.pitch_map_src_min = float(low)
+                self.runtime_params.voice.pitch_map_src_max = float(high)
+            self.exp_pitch_map_src_range.rangeChanged.connect(_on_src_range)
+
+        if hasattr(self, "exp_pitch_map_dst_range"):
+            def _on_dst_range(low, high):
+                self.runtime_params.voice.pitch_map_dst_min = float(low)
+                self.runtime_params.voice.pitch_map_dst_max = float(high)
+            self.exp_pitch_map_dst_range.rangeChanged.connect(_on_dst_range)
+
+        # 3. F0 阈值滑动条 — 根据当前 F0 方法更新对应字段
+        # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，必须读取 slider.value()
+        if hasattr(self, "exp_f0_threshold_slider"):
+            def _on_f0_threshold(_v, slider=self.exp_f0_threshold_slider):
+                val = slider.value()
+                if self.runtime_params.f0.method == "rmvpe":
+                    self.runtime_params.f0.rmvpe_threshold = val
+                else:
+                    self.runtime_params.f0.fcpe_confidence_threshold = val
+            self.exp_f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
+
+    def _on_sr_mode_changed(self):
+        """采样率模式切换时，更新 runtime_params.audio.sr_mode。"""
+        self.runtime_params.audio.sr_mode = "model" if self.sr_model_radio.isChecked() else "device"
 
 
 
     def _on_f0_method_changed(self):
-
-        """F0 方法切换时，更新实验功能 Tab 中的阈值滑动条。"""
-
+        """F0 方法切换时，更新 runtime_params 和阈值滑动条。"""
+        is_rmvpe = self.f0_rmvp_btn.isChecked()
+        self.runtime_params.f0.method = "rmvpe" if is_rmvpe else "fcpe"
         if hasattr(self, "exp_f0_threshold_slider") and hasattr(self, "exp_f0_threshold_name"):
-
-            is_rmvpe = self.f0_rmvp_btn.isChecked()
-
-            cfg = self.runtime_params
-
-            val = cfg.rmvpe_threshold if is_rmvpe else cfg.fcpe_confidence_threshold
-
-            self.exp_f0_threshold_slider.blockSignals(True)
-
+            params = self.runtime_params
+            val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
             self.exp_f0_threshold_slider.setValue(val)
-
-            self.exp_f0_threshold_slider.blockSignals(False)
-
             self.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
 
 
@@ -510,9 +551,14 @@ class MainWindow(QMainWindow):
 
 
     def _apply_runtime_params(self):
-        """全量同步所有 inference 参数到 runtime_params（启动时和点击开始时调用）。"""
+        """全量同步所有参数到 runtime_params（启动时和点击开始时调用）。
+
+        信号连接已实时同步，这里做一次全量原地更新确保一致性。
+        使用 update_from 原地复制字段，不替换对象引用，
+        engine/runner/pipeline 持有的引用自动生效。
+        """
         state = self.collect_gui_state()
-        self.runtime_params.__dict__.update(state.inference.__dict__)
+        self.runtime_params.update_from(state)
 
 
 
@@ -556,15 +602,15 @@ class MainWindow(QMainWindow):
 
 
 
-    def collect_gui_state(self) -> AppConfig:
+    def collect_gui_state(self) -> InferenceParams:
 
-        return collect_gui_state(self)
+        return collect_params(self)
 
 
 
-    def apply_gui_state(self, state: AppConfig) -> None:
+    def apply_gui_state(self, state: InferenceParams) -> None:
 
-        apply_gui_state(self, state)
+        apply_params(self, state)
 
 
 
@@ -686,11 +732,9 @@ class MainWindow(QMainWindow):
 
             state = self.collect_gui_state()
 
-            eng = state.engine
-
             stats = self.controller.setup_engine(
 
-                sr_mode=eng.sr_mode,
+                sr_mode=state.audio.sr_mode,
 
                 input_device_idx=self.device_manager.get_input_device_index(self.input_combo.currentIndex()),
 
@@ -698,13 +742,13 @@ class MainWindow(QMainWindow):
 
                 output2_device_idx=self.device_manager.get_output_device_index(self.output2_combo.currentIndex() - 1),
 
-                block_time=eng.block_time,
+                block_time=state.buffer.block_time,
 
-                crossfade_time=eng.crossfade_time,
+                crossfade_time=state.buffer.crossfade_time,
 
-                extra_time=eng.extra_time,
+                extra_time=state.buffer.extra_time,
 
-                enable_out2=eng.enable_out2,
+                enable_out2=state.audio.enable_out2,
 
             )
 
@@ -730,7 +774,7 @@ class MainWindow(QMainWindow):
 
         self._reset_runtime_ui()
 
-        self._show_error(format_error_message(e))
+        self._show_error(str(e))
 
 
 

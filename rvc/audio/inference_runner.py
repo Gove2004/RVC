@@ -323,7 +323,7 @@ class InferenceRunner:
         expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
 
         # formant 因子从 ctx 读取（pipeline.extract_features 中已计算并存入）
-        formant = self.runtime_params.formant
+        formant = self.runtime_params.voice.formant
         if formant != 0:
             factor = ctx.formant_factor
             target_sr = state.target_sr

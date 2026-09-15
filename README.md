@@ -11,10 +11,9 @@
 - **离线推理** — 音频文件流式转换（复用实时全链路，显存封顶，任意长不 OOM）
 - **模型训练** — 从人声音频训练自定义模型，支持 40k/48k、中断续训、云训练向导
 - **音域映射** — 半音尺度线性映射（原声音域 → 目标音域），替代固定 +12 偏移，保持音程不变不跑调；线性外推不钳制，支持超范围音高
-- **辅音保护（软阈值）** — sigmoid 渐变式清音保留，替代硬阈值，减少浊音/清音边界突变，改善短辅音咬字（过渡中心/宽度/强度可调）
 - **输入音高实时显示** — 右下角显示原始输入音高（Hz，音域映射之前），辅助调节音域映射参数
 - **双输出** — 主输出 + 可选副输出（虚拟音频设备）
-- **高级功能** — 音域映射、辅音保护软阈值等高级参数（`rvc/core/experimental.py`），始终生效无开关
+- **参数结构统一** — `InferenceParams` 分组对象（voice/f0/buffer/audio），实时/离线共用同一套参数，滑动条直接绑定参数对象，无需 collect/apply 双向搬运
 
 ## 系统要求
 
@@ -99,9 +98,7 @@ python -m venv .venv
    - **性别因子**：formant shift（-2.5 ~ +2.5，两位小数精度）
 
 3. **高级功能** — 在"高级功能" Tab 配置（始终生效）：
-   - **RMVPE/FCPE 阈值**：F0 清浊判定阈值
-   - **过渡区域**：辅音保护软阈值过渡范围（双滑块 RangeSlider）
-   - **辅音保护强度**：清音保留程度（0.0 = 全转换，1.0 = 全保留）
+   - **RMVPE/FCPE 阈值**：F0 清浊判定阈值（根据当前选择的 F0 方法自动切换）
    - **原声音域/目标音域**：半音尺度音域映射（双滑块 RangeSlider，线性外推不钳制）
 
 4. **配置设备**
@@ -119,7 +116,7 @@ python -m venv .venv
 
 1. 切换到"离线" Tab
 2. 选择输入/输出音频文件
-3. 点击"开始转换"（使用当前激活模型的所有参数）
+3. 点击"开始转换"（使用当前激活模型的所有参数，与实时推理共用同一套 InferenceParams）
 
 支持格式：wav, mp3, flac, ogg 等（通过 ffmpeg 解码）
 
@@ -183,11 +180,11 @@ gui/
   infer/                    # 推理 GUI（MVC 分层）
     view/                   # View 层（纯 UI 构建 + 信号连接）
       main_window.py        # 主窗口（系统托盘集成、引擎后台预热）
-      widgets.py            # ModelCard, LoadThread 等自定义控件
+      widgets.py            # ModelCard, LoadThread, RangeSlider 等自定义控件
       tray.py               # 系统托盘（图标/菜单/tooltip 状态）
       tabs/                 # 各功能 Tab
         audio_driver_tab.py # 设备驱动 Tab
-        experimental_tab.py # 高级功能 Tab（音域映射/辅音保护软阈值）
+        experimental_tab.py # 高级功能 Tab（音域映射/F0 阈值）
         global_params_tab.py# 参数调节 Tab（模型选择/采样/响度/性别）
         offline_tab.py      # 离线推理 Tab
     controller/             # Controller 层（业务逻辑 + 状态管理）
@@ -196,7 +193,7 @@ gui/
       device_manager.py     # 音频设备管理
       offline_manager.py    # 离线推理管理
     viewmodel/              # ViewModel 层（GUI 状态 ↔ 核心配置绑定）
-      param_binding.py      # 嵌套路径绑定（点号路径如 inference.pitch）
+      param_binding.py      # 分组路径绑定（点号路径如 voice.formant / buffer.block_time）
   train/                    # 训练 GUI（同 MVC 分层结构）
     view/
       main_window.py        # 训练窗口
@@ -212,9 +209,8 @@ gui/
       workers.py            # 训练工作线程（QThread）
 rvc/                        # 核心引擎（严禁 import gui 或 PySide6）
   core/                     # 核心配置与异常
-    config.py               # 统一配置体系（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry）
+    config.py               # 统一配置体系（InferenceParams 分组结构 + TrainConfig + OfflineParams）
     errors.py               # 统一异常体系（RVCError 基类 + 8 种具体异常）
-    experimental.py         # 实验性功能开关与参数
   audio/                    # 音频处理层
     constants.py            # 音频常量（HUBERT_SAMPLE_RATE=16000, HUBERT_FRAME_SIZE=160 等）
     realtime_engine.py      # RealtimeEngine（门面类，委托给子组件）
@@ -229,15 +225,18 @@ rvc/                        # 核心引擎（严禁 import gui 或 PySide6）
     device_query.py         # 音频设备枚举
     mel.py                  # Mel 滤波器
   inference/                # 推理管线层
-    pipeline.py             # InferencePipeline（无状态：infer 接收 InferenceConfig，只持缓存）
+    pipeline.py             # InferencePipeline（无状态：infer 接收 InferenceParams，只持缓存）
     model_session.py        # ModelSessionManager（模型生命周期：HuBERT/Synthesizer/F0 缓存）
     model_loader.py         # SynthesizerLoader（PyTorch 加载）
     f0_extractor.py         # F0Extractor ABC + RMVPEExtractor/FCPEExtractor
-    feature_processing.py   # HuBERT 特征提取、辅音保护、上采样
+    f0_utils.py             # F0 工具（hz_to_midi/midi_to_hz/apply_pitch_map/median_filter）
+    feature_processing.py   # HuBERT 特征提取、上采样
     pitch_tracker.py        # F0 提取窗口与实时 pitch cache
     synthesis.py            # Synthesizer 推理调用与 formant 重采样
     cuda_graph.py           # CUDA Graph 捕获/回放缓存（按形状 LRU）
     inference_cache.py      # InferenceCache（线程安全 LRU 模型缓存）
+    voicing.py              # 清浊判定（compute_uv_prob：sigmoid 软阈值 + confidence 修正 + 因果平滑）
+    inference_context.py    # InferenceContext（推理上下文 dataclass，热路径复用）
   models/                   # 模型层
     hubert.py               # HuBERT 加载（base/chinese）
     rmvpe/                  # RMVPE F0 提取器（模块化）
@@ -268,11 +267,11 @@ rvc/                        # 核心引擎（严禁 import gui 或 PySide6）
     losses.py               # 损失函数
     mel_processing.py       # Mel 处理
     ckpt_utils.py           # Checkpoint 工具
-tests/                      # 单元测试（unittest，无需额外依赖，1082 个测试）
-  test_*.py                 # 32+ 个测试文件，覆盖核心模块全链路
+tests/                      # 单元测试（unittest，无需额外依赖，1015 个测试）
+  test_*.py                 # 30+ 个测试文件，覆盖核心模块全链路
 assets/
   configs/                  # 配置数据
-    save_state.json         # GUI 持久化状态
+    save_state.json         # GUI 持久化状态（InferenceParams 分组格式）
     48ktrain_config.json    # 48k 训练超参数
     40ktrain_config.json    # 40k 训练超参数
   models/                   # 推理模型
@@ -292,14 +291,35 @@ logs/                       # 训练实验目录
 麦克风 → RealtimeEngine → InferenceRunner → InferencePipeline → SOLA → 输出 → 扬声器
                ↓                  ↓                  ↓
           AudioStreamManager   缓冲区轮换       HuBERT + Synthesizer
-          (设备/流管理)        16k 重采样       protect_blend（辅音保护）
+          (设备/流管理)        16k 重采样       音域映射（半音尺度线性外推）
 ```
+
+### 参数结构
+
+`InferenceParams` 是统一的推理参数对象，采用分组结构：
+
+```python
+@dataclass
+class InferenceParams:
+    voice: VoiceParams      # formant, pitch_map_src_min/max, pitch_map_dst_min/max
+    f0: F0Params            # method, rmvpe_threshold, fcpe_confidence_threshold
+    buffer: BufferParams    # block_time, crossfade_time, extra_time
+    audio: AudioParams      # sr_mode, hostapi, input_device, output_device, output2_device, enable_out2
+    rms_mix: float          # 响度混合因子
+    model_path: str         # 模型路径
+    hubert: str             # HuBERT 变体（base/chinese）
+```
+
+- 实时推理和离线推理共用同一套 `InferenceParams`
+- GUI 滑动条直接绑定参数对象的分组字段（如 `voice.formant`、`buffer.block_time`）
+- `params_from_dict` / `params_to_dict` 负责序列化/反序列化
+- `apply_params` / `collect_params` 负责 GUI 控件 ↔ 参数对象的双向同步
 
 ### 关键技术
 
 - **SOLA 算法** — 重叠相加实现无缝音频拼接，支持变速不变调
 - **音域映射** — 半音尺度（MIDI）线性映射，替代固定 +12 偏移；Hz 尺度线性映射会破坏半音音程导致跑调，半音尺度映射保持音程比例不变；线性外推不钳制，支持超范围音高
-- **辅音保护（软阈值）** — sigmoid 渐变式清音保留，替代硬阈值；使用 F0 contour 作为掩码，过渡中心/宽度可调，减少浊音/清音边界突变，改善短辅音咬字
+- **清浊判定（软阈值）** — `compute_uv_prob` 使用 sigmoid 软阈值 + confidence 修正 + 因果中值滤波/移动平均，替代硬阈值；F0 中值滤波消除孤立误判帧，清浊边界平滑减少咔哒声
 - **双采样率模式** — 模型采样率（高音质）或设备采样率（低延迟）
 - **动态精度** — 自动处理 half/float 模型，确保推理稳定
 - **延迟实测** — 基于 PortAudio 硬件时间戳（ADC 采集 → DAC 播放）实时测量端到端延迟（瞬时值 + EMA 平滑），替代不可靠的估算值
@@ -325,7 +345,7 @@ logs/                       # 训练实验目录
 ## 性能优化建议
 
 - **输入延迟**（block）：0.05 ~ 0.18 秒（平衡延迟和稳定性；可调至 0.05 以下，但过小可能不稳定）
-- **交叉淡化**（crossfade）：0.04 ~ 0.08 秒（过大增加延迟）
+- **交叉淡化**（crossfade）：0.04 ~ 0.08 秒（过大增加延迟；SOLA 缓冲上限 40ms，超过部分无效）
 - **额外推理**（extra）：0.3 ~ 2.5 秒（提供特征提取上下文；越小延迟越低；>5s 无实际收益且纯耗 GPU）
 - **延迟显示**：运行中显示硬件时间戳实测瞬时值（`outputBufferDacTime - inputBufferAdcTime`，含设备缓冲/攒块/推理全链路），EMA 0.7/0.3 平滑；数值每块实时波动属正常
 - **推理耗时 vs 延迟**：推理耗时（`infer_ms`，~30ms）只是 GPU 处理时间，不是延迟；真正的听感延迟在声卡缓冲（block_time / WASAPI 独占），调 infer_ms 不降延迟
@@ -334,11 +354,11 @@ logs/                       # 训练实验目录
 
 ## 常见问题
 
-**Q: 辅音保护强度如何调节？**
-A: 0.0 = 完全转换（音色纯但可能糊），1.0 = 完全保留原音辅音（清晰但音色不纯）。建议从 0.5 开始调整。软阈值模式始终生效，过渡区域（中心/宽度）控制清音/浊音边界的渐变范围，可减少短辅音（b/p/d/t）咬字不清。
-
 **Q: 音域映射如何调节？**
 A: 原声音域 = 你说话的音高范围（参考右下角实时显示的输入音高），目标音域 = 想要转换成的音高范围。映射在半音尺度上线性进行，保持音程不变不跑调。线性外推不钳制，超出范围的音高会按比例外推。默认原声音域 100-500Hz，目标音域 200-800Hz（约 +12 半音的等效映射）。
+
+**Q: F0 阈值如何调节？**
+A: RMVPE/FCPE 阈值控制清浊判定。阈值越高，越倾向于判定为清音（F0=0）；阈值越低，越倾向于判定为浊音。建议从默认值 0.05 开始，根据实际效果微调。选择不同的 F0 方法（RMVPE/FCPE）时，阈值会自动切换为对应方法的设置。
 
 **Q: 模型采样率和设备采样率选哪个？**
 A: 推荐"模型采样率"，保持模型原生质量。选"设备采样率"可降低重采样开销，但可能影响音质。
@@ -351,6 +371,9 @@ A: 正常——关闭窗口是"最小化到托盘"（变声不中断）。用托
 
 **Q: 首次点「开始」要等约 1 秒才出声？**
 A: 这是开流前的 CUDA Graph 预热（静音推理完成图捕获，loading 状态内），换来的是首块推理即为热状态（~30ms），不再有开头延迟虚高。停止后再开始无需等待。
+
+**Q: 副输出如何使用？**
+A: 在"设备驱动" Tab 的"副输出"下拉框选择一个音频设备（通常是虚拟音频设备如 VB-Cable），选择后副输出会自动启用。副输出和主输出同时播放变声后的音频，可用于直播/录音分流。选择"不使用"则关闭副输出。
 
 **Q: 训练需要多少数据？**
 A: 建议 10 分钟以上干净人声。背景噪声越少越好，会被自动切成 ~3.7 秒片段。
@@ -377,20 +400,24 @@ A: 先看素材真实带宽。素材 bw99（99.9% 累积能量截止频率）<16
   - `controller/` = 业务逻辑 + 状态管理（main_controller, model/device/offline manager, workers）
   - `viewmodel/` = GUI 状态 ↔ 核心配置绑定（param_binding）
 - 运行时设备/路径配置来自 `rvc.runtime`；GUI 状态持久化来自 `gui.configs`
-- 配置体系统一为 `rvc/core/config.py` 的 dataclass（InferenceConfig/EngineConfig/TrainConfig/OfflineConfig/AppConfig/ModelEntry），新增参数 = dataclass 字段 + param_binding 绑定 + Tab 控件
-- InferencePipeline 无状态化：`infer(input_wav, config: InferenceConfig, ...)`，参数每次传入，pipeline 只持缓存（pitch_cache/resample_kernel）；实时/离线统一走 `InferenceRunner.process_block()`
+- 配置体系统一为 `rvc/core/config.py` 的 dataclass：
+  - `InferenceParams`：推理参数（voice/f0/buffer/audio 分组 + 顶层字段），实时/离线共用
+  - `OfflineParams`：离线推理参数（继承 InferenceParams，增加 input_path/output_path）
+  - `TrainConfig`：训练超参数
+- 新增参数 = dataclass 字段 + param_binding 绑定 + Tab 控件
+- InferencePipeline 无状态化：`infer(input_wav, params: InferenceParams, ...)`，参数每次传入，pipeline 只持缓存（pitch_cache/resample_kernel）；实时/离线统一走 `InferenceRunner.process_block()`
 - 模型生命周期统一由 `ModelSessionManager` 管理（HuBERT/Synthesizer/F0 提取器缓存）
 - RealtimeEngine 门面模式：委托给 `AudioStreamManager`（设备/流）+ `InferenceRunner`（分块推理/效果器）
 
 ### 核心实现规则
 
 - **采样率**：实时帧数学用 `zc = sr // 100` 对齐，禁止硬编码 `48000`；`sr_mode="model"` 与 `"device"` 都要工作。HuBERT 相关常量统一从 `rvc/audio/constants.py` 导入
-- **模型精度**：模型可能 half/float，feature/protect 之后要恢复模型 dtype；pitch coarse 用 `long`
+- **模型精度**：模型可能 half/float，feature 之后要恢复模型 dtype；pitch coarse 用 `long`
 - **实时回调安全**：sounddevice 回调内禁止阻塞 IO、模型加载、大分配、GPU 同步；禁止直接操作 Qt（运行时错误经 Signal 转发主线程）
 - **惰性导入**：GUI 启动路径禁止在模块顶层 import torch/transformers 或实例化 `Config()`；重型 import 只允许出现在「加载模型/开始/离线推理」路径；`rvc/*/__init__.py` 用模块级 `__getattr__` 惰性导出
 - **引擎访问**：判断引擎是否已构造用 `controller._engine`（勿触发惰性构造）；首次访问 `engine` 会加载 torch（~1.6s，已由后台预热覆盖）
 - **配置**：`Config` 是单例，CUDA 不可用时直接退出；`use_cuda_graph` 运行时探测启用
-- **实验性功能**：开关和参数统一在 `rvc/core/experimental.py`，GUI 实验 Tab 直接修改此对象的属性
+- **热路径优化**：`InferenceContext` dataclass 在热路径上复用，避免每块创建新对象；`causal_moving_average` 的 kernel 张量缓存，避免每次调用创建
 
 ### 上游同步
 
@@ -408,7 +435,7 @@ git -C "Retrieval-based-Voice-Conversion-WebUI" reset --hard origin/main
 ```bash
 python -m py_compile <file>                    # 单文件语法检查
 python -m compileall -q app.py rvc gui        # 全量语法检查
-python -m unittest discover -s tests -v        # 运行全部单元测试（1082 个测试）
+python -m unittest discover -s tests -v        # 运行全部单元测试（1015 个测试）
 python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 ```
 
@@ -416,47 +443,53 @@ python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 
 ### 架构改进历史
 
-#### 2026-09-10 UI 布局统一与音域映射/软阈值辅音保护
+#### 2026-09-14 参数结构彻底重构与命名统一
 
-- ✅ **半音尺度音域映射** — 替代固定 +12 偏移，在 MIDI 半音尺度做线性映射保持音程不变；线性外推不钳制；`rvc/audio/f0_utils.py` 实现 hz_to_midi/midi_to_hz/apply_pitch_map
-- ✅ **sigmoid 软阈值辅音保护** — 替代硬阈值，过渡中心/宽度可调，减少浊音/清音边界突变；`rvc/inference/feature_processing.py` 的 protect_blend 函数
-- ✅ **输入音高实时显示** — 右下角显示原始输入音高（Hz，音域映射之前），辅助调节音域映射参数；`rvc/inference/f0_extractor.py` 模块级变量 last_input_pitch
-- ✅ **RangeSlider 双滑块范围控件** — 自定义控件，一个控件同时控制下限和上限；应用于音域映射（原声音域/目标音域）和辅音保护过渡区域
-- ✅ **UI 布局全面统一** — 所有 Tab 统一列宽比例 20:65:15（标签:滑动条:值），标签固定宽度，值标签居中对齐；QSlider 和 RangeSlider 轨道/把手大小完全一致
+- ✅ **InferenceParams 分组结构** — 统一为 voice/f0/buffer/audio 四个分组 + 顶层字段，删除 InferenceConfig/EngineConfig/AppConfig 及所有兼容层
+- ✅ **实时/离线参数统一** — OfflineParams 继承 InferenceParams，离线推理不再用硬编码默认值，与实时共用同一套参数
+- ✅ **滑动条直接绑定参数对象** — 不再需要 collect/apply 双向搬运，valueChanged 时自动更新 InferenceParams 分组字段
+- ✅ **命名统一** — OfflineConfig → OfflineParams，state_from_dict → params_from_dict，_slrow → _create_slider_row，cfg → params（InferenceParams 实例）
+- ✅ **删除 experimental.py** — 实验性功能参数（rmvpe_threshold/fcpe_threshold/pitch_map_*）合并到 InferenceParams 的 f0/voice 分组
+- ✅ **删除清辅音保护复杂逻辑** — protect_blend/protect_soft_threshold 等辅音保护代码全部删除，清浊判定统一由 compute_uv_prob 软阈值处理
+- ✅ **删除空气感/音色中性化功能** — 移除空气感高频增强和 HuBERT 实例归一化音色中性化功能及相关代码
+- ✅ **副输出修复** — collect_params 中根据 output2_device 动态计算 enable_out2，修复副输出无法使用的问题
+- ✅ **RangeSlider 标签修复** — setRange 方法发射 rangeChanged 信号，修复音域映射滑动条右侧标签显示默认值的问题
+- ✅ **RealtimeEngine 属性补全** — __init__ 中定义 sr_model/sr_dev，修复 'RealtimeEngine' object has no attribute 'sr_model' 错误
+
+#### 2026-09-10 UI 布局统一与音域映射
+
+- ✅ **半音尺度音域映射** — 替代固定 +12 偏移，在 MIDI 半音尺度做线性映射保持音程不变；线性外推不钳制；`rvc/inference/f0_utils.py` 实现 hz_to_midi/midi_to_hz/apply_pitch_map
+- ✅ **清浊判定软阈值** — compute_uv_prob 使用 sigmoid 软阈值 + confidence 修正 + 因果中值滤波/移动平均，替代硬阈值；`rvc/inference/voicing.py`
+- ✅ **F0 中值滤波** — postprocess_f0 中添加 kernel=3 中值滤波，消除孤立低 F0 误判帧；清音帧保持 0，浊音帧被滤波成 0 时恢复原值
+- ✅ **输入音高实时显示** — 右下角显示原始输入音高（Hz，音域映射之前），辅助调节音域映射参数
+- ✅ **RangeSlider 双滑块范围控件** — 自定义控件，一个控件同时控制下限和上限；应用于音域映射（原声音域/目标音域）
+- ✅ **UI 布局全面统一** — 所有 Tab 统一列宽比例，标签固定宽度，值标签居中对齐；QSlider 和 RangeSlider 轨道/把手大小完全一致
 - ✅ **模型选择简化** — 去掉模型列表 Tab，改为参数调节 Tab 最上方的唯一模型路径选择按钮 + 特征器下拉框
 - ✅ **Tab 顺序调整** — 设备驱动 → 参数调节 → 高级功能 → 离线推理；「实验功能」改名为「高级功能」
-- ✅ **性别因子精度提升** — 一位小数 → 两位小数（step 0.1 → 0.01）
-- ✅ **旧方案代码清理** — 删除破音保护、固定 +12 偏移、硬阈值辅音保护的残留代码和过时测试
 
 #### 2026-09-08 优化与测试覆盖大规模新增
 
-- ✅ **测试覆盖大规模新增** — 从 262 个测试增加到 1152 个（+890），新增 16+ 个深度测试文件，覆盖 config/errors/sola/wav_io/effects/inference_cache/runtime_paths/mel/train_slicer/f0/synthesis/cuda_graph/model_session/pipeline/gui_configs/feature_processing/inference_runner/realtime_engine/extract_f0/extract_feature
-- ✅ **未使用导入清理** — 清理 40+ 处未使用导入，涉及 rvc/ 和 gui/ 目录下 22 个文件
-- ✅ **延迟张量克隆优化** — 去掉 `clone_protect_source` 中不必要的 `.clone()`（F.interpolate 会创建新张量，不会修改输入）
+- ✅ **测试覆盖大规模新增** — 从 262 个测试增加到 1000+ 个，新增 16+ 个深度测试文件
+- ✅ **未使用导入清理** — 清理 40+ 处未使用导入
 - ✅ **常量定义统一** — 新增 `rvc/audio/constants.py`（HUBERT_SAMPLE_RATE=16000, HUBERT_FRAME_SIZE=160, HUBERT_FRAME_RATE=100），消除魔法数字
-- ✅ **降噪功能移除** — 移除输入侧谱减法降噪功能（DenoiseConfig 删除，InferenceConfig 从 8 字段变 7 字段）
-- ✅ **pipeline.py docstring 补充** — 补充 5 个方法的 docstring
-- ✅ **_write_output_wav 空数组修复** — 添加空数组检查，避免 np.max() 报错
+- ✅ **降噪功能移除** — 移除输入侧谱减法降噪功能
 
 #### 2026-09-07 全面架构重构
 
 - ✅ **GUI 全面 MVC 分层** — infer/train 两个 GUI 模块拆分为 view/controller/viewmodel 三层
-- ✅ **核心目录重构** — 新建 `rvc/core/`（config.py + errors.py + experimental.py），`cuda_graph.py` 从 tools/ 移入 inference/
+- ✅ **核心目录重构** — 新建 `rvc/core/`（config.py + errors.py），`cuda_graph.py` 从 tools/ 移入 inference/
 - ✅ **统一异常体系** — `RVCError` 基类 + 8 种具体异常
 - ✅ **F0 提取器抽象接口** — `F0Extractor` ABC + `RMVPEExtractor`/`FCPEExtractor`
 - ✅ **模型生命周期统一** — `ModelSessionManager` 统一管理
 - ✅ **RealtimeEngine 拆分** — 门面类委托给 `AudioStreamManager` + `InferenceRunner`
 - ✅ **InferencePipeline 重命名** — VCPipeline → InferencePipeline
-- ✅ **兼容性代码清理** — 删除 legacy 代码，净减 2301 行
-- ✅ **日志格式统一** — f-string → % 格式化，中英文标点统一
 
 #### 2026-09-06 配置体系统一
 
-- ✅ **统一配置体系** — 新建 `rvc/core/config.py`，消除历史 6 套配置和 7 层转换链
+- ✅ **统一配置体系** — 新建 `rvc/core/config.py`，消除历史多套配置和多层转换链
 - ✅ **InferencePipeline 无状态化** — 删除 configure() 系列方法，参数每次传入
 - ✅ **InferenceRunner 统一实时/离线** — 唯一推理入口 process_block()
 - ✅ **效果器抽象** — AudioProcessor 编排器 + RmsMixEffect/SolaEffect
-- ✅ **测试基础设施** — 新建 tests/ 目录，使用内置 unittest
 
 #### 2026-09-05 推理链路优化
 
@@ -465,7 +498,6 @@ python -m unittest tests.test_pipeline -v      # 运行单个测试文件
 - ✅ **推理默认 RMVPE** — 与训练侧 F0 提取对齐
 - ✅ **RMVPE 解码搬上 GPU** — 消除回调内 GPU 同步
 - ✅ **合成器真正进 CUDA Graph** — 实时/离线 × 有/无 F0 四路径统一 capture + replay
-- ✅ **破音保护升级** — 压缩比 + 平滑膝三段映射
 
 #### 2026-08-24 启动性能与系统托盘
 

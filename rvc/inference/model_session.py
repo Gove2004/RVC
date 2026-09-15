@@ -91,12 +91,12 @@ class ModelSessionManager:
 
         Args:
             method: "rmvpe" 或 "fcpe"
-            config: InferenceConfig（含实验参数），None 时用默认值
+            config: InferenceParams（含实验参数），None 时用默认值
         """
         from rvc.inference.f0_extractor import create_f0_extractor
-        from rvc.core.config import InferenceConfig
+        from rvc.core.config import InferenceParams
         if config is None:
-            config = InferenceConfig()
+            config = InferenceParams()
         return create_f0_extractor(method, self.device, self.is_half, self.inference_cache, config=config)
 
     def clear_all(self) -> None:

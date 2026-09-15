@@ -58,4 +58,5 @@ def apply_rms_mix(
     r2 = fast_rms(converted, 4 * hz_per_centisecond, hz_per_centisecond)
     r2 = F.interpolate(r2[None, None], size=converted.shape[0] + 1, mode="linear", align_corners=True)[0, 0, :-1]
     r2 = torch.clamp(r2, min=1e-3)
+    r1 = torch.clamp(r1, min=0.02)
     return converted * torch.pow(r1 / r2, 1 - rms_mix)

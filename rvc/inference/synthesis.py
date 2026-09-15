@@ -48,14 +48,17 @@ def infer_synth_audio(
     tail = (skip_head, return_length, return_length2) if realtime else ()
     mode = "realtime" if realtime else "offline"
 
+    # return_length2 必须加入 graph_key：它通过闭包捕获编译进 CUDA Graph，
+    # 不同 formant 因子对应不同 return_length2，若共用 key 会错误命中旧图导致输出长度错误、爆音卡顿。
+    rl2_suffix = f"-rl2-{return_length2}" if realtime else ""
     if use_f0 == 1:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
-        graph_key = f"synth-{mode}-f0"
+        graph_key = f"synth-{mode}-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
         def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
             return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)
     else:
-        graph_key = f"synth-{mode}-no-f0"
+        graph_key = f"synth-{mode}-no-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, sid)
         def call(feats_, p_len_t_, sid_):
             return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)

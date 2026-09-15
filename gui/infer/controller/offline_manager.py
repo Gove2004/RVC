@@ -16,11 +16,11 @@ from PySide6.QtWidgets import QFileDialog
 
 
 
-from rvc.core.config import OfflineConfig
+from rvc.core.config import OfflineParams
 
 from gui.infer.view.widgets import _sl_value_as_float
 
-from gui.infer.viewmodel.param_binding import collect_gui_state, format_error_message, gender_to_formant
+from gui.infer.viewmodel.param_binding import collect_params
 
 
 
@@ -154,38 +154,17 @@ class OfflineManager:
 
         try:
 
-            state = collect_gui_state(self.window)
-
-            inf = state.inference
-
-            config = OfflineConfig(
-
+            state = collect_params(self.window)
+            config = OfflineParams(
                 input_path=self.window.offline_input_path.strip() if hasattr(self.window, 'offline_input_path') else '',
-
                 output_path=self.window.offline_output.text().strip(),
-
+                voice=state.voice,
+                f0=state.f0,
+                buffer=state.buffer,
+                audio=state.audio,
+                rms_mix=state.rms_mix,
                 model_path=pth,
-
-                formant=inf.formant,
-
-                f0_method=inf.f0_method,
-
-                rms_mix=inf.rms_mix,
-
-                rmvpe_threshold=inf.rmvpe_threshold,
-
-                fcpe_confidence_threshold=inf.fcpe_confidence_threshold,
-
-                pitch_map_src_min=inf.pitch_map_src_min,
-
-                pitch_map_src_max=inf.pitch_map_src_max,
-
-                pitch_map_dst_min=inf.pitch_map_dst_min,
-
-                pitch_map_dst_max=inf.pitch_map_dst_max,
-
                 hubert=self.window.hubert_combo.currentText(),
-
             )
 
         except Exception as exc:
@@ -270,7 +249,7 @@ class OfflineManager:
 
         # 引用保留到下次 start_conversion 时被新 worker 覆盖，一次只多占一个对象。
 
-        self.window._show_error(f"离线推理错误: {format_error_message(msg)}")
+        self.window._show_error(f"离线推理错误: {msg}")
 
 
 
@@ -288,11 +267,11 @@ class OfflineWorker(QThread):
 
 
 
-    def __init__(self, cfg: OfflineConfig):
+    def __init__(self, params: OfflineParams):
 
         super().__init__()
 
-        self.cfg = cfg
+        self.params = params
 
 
 
@@ -334,9 +313,9 @@ class OfflineWorker(QThread):
 
         self.progress.emit(0, 100)
 
-        engine = RealtimeEngine(self.cfg)
+        engine = RealtimeEngine(self.params)
 
-        engine.load_model(self.cfg.model_path, hubert=self.cfg.hubert)
+        engine.load_model(self.params.model_path, hubert=self.params.hubert)
 
         self.progress.emit(20, 100)
 
@@ -352,11 +331,11 @@ class OfflineWorker(QThread):
 
 
 
-        engine.process_file(self.cfg, progress_cb=_progress)
+        engine.process_file(self.params, progress_cb=_progress)
 
         self.progress.emit(100, 100)
 
-        self.finished.emit(self.cfg.output_path)
+        self.finished.emit(self.params.output_path)
 
 
 

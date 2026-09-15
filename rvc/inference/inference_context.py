@@ -13,7 +13,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 import torch
 
-from rvc.core.config import InferenceConfig
+from rvc.core.config import InferenceParams
 
 
 @dataclass
@@ -21,7 +21,7 @@ class InferenceContext:
     """单块推理上下文 — 每块 reset() 后复用。"""
 
     # ── 配置（每块传入，不可变）──
-    config: InferenceConfig | None = None
+    config: InferenceParams | None = None
     block_frame_16k: int = 0
     block_frame_48k: int = 0
 
@@ -57,7 +57,7 @@ class InferenceContext:
     # ── 阶段 8：硬件输出 ──
     output_np: np.ndarray | None = None
 
-    def reset(self, config: InferenceConfig, block_frame_16k: int, block_frame_48k: int) -> None:
+    def reset(self, config: InferenceParams, block_frame_16k: int, block_frame_48k: int) -> None:
         """每块开始时重置所有字段，复用实例避免分配开销。
 
         Args:

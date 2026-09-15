@@ -1,47 +1,48 @@
-"""GUI 控件 ↔ AppConfig 字段绑定（嵌套路径版）。
+"""GUI 控件 ↔ InferenceParams 字段绑定。
 
-把「控件读值 → 配置对象」和「配置对象 → 控件写值」的重复搬运集中到这里，
-由 BINDINGS 表驱动，window.py 的 collect/apply 只需一行委托。
-
-路径用点号分隔（如 "inference.formant"、"engine.block_time"），
-支持 AppConfig 的任意嵌套层级。
+滑动条直接绑定 InferenceParams 的分组字段，
+valueChanged 时自动更新参数对象，不再需要 collect/apply 双向搬运。
 
 新增参数时改动点：
-1. rvc/core/config.py 对应 dataclass 加字段
-2. BINDINGS 加一行（路径 + 控件 + 读写方式 + 默认值）
-3. Tab 里建控件
+1. rvc/core/config.py 对应分组 dataclass 加字段
+2. BINDINGS 加一行（分组路径 + 控件 + 读写方式 + 默认值）
+3. Tab 里建控件，创建时传入 params 初始值
 """
-from rvc.core.config import AppConfig, EngineConfig, InferenceConfig
+from rvc.core.config import InferenceParams
 
 # 读写方式
-CHECK = "check"      # QCheckBox / bool
-FLOAT = "float"        # DoubleSlider，直接读写物理值（float）
-INT = "int"          # QSlider，整数值（不除 100）
-COMBO = "combo"      # QComboBox currentText / findText
-TEXT = "text"        # QLineEdit text
-ATTR = "attr"        # 普通属性（直接 getattr/setattr，非控件）
-RADIO_F0 = "radio_f0"  # RMVPE/FCPE 互斥
-RADIO_SR = "radio_sr"  # 模型/设备采样率互斥
+CHECK = "check"
+FLOAT = "float"
+INT = "int"
+COMBO = "combo"
+TEXT = "text"
+ATTR = "attr"
+RADIO_F0 = "radio_f0"
+RADIO_SR = "radio_sr"
 
-# 状态字段 schema：(点号路径, window 控件属性名, 读写方式, 缺省默认值)
+# 状态字段 schema：(分组路径, window 控件属性名, 读写方式, 缺省默认值)
+# 分组路径用点号分隔，如 "voice.formant"、"buffer.block_time"
 BINDINGS = [
-    # ── 推理参数（inference.*）──
-    ("inference.formant", "formant_slider", FLOAT, 0.0),
-    ("inference.f0_method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
-    ("inference.rms_mix", "rms_mix_slider", FLOAT, 0.0),
-    # ── 引擎参数（engine.*）──
-    ("engine.block_time", "block_time_slider", FLOAT, 0.25),
-    ("engine.crossfade_time", "crossfade_slider", FLOAT, 0.05),
-    ("engine.extra_time", "extra_time_slider", FLOAT, 2.5),
-    ("engine.sr_mode", "sr_model_radio", RADIO_SR, "model"),
-    ("engine.hostapi", "hostapi_combo", COMBO, ""),
-    ("engine.input_device", "input_combo", COMBO, ""),
-    ("engine.output_device", "output_combo", COMBO, ""),
-    ("engine.output2_device", "output2_combo", COMBO, ""),
+    # ── 音色参数（voice.*）──
+    ("voice.formant", "formant_slider", FLOAT, 0.0),
+    ("rms_mix", "rms_mix_slider", FLOAT, 0.0),
+    # ── F0 参数（f0.*）──
+    ("f0.method", "f0_rmvp_btn", RADIO_F0, "rmvpe"),
+    # ── 缓冲区参数（buffer.*）──
+    ("buffer.block_time", "block_time_slider", FLOAT, 0.25),
+    ("buffer.crossfade_time", "crossfade_slider", FLOAT, 0.05),
+    ("buffer.extra_time", "extra_time_slider", FLOAT, 2.5),
+    # ── 音频设备参数（audio.*）──
+    ("audio.sr_mode", "sr_model_radio", RADIO_SR, "model"),
+    ("audio.hostapi", "hostapi_combo", COMBO, ""),
+    ("audio.input_device", "input_combo", COMBO, ""),
+    ("audio.output_device", "output_combo", COMBO, ""),
+    ("audio.output2_device", "output2_combo", COMBO, ""),
     # ── 顶层 ──
     ("model_path", "model_path", ATTR, ""),
     ("hubert", "hubert_combo", COMBO, "chinese"),
 ]
+
 
 def _get_nested(obj, path: str):
     """按点号路径递归读取嵌套字段。"""
@@ -58,147 +59,130 @@ def _set_nested(obj, path: str, value):
     setattr(obj, parts[-1], value)
 
 
-def _has_nested(obj, path: str) -> bool:
-    """检查 dict 嵌套路径是否存在。"""
-    for part in path.split("."):
-        if not isinstance(obj, dict) or part not in obj:
-            return False
-        obj = obj[part]
-    return True
+def params_from_dict(data: dict) -> InferenceParams:
+    """从嵌套 dict 构造 InferenceParams。
 
-
-def _get_nested_dict(obj, path: str):
-    """从 dict 按点号路径递归读取。"""
-    for part in path.split("."):
-        obj = obj[part]
-    return obj
-
-
-def _set_nested_dict(obj, path: str, value):
-    """向 dict 按点号路径递归写入（自动创建中间 dict）。"""
-    parts = path.split(".")
-    for part in parts[:-1]:
-        if part not in obj:
-            obj[part] = {}
-        obj = obj[part]
-    obj[parts[-1]] = value
-
-
-# 旧短键格式 → 新嵌套路径的映射（用于一次性迁移）
-_OLD_KEY_MAPPING = {
-    "f0": "inference.f0_method",
-    "rms": "inference.rms_mix",
-    "bl": "engine.block_time",
-    "cf": "engine.crossfade_time",
-    "ex": "engine.extra_time",
-    "sr_mode": "engine.sr_mode",
-    "ha": "engine.hostapi",
-    "in_dev": "engine.input_device",
-    "out_dev": "engine.output_device",
-    "out2_dev": "engine.output2_device",
-}
-
-
-def _migrate_old_format(data: dict) -> dict:
-    """检测旧短键格式，自动转换成嵌套结构。已经是新格式则原样返回。
-
-    判断标准：同时存在多个旧短键（如 nr_en + bl）才认为是旧格式，
-    避免新格式里的 model_path 单独触发误迁移。
+    支持的格式：
+    - 新格式：{"voice": {"formant": ...}, "f0": {"method": ...}, ...}
+    - 旧格式：{"inference": {"formant": ..., "f0_method": ...}, "engine": {"block_time": ...}, ...}
+    - 旧短键：{"f0": ..., "rms": ..., "bl": ..., ...}
     """
-    old_keys_present = [k for k in _OLD_KEY_MAPPING if k in data]
-    # 旧格式至少有 3 个以上短键（新格式只有 model_path 一个顶层键可能重合）
-    if len(old_keys_present) < 3:
-        return data
-    result = dict(data)  # 先复制所有键，避免丢失非配置字段
-    for old_key, new_path in _OLD_KEY_MAPPING.items():
-        if old_key in result:
-            _set_nested_dict(result, new_path, result.pop(old_key))
-    # 删除已废弃的键（频谱降噪已删除）
-    for deprecated_key in ("nr_en", "nr_str"):
-        result.pop(deprecated_key, None)
-    return result
+    params = InferenceParams()
+
+    # 新格式（分组）：f0 必须是 dict，旧短键格式中 f0 是字符串
+    if "voice" in data or isinstance(data.get("f0"), dict) or "buffer" in data or "audio" in data:
+        voice = data.get("voice", {})
+        f0 = data.get("f0", {})
+        buf = data.get("buffer", {})
+        aud = data.get("audio", {})
+
+        params.voice.formant = voice.get("formant", 0.0)
+        params.voice.pitch_map_src_min = voice.get("pitch_map_src_min", 100.0)
+        params.voice.pitch_map_src_max = voice.get("pitch_map_src_max", 500.0)
+        params.voice.pitch_map_dst_min = voice.get("pitch_map_dst_min", 200.0)
+        params.voice.pitch_map_dst_max = voice.get("pitch_map_dst_max", 800.0)
+
+        params.f0.method = f0.get("method", f0.get("f0_method", "rmvpe"))
+        params.f0.rmvpe_threshold = f0.get("rmvpe_threshold", 0.05)
+        params.f0.fcpe_confidence_threshold = f0.get("fcpe_confidence_threshold", 0.05)
+
+        params.buffer.block_time = buf.get("block_time", 0.25)
+        params.buffer.crossfade_time = buf.get("crossfade_time", 0.05)
+        params.buffer.extra_time = buf.get("extra_time", 2.5)
+
+        params.audio.sr_mode = aud.get("sr_mode", "model")
+        params.audio.hostapi = aud.get("hostapi", "")
+        params.audio.input_device = aud.get("input_device", "")
+        params.audio.output_device = aud.get("output_device", "")
+        params.audio.output2_device = aud.get("output2_device", "")
+        params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
+
+        params.rms_mix = data.get("rms_mix", 0.0)
+        params.model_path = data.get("model_path", "")
+        params.hubert = data.get("hubert", "chinese")
+        return params
+
+    # 旧格式：inference.* / engine.*
+    inf = data.get("inference", {})
+    eng = data.get("engine", {})
+
+    def get(key, default):
+        if key in data:
+            return data[key]
+        if key in inf:
+            return inf[key]
+        if key in eng:
+            return eng[key]
+        return default
+
+    params.voice.formant = get("formant", 0.0)
+    params.voice.pitch_map_src_min = get("pitch_map_src_min", 100.0)
+    params.voice.pitch_map_src_max = get("pitch_map_src_max", 500.0)
+    params.voice.pitch_map_dst_min = get("pitch_map_dst_min", 200.0)
+    params.voice.pitch_map_dst_max = get("pitch_map_dst_max", 800.0)
+    params.rms_mix = get("rms_mix", get("rms", 0.0))
+    params.f0.method = get("f0_method", get("f0", "rmvpe"))
+    params.f0.rmvpe_threshold = get("rmvpe_threshold", 0.05)
+    params.f0.fcpe_confidence_threshold = get("fcpe_confidence_threshold", 0.05)
+    params.buffer.block_time = get("block_time", get("bl", 0.25))
+    params.buffer.crossfade_time = get("crossfade_time", get("cf", 0.05))
+    params.buffer.extra_time = get("extra_time", get("ex", 2.5))
+    params.audio.sr_mode = get("sr_mode", "model")
+    params.audio.hostapi = get("hostapi", get("ha", ""))
+    params.audio.input_device = get("input_device", get("in_dev", ""))
+    params.audio.output_device = get("output_device", get("out_dev", ""))
+    params.audio.output2_device = get("output2_device", get("out2_dev", ""))
+    params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
+    params.model_path = get("model_path", "")
+    params.hubert = get("hubert", "chinese")
+
+    return params
 
 
-def _parse(kind, raw):
-    if kind == CHECK:
-        return bool(raw)
-    if kind in (FLOAT, INT):
-        return float(raw) if kind == FLOAT else int(raw)
-    return str(raw)
-
-
-def state_from_dict(data: dict) -> AppConfig:
-    """从持久化字典（嵌套结构）构造 AppConfig（并按控件步长量化）。
-
-    自动检测旧短键格式并迁移到嵌套结构。
-    """
-    data = _migrate_old_format(data)
-    cfg = AppConfig()
-    for path, _w, kind, default in BINDINGS:
-        raw = _get_nested_dict(data, path) if _has_nested(data, path) else default
-        val = _parse(kind, raw)
-        _set_nested(cfg, path, val)
-    # enable_out2 不在 BINDINGS 表（无独立控件），根据是否选择了副输出设备自动推导
-    cfg.engine.enable_out2 = bool(cfg.engine.output2_device) and cfg.engine.output2_device != "不使用"
-    # 实验参数（不在 BINDINGS 表中，特殊处理）
-    inf = cfg.inference
-    if _has_nested(data, "inference.rmvpe_threshold"):
-        inf.rmvpe_threshold = float(_get_nested_dict(data, "inference.rmvpe_threshold"))
-    if _has_nested(data, "inference.fcpe_confidence_threshold"):
-        inf.fcpe_confidence_threshold = float(_get_nested_dict(data, "inference.fcpe_confidence_threshold"))
-    if _has_nested(data, "inference.pitch_map_src_min"):
-        inf.pitch_map_src_min = float(_get_nested_dict(data, "inference.pitch_map_src_min"))
-    if _has_nested(data, "inference.pitch_map_src_max"):
-        inf.pitch_map_src_max = float(_get_nested_dict(data, "inference.pitch_map_src_max"))
-    if _has_nested(data, "inference.pitch_map_dst_min"):
-        inf.pitch_map_dst_min = float(_get_nested_dict(data, "inference.pitch_map_dst_min"))
-    if _has_nested(data, "inference.pitch_map_dst_max"):
-        inf.pitch_map_dst_max = float(_get_nested_dict(data, "inference.pitch_map_dst_max"))
-    return cfg
-
-
-def state_to_dict(state: AppConfig) -> dict:
-    """AppConfig → 持久化字典（嵌套结构，含实验参数）。"""
-    result = {}
-    for path, _w, _k, _d in BINDINGS:
-        _set_nested_dict(result, path, _get_nested(state, path))
-    # 实验参数（不在 BINDINGS 表中，特殊处理）
-    inf = state.inference
-    _set_nested_dict(result, "inference.rmvpe_threshold", inf.rmvpe_threshold)
-    _set_nested_dict(result, "inference.fcpe_confidence_threshold", inf.fcpe_confidence_threshold)
-    _set_nested_dict(result, "inference.pitch_map_src_min", inf.pitch_map_src_min)
-    _set_nested_dict(result, "inference.pitch_map_src_max", inf.pitch_map_src_max)
-    _set_nested_dict(result, "inference.pitch_map_dst_min", inf.pitch_map_dst_min)
-    _set_nested_dict(result, "inference.pitch_map_dst_max", inf.pitch_map_dst_max)
-    return result
-
-
-def _get(win, widget, kind):
-    w = getattr(win, widget)
-    if kind == CHECK:
-        return w.isChecked()
-    if kind == FLOAT:
-        return float(w.value())
-    if kind == INT:
-        return w.value()
-    if kind == COMBO:
-        return w.currentText()
-    if kind == TEXT:
-        return w.text().strip()
-    if kind == ATTR:
-        return str(w) if w else ""
-    if kind == RADIO_F0:
-        return "rmvpe" if w.isChecked() else "fcpe"
-    if kind == RADIO_SR:
-        return "model" if w.isChecked() else "device"
-    raise ValueError(f"未知读写方式: {kind}")
+def params_to_dict(params: InferenceParams) -> dict:
+    """把 InferenceParams 序列化为分组 dict（用于持久化保存）。"""
+    return {
+        "voice": {
+            "formant": params.voice.formant,
+            "pitch_map_src_min": params.voice.pitch_map_src_min,
+            "pitch_map_src_max": params.voice.pitch_map_src_max,
+            "pitch_map_dst_min": params.voice.pitch_map_dst_min,
+            "pitch_map_dst_max": params.voice.pitch_map_dst_max,
+        },
+        "f0": {
+            "method": params.f0.method,
+            "rmvpe_threshold": params.f0.rmvpe_threshold,
+            "fcpe_confidence_threshold": params.f0.fcpe_confidence_threshold,
+        },
+        "buffer": {
+            "block_time": params.buffer.block_time,
+            "crossfade_time": params.buffer.crossfade_time,
+            "extra_time": params.buffer.extra_time,
+        },
+        "audio": {
+            "sr_mode": params.audio.sr_mode,
+            "hostapi": params.audio.hostapi,
+            "input_device": params.audio.input_device,
+            "output_device": params.audio.output_device,
+            "output2_device": params.audio.output2_device,
+            "enable_out2": params.audio.enable_out2,
+        },
+        "rms_mix": params.rms_mix,
+        "model_path": params.model_path,
+        "hubert": params.hubert,
+    }
 
 
 def _set(win, widget, kind, value):
+    """把值写到控件。"""
     if kind == CHECK:
         getattr(win, widget).setChecked(bool(value))
     elif kind == FLOAT:
-        getattr(win, widget).setValue(float(value))
+        slider = getattr(win, widget)
+        slider.setValue(float(value))
+        # 手动刷新标签：控件未显示时 setValue 可能不触发 valueChanged
+        if hasattr(slider, "_update_label"):
+            slider._update_label()
     elif kind == INT:
         getattr(win, widget).setValue(int(value))
     elif kind == COMBO:
@@ -219,95 +203,77 @@ def _set(win, widget, kind, value):
         raise ValueError(f"未知读写方式: {kind}")
 
 
-def collect_gui_state(win) -> AppConfig:
-    """从控件收集完整配置（含实验参数）。"""
-    cfg = AppConfig()
-    for path, widget, kind, _d in BINDINGS:
-        if widget:
-            _set_nested(cfg, path, _get(win, widget, kind))
-    # enable_out2 无独立控件，根据 output2_combo 是否选了"不使用"自动推导
-    out2_text = win.output2_combo.currentText()
-    cfg.engine.enable_out2 = bool(out2_text) and out2_text != "不使用"
-    # 实验参数（RangeSlider 双滑块等，不在 BINDINGS 表中，特殊处理）
-    _collect_experimental(win, cfg)
-    return cfg
+def apply_params(win, params: InferenceParams) -> None:
+    """把 InferenceParams 写到所有控件（启动时加载配置调用）。"""
+    for path, widget, kind, _default in BINDINGS:
+        if widget and hasattr(win, widget):
+            value = _get_nested(params, path)
+            _set(win, widget, kind, value)
 
-
-def _collect_experimental(win, cfg: AppConfig) -> None:
-    """从实验参数控件收集值到 cfg.inference。"""
-    inf = cfg.inference
-    # 音高算法阈值（统一滑动条，根据当前 F0 方法写入对应字段）
+    # 实验参数：F0 阈值滑动条
     if hasattr(win, "exp_f0_threshold_slider"):
-        val = float(win.exp_f0_threshold_slider.value())
-        if hasattr(win, "f0_rmvp_btn") and win.f0_rmvp_btn.isChecked():
-            inf.rmvpe_threshold = val
-        else:
-            inf.fcpe_confidence_threshold = val
-    # 原声音域 / 目标音域（RangeSlider 双滑块）
-    if hasattr(win, "exp_pitch_map_src_range"):
-        inf.pitch_map_src_min = win.exp_pitch_map_src_range.low()
-        inf.pitch_map_src_max = win.exp_pitch_map_src_range.high()
-    if hasattr(win, "exp_pitch_map_dst_range"):
-        inf.pitch_map_dst_min = win.exp_pitch_map_dst_range.low()
-        inf.pitch_map_dst_max = win.exp_pitch_map_dst_range.high()
-
-
-def apply_gui_state(win, state: AppConfig) -> None:
-    """将配置写回控件（含实验参数）。"""
-    for path, widget, kind, _d in BINDINGS:
-        if widget:
-            _set(win, widget, kind, _get_nested(state, path))
-    _apply_experimental(win, state)
-
-
-def _apply_experimental(win, state: AppConfig) -> None:
-    """将实验参数从 state.inference 写回控件。
-
-    不阻塞信号：这些控件的 valueChanged/rangeChanged 只连接到值标签更新，
-    不会导致配置覆盖，让信号正常触发即可自动更新标签。
-    """
-    inf = state.inference
-    # 音高算法阈值（根据当前 F0 方法加载对应值，valueChanged 自动更新标签）
-    if hasattr(win, "exp_f0_threshold_slider"):
-        is_rmvpe = hasattr(win, "f0_rmvp_btn") and win.f0_rmvp_btn.isChecked()
-        val = inf.rmvpe_threshold if is_rmvpe else inf.fcpe_confidence_threshold
-        win.exp_f0_threshold_slider.setValue(val)
+        is_rmvpe = params.f0.method == "rmvpe"
+        val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
+        slider = win.exp_f0_threshold_slider
+        slider.setValue(val)
+        if hasattr(slider, "_update_label"):
+            slider._update_label()
         if hasattr(win, "exp_f0_threshold_name"):
             win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
-    # 原声音域（rangeChanged 自动更新标签）
+
+    # 音域映射 RangeSlider
     if hasattr(win, "exp_pitch_map_src_range"):
-        win.exp_pitch_map_src_range.setRange(inf.pitch_map_src_min, inf.pitch_map_src_max)
-    # 目标音域（rangeChanged 自动更新标签）
+        win.exp_pitch_map_src_range.setRange(
+            float(params.voice.pitch_map_src_min), float(params.voice.pitch_map_src_max)
+        )
     if hasattr(win, "exp_pitch_map_dst_range"):
-        win.exp_pitch_map_dst_range.setRange(inf.pitch_map_dst_min, inf.pitch_map_dst_max)
+        win.exp_pitch_map_dst_range.setRange(
+            float(params.voice.pitch_map_dst_min), float(params.voice.pitch_map_dst_max)
+        )
 
 
-def runtime_from_state(state: AppConfig) -> InferenceConfig:
-    """从 AppConfig 提取推理参数（engine 消费的配置）。
+def collect_params(win) -> InferenceParams:
+    """从控件收集 InferenceParams（保存配置时调用）。"""
+    params = InferenceParams()
+    for path, widget, kind, _default in BINDINGS:
+        if not widget or not hasattr(win, widget):
+            continue
+        w = getattr(win, widget)
+        if kind == CHECK:
+            value = w.isChecked()
+        elif kind in (FLOAT, INT):
+            value = w.value()
+        elif kind == COMBO:
+            value = w.currentText()
+        elif kind == TEXT:
+            value = w.text()
+        elif kind == ATTR:
+            value = getattr(win, widget, "")
+        elif kind == RADIO_F0:
+            value = "rmvpe" if win.f0_rmvp_btn.isChecked() else "fcpe"
+        elif kind == RADIO_SR:
+            value = "model" if win.sr_model_radio.isChecked() else "device"
+        else:
+            continue
+        _set_nested(params, path, value)
 
-    注意：副输出 enable_out2 属于 EngineConfig，推理时由 engine 直接读取，
-    此处只返回 InferenceConfig。
-    """
-    return state.inference
+    # 实验参数
+    if hasattr(win, "exp_f0_threshold_slider"):
+        is_rmvpe = params.f0.method == "rmvpe"
+        val = float(win.exp_f0_threshold_slider.value())
+        if is_rmvpe:
+            params.f0.rmvpe_threshold = val
+        else:
+            params.f0.fcpe_confidence_threshold = val
 
+    if hasattr(win, "exp_pitch_map_src_range"):
+        params.voice.pitch_map_src_min = float(win.exp_pitch_map_src_range.low())
+        params.voice.pitch_map_src_max = float(win.exp_pitch_map_src_range.high())
+    if hasattr(win, "exp_pitch_map_dst_range"):
+        params.voice.pitch_map_dst_min = float(win.exp_pitch_map_dst_range.low())
+        params.voice.pitch_map_dst_max = float(win.exp_pitch_map_dst_range.high())
 
-def engine_from_state(state: AppConfig) -> EngineConfig:
-    """从 AppConfig 提取引擎参数。"""
-    return state.engine
+    # enable_out2 是 output2_device 的派生属性，根据当前选择动态计算
+    params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
 
-
-def gender_to_formant(v: float) -> float:
-    """性别滑杆值 [0,1] → formant shift [-2.5, +2.5]。唯一换算来源。"""
-    return (v - 0.5) * 5
-
-
-def formant_to_gender(f: float) -> float:
-    """gender_to_formant 的反函数。"""
-    return f / 5.0 + 0.5
-
-
-def format_error_message(error: Exception | str) -> str:
-    """格式化错误消息，只保留最后一行有意义的内容。"""
-    msg = str(error).strip()
-    lines = msg.splitlines()
-    return lines[-1] if lines else "未知错误"
+    return params

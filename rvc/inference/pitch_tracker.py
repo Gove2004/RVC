@@ -57,7 +57,7 @@ def update_realtime_pitch_cache_raw(
             - cache_confidence 写入原始 confidence
             - cache_pitch 只左移，新值由阶段5后处理后写入
         device/is_half/inference_cache: 设备和缓存
-        config: InferenceConfig
+        config: InferenceParams
         extractor: 已缓存的 F0 提取器实例（None 时内部创建）
 
     Returns:

@@ -1,7 +1,7 @@
 """推理控制器 — 管理运行时参数、引擎启动和设备绑定。
 
-配置统一使用 rvc.config.AppConfig 的子配置：
-- runtime_params: InferenceConfig（推理参数）
+配置统一使用 rvc.config.InferenceParams 的子配置：
+- runtime_params: InferenceParams（推理参数）
 - engine setup: 由调用方传入设备索引（设备名称→索引的转换在 window/device_manager 层完成）
 
 GUI 分层后，本类承担业务逻辑（参数应用、引擎控制、错误处理），
@@ -11,7 +11,7 @@ import logging
 import threading
 from dataclasses import dataclass
 
-from rvc.core.config import InferenceConfig
+from rvc.core.config import InferenceParams
 from rvc.inference.inference_cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
@@ -33,9 +33,9 @@ class StartResult:
 
 
 class InferController:
-    def __init__(self, runtime_params: InferenceConfig | None = None,
+    def __init__(self, runtime_params: InferenceParams | None = None,
                  engine=None, inference_cache=None, on_runtime_error=None):
-        self.runtime_params = runtime_params or InferenceConfig()
+        self.runtime_params = runtime_params or InferenceParams()
         self.inference_cache = inference_cache or default_inference_cache
         self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
         self._engine_lock = threading.Lock()  # 防预热线程与主线程并发构造双实例
@@ -70,11 +70,11 @@ class InferController:
 
     def apply_model_params(self, formant: float):
         """应用模型卡片级参数（共振峰/特征器）。"""
-        self.runtime_params.formant = formant
+        self.runtime_params.voice.formant = formant
 
     def apply_runtime_params(self, f0_method: str, rms_mix: float):
         """应用全局推理参数（F0方法/响度混合）。"""
-        self.runtime_params.f0_method = f0_method
+        self.runtime_params.f0.method = f0_method
         self.runtime_params.rms_mix = rms_mix
 
     # ── 引擎控制 ──

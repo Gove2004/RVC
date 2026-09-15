@@ -5,7 +5,7 @@ from PySide6.QtGui import QPainter, QColor, QPen
 
 from rvc.core.config import HUBERT_DEFAULT
 
-__all__ = ["LoadThread", "_sl", "_slrow", "_sl_value_as_float", "DoubleSlider", "RangeSlider"]
+__all__ = ["LoadThread", "_sl", "_create_slider_row", "_sl_value_as_float", "DoubleSlider", "RangeSlider"]
 
 
 def _sl(mn, mx, st, dv):
@@ -49,7 +49,7 @@ class DoubleSlider(QSlider):
         return self._int_max * self._step
 
 
-def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
+def _create_slider_row(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     """创建「滑杆 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
 
     使用 DoubleSlider，基于步长动态编码，对外直接暴露物理值（float）。
@@ -67,8 +67,12 @@ def _slrow(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     def _fmt(v):
         return f"{v:{fmt}}{unit}"
 
-    lbl.setText(_fmt(s.value()))
-    s.valueChanged.connect(lambda _v: lbl.setText(_fmt(s.value())))
+    def _update_label():
+        lbl.setText(_fmt(s.value()))
+
+    _update_label()
+    s.valueChanged.connect(lambda _v: _update_label())
+    s._update_label = _update_label  # 供外部手动刷新标签（setValue 不触发 valueChanged 时使用）
     setattr(win, attr, s)
     # 约定：滑块属性 xxx_slider → 值标签属性 xxx_label
     label_attr = attr[:-7] + "_label" if attr.endswith("_slider") else attr + "_label"
@@ -125,13 +129,14 @@ class RangeSlider(QWidget):
         self._update_tooltip()
 
     def setRange(self, low_val, high_val):
-        """设置当前范围（物理值）。"""
+        """设置当前范围（物理值），并发射 rangeChanged 信号。"""
         self._low = max(self._min, float(low_val))
         self._high = min(self._max, float(high_val))
         if self._low > self._high:
             self._low, self._high = self._high, self._low
         self.update()
         self._update_tooltip()
+        self.rangeChanged.emit(self._low, self._high)
 
     def low(self):
         return self._low

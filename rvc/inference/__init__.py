@@ -7,7 +7,7 @@ import importlib
 
 __all__ = [
     "InferencePipeline",
-    "OfflineConfig",
+    "OfflineParams",
     "F0Extractor",
     "RMVPEExtractor",
     "FCPEExtractor",
@@ -17,7 +17,7 @@ __all__ = [
 
 _MODULE_MAP = {
     "InferencePipeline": "rvc.inference.pipeline",
-    "OfflineConfig": "rvc.inference.offline_config",
+    "OfflineParams": "rvc.core.config",
     "F0Extractor": "rvc.inference.f0_extractor",
     "RMVPEExtractor": "rvc.inference.f0_extractor",
     "FCPEExtractor": "rvc.inference.f0_extractor",

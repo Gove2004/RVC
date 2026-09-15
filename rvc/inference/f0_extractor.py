@@ -85,15 +85,15 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
         device: 目标设备
         confidence: 逐帧置信度（0~1），None 时用 f0>0 伪置信度
-        config: InferenceConfig（含 pitch_map_* 音域映射参数）
+        config: InferenceParams（含 pitch_map_* 音域映射参数）
 
     Returns:
         (pitch_coarse, pitchf, confidence):
         离散 pitch、连续 pitch（映射+滤波后）、置信度
     """
     if config is None:
-        from rvc.core.config import InferenceConfig
-        config = InferenceConfig()
+        from rvc.core.config import InferenceParams
+        config = InferenceParams()
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
@@ -108,10 +108,10 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
     # 音域映射（半音尺度，始终生效）
     f0 = apply_pitch_map(
         f0,
-        config.pitch_map_src_min,
-        config.pitch_map_src_max,
-        config.pitch_map_dst_min,
-        config.pitch_map_dst_max,
+        config.voice.pitch_map_src_min,
+        config.voice.pitch_map_src_max,
+        config.voice.pitch_map_dst_min,
+        config.voice.pitch_map_dst_max,
     )
 
     # F0 因果中值滤波（kernel=3）：消除孤立误判帧，减少气声和抖动
@@ -178,13 +178,13 @@ class RMVPEExtractor(F0Extractor):
         logger.info("加载 RMVPE")
         self.model = RMVPE(mp, is_half=is_half, device=device)
         self.device = device
-        self.config = config  # InferenceConfig，含 rmvpe_threshold
+        self.config = config  # InferenceParams，含 rmvpe_threshold
 
     def extract_raw(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
         """只提取原始 F0 和 confidence，不做后处理。"""
-        from rvc.core.config import InferenceConfig
-        cfg = self.config or InferenceConfig()
-        f0, conf = self.model.infer_from_audio_with_confidence(audio, thred=cfg.rmvpe_threshold)
+        from rvc.core.config import InferenceParams
+        params = self.config or InferenceParams()
+        f0, conf = self.model.infer_from_audio_with_confidence(audio, thred=params.f0.rmvpe_threshold)
         return f0, conf
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -203,7 +203,7 @@ class FCPEExtractor(F0Extractor):
     def __init__(self, device: torch.device, config=None) -> None:
         from torchfcpe import spawn_bundled_infer_model
         logger.info("加载 FCPE")
-        self.config = config  # InferenceConfig，含 fcpe_confidence_threshold
+        self.config = config  # InferenceParams，含 fcpe_confidence_threshold
         fcpe_logger = logging.getLogger("torchfcpe")
         saved_level = fcpe_logger.level
         fcpe_logger.setLevel(logging.ERROR)
@@ -222,8 +222,8 @@ class FCPEExtractor(F0Extractor):
 
     def extract_raw(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
         """只提取原始 F0 和 confidence，不做后处理。"""
-        from rvc.core.config import InferenceConfig
-        cfg = self.config or InferenceConfig()
+        from rvc.core.config import InferenceParams
+        params = self.config or InferenceParams()
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
         with _suppress_torchfcpe_output():
@@ -242,20 +242,20 @@ class FCPEExtractor(F0Extractor):
                     local_latent = torch.gather(latent, -1, local_index)
                     decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
                     confidence_mask = torch.ones_like(confidence)
-                    confidence_mask.masked_fill_(confidence <= cfg.fcpe_confidence_threshold, float("-inf"))
+                    confidence_mask.masked_fill_(confidence <= params.f0.fcpe_confidence_threshold, float("-inf"))
                     decoded = decoded * confidence_mask
                     f0 = 10.0 * torch.pow(2.0, decoded / 1200.0)
                     return f0, confidence.squeeze(-1)
 
                 f0, conf = run_cuda_graph(
                     self.model.model,
-                    f"fcpe-core-local_argmax-conf-{cfg.fcpe_confidence_threshold}",
+                    f"fcpe-core-local_argmax-conf-{params.f0.fcpe_confidence_threshold}",
                     graphable_infer, mel,
                 )
             else:
                 f0 = self.model.infer(
                     wav_t, sr=sr, decoder_mode="local_argmax",
-                    threshold=cfg.fcpe_confidence_threshold,
+                    threshold=params.f0.fcpe_confidence_threshold,
                 )
                 conf = None
         f0_out = f0.squeeze() if f0.dim() > 1 else f0
