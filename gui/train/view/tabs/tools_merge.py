@@ -69,7 +69,7 @@ def _on_merge_slider(win, value):
 
 
 def _run_merge(win):
-    from rvc.train.ckpt_utils import merge_models
+    from rvc.train.checkpoint import merge_models
 
     a = win.merge_a.text().strip()
     b = win.merge_b.text().strip()

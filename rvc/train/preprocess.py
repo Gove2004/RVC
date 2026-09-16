@@ -1,4 +1,4 @@
-from rvc.audio.constants import HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_SAMPLE_RATE
 import hashlib
 import json
 import shutil
@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 from scipy import signal
 
-from rvc.audio.loader import load_audio as _load_audio_lib
-from rvc.audio.wav_io import write_wav
-from rvc.train.ckpt_utils import CHECKPOINT_DIR_NAME
+from rvc.io.audio_file import load_audio as _load_audio_lib
+from rvc.io.wav_file import write_wav
+from rvc.train.checkpoint import CHECKPOINT_DIR_NAME
 
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"

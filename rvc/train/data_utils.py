@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from rvc.audio.loader import load_audio
+from rvc.io.audio_file import load_audio
 from torch.utils.data import Dataset, Sampler
 
 from rvc.train.mel_processing import spectrogram_torch

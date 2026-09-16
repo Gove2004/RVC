@@ -40,7 +40,7 @@ def build_group(win) -> QGroupBox:
 
 
 def _run_fixinfo(win):
-    from rvc.train.ckpt_utils import change_info
+    from rvc.train.checkpoint import change_info
 
     path = win.fix_path.text().strip()
     info = win.fix_info.text().strip()

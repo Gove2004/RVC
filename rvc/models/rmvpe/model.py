@@ -1,5 +1,5 @@
 """RMVPE 模型 — F0 提取推理接口"""
-from rvc.audio.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 import logging
 
 import numpy as np
@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from rvc.models.rmvpe.transforms import MelSpectrogram
 from rvc.models.rmvpe.blocks import E2E
-from rvc.inference.cuda_graph import run_cuda_graph
+from rvc.pipeline.cuda_graph import run_cuda_graph
 
 logger = logging.getLogger(__name__)
 

@@ -1,10 +1,10 @@
-from rvc.audio.constants import HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_SAMPLE_RATE
 from pathlib import Path
 
 import numpy as np
 
-from rvc.audio.loader import load_audio
-from rvc.audio.f0_utils import normalize_f0_to_coarse, RMVPE_THRESHOLD
+from rvc.io.audio_file import load_audio
+from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse, RMVPE_THRESHOLD
 from rvc.models.rmvpe import RMVPE
 from rvc.runtime.paths import RMVPE_PATH
 
