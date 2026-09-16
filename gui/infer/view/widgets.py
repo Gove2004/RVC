@@ -3,8 +3,6 @@ from PySide6.QtWidgets import QSlider, QLabel, QWidget, QSizePolicy
 from PySide6.QtCore import Qt, QThread, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen
 
-from rvc.core.config import HUBERT_DEFAULT
-
 __all__ = ["LoadThread", "_sl", "_create_slider_row", "_sl_value_as_float", "DoubleSlider", "RangeSlider"]
 
 
@@ -87,7 +85,7 @@ def _sl_value_as_float(slider) -> float:
 
 class LoadThread(QThread):
     ok = Signal(int); err = Signal(str)
-    def __init__(self, engine, pth, hubert=HUBERT_DEFAULT):
+    def __init__(self, engine, pth, hubert):
         super().__init__()
         self.engine = engine; self.pth = pth; self.hubert = hubert
         self._stop_requested = False

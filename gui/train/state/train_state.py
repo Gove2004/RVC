@@ -9,31 +9,35 @@ from typing import Any
 
 @dataclass
 class TrainGuiState:
-    exp_name: str
-    input_dir: str
-    sample_rate: str
-    epochs: int
-    batch_size: int
-    save_every: int
-    learning_rate: str
-    pretrain_g: str
-    pretrain_d: str
+    """训练 GUI 状态。默认值单源（D6）：字段默认即唯一缺省来源，
+    from_dict 与控件初值都从这里取。"""
+    exp_name: str = ""
+    input_dir: str = ""
+    sample_rate: str = "48k"
+    epochs: int = 200
+    batch_size: int = 4
+    save_every: int = 20
+    # UI 展示默认 "1e-4"（settings_tab 保持展示现状，D6 允许）；内部缺省写法如下
+    learning_rate: str = "0.0001"
+    pretrain_g: str = ""
+    pretrain_d: str = ""
     # HuBERT 特征器: base / chinese（与推理侧模型卡牌选择一致，训练推理必须同一种）
     hubert: str = "chinese"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrainGuiState":
+        defaults = cls()
         return cls(
-            exp_name=str(data.get("exp_name", "")),
-            input_dir=str(data.get("input_dir", "")),
-            sample_rate=str(data.get("sr", "48k")),
-            epochs=int(data.get("epochs", 200)),
-            batch_size=int(data.get("batch_size", 4)),
-            save_every=int(data.get("save_every", 20)),
-            learning_rate=str(data.get("learning_rate", "0.0001")),
-            pretrain_g=str(data.get("pretrain_g", "")),
-            pretrain_d=str(data.get("pretrain_d", "")),
-            hubert=str(data.get("hubert", "chinese")),
+            exp_name=str(data.get("exp_name", defaults.exp_name)),
+            input_dir=str(data.get("input_dir", defaults.input_dir)),
+            sample_rate=str(data.get("sr", defaults.sample_rate)),
+            epochs=int(data.get("epochs", defaults.epochs)),
+            batch_size=int(data.get("batch_size", defaults.batch_size)),
+            save_every=int(data.get("save_every", defaults.save_every)),
+            learning_rate=str(data.get("learning_rate", defaults.learning_rate)),
+            pretrain_g=str(data.get("pretrain_g", defaults.pretrain_g)),
+            pretrain_d=str(data.get("pretrain_d", defaults.pretrain_d)),
+            hubert=str(data.get("hubert", defaults.hubert)),
         )
 
     def to_dict(self) -> dict[str, Any]:

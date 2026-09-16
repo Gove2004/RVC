@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QFileDialog
 from gui.infer.view.widgets import _create_slider_row
 from gui.styles.components import ButtonStyles
 from pathlib import Path
-from rvc.runtime.paths import MODELS_DIR
 
 
 def build_global_params_tab(win):
@@ -60,7 +59,8 @@ def build_global_params_tab(win):
 
 
 def _browse_model(win):
-    path, _ = QFileDialog.getOpenFileName(win, "选择模型", str(MODELS_DIR), "模型 (*.pth)")
+    # 浏览起始目录经 controller 取（D5：View 不直接 import rvc 路径常量）
+    path, _ = QFileDialog.getOpenFileName(win, "选择模型", str(win.controller.models_dir), "模型 (*.pth)")
     if path:
         win.model_path = path
         # 同步更新 runtime_params（ATTR 类型无控件信号，需手动同步）

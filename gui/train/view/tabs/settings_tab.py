@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 
+from gui.configs import TrainGuiState
 from gui.train.view.widgets import browse_directory, browse_file
 from gui.styles import ButtonStyles, Layout
 
@@ -27,6 +28,7 @@ def _build_data_group(win) -> QGroupBox:
     grid.setHorizontalSpacing(6)
     grid.setVerticalSpacing(6)
 
+    _state_defaults = TrainGuiState()  # 控件初值与状态默认同源（D6）
     win.exp_name = QLineEdit("exp01")
     win.input_dir = QLineEdit()
     browse = QPushButton("浏览")
@@ -58,16 +60,17 @@ def _build_train_group(win) -> QGroupBox:
     form.setHorizontalSpacing(6)
     form.setVerticalSpacing(6)
 
+    _state_defaults = TrainGuiState()  # 控件初值与状态默认同源（D6）
     win.epochs = QSpinBox()
     win.epochs.setRange(1, 100000)
-    win.epochs.setValue(200)
+    win.epochs.setValue(_state_defaults.epochs)
     win.batch_size = QSpinBox()
     win.batch_size.setRange(1, 64)
-    win.batch_size.setValue(4)
+    win.batch_size.setValue(_state_defaults.batch_size)
     win.save_every = QSpinBox()
     win.save_every.setRange(1, 100000)
-    win.save_every.setValue(20)
-    win.learning_rate = QLineEdit("1e-4")
+    win.save_every.setValue(_state_defaults.save_every)
+    win.learning_rate = QLineEdit("1e-4")  # 展示现状保留（D6）；apply 时被状态默认覆盖
 
     win.pretrain_g = QLineEdit()
     win.pretrain_d = QLineEdit()

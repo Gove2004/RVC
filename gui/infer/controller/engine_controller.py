@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from rvc.core.config import InferenceParams
 from rvc.pipeline.cache import default_inference_cache
+from gui.infer.controller.telemetry import RuntimeTelemetry
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,29 @@ class InferController:
     def is_loading(self) -> bool:
         """模型是否正在加载。"""
         return self._loading
+
+    @property
+    def models_dir(self):
+        """模型文件对话框的默认起始目录（View 层不直接 import rvc 路径常量）。"""
+        from rvc.runtime.paths import MODELS_DIR
+        return MODELS_DIR
+
+    @property
+    def tray_icon_paths(self):
+        """托盘状态图标路径 (idle, active)，View 层经此取数（D5）。"""
+        from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
+        return ICON_IDLE_PATH, ICON_ACTIVE_PATH
+
+    def snapshot(self) -> RuntimeTelemetry:
+        """运行状态只读快照（D5：View 订阅快照，不穿透引擎内部）。"""
+        eng = self._engine
+        if eng is None or not eng.running:
+            return RuntimeTelemetry(running=False, measure_ms=0.0, input_pitch=0.0)
+        return RuntimeTelemetry(
+            running=True,
+            measure_ms=eng.measure_ms,
+            input_pitch=eng.input_pitch,
+        )
 
     # ── 参数应用 ──
 

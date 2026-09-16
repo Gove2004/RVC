@@ -92,6 +92,47 @@ class TestImportDirection(unittest.TestCase):
                 violations.append(str(rel))
         assert not violations, "旧门面名残留:\n" + "\n".join(violations)
 
+    def test_gui_view_no_rvc_imports(self):
+        """S10/D5：gui 的 View 层禁止 import rvc.*（唯一例外：TYPE_CHECKING 类型注解）。
+
+        顶层 import（ast.Import / ImportFrom 在模块体直接出现）一律违规；
+        if TYPE_CHECKING: 块内的 import 属于 If 节点，不算顶层，放行。
+        """
+        violations = []
+        for view_dir in (PROJECT_ROOT / "gui" / "infer" / "view",
+                         PROJECT_ROOT / "gui" / "train" / "view"):
+            for module in view_dir.rglob("*.py"):
+                tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+                found = set()
+                for node in tree.body:
+                    nodes = [node]
+                    if isinstance(node, ast.If) and _is_type_checking_guard(node.test):
+                        # TYPE_CHECKING 守卫的块放行（类型注解例外）
+                        continue
+                    while nodes:
+                        n = nodes.pop()
+                        if isinstance(n, ast.Import):
+                            for alias in n.names:
+                                if alias.name.split(".")[0] == "rvc":
+                                    found.add(alias.name)
+                        elif isinstance(n, ast.ImportFrom):
+                            if n.level == 0 and n.module and n.module.split(".")[0] == "rvc":
+                                found.add(n.module)
+                        nodes.extend(ast.iter_child_nodes(n))
+                if found:
+                    rel = module.relative_to(PROJECT_ROOT)
+                    violations.append(f"{rel} -> {sorted(found)}")
+        assert not violations, "View 层 import rvc.* 违规:\n" + "\n".join(violations)
+
+
+def _is_type_checking_guard(test) -> bool:
+    """识别 `if TYPE_CHECKING:` / `if typing.TYPE_CHECKING:` 守卫。"""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -57,11 +57,14 @@ def build_audio_driver_tab(win):
     r += 1
 
     # ── 音高算法 ──（独立 QButtonGroup，与采样率组互不干扰）
+    # 默认单源（D6）：按 runtime_params.f0.method 选中，不写第二份默认
     win.f0_rmvp_btn = QRadioButton("RMVPE")
     win.f0_rmvp_btn.setMaximumWidth(80)
     win.f0_fcpe_btn = QRadioButton("FCPE")
     win.f0_fcpe_btn.setMaximumWidth(80)
-    win.f0_fcpe_btn.setChecked(True)  # 默认 FCPE
+    is_rmvpe = win.runtime_params.f0.method == "rmvpe"
+    win.f0_rmvp_btn.setChecked(is_rmvpe)
+    win.f0_fcpe_btn.setChecked(not is_rmvpe)
 
     f0_group = QButtonGroup(w)
     f0_group.addButton(win.f0_rmvp_btn)

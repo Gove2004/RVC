@@ -64,6 +64,16 @@ class VoiceEngine:
         return self._runner.state.last_error if self._runner else ""
 
     @property
+    def input_pitch(self) -> float:
+        """当前输入音高（Hz，音域映射之前的原始值；无声/未运行为 0）。
+
+        只读遥测——GUI 延迟/音高显示经此门面取数，禁止穿透 pipeline 内部状态。
+        """
+        if self._runner is None:
+            return 0.0
+        return float(self._runner.state.last_input_pitch)
+
+    @property
     def runtime_error_pending(self):
         return self._runner.state.runtime_error_pending if self._runner else False
 

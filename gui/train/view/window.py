@@ -1,18 +1,17 @@
 """训练 GUI 主窗口"""
 import time
-from pathlib import Path
 
 from PySide6.QtWidgets import (
     QMainWindow, QMessageBox, QWidget, QVBoxLayout, QTabWidget,
 )
 
 from gui.configs import TrainGuiState, load_config, save_config
+from gui.train.controller.train_controller import TrainController
 from gui.train.controller.workers import TrainWorker
 from gui.train.view.tabs.settings_tab import build_settings_tab
 from gui.train.view.tabs.train_tab import build_train_tab
 from gui.train.view.tabs.tools_tab import build_tools_tab
 from gui.styles import ButtonStyles, LabelStyles
-from rvc.runtime.paths import PRETRAINED_ROOT
 
 
 class TrainWindow(QMainWindow):
@@ -20,6 +19,7 @@ class TrainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("RVC 训练")
         self.resize(470, 400)
+        self.controller = TrainController()
         self.worker = None
         self._tool_thread = None
         self._last_loss_text = ""
@@ -47,14 +47,15 @@ class TrainWindow(QMainWindow):
 
         选择 40k/48k 不再需要手动指定 G/D——自动指向 assets/pretrained/f0G/f0D{sr}k.pth。
         G/D 只是收敛加速的可选底座：留空 = 从零训练（收敛慢、音质起步低）。
+        业务逻辑（路径映射）在 TrainController。
         """
-        for widget, key in ((self.pretrain_g, "G"), (self.pretrain_d, "D")):
-            path = PRETRAINED_ROOT / f"f0{key}{text}.pth"
-            widget.setText(str(path) if path.exists() else "")
+        g_path, d_path = self.controller.pretrained_paths(text)
+        self.pretrain_g.setText(g_path)
+        self.pretrain_d.setText(d_path)
 
     def _start_step(self, step: str):
         try:
-            options = self._collect_options()
+            options = self.controller.validate_options(self._collect_raw_options())
         except ValueError as exc:
             QMessageBox.warning(self, "参数错误", str(exc))
             return
@@ -84,25 +85,16 @@ class TrainWindow(QMainWindow):
             self.stop_btn.setText("停止中...")
             self.stage_label.setText("当前阶段: 正在请求停止")
 
-    def _collect_options(self):
-        exp_name = self.exp_name.text().strip()
-        input_dir = self.input_dir.text().strip()
-        if not exp_name:
-            raise ValueError("实验名不能为空")
-        if not input_dir or not Path(input_dir).exists():
-            raise ValueError("请选择有效的音频目录")
-        try:
-            lr = float(self.learning_rate.text().strip())
-        except ValueError as exc:
-            raise ValueError("学习率格式不正确") from exc
+    def _collect_raw_options(self) -> dict:
+        """从控件收集原始值（类型转换与业务校验在 TrainController.validate_options）。"""
         return {
-            "exp_name": exp_name,
-            "input_dir": input_dir,
+            "exp_name": self.exp_name.text().strip(),
+            "input_dir": self.input_dir.text().strip(),
             "sr": self.sample_rate.currentText(),
             "epochs": self.epochs.value(),
             "batch_size": self.batch_size.value(),
             "save_every_epoch": self.save_every.value(),
-            "learning_rate": lr,
+            "learning_rate": self.learning_rate.text().strip(),
             "pretrain_g": self.pretrain_g.text().strip(),
             "pretrain_d": self.pretrain_d.text().strip(),
             "hubert": self.hubert.currentText(),

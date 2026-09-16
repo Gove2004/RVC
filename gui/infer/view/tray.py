@@ -11,8 +11,6 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
-
 logger = logging.getLogger(__name__)
 
 
@@ -49,17 +47,21 @@ def _load_or_make_icon(path: Path, base_color: QColor) -> QIcon:
 
 
 class TrayManager:
-    """托盘图标（双色状态）+ 右键菜单（开始/停止、显示、退出）。"""
+    """托盘图标（双色状态）+ 右键菜单（开始/停止、显示、退出）。
 
-    def __init__(self, window, on_quit=None):
+    icon_idle/icon_active：状态图标文件路径，由调用方经 controller 下发
+    （D5：View 层不直接 import rvc 路径常量）。
+    """
+
+    def __init__(self, window, on_quit=None, icon_idle: Path | None = None, icon_active: Path | None = None):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             raise RuntimeError("系统托盘不可用，无法最小化到托盘")
         self.window = window
         self.on_quit = on_quit
         self._notified = False
 
-        self._icon_idle = _load_or_make_icon(ICON_IDLE_PATH, QColor(211, 47, 47))      # 红
-        self._icon_active = _load_or_make_icon(ICON_ACTIVE_PATH, QColor(46, 125, 50))  # 绿
+        self._icon_idle = _load_or_make_icon(icon_idle, QColor(211, 47, 47))      # 红
+        self._icon_active = _load_or_make_icon(icon_active, QColor(46, 125, 50))  # 绿
         self.tray = QSystemTrayIcon(self._icon_idle, window)
         self.tray.setToolTip("-")
 
@@ -89,19 +91,17 @@ class TrayManager:
 
     def _toggle_running(self):
         """托盘开始/停止变声（不打开窗口）。"""
-        eng = self.window.controller._engine
-        if eng is not None and eng.running:
+        if self.window.controller.is_running:
             self.window._stop()
         else:
             self.window._start()
 
     def update_status(self):
-        """从引擎读取状态，刷新图标底色（绿=运行/红=停止）与 tooltip 延迟。"""
-        eng = self.window.controller._engine
-        running = eng is not None and eng.running
-        latency = f"{eng.measure_ms:.0f}ms" if running and eng.measure_ms > 0 else "-"
+        """从 controller 遥测快照刷新图标底色（绿=运行/红=停止）与 tooltip 延迟。"""
+        snap = self.window.controller.snapshot()
+        latency = f"{snap.measure_ms:.0f}ms" if snap.running and snap.measure_ms > 0 else "-"
         self.tray.setToolTip(latency)
-        self.tray.setIcon(self._icon_active if running else self._icon_idle)
+        self.tray.setIcon(self._icon_active if snap.running else self._icon_idle)
 
     def notify_minimized(self):
         """首次隐藏到托盘时气泡提示一次。"""

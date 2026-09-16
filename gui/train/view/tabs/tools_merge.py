@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
 
 from gui.train.view.widgets import ToolThread, browse_file
 from gui.styles import ButtonStyles, Layout
-from rvc.runtime.paths import MODELS_DIR
 
 
 def build_group(win) -> QGroupBox:
@@ -69,8 +68,6 @@ def _on_merge_slider(win, value):
 
 
 def _run_merge(win):
-    from rvc.train.checkpoint import merge_models
-
     a = win.merge_a.text().strip()
     b = win.merge_b.text().strip()
     name = win.merge_name.text().strip()
@@ -83,13 +80,13 @@ def _run_merge(win):
     if not Path(b).exists():
         QMessageBox.warning(win, "提示", "模型 B 不存在")
         return
-    out = str(MODELS_DIR / f"{name}.pth")
+    out = win.controller.merge_output_path(name)
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
-    win._tool_thread = ToolThread(merge_models, a, b, ratio, out)
+    win._tool_thread = ToolThread(win.controller.merge_models, a, b, ratio, out)
     win._tool_thread.done.connect(lambda ok, msg: _on_merge_done(win, ok, msg))
     win._tool_thread.start()
 

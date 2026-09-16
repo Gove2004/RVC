@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from rvc.core.config import HUBERT_DEFAULT, TrainConfig
+
 # 项目内大量路径是相对 cwd 的，统一以脚本所在目录（=项目根）为基准。
 # 切 cwd 的动作在 main() 第一行做（Q6/D4：import 即 chdir 属隐式副作用），
 # 这里只保留 import 解析所需的 sys.path 注入。
@@ -45,16 +47,20 @@ NATIVE_EXTS = {".wav", ".flac", ".ogg"}
 EXIT_OK, EXIT_ENV, EXIT_RUNTIME = 0, 1, 2
 BAR = "─" * 66
 
+# 向导交互默认值（D6 单源：能对上 dataclass 的项从 rvc.core.config 取；
+# epochs/sr 展示默认与训练配置字面不同，属 UI 展示现状，保留字面量并注明）
+# TrainConfig.exp_dir 为必填项，不可实例化，故直接读字段默认值
+_TC_FIELD = TrainConfig.__dataclass_fields__
 DEFAULTS = {
     "exp": "test",
     "sr": "48k",
-    "epochs": 250,
-    "lr": 1e-4,
+    "epochs": 250,  # 向导展示默认（与 TrainConfig.epochs=2000 / GUI 200 的差异为展示现状）
+    "lr": _TC_FIELD["learning_rate"].default,
     "save_every": 20,
-    "keep_ckpts": 1,
+    "keep_ckpts": _TC_FIELD["keep_ckpts"].default,
     "per": 3.7,
-    "keep_models": 0,
-    "hubert": "chinese",
+    "keep_models": _TC_FIELD["keep_models"].default,
+    "hubert": HUBERT_DEFAULT,
     "use_pretrained": True,
 }
 

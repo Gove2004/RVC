@@ -40,8 +40,6 @@ def build_group(win) -> QGroupBox:
 
 
 def _run_fixinfo(win):
-    from rvc.train.checkpoint import change_info
-
     path = win.fix_path.text().strip()
     info = win.fix_info.text().strip()
     if not path:
@@ -55,7 +53,7 @@ def _run_fixinfo(win):
         return
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
-    win._tool_thread = ToolThread(change_info, path, info)
+    win._tool_thread = ToolThread(win.controller.change_info, path, info)
     win._tool_thread.done.connect(lambda ok, msg: _on_fixinfo_done(win, ok, msg, path))
     win._tool_thread.start()
 

@@ -50,8 +50,6 @@ def build_group(win) -> QGroupBox:
 
 
 def _run_inspect(win):
-    from rvc.train.checkpoint import inspect_model
-
     path = win.inspect_path.text().strip()
     if not path:
         QMessageBox.warning(win, "提示", "请选择模型文件")
@@ -62,7 +60,7 @@ def _run_inspect(win):
     win.inspect_result.setText("加载中...")
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
-    win._tool_thread = ToolThread(inspect_model, path)
+    win._tool_thread = ToolThread(win.controller.inspect_model, path)
     win._tool_thread.done.connect(lambda ok, msg: _on_inspect_done(win, ok, msg))
     win._tool_thread.start()
 
@@ -80,8 +78,6 @@ def _on_inspect_done(win, success, result):
 
 
 def _run_rename_zip(win):
-    from rvc.train.checkpoint import change_archive_name
-
     path = win.inspect_path.text().strip()
     new_name = win.rename_edit.text().strip()
     if not path:
@@ -95,7 +91,7 @@ def _run_rename_zip(win):
         return
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
-    win._tool_thread = ToolThread(change_archive_name, path, new_name)
+    win._tool_thread = ToolThread(win.controller.change_archive_name, path, new_name)
     win._tool_thread.done.connect(lambda ok, msg: _on_rename_done(win, ok, msg, path))
     win._tool_thread.start()
 
