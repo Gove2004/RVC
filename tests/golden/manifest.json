@@ -1,0 +1,44 @@
+{
+  "cases": {
+    "offline_a": {
+      "npy_sha256": "2289c674219081589d714dffeb9471f3e358f36fa5e721c2949cfdc2cd2a37ae",
+      "samples": 160000,
+      "params": {
+        "formant": 0.0,
+        "rms_mix": 1.0,
+        "rmvpe_threshold": 0.05,
+        "pitch_map": [
+          100.0,
+          500.0,
+          200.0,
+          800.0
+        ],
+        "block_time": 0.25,
+        "crossfade_time": 0.05,
+        "extra_time": 2.5
+      },
+      "model": "xd80+ay20.pth",
+      "hubert": "base"
+    },
+    "offline_b": {
+      "npy_sha256": "dd351a09436e0ce7e600933c9d8075aafa24a752336e3e66769061fc252df614",
+      "samples": 160000,
+      "params": {
+        "formant": 2.0,
+        "rms_mix": 0.5,
+        "rmvpe_threshold": 0.03,
+        "pitch_map": [
+          200.0,
+          400.0,
+          400.0,
+          800.0
+        ],
+        "block_time": 0.1,
+        "crossfade_time": 0.05,
+        "extra_time": 2.0
+      },
+      "model": "xd80+ay20.pth",
+      "hubert": "base"
+    }
+  }
+}
