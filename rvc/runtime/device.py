@@ -4,7 +4,7 @@ import threading
 
 import torch
 
-from rvc.runtime.graph import configure_cuda_graph
+from rvc.runtime.graph import RuntimeOptions, configure_cuda_graph
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,11 @@ class Config:
         self.use_cuda_graph = False
         self.gpu_name = None
         self.gpu_mem = None
+        # 显式运行时选项：取代旧版 RVC_CUDA_GRAPH* 环境变量通道
+        self.graph_options = RuntimeOptions()
         self._init_device()
 
-        if configure_cuda_graph(self.device):
+        if configure_cuda_graph(self.device, self.graph_options):
             self.use_cuda_graph = True
             logger.info("CUDA Graph 已启用（GPU：%s）", self.gpu_name)
         else:

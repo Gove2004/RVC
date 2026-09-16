@@ -1,24 +1,41 @@
-"""CUDA Graph：设备开关 + 捕获/回放 + 按签名 LRU 缓存。
+"""CUDA Graph：显式开关 + 捕获/回放 + 按签名 LRU 缓存。
 
 为什么在 runtime 层：models（rmvpe/hubert/synthesizer）和 pipeline（features/
 synthesis/pitch）都要用图加速，而依赖规则禁止它们互为依赖——唯一的共同
 下层是 runtime。
 
-为什么 clear_cuda_graph_cache 要强制 GC + 同步 + empty_cache：旧的
-_CapturedCall 持有 CUDAGraph 实例和静态输入/输出张量，仅 delattr 不会立即
-释放 GPU 资源，Python GC 可能延迟回收。此时新捕获的图可能复用旧静态张量的
-内存地址，导致新旧图数据竞争——表现为快速 stop/start 后声音沙哑或输出全零。
+为什么 purge/clear 要强制 GC + 同步 + empty_cache：旧的 _CapturedCall 持有
+CUDAGraph 实例和静态输入/输出张量，仅 delattr 不会立即释放 GPU 资源，Python
+GC 可能延迟回收。此时新捕获的图可能复用旧静态张量的内存地址，导致新旧图
+数据竞争——表现为快速 stop/start 后声音沙哑或输出全零。
+
+为什么用 RuntimeOptions 显式对象而非环境变量：旧实现以 RVC_CUDA_GRAPH /
+RVC_CUDA_GRAPH_MAX_CACHE 环境变量做进程内通信，模块 import 顺序敏感、
+可测试性差。开关现在由 device.Config 持有并一次性下发到本模块
+（configure_cuda_graph），调用方一律经 run_cuda_graph/cuda_graph_enabled
+读取，不再触碰进程环境。
 """
 import gc
-import os
 import threading
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 
 import torch
 
-ENV_NAME = "RVC_CUDA_GRAPH"
-MAX_CACHE_ENV = "RVC_CUDA_GRAPH_MAX_CACHE"
+DEFAULT_GRAPH_CACHE_SIZE = 8
+
+
+@dataclass(frozen=True)
+class RuntimeOptions:
+    """CUDA Graph 运行时选项（由入口层显式构造，禁用环境变量通道）。"""
+    use_cuda_graph: bool = True
+    graph_cache_size: int = DEFAULT_GRAPH_CACHE_SIZE
+
+
+# 进程内唯一选项实例：仅由 configure_cuda_graph 写入（Config 初始化时调用一次），
+# 其余代码只读。显式单点写入优于散落的环境变量读写。
+_active_options: RuntimeOptions | None = None
 
 
 def _device_type(device):
@@ -34,19 +51,30 @@ def _cuda_device(device):
     return parsed
 
 
-def configure_cuda_graph(device):
-    """初始化 CUDA Graph 支持。返回是否启用。"""
-    if _device_type(device) != "cuda":
-        os.environ[ENV_NAME] = "0"
-        return False
-    os.environ[ENV_NAME] = "1"
-    return True
+def configure_cuda_graph(device, options: RuntimeOptions | None = None) -> bool:
+    """下发运行时选项并探测设备。返回 CUDA Graph 是否实际启用。
+
+    本函数是 _active_options 的唯一写入口；重复调用以最后一次为准。
+    """
+    global _active_options
+    opts = options or RuntimeOptions()
+    enabled = (
+        opts.use_cuda_graph
+        and _device_type(device) == "cuda"
+        and torch.cuda.is_available()
+    )
+    _active_options = RuntimeOptions(
+        use_cuda_graph=enabled,
+        graph_cache_size=max(1, int(opts.graph_cache_size)),
+    )
+    return enabled
 
 
-def cuda_graph_enabled(device):
+def cuda_graph_enabled(device) -> bool:
     """判断 CUDA Graph 是否对给定设备生效。"""
     return (
-        os.environ.get(ENV_NAME) == "1"
+        _active_options is not None
+        and _active_options.use_cuda_graph
         and _device_type(device) == "cuda"
         and torch.cuda.is_available()
     )
@@ -119,7 +147,10 @@ class _GraphCache:
         self.replay_count = 0
         self.eviction_count = 0
         self.capture_ms = 0.0
-        self.max_entries = max(1, int(os.environ.get(MAX_CACHE_ENV, "8")))
+        self.max_entries = (
+            _active_options.graph_cache_size if _active_options is not None
+            else DEFAULT_GRAPH_CACHE_SIZE
+        )
 
     def run(self, key, function, inputs):
         signature = key + tuple(_tensor_signature(value) for value in inputs)
@@ -152,15 +183,45 @@ def run_cuda_graph(owner, namespace, function, *inputs):
     return cache.run((str(namespace),), function, tuple(inputs))
 
 
-def clear_cuda_graph_cache(owner):
-    """切换模型时清除 CUDA Graph 缓存（理由见模块 docstring）。"""
+def _detach_cache(owner) -> "_GraphCache | None":
+    """摘下 owner 的图缓存（不回收 GPU 资源，回收统一在 purge 里做）。"""
     cache = getattr(owner, "_rvc_cuda_graph_cache", None)
     if cache is not None:
-        cache.entries.clear()
         delattr(owner, "_rvc_cuda_graph_cache")
-        # 强制回收旧的 _CapturedCall（含 CUDAGraph 对象和静态张量）
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            # 释放 CUDA Graph 占用的 GPU 内存，确保新图不会复用旧内存地址
-            torch.cuda.empty_cache()
+    return cache
+
+
+def _release_caches(caches) -> None:
+    """回收已摘下的图缓存：逐个取锁等待在途回放结束，再统一 GC + 同步 + 清缓存。
+
+    取锁是有意的安全点：replay 全程持锁，取到锁即保证没有回放仍在引用
+    即将销毁的 CUDAGraph/静态张量——这是旧图与新图内存地址不冲突的前提。
+    """
+    for cache in caches:
+        with cache.lock:
+            for entry in list(cache.entries.values()):
+                with entry.lock:
+                    pass
+            cache.entries.clear()
+    if not caches:
+        return
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        # 释放 CUDA Graph 占用的 GPU 内存，确保新图不会复用旧内存地址
+        torch.cuda.empty_cache()
+
+
+def purge_cuda_graphs(*owners):
+    """单入口清理：摘下所有 owner 的图缓存，统一回收一次（gc+同步+empty_cache）。
+
+    多模型切换场景（合成器+HuBERT+RMVPE 各持缓存）请用本函数替代逐个
+    clear——回收序列只跑一遍，最终状态与逐个 clear 完全一致。
+    """
+    caches = [c for o in owners if (c := _detach_cache(o)) is not None]
+    _release_caches(caches)
+
+
+def clear_cuda_graph_cache(owner):
+    """清除单个 owner 的 CUDA Graph 缓存（purge_cuda_graphs 的单 owner 形式）。"""
+    purge_cuda_graphs(owner)
