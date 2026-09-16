@@ -103,6 +103,5 @@ class TrainConfig:
     pretrain_d: str = ""
     fp16_run: bool = True
     device: str = "cuda:0"
-    log_interval: int = 20
     keep_ckpts: int = 1
     keep_models: int = 0

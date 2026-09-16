@@ -199,8 +199,8 @@ class Trainer:
             self.scaler.update()
 
             if self.loss_callback:
-                # 每 batch 都上报（GUI 侧自会节流刷新），不再受 log_interval 门槛限制——
-                # 小数据集一个 epoch 可能不足 log_interval 个 batch，旧逻辑整个 epoch 都看不到 loss
+                # 每 batch 都上报（GUI 侧自会节流刷新）——小数据集一个 epoch 可能
+                # 只有几个 batch，任何门槛都会让整个 epoch 看不到 loss
                 self.loss_callback({
                     "epoch": epoch,
                     "batch": batch_idx,
