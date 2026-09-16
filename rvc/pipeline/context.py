@@ -25,36 +25,31 @@ class InferenceContext:
     block_frame_16k: int = 0
     block_frame_48k: int = 0
 
-    # ── 阶段 1：硬件输入 ──
+    # ── stage_input（硬件输入 + 输入预处理）──
     raw_input_np: np.ndarray | None = None
     raw_input_mono: torch.Tensor | None = None
-
-    # ── 阶段 2：输入预处理 ──
     p_len: int = 0
 
-    # ── 阶段 3：HuBERT 特征提取 ──
+    # ── stage_features（HuBERT 特征提取）──
     hubert_features: torch.Tensor | None = None
 
-    # ── 阶段 4：F0 原始提取 ──
+    # ── stage_f0（F0 原始提取；formant 因子也在本阶段算出供 stage_synthesis 复用）──
     f0_raw: torch.Tensor | None = None
     confidence_raw: torch.Tensor | None = None
+    formant_factor: float = 1.0  # 2^(formant/12)，A4 正式字段（每块由 stage_features 必写）
 
-    # ── 阶段 5：合成预处理 ──
+    # ── stage_synthesis 预处理（F0 后处理 + 特征上采样 + 合成）──
     f0_mapped: torch.Tensor | None = None       # 音域映射后
     f0_filtered: torch.Tensor | None = None     # 中值滤波后
     pitch_discrete: torch.Tensor | None = None  # 离散 F0
     pitchf_continuous: torch.Tensor | None = None  # 连续 F0
     features_upsampled: torch.Tensor | None = None  # 上采样后特征 (100fps)
-
-    # ── 阶段 6：合成 ──
     synthesized_audio: torch.Tensor | None = None
 
-    # ── 阶段 7：输出处理 ──
+    # ── stage_output（formant 重采样 + 效果器 + 硬件输出）──
     formanted_audio: torch.Tensor | None = None
     rms_matched_audio: torch.Tensor | None = None
     final_output: torch.Tensor | None = None
-
-    # ── 阶段 8：硬件输出 ──
     output_np: np.ndarray | None = None
 
     def reset(self, config: InferenceParams, block_frame_16k: int, block_frame_48k: int) -> None:

@@ -13,12 +13,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RVC = PROJECT_ROOT / "rvc"
 
 UPPER_LAYERS = {"pipeline", "streaming", "train", "models", "io", "gui", "autodl"}
-LOWER_ONLY_LAYERS = {
-    "core": UPPER_LAYERS,
-    "runtime": UPPER_LAYERS,
-    "dsp": UPPER_LAYERS,  # S3 建包后立即生效
-    "models": UPPER_LAYERS - {"models"},  # S4 起：models 不得依赖 pipeline/streaming/train/io
-}
 
 # 已删除的旧模块，任何 rvc 代码不得再引用（防止引用腐化回潮）
 DEAD_MODULES = [
@@ -27,7 +21,17 @@ DEAD_MODULES = [
     "rvc.streaming.mix",
     "rvc.streaming.alignment",
     "rvc.train.mel",
+    "rvc.pipeline.registry",
 ]
+
+# 分层规则：layer -> 禁止 import 的包
+FORBIDDEN_BY_LAYER = {
+    "core": UPPER_LAYERS,
+    "runtime": UPPER_LAYERS,
+    "dsp": UPPER_LAYERS,  # S3 建包后立即生效
+    "models": UPPER_LAYERS - {"models"},  # S4 起：models 不得依赖 pipeline/streaming/train/io
+    "pipeline": {"streaming", "gui", "autodl"},  # S6 起：pipeline 不得依赖 streaming（D2）
+}
 
 
 def _local_imports(module: Path):
@@ -51,9 +55,9 @@ def _local_imports(module: Path):
 
 class TestImportDirection(unittest.TestCase):
     def test_lower_layers_import_no_upper_layers(self):
-        """core/runtime/dsp 不得 import 任何上层包。"""
+        """各低层不得 import 被禁的上层包（规则见 FORBIDDEN_BY_LAYER）。"""
         violations = []
-        for layer, forbidden in LOWER_ONLY_LAYERS.items():
+        for layer, forbidden in FORBIDDEN_BY_LAYER.items():
             layer_dir = RVC / layer
             if not layer_dir.is_dir():
                 continue

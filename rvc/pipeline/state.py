@@ -5,8 +5,10 @@
 - 48k / 16k 滚动缓冲区
 - F0 滚动缓存
 - 合成器缓存（resample_kernel / long_tensor）
-- 输出拼接缓存（sola_buffer / AudioProcessor）
 - F0 提取器实例
+
+注意：输出效果器（RMS/SOLA，AudioProcessor）不属于推理状态，由
+streaming 的 runner 直接持有——pipeline 的产物止于"合成音频块"。
 
 单块临时状态放在 InferenceContext，不在这里。
 """
@@ -16,8 +18,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import torch
-
-from rvc.streaming.loudness import AudioProcessor
 
 
 @dataclass
@@ -78,10 +78,6 @@ class EngineState:
     resample_kernel: dict = field(default_factory=dict)
     long_tensor_cache: dict = field(default_factory=dict)
 
-    # ── 输出拼接缓存（effects / SOLA）──
-    sola_buffer: torch.Tensor | None = None
-    audio_processor: AudioProcessor = field(default_factory=AudioProcessor)
-
     # ── 模型缓存（ModelCache 实例）──
     inference_cache: Any = None
 
@@ -107,15 +103,15 @@ class EngineState:
             self.confidence_cache.zero_()
 
     def reset_buffers(self) -> None:
-        """重置所有缓冲区（warmup 后调用，避免静音数据污染）。"""
+        """重置所有缓冲区（warmup 后调用，避免静音数据污染）。
+
+        输出效果器的重置由 runner 负责（效果器不在 EngineState 里）。
+        """
         self.reset_pitch_cache()
-        self.audio_processor.reset()
         if self.input_wav_48k is not None:
             self.input_wav_48k.zero_()
         if self.input_wav_16k is not None:
             self.input_wav_16k.zero_()
-        if self.sola_buffer is not None:
-            self.sola_buffer.zero_()
 
     def reset_error_state(self) -> None:
         self.error_count = 0

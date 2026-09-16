@@ -51,11 +51,12 @@ class SolaEffect:
         self._sola_buffer_samples = 0
         self._sola_search_samples = 0
 
-    def setup(self, sr: int, block_samples: int, crossfade_samples: int,
+    def setup(self, sr: int, block_samples: int, sola_buffer_samples: int,
               sola_search_samples: int, device: str):
-        zc = sr // 100
+        # sola_buffer_samples = min(crossfade_samples, 4*zc) 由调用方统一计算后传入
+        # （A2：消除 runner 与本方法的双实现），长度对齐公式共用同一来源。
         self._block_samples = block_samples
-        self._sola_buffer_samples = min(crossfade_samples, 4 * zc)
+        self._sola_buffer_samples = sola_buffer_samples
         self._sola_search_samples = sola_search_samples
         self.sola_buffer = torch.zeros(self._sola_buffer_samples, device=device)
         ls = torch.linspace(0, 1, steps=self._sola_buffer_samples, device=device)
@@ -86,11 +87,11 @@ class AudioProcessor:
         self.sola = SolaEffect()
         self.sr = 48000
 
-    def setup(self, sr: int, block_samples: int, crossfade_samples: int,
+    def setup(self, sr: int, block_samples: int, sola_buffer_samples: int,
               sola_search_samples: int, device: str):
         self.sr = sr
         self.rms_mix.setup(sr)
-        self.sola.setup(sr, block_samples, crossfade_samples, sola_search_samples, device)
+        self.sola.setup(sr, block_samples, sola_buffer_samples, sola_search_samples, device)
 
     def reset(self):
         """重置所有有状态的效果器（warmup 后调用，避免静音数据污染）。"""

@@ -8,7 +8,7 @@
 
 - InferenceRunner: 推理调度（缓冲区/推理/效果器）
 
-- ModelSessionManager: 模型生命周期（通过 InferencePipeline 间接使用）
+- ModelSessions: 模型生命周期（通过 InferencePipeline 间接使用）
 
 
 

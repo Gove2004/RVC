@@ -1,11 +1,11 @@
 """推理模型会话管理 — 统一管理 HuBERT/F0/Synthesizer 的加载与缓存。
 
-ModelSessionManager 是模型生命周期的唯一入口：
+ModelSessions 是模型生命周期的唯一入口：
 - load(): 加载模型（HuBERT + Synthesizer），返回 ModelSession
 - get_f0_extractor(): 获取 F0 提取器（RMVPE/FCPE，带缓存）
 - clear_all(): 清除所有模型缓存和 CUDA Graph（停止/切换模型时调用）
 
-realtime_engine 和 offline_manager 都通过本管理器获取模型，
+realtime_engine 和 offline_converter 都通过本会话层获取模型，
 避免缓存清除逻辑分散在多处导致遗漏（如之前的 FCPE CUDA Graph 未清除 bug）。
 """
 import logging
@@ -30,8 +30,8 @@ class ModelSession:
     use_f0: int
 
 
-class ModelSessionManager:
-    """模型会话管理器 — 统一管理模型加载、缓存与 CUDA Graph 清除。"""
+class ModelSessions:
+    """模型会话层 — 统一管理模型加载、缓存与 CUDA Graph 清除。"""
 
     def __init__(self, device_config, inference_cache=None):
         """
