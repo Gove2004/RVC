@@ -1,4 +1,16 @@
-"""音高后处理纯函数测试 — 不依赖 torch CUDA，CPU 即可运行。"""
+"""音高后处理纯函数测试 — 行为基线继承自旧 test_pitch_postprocess.py。
+
+核心约定（重写必须保持）：
+- hz/midi 互转以 A4=440Hz↔midi69 为锚，往返误差 <1e-4；
+- apply_pitch_map 恒等映射、八度平移、静音帧（0Hz）原样保留、
+  非法区间（src_min>=src_max）原样返回、0 参数钳制到 1Hz 不产生 NaN、
+  同时接受 numpy 与 torch 输入；
+- median_filter_f0 压尖峰、保恒定、不改清音（0 值）帧；
+- normalize_f0_to_coarse 输出形状一致，静音帧映射为 1（不是 0）；
+- 推理阈值常量 RMVPE_THRESHOLD == 0.03（训练侧 0.05 为独立单源常量，见 A3）。
+
+纯 CPU 可运行，不依赖 CUDA。
+"""
 import unittest
 
 import numpy as np
@@ -103,3 +115,7 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
 class TestConstants(unittest.TestCase):
     def test_rmvpe_threshold(self):
         assert RMVPE_THRESHOLD == 0.03
+
+
+if __name__ == "__main__":
+    unittest.main()

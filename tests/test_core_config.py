@@ -1,4 +1,10 @@
-"""配置数据类测试 — 验证 update_from 原地复制语义。"""
+"""配置语义测试 — 行为基线继承自旧 test_config.py（语义逐条保留）。
+
+核心约定（重写必须保持）：
+- update_from 原地复制字段值，不替换分组对象引用（引擎热生效依赖此约定）；
+- 修改源对象不影响已完成 update_from 的目标对象；
+- OfflineParams 可 update_from 到 InferenceParams，只复制共有字段。
+"""
 import unittest
 
 from rvc.core.config import InferenceParams, OfflineParams
@@ -74,3 +80,7 @@ class TestOfflineParams(unittest.TestCase):
         assert dst.rms_mix == 0.3
         # InferenceParams 没有 input_path/output_path 字段
         assert not hasattr(dst, "input_path")
+
+
+if __name__ == "__main__":
+    unittest.main()

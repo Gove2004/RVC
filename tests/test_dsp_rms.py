@@ -1,4 +1,14 @@
-"""RMS 音量混合纯函数测试 — CPU torch 即可运行。"""
+"""RMS 音量混合纯函数测试 — 行为基线继承自旧 test_rms_mix.py。
+
+核心约定（重写必须保持）：
+- rms_mix=1.0 → 输出逐样本等于转换音频（不改变音量）；
+- rms_mix=0.0 → 输出音量跟随参考；
+- 输出与转换音频同长度；任何输入不产生 NaN/Inf；
+- fast_rms：静音近零、恒幅正弦中间帧 ≈ 振幅/√2、
+  反射 padding + avg_pool 的输出长度 ≈ (len+frame)//hop。
+
+纯 CPU 可运行，不依赖 CUDA。
+"""
 import unittest
 
 import torch
@@ -58,3 +68,7 @@ class TestApplyRmsMix(unittest.TestCase):
         out = apply_rms_mix(reference, converted, rms_mix=0.5, hz_per_centisecond=16)
         assert not torch.any(torch.isnan(out))
         assert not torch.any(torch.isinf(out))
+
+
+if __name__ == "__main__":
+    unittest.main()

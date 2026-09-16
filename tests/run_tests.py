@@ -1,37 +1,20 @@
-"""纯函数单元测试运行器 — 不依赖 pytest，用标准库 unittest。
+"""单元测试运行器 — unittest 自动发现，零第三方依赖。
+
+新测试文件放进本目录即被自动发现，无需登记（旧手工清单已废弃）。
 
 运行: python -m tests.run_tests
 """
 import sys
 import unittest
-
-from tests.test_config import TestInferenceParams, TestOfflineParams
-from tests.test_pitch_postprocess import (
-    TestApplyPitchMap,
-    TestConstants,
-    TestHzMidiConversion,
-    TestMedianFilterF0,
-    TestNormalizeF0ToCoarse,
-)
-from tests.test_rms_mix import TestApplyRmsMix, TestFastRms
+from pathlib import Path
 
 
-def main():
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    for test_class in (
-        TestHzMidiConversion,
-        TestApplyPitchMap,
-        TestMedianFilterF0,
-        TestNormalizeF0ToCoarse,
-        TestConstants,
-        TestFastRms,
-        TestApplyRmsMix,
-        TestInferenceParams,
-        TestOfflineParams,
-    ):
-        suite.addTests(loader.loadTestsFromTestCase(test_class))
-
+def main() -> int:
+    tests_dir = Path(__file__).resolve().parent
+    project_root = tests_dir.parent
+    suite = unittest.defaultTestLoader.discover(
+        start_dir=str(tests_dir), top_level_dir=str(project_root)
+    )
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     return 0 if result.wasSuccessful() else 1
