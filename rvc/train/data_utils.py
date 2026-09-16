@@ -15,8 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 class TextAudioLoaderMultiNSFsid(Dataset):
-    def __init__(self, filelist_path: str, data_config: dict):
+    def __init__(self, filelist_path: str, data_config: dict, spec_cache_dir: str | Path):
+        """数据集加载器。
+
+        Args:
+            spec_cache_dir: STFT 频谱缓存目录。A6：缓存不再写进切片产物
+                目录（0_gt_wavs/），统一放 {exp}/spec_cache/——切片目录保持
+                "纯产物"，缓存失效由 mtime 判断 + 素材变更时整目录清除。
+        """
         self.data_config = data_config
+        self.spec_cache_dir = Path(spec_cache_dir)
         self.audiopaths_and_text = self._load_filelist(filelist_path)
         self.max_wav_value = data_config["max_wav_value"]
         self.sampling_rate = data_config["sampling_rate"]
@@ -75,14 +83,16 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             raise ValueError(f"采样率不匹配: {sr} != {self.sampling_rate}")
         wav = torch.FloatTensor(wav).unsqueeze(0)
         # 缓存 key 包含全部 STFT 参数；重新预处理导致切片文件更新时自动失效
-        spec_path = (
-            f"{filename}.sr{self.sampling_rate}"
+        # （mtime 判断语义与旧版一致，仅目录从切片目录移到 spec_cache/）
+        spec_name = (
+            f"{Path(filename).stem}.sr{self.sampling_rate}"
             f".n{self.filter_length}.h{self.hop_length}.w{self.win_length}.spec.pt"
         )
+        spec_path = self.spec_cache_dir / spec_name
         wav_mtime = Path(filename).stat().st_mtime
         cache_valid = (
-            Path(spec_path).exists()
-            and Path(spec_path).stat().st_mtime >= wav_mtime
+            spec_path.exists()
+            and spec_path.stat().st_mtime >= wav_mtime
         )
         if cache_valid:
             spec = torch.load(spec_path, map_location="cpu", weights_only=False)
@@ -95,6 +105,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
                 self.win_length,
                 center=False,
             ).squeeze(0)
+            self.spec_cache_dir.mkdir(parents=True, exist_ok=True)
             torch.save(spec, spec_path)
         return spec, wav.squeeze(0)
 

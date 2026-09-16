@@ -132,14 +132,13 @@ def _gpu_mem() -> tuple[float, float]:
 def step_train(log: TrainLogger, cfg: dict):
     from rvc.train.preprocess import generate_filelist
     from rvc.train.trainer import TrainConfig, Trainer
-    import rvc.train.trainer as trainer_mod
 
     log.section("步骤 4/4 训练")
     exp_dir = cfg["exp_dir"]
     model_dir = cfg["model_dir"]
     model_dir.mkdir(parents=True, exist_ok=True)
-    trainer_mod.WEIGHTS_DIR = model_dir
-    log.log(f"导出模型目录已重定向到: {model_dir}")
+    # 导出目录经显式参数传入 Trainer（旧版靠改模块全局 WEIGHTS_DIR，已删）
+    log.log(f"导出模型目录: {model_dir}")
 
     # 从头训练时清掉同名旧模型
     if _detect_ckpt_epoch(exp_dir) == 0:
@@ -221,7 +220,7 @@ def step_train(log: TrainLogger, cfg: dict):
         else:
             log.log(msg)
 
-    trainer = Trainer(train_config, on_epoch, on_trainer_log, on_loss, on_batch)
+    trainer = Trainer(train_config, on_epoch, on_trainer_log, on_loss, on_batch, export_dir=model_dir)
     STOP.trainer = trainer
     t0 = time.time()
     try:

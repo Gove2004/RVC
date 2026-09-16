@@ -1,5 +1,6 @@
 import glob
 import json
+import logging
 import os
 import re
 import zipfile
@@ -9,6 +10,8 @@ from pathlib import Path
 import torch
 
 from rvc.runtime import train_config_path
+
+logger = logging.getLogger(__name__)
 
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
@@ -27,15 +30,26 @@ def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: st
 
 
 def load_checkpoint(path: str, model, optimizer=None):
+    """加载训练 checkpoint（{model, iteration, optimizer, learning_rate}）。
+
+    键匹配语义：形状不一致或缺键的权重被跳过（与上游 strict=False 行为
+    一致），但跳过会打 warning——旧版零提示，续训结构不匹配时静默产生
+    半随机模型，排查困难。
+    """
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     saved_state = checkpoint["model"]
     model_state = model.state_dict()
     matched = {}
+    skipped = []
     for key, value in saved_state.items():
         if key in model_state and model_state[key].shape == value.shape:
             matched[key] = value
+        else:
+            skipped.append(key)
     model_state.update(matched)
     model.load_state_dict(model_state, strict=False)
+    if skipped:
+        logger.warning("checkpoint %s 有 %d 个权重未匹配被跳过: %s", path, len(skipped), ", ".join(skipped[:8]))
     if optimizer is not None and checkpoint["optimizer"] is not None:
         optimizer.load_state_dict(checkpoint["optimizer"])
     return checkpoint["learning_rate"], checkpoint["iteration"]

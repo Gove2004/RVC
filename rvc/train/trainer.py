@@ -28,18 +28,23 @@ from rvc.train.data_utils import BucketSampler, TextAudioCollateMultiNSFsid, Tex
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 
-# 导出模型目录（统一来自 rvc.runtime.paths）；保留模块级名字，
-# 云训练（autodl_train.py）靠运行时改 WEIGHTS_DIR 重定向到数据盘
-WEIGHTS_DIR = MODELS_DIR
-
 
 class Trainer:
-    def __init__(self, train_config: TrainConfig, progress_callback=None, log_callback=None, loss_callback=None, batch_callback=None):
+    def __init__(self, train_config: TrainConfig, progress_callback=None, log_callback=None, loss_callback=None, batch_callback=None,
+                 export_dir: str | Path | None = None):
+        """训练器。
+
+        Args:
+            export_dir: 导出模型目录。默认 assets/models/；云训练（autodl）
+                传数据盘目录——取代旧版"运行时改模块全局 WEIGHTS_DIR"的
+                monkey-patch 通道（隐式全局状态，多训练器实例会互相污染）。
+        """
         self.cfg = train_config
         self.progress_callback = progress_callback
         self.log_callback = log_callback
         self.loss_callback = loss_callback
         self.batch_callback = batch_callback
+        self.export_dir = Path(export_dir) if export_dir else MODELS_DIR
         self.stop_requested = False
         self.json_config = load_train_json(self.cfg.sr)
         self.train_cfg = self.json_config["train"]
@@ -110,7 +115,10 @@ class Trainer:
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.fp16_run)
 
         filelist = str(Path(self.cfg.exp_dir) / "filelist.txt")
-        dataset = TextAudioLoaderMultiNSFsid(filelist, self.data_cfg)
+        dataset = TextAudioLoaderMultiNSFsid(
+            filelist, self.data_cfg,
+            spec_cache_dir=Path(self.cfg.exp_dir) / "spec_cache",
+        )
         sampler = BucketSampler(dataset, self.cfg.batch_size)
         self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=2, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)
         if len(self.loader) == 0:

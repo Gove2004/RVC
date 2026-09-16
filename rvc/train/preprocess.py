@@ -19,6 +19,7 @@ _RUNTIME_DIRS = [
     "2a_f0",
     "2b-f0nsf",
     "3_feature768",
+    "spec_cache",  # A6：STFT 缓存独立目录，素材变更时随切片产物一起清除
     "filelist.txt",
 ]
 _CHECKPOINT_GLOBS = ["G_*.pth", "D_*.pth"]
