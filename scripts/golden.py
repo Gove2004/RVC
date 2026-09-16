@@ -12,6 +12,7 @@
 import hashlib
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -213,7 +214,7 @@ def verify_one(name: str):
 
     _patch_race()
     golden = np.load(GOLDEN / f"{name}.npy")
-    out_tmp = GOLDEN / f"{name}_verify_out.wav"
+    out_tmp = Path(tempfile.gettempdir()) / f"golden_{name}_verify_out.wav"
     params = build_params(name, out_tmp)
     engine = RealtimeEngine(params)
     engine.load_model(str(MODEL), hubert=HUBERT)
