@@ -42,6 +42,7 @@ from gui.infer.controller.device_controller import DeviceManager
 from gui.infer.controller.offline_controller import OfflineManager
 
 from gui.styles import ButtonStyles, Layout
+from gui.styles.colors import Colors
 
 if TYPE_CHECKING:
     # D5 例外：类型注解可以引用 rvc 类型（运行时不 import）
@@ -151,6 +152,13 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.delay_lbl.setMinimumWidth(120)
         self.delay_lbl.setToolTip("端到端实测延迟（含声卡缓冲）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
         btn_group.addWidget(self.delay_lbl)
+
+        # 错误计数：实时链路吞错（清零输出继续跑）的唯一可见信号，>0 才显示
+        self.error_lbl = QLabel("")
+        self.error_lbl.setMinimumWidth(70)
+        self.error_lbl.setStyleSheet(f"color: {Colors.ERROR};")
+        self.error_lbl.hide()
+        btn_group.addWidget(self.error_lbl)
 
         ctrl.addLayout(btn_group)
         root.addLayout(ctrl)
@@ -282,6 +290,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._set_toggle_button("开始", True, ButtonStyles.primary())
         self.delay_lbl.setText("延迟: -")
         self.pitch_lbl.setText("音高: -")
+        self.error_lbl.hide()
 
     def _mark_loading(self):
         self._set_toggle_button("加载中", False, ButtonStyles.secondary())

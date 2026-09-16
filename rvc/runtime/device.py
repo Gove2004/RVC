@@ -37,6 +37,14 @@ class Config:
             self.use_cuda_graph = False
 
     def _init_device(self) -> None:
+        # 现状契约：无 CUDA 环境直接失败，不做 CPU 回退。
+        # 显式抛出可读错误（而非让 torch 裸异常穿透），GUI 层据此弹友好提示。
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "未检测到可用的 NVIDIA GPU（torch.cuda.is_available() = False）。\n"
+                "本程序需要 CUDA 环境运行：请确认已安装 NVIDIA 显卡驱动，"
+                "且当前 PyTorch 为 CUDA 构建版本。"
+            )
         i_device = int(self.device.split(":")[-1])
         self.gpu_name = torch.cuda.get_device_name(i_device)
         logger.info("GPU：%s", self.gpu_name)

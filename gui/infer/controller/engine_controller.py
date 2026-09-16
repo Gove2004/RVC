@@ -88,6 +88,7 @@ class InferController:
             running=True,
             measure_ms=eng.measure_ms,
             input_pitch=eng.input_pitch,
+            error_count=eng.error_count,
         )
 
     # ── 参数应用 ──

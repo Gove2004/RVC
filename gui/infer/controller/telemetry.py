@@ -12,3 +12,4 @@ class RuntimeTelemetry:
     running: bool
     measure_ms: float   # 端到端实测延迟（毫秒，未运行为 0）
     input_pitch: float  # 当前输入音高（Hz，音域映射前；无声为 0）
+    error_count: int = 0  # 实时链路音频回调累计错误数（0 = 无错误）

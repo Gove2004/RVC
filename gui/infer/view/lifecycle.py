@@ -132,6 +132,13 @@ class WindowLifecycle:
             else:
                 self.pitch_lbl.setText("音高: -")
 
+        # 错误计数：音频回调吞错（输出清零但引擎继续跑）的唯一可见信号
+        if snap.error_count > 0:
+            self.error_lbl.setText(f"错误: {snap.error_count}")
+            self.error_lbl.show()
+        else:
+            self.error_lbl.hide()
+
         if self.tray is not None:
             self.tray.update_status()
 
