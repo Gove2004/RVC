@@ -9,7 +9,7 @@ from torch.nn import Conv1d, ConvTranspose1d
 from torch.nn import functional as F
 from torch.nn.utils import parametrize, parametrizations
 from rvc.nn import modules
-from rvc.nn.commons import init_weights
+from rvc.nn.vits_blocks import init_weights
 
 class Generator(torch.nn.Module):
     def __init__(

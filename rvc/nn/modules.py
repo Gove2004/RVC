@@ -6,8 +6,8 @@ from torch.nn import Conv1d
 from torch.nn import functional as F
 from torch.nn.utils import parametrize, parametrizations
 
-from rvc.nn import commons
-from rvc.nn.commons import get_padding, init_weights
+from rvc.nn import vits_blocks
+from rvc.nn.vits_blocks import get_padding, init_weights
 
 LRELU_SLOPE = 0.1
 
@@ -148,7 +148,7 @@ class WN(torch.nn.Module):
             else:
                 g_l = torch.zeros_like(x_in)
 
-            acts = commons.fused_add_tanh_sigmoid_multiply(x_in, g_l, self._n_channels_tensor)
+            acts = vits_blocks.fused_add_tanh_sigmoid_multiply(x_in, g_l, self._n_channels_tensor)
             acts = self.drop(acts)
 
             res_skip_acts = res_skip_layer(acts)

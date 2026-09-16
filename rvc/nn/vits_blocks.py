@@ -1,3 +1,9 @@
+"""VITS 通用数值块（原版 RVC 拷贝层）。
+
+本文件是原版 RVC 的数值路径拷贝：函数行为与上游逐行等价，重写时禁止
+"顺手优化"——slice_segments 等切片实现已锁定现状（见各函数注释），
+改动会影响与已导出模型/预训练权重的数值一致性。
+"""
 from typing import Optional
 
 import torch
@@ -30,6 +36,7 @@ def sequence_mask(length: torch.Tensor, max_length: Optional[int] = None):
 
 
 def slice_segments(x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 4):
+    # AL-4：刻意不做向量化（gather/index 有数值与边界风险且非性能瓶颈），锁死逐样本切片。
     ret = torch.zeros_like(x[:, :, :segment_size])
     for i in range(x.size(0)):
         idx_str = int(ids_str[i].item())

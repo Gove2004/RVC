@@ -5,7 +5,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from rvc.nn import attentions, commons, modules
+from rvc.nn import attentions, modules, vits_blocks
 
 
 class TextEncoder(nn.Module):
@@ -57,7 +57,7 @@ class TextEncoder(nn.Module):
         x = x * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = self.lrelu(x)
         x = torch.transpose(x, 1, -1)  # [b, h, t]
-        x_mask = torch.unsqueeze(commons.sequence_mask(lengths, x.size(2)), 1).to(
+        x_mask = torch.unsqueeze(vits_blocks.sequence_mask(lengths, x.size(2)), 1).to(
             x.dtype
         )
         x = self.encoder(x * x_mask, x_mask)
@@ -103,7 +103,7 @@ class PosteriorEncoder(nn.Module):
     def forward(
         self, x: torch.Tensor, x_lengths: torch.Tensor, g: Optional[torch.Tensor] = None
     ):
-        x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(
+        x_mask = torch.unsqueeze(vits_blocks.sequence_mask(x_lengths, x.size(2)), 1).to(
             x.dtype
         )
         x = self.pre(x) * x_mask

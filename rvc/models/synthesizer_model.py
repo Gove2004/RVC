@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 import torch
 from torch import nn
 
-from rvc.nn import commons
+from rvc.nn import vits_blocks
 from rvc.models.synthesizer_encoder import TextEncoder, PosteriorEncoder
 from rvc.models.synthesizer_decoder import Generator, GeneratorNSF
 from rvc.models.synthesizer_flow import ResidualCouplingBlock
@@ -45,6 +45,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         gin_channels,
         sr,
         use_f0=True,
+        phone_dim=256,
         **kwargs
     ):
         super(_SynthesizerTrnMsBase, self).__init__()
@@ -69,9 +70,9 @@ class _SynthesizerTrnMsBase(nn.Module):
         self.spk_embed_dim = spk_embed_dim
         self.use_f0: Final[bool] = use_f0
 
-        # Text Encoder（256 维输入，后续子类会替换为 768 维）
+        # Text Encoder（HuBERT 特征维度：v2 一律 768，基类默认 256 仅为兼容旧签名）
         self.enc_p = TextEncoder(
-            256,
+            phone_dim,
             inter_channels,
             hidden_channels,
             filter_channels,
@@ -153,8 +154,8 @@ class _SynthesizerTrnMsBase(nn.Module):
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
         z_p = self.flow(z, y_mask, g=g)
-        z_slice, ids_slice = commons.rand_slice_segments(z, y_lengths, self.segment_size)
-        pitchf = commons.slice_segments2(pitchf, ids_slice, self.segment_size)
+        z_slice, ids_slice = vits_blocks.rand_slice_segments(z, y_lengths, self.segment_size)
+        pitchf = vits_blocks.slice_segments2(pitchf, ids_slice, self.segment_size)
         o = self.dec(z_slice, pitchf, g=g)
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
@@ -232,7 +233,7 @@ class SynthesizerTrnMsNSFsid(_SynthesizerTrnMsBase):
         sr,
         **kwargs
     ):
-        super(SynthesizerTrnMsNSFsid, self).__init__(
+        super().__init__(
             spec_channels,
             segment_size,
             inter_channels,
@@ -252,20 +253,8 @@ class SynthesizerTrnMsNSFsid(_SynthesizerTrnMsBase):
             gin_channels,
             sr,
             use_f0=True,
+            phone_dim=768,
             **kwargs
-        )
-        # 替换为 768 维 TextEncoder
-        del self.enc_p
-        self.enc_p = TextEncoder(
-            768,
-            inter_channels,
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            n_layers,
-            kernel_size,
-            float(p_dropout),
-            f0=True,
         )
 
 
@@ -294,7 +283,7 @@ class SynthesizerTrnMsNSFsid_nono(_SynthesizerTrnMsBase):
         sr=None,
         **kwargs
     ):
-        super(SynthesizerTrnMsNSFsid_nono, self).__init__(
+        super().__init__(
             spec_channels,
             segment_size,
             inter_channels,
@@ -314,18 +303,6 @@ class SynthesizerTrnMsNSFsid_nono(_SynthesizerTrnMsBase):
             gin_channels,
             sr,
             use_f0=False,
+            phone_dim=768,
             **kwargs
-        )
-        # 替换为 768 维 TextEncoder（无 F0）
-        del self.enc_p
-        self.enc_p = TextEncoder(
-            768,
-            inter_channels,
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            n_layers,
-            kernel_size,
-            float(p_dropout),
-            f0=False,
         )

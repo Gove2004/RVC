@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from rvc.core.config import TrainConfig
-from rvc.nn import commons
+from rvc.nn import vits_blocks
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
 from rvc.models.synthesizer_model import SynthesizerTrnMsNSFsid
 from rvc.train.checkpoint import (
@@ -173,9 +173,9 @@ class Trainer:
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
                 y_hat, ids_slice, _, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = self.synthesizer(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
                 mel = spec_to_mel_torch(spec, self.data_cfg["filter_length"], self.data_cfg["n_mel_channels"], self.cfg.sr, self.data_cfg["mel_fmin"], self.data_cfg["mel_fmax"])
-                y_mel = commons.slice_segments(mel, ids_slice, self.segment_size)
+                y_mel = vits_blocks.slice_segments(mel, ids_slice, self.segment_size)
                 y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1), self.data_cfg["filter_length"], self.data_cfg["n_mel_channels"], self.cfg.sr, self.data_cfg["hop_length"], self.data_cfg["win_length"], self.data_cfg["mel_fmin"], self.data_cfg["mel_fmax"])
-                wave_slice = commons.slice_segments(wave, ids_slice * self.data_cfg["hop_length"], self.train_cfg["segment_size"])
+                wave_slice = vits_blocks.slice_segments(wave, ids_slice * self.data_cfg["hop_length"], self.train_cfg["segment_size"])
                 y_d_hat_r, y_d_hat_g, _, _ = self.net_d(wave_slice, y_hat.detach())
                 loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
 

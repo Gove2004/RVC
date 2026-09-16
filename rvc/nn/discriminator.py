@@ -5,7 +5,7 @@ from torch.nn import functional as F
 from torch.nn.utils import spectral_norm
 from torch.nn.utils.parametrizations import weight_norm
 
-from rvc.nn.commons import get_padding
+from rvc.nn.vits_blocks import get_padding
 from rvc.nn.modules import LRELU_SLOPE
 
 
