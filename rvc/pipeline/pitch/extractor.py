@@ -16,7 +16,7 @@ import torch
 from rvc.runtime.paths import RMVPE_PATH
 from rvc.pipeline.cuda_graph import run_cuda_graph
 from rvc.runtime.cuda_graph import cuda_graph_enabled
-from rvc.audio.f0_utils import median_filter_f0, normalize_f0_to_coarse, apply_pitch_map
+from rvc.pipeline.pitch.postprocess import median_filter_f0, normalize_f0_to_coarse, apply_pitch_map
 
 # 最新原始输入音调（Hz，非零帧平均，音域映射之前的值，用于 GUI 显示）
 
