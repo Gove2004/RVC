@@ -85,7 +85,6 @@ app.py                    # 入口：CLI 参数解析 → 启动推理/训练 GU
 │   ├── steps.py          # 训练步骤执行
 │   └── __main__.py       # 主流程编排
 ├── autodl_train.py       # 云训练向导薄包装入口（等价 python -m autodl）
-├── scripts/golden.py     # 金标准采集/校验工具（离线转换谱度量）
 └── tests/                # unittest 自动发现（python -m tests.run_tests，无需 pytest）
 ```
 
@@ -144,15 +143,10 @@ rvc/core                         # 配置/常量/异常（最底层）
 
 ```bash
 .venv\Scripts\python.exe -m tests.run_tests    # 65 个用例，unittest 自动发现
-.venv\Scripts\python.exe scripts/golden.py verify   # 金标准回归（STFT 谱差度量）
 ```
 
-覆盖：dsp 纯函数（SOLA/RMS/mel/Hz-MIDI）、音高后处理、配置 dataclass、io 层（ffmpeg 异常契约）、train 层（checkpoint 往返/spec 缓存）、架构守护（依赖方向 + View 层禁 import rvc）、GUI offscreen 冒烟、autodl 管道金标准（喂答案逐行 diff + 退出码）。
+覆盖：dsp 纯函数（SOLA/RMS/mel/Hz-MIDI）、音高后处理、配置 dataclass、io 层（ffmpeg 异常契约）、train 层（checkpoint 往返/spec 缓存）、架构守护（依赖方向 + View 层禁 import rvc）、GUI offscreen 冒烟、autodl 管道金标准（喂答案逐行 diff + 退出码，基准存 `tests/golden/`）。
 
 ## 云训练
 
 详见 `autodl/` 包。交互式向导自动完成环境检查、参数配置、预处理、F0/特征提取、训练全流程，支持断点续训。ffmpeg 定位结果显式贯穿全部步骤（无进程内全局重定向）。
-
-## 重构文档
-
-`docs/rewrite/` 保存本次彻底重写的全过程文档：功能基线（01）、问题清单（02）、目标架构设计（03）、重构对照表（04）、验证报告（05）。
