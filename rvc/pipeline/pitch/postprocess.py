@@ -18,9 +18,6 @@ PITCH_MIN = 1
 PITCH_MAX = 255
 PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 
-# RMVPE F0 提取阈值：低于此值的置信度判为静音/UV
-# 0.03 是 RMVPE 官方推荐值，与 FCPE 的 0.025 同档（底噪全判 uv）
-RMVPE_THRESHOLD = 0.03
 
 
 # 音域映射预计算缓存：参数组合 → (src_min_m, src_max_m, dst_min_m, dst_max_m)

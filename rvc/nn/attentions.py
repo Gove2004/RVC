@@ -91,7 +91,6 @@ class MultiHeadAttention(nn.Module):
         self.n_heads = n_heads
         self.p_dropout = p_dropout
         self.window_size = window_size
-        self.attn = None
 
         self.k_channels = channels // n_heads
         self.inv_k_channels_sqrt = 1.0 / math.sqrt(self.k_channels)

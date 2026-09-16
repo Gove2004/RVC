@@ -7,7 +7,8 @@
   同时接受 numpy 与 torch 输入；
 - median_filter_f0 压尖峰、保恒定、不改清音（0 值）帧；
 - normalize_f0_to_coarse 输出形状一致，静音帧映射为 1（不是 0）；
-- 推理阈值常量 RMVPE_THRESHOLD == 0.03（训练侧 0.05 为独立单源常量，见 A3）。
+- 训练侧阈值单源常量 RMVPE_THRESHOLD_TRAIN == 0.03（core/constants.py，
+  A3 单源化；推理侧 0.05 挂在 InferenceParams.f0.rmvpe_threshold）。
 
 纯 CPU 可运行，不依赖 CUDA。
 """
@@ -17,8 +18,8 @@ import numpy as np
 import torch
 
 from rvc.dsp.hz_midi import hz_to_midi, midi_to_hz
+from rvc.core.constants import RMVPE_THRESHOLD_TRAIN
 from rvc.pipeline.pitch.postprocess import (
-    RMVPE_THRESHOLD,
     apply_pitch_map,
     median_filter_f0,
     normalize_f0_to_coarse,
@@ -113,7 +114,7 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
 
 class TestConstants(unittest.TestCase):
     def test_rmvpe_threshold(self):
-        assert RMVPE_THRESHOLD == 0.03
+        assert RMVPE_THRESHOLD_TRAIN == 0.03
 
 
 if __name__ == "__main__":

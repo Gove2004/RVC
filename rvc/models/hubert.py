@@ -12,7 +12,6 @@ from transformers.utils.logging import disable_progress_bar
 # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
 disable_progress_bar()
 
-from rvc.pipeline.cache import default_inference_cache
 from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -42,8 +41,12 @@ def hubert_path(variant: str = "chinese") -> str:
     return str(HUBERT_ROOT / variant)
 
 
-def load_hubert(config, inference_cache=None, variant: str = "chinese"):
-    inference_cache = inference_cache or default_inference_cache
+def load_hubert(config, variant: str = "chinese"):
+    """加载 HuBERT 特征器（纯加载，不做缓存）。
+
+    缓存策略属于调用方（pipeline 组装层 / 训练侧各自的加载上下文），
+    模型层只负责把权重装到设备上。
+    """
     if variant not in HUBERT_VARIANTS:
         raise FeatureExtractionError(f"未知 HuBERT 变体: {variant!r}（可选 {HUBERT_VARIANTS}）")
     model_path = hubert_path(variant)
@@ -54,12 +57,6 @@ def load_hubert(config, inference_cache=None, variant: str = "chinese"):
             f"HuBERT 权重缺失: {model_path}/{missing[0]}（{variant} 特征器未就位，"
             f"请确认 assets/hubert/{variant}/ 三件套完整）"
         )
-
-    cache_key = (config.device, config.is_half, variant)
-    cached = inference_cache.get_hubert(cache_key)
-    if cached is not None:
-        logger.info("  · HuBERT（缓存, %s）", variant)
-        return cached
 
     dtype = torch.float16 if config.is_half else torch.float32
     logger.info("  · HuBERT（%s, variant=%s）", dtype, variant)
@@ -85,5 +82,4 @@ def load_hubert(config, inference_cache=None, variant: str = "chinese"):
             sys.stderr.close()
             sys.stderr = _stderr
 
-    inference_cache.set_hubert(cache_key, hubert_model)
     return hubert_model

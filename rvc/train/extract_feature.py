@@ -7,6 +7,12 @@ import torch
 
 from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
+from rvc.runtime.caches import LRUCache
+
+# 训练侧 HuBERT 进程级缓存（与推理侧 InferenceCache 的 hubert 槽位同配置 LRU=2）：
+# 同进程第二次训练任务直接复用，避免重新加载 ~1GB 权重。
+# 缓存策略在本层（调用方）——模型层 load_hubert 是纯加载器。
+_hubert_cache = LRUCache(2)
 
 
 class HuBERTExtractor:
@@ -14,7 +20,12 @@ class HuBERTExtractor:
         self.device = device
         self.is_half = is_half
         self.hubert = hubert
-        self.model = load_hubert(SimpleNamespace(device=device, is_half=is_half), variant=hubert)
+        cache_key = (device, is_half, hubert)
+        model = _hubert_cache.get(cache_key)
+        if model is None:
+            model = load_hubert(SimpleNamespace(device=device, is_half=is_half), variant=hubert)
+            _hubert_cache.set(cache_key, model)
+        self.model = model
         self.stop_requested = False
 
     def request_stop(self):

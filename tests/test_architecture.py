@@ -17,7 +17,17 @@ LOWER_ONLY_LAYERS = {
     "core": UPPER_LAYERS,
     "runtime": UPPER_LAYERS,
     "dsp": UPPER_LAYERS,  # S3 建包后立即生效
+    "models": UPPER_LAYERS - {"models"},  # S4 起：models 不得依赖 pipeline/streaming/train/io
 }
+
+# 已删除的旧模块，任何 rvc 代码不得再引用（防止引用腐化回潮）
+DEAD_MODULES = [
+    "rvc.runtime.cuda_graph",
+    "rvc.pipeline.cuda_graph",
+    "rvc.streaming.mix",
+    "rvc.streaming.alignment",
+    "rvc.train.mel",
+]
 
 
 def _local_imports(module: Path):
@@ -56,12 +66,13 @@ class TestImportDirection(unittest.TestCase):
 
     def test_deleted_modules_not_referenced(self):
         """已删除的旧模块不得再被引用（防止引用腐化回潮）。"""
-        forbidden = ["rvc.runtime.cuda_graph", "rvc.pipeline.cuda_graph"]
+        import re
         violations = []
         for module in RVC.rglob("*.py"):
             text = module.read_text(encoding="utf-8")
-            for name in forbidden:
-                if name in text:
+            for name in DEAD_MODULES:
+                # 词边界匹配：rvc.train.mel 不误伤 rvc.train.mel_processing
+                if re.search(re.escape(name) + r"(?![A-Za-z0-9_])", text):
                     rel = module.relative_to(PROJECT_ROOT)
                     violations.append(f"{rel} references {name}")
         assert not violations, "已删模块被引用:\n" + "\n".join(violations)

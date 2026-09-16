@@ -55,11 +55,17 @@ class ModelSessionManager:
 
         logger.info("加载 %s", os.path.basename(pth_path))
         try:
-            hubert = load_hubert(
-                _DeviceConfig(self.device, self.is_half),
-                self.inference_cache,
-                variant=hubert_variant,
-            )
+            # HuBERT 缓存查/存由本组装层负责：模型层 load_hubert 是纯加载器
+            cache_key = (self.device, self.is_half, hubert_variant)
+            hubert = self.inference_cache.get_hubert(cache_key)
+            if hubert is None:
+                hubert = load_hubert(
+                    _DeviceConfig(self.device, self.is_half),
+                    variant=hubert_variant,
+                )
+                self.inference_cache.set_hubert(cache_key, hubert)
+            else:
+                logger.info("  · HuBERT（缓存, %s）", hubert_variant)
             loader = SynthesizerLoader(_DeviceConfig(self.device, self.is_half), self.inference_cache)
             syn = loader.load(pth_path)
             synthesizer = syn.synthesizer

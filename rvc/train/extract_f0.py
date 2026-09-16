@@ -1,10 +1,10 @@
-from rvc.core.constants import HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_SAMPLE_RATE, RMVPE_THRESHOLD_TRAIN_TRAIN
 from pathlib import Path
 
 import numpy as np
 
 from rvc.io.audio_file import load_audio
-from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse, RMVPE_THRESHOLD
+from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
 from rvc.models.rmvpe import RMVPE
 from rvc.runtime.paths import RMVPE_PATH
 
@@ -40,7 +40,7 @@ class TrainF0Extractor:
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
                 wav, _ = load_audio(path, HUBERT_SAMPLE_RATE)
-                f0 = self.model.infer_from_audio(wav, thred=RMVPE_THRESHOLD)
+                f0 = self.model.infer_from_audio(wav, thred=RMVPE_THRESHOLD_TRAIN)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()
                 np.save(out_cont, f0.astype(np.float32), allow_pickle=False)

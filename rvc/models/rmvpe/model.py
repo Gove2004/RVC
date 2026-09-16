@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 class RMVPE:
     def __init__(self, model_path: str, is_half, device=None):
-        self.resample_kernel = {}
         self.is_half = is_half
         if device is None:
             device = "cuda:0"
