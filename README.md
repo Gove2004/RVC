@@ -16,9 +16,10 @@
 
 ## 系统要求
 
-- Windows 11 / Linux
+- **推理/训练 GUI**：Windows 10/11（ffmpeg 按硬编码 Windows 路径解析、托盘依赖 Win32）
+- **云训练向导（autodl/）**：Linux 可用——ffmpeg 按环境变量 `RVC_FFMPEG` → 系统 PATH → `assets/ffmpeg/ffmpeg.exe` 顺序定位
 - Python 3.13+
-- NVIDIA GPU（CUDA 支持）
+- NVIDIA GPU（CUDA 支持；无 GPU 时启动即报中文错误，无 CPU 回退——刻意行为）
 
 ## 安装
 
@@ -69,7 +70,7 @@ app.py                    # 入口：CLI 参数解析 → 启动推理/训练 GU
 ├── gui/                  # PySide6 GUI 层（View 不得 import rvc——依赖单向由架构测试守护）
 │   ├── infer/            # 推理 GUI
 │   │   ├── view/         # 视图：主窗口（window.py 装配 + lifecycle.py 生命周期）、控件、托盘、页签
-│   │   ├── controller/   # 控制器：引擎控制、遥测快照、设备管理、离线转换
+│   │   ├── controller/   # 控制器：引擎控制、遥测快照、设备目录、离线转换
 │   │   └── state/        # 状态：参数绑定、配置持久化
 │   ├── train/            # 训练 GUI
 │   │   ├── view/         # 视图：主窗口、控件、训练/设置/工具页签
@@ -134,7 +135,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化）、`tracker.py`（音高跟踪） |
 | `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`loudness.py`（响度测量） |
-| `rvc/models/` | `hubert.py`（HuBERT 封装）、`synthesizer_*.py`（合成器四件套）、`rmvpe/`（RMVPE 模型实现） |
+| `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
 | `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并）、`losses.py`、`data_utils.py`、`mel_processing.py` |
 | `gui/infer/` | 推理 GUI：window.py（装配）/lifecycle.py（生命周期）/页签 + 引擎/设备/离线控制器 + 遥测快照 + 参数绑定 |
 | `gui/train/` | 训练 GUI：窗口/页签 + TrainController + 训练工作线程 + 训练状态 |
@@ -142,7 +143,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 ## 测试
 
 ```bash
-.venv\Scripts\python.exe -m tests.run_tests    # 65 个用例，unittest 自动发现
+.venv\Scripts\python.exe -m tests.run_tests    # 92 个用例，unittest 自动发现
 ```
 
 覆盖：dsp 纯函数（SOLA/RMS/mel/Hz-MIDI）、音高后处理、配置 dataclass、io 层（ffmpeg 异常契约）、train 层（checkpoint 往返/spec 缓存）、架构守护（依赖方向 + View 层禁 import rvc）、GUI offscreen 冒烟、autodl 管道金标准（喂答案逐行 diff + 退出码，基准存 `tests/golden/`）。
