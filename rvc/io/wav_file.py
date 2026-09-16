@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from rvc.io.audio_file import resolve_ffmpeg
+
 
 def write_wav(path: str | Path, data: np.ndarray, samplerate: int, subtype: str = "FLOAT"):
     """写 WAV 文件。
@@ -22,6 +24,11 @@ def write_wav(path: str | Path, data: np.ndarray, samplerate: int, subtype: str 
         data: 1D（单声道）或 2D（frames, channels）数组，取值范围 [-1, 1]
         samplerate: 采样率
         subtype: "FLOAT"（32-bit IEEE float）或 "PCM_16"（16-bit 整数）
+
+    异常契约：
+    - ValueError: subtype 不在 {FLOAT, PCM_16}（调用方编程错误，立即失败）
+    - PCM_16 写入时对越界样本做 clip（[-1,1] 之外静默钳制，不报错）——
+      与上游 soundfile 行为一致，属既定语义。
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,6 +77,12 @@ def read_wav_info(path: str | Path) -> dict:
 
     Returns:
         {samplerate, channels, frames, duration, bits_per_sample}
+
+    异常契约：
+    - ValueError: 不是 RIFF/WAVE 结构，或缺少 fmt/data 块。
+      刻意保持裸 ValueError（不进 RVCError 体系）：调用方（GUI 工具页）
+      已按 ValueError 捕获并展示，换类型属对外行为变化。
+    - OSError: 文件不存在/不可读，原样抛出。
     """
     path = Path(path)
     with open(path, "rb") as f:
@@ -116,6 +129,10 @@ def read_audio_info(path: str | Path, ffmpeg_path: str | None = None) -> dict:
 
     Returns:
         {samplerate, channels, frames, duration}
+
+    异常契约：
+    - ValueError: WAV 头无法解析，或 ffmpeg 输出中找不到 Duration 行
+    - FileNotFoundError: ffmpeg 可执行文件不存在（经 resolve_ffmpeg）
     """
     path = Path(path)
     ext = path.suffix.lower()
@@ -126,8 +143,7 @@ def read_audio_info(path: str | Path, ffmpeg_path: str | None = None) -> dict:
 
     # 非 WAV：用 ffmpeg 解析
     if ffmpeg_path is None:
-        from rvc.io.audio_file import _ffmpeg
-        ffmpeg_path = str(_ffmpeg())
+        ffmpeg_path = str(resolve_ffmpeg())
 
     result = subprocess.run(
         [ffmpeg_path, "-hide_banner", "-i", str(path), "-f", "null", "-"],

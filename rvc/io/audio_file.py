@@ -3,9 +3,9 @@
 职责：把磁盘上的音频文件（mp3/flac/ogg/wav/m4a 等）解码并重采样为
 float32 numpy 数组。这是"数据加载"，不是"文件读写"。
 
-与 wav_io 的分工：
-- loader.py: 解码任意格式 → numpy 数组（需要 ffmpeg）
-- wav_io.py: WAV 文件结构化读写（写 FLOAT32/PCM16，读元信息）
+与 wav_file 的分工：
+- audio_file.py: 解码任意格式 → numpy 数组（需要 ffmpeg）
+- wav_file.py:   WAV 文件结构化读写（写 FLOAT32/PCM16，读元信息）
 """
 import logging
 from rvc.core.errors import AudioLoadError
@@ -19,24 +19,45 @@ from rvc.runtime.paths import FFMPEG_EXE
 logger = logging.getLogger(__name__)
 
 
-def _ffmpeg() -> Path:
-    if not FFMPEG_EXE.exists():
+def resolve_ffmpeg(ffmpeg_exe: str | Path | None = None) -> Path:
+    """解析 ffmpeg 可执行路径。
+
+    异常契约：
+    - FileNotFoundError: 路径不存在。错误类型刻意与解码失败区分——
+      "环境没装好"（调用方/用户可自行修复）和"文件坏"（数据问题）是两类故障。
+
+    默认值从模块全局 FFMPEG_EXE 读取（调用时解析）：autodl 在非 Windows
+    环境会进程内重定向该全局（S9 将改为显式传参后移除此通道）。
+    """
+    exe = Path(ffmpeg_exe) if ffmpeg_exe is not None else FFMPEG_EXE
+    if not exe.exists():
         raise FileNotFoundError(
-            f"找不到 ffmpeg: {FFMPEG_EXE}\n"
+            f"找不到 ffmpeg: {exe}\n"
             f"请将 ffmpeg.exe 放到 assets/ffmpeg/ 目录下。"
         )
-    return FFMPEG_EXE
+    return exe
 
 
-def load_audio(path: str | Path, target_sr: int, mono: bool = True, timeout: int = 300) -> tuple[np.ndarray, int]:
+def load_audio(
+    path: str | Path,
+    target_sr: int,
+    mono: bool = True,
+    timeout: int = 300,
+    ffmpeg_exe: str | Path | None = None,
+) -> tuple[np.ndarray, int]:
     """用 ffmpeg 解码并重采样到 target_sr，输出 float32。
 
     mono=False 时返回 shape (2, N) 的立体声。
     timeout: ffmpeg 子进程超时秒数（默认 300，长音频按需调大）。
+
+    异常契约：
+    - FileNotFoundError: ffmpeg 可执行文件不存在（环境问题，见 resolve_ffmpeg）
+    - AudioLoadError:    ffmpeg 返回非零退出码（文件损坏/格式不支持，数据问题）
+    - subprocess.TimeoutExpired: 超过 timeout，原样抛出不吞
     """
     path = Path(path).resolve()
     cmd = [
-        str(_ffmpeg()), "-i", str(path), "-vn",
+        str(resolve_ffmpeg(ffmpeg_exe)), "-i", str(path), "-vn",
         "-acodec", "pcm_f32le", "-f", "f32le",
         "-ac", "1" if mono else "2", "-ar", str(target_sr), "-",
     ]
