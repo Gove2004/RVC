@@ -66,8 +66,7 @@ class EngineState:
 
     # ── 输入传输（pinned memory，CPU→GPU 快速传输）──
     in_pin: torch.Tensor | None = None
-    prefetch_gpu: torch.Tensor | None = None
-    prefetch_valid: bool = False
+    input_gpu: torch.Tensor | None = None  # GPU 侧单声道输入暂存
 
     # ── F0 滚动缓存（pitch_tracker）──
     pitch_cache: torch.Tensor | None = None

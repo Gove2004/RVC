@@ -13,7 +13,7 @@
 - formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取避免重复计算
 - 清辅音保护的 pitchf 截取封装在 AudioProcessor 内部，本类只传 pitchf_cache
 
-从 RealtimeEngine 中拆分出的推理调度组件，负责：
+从 VoiceEngine 中拆分出的推理调度组件，负责：
 - 处理状态初始化（采样率/块大小/缓存/重采样/效果器）
 - 输入准备（单声道转换、缓存轮换）
 - 推理调用（InferencePipeline 三阶段 + 模型→设备重采样）
@@ -21,7 +21,7 @@
 - 预热推理（CUDA Graph 捕获）
 - 缓冲区重置
 
-RealtimeEngine 保留对外接口，内部委托给本组件处理推理逻辑。
+VoiceEngine 保留对外接口，内部委托给本组件处理推理逻辑。
 """
 import logging
 import math
@@ -185,12 +185,7 @@ class InferenceRunner:
 
         with torch.no_grad():
             # ── stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样 ──
-            # 有预取数据时直接用，跳过 CPU→GPU 传输（离线推理预取和计算并行）
-            if state.prefetch_valid and state.prefetch_gpu is not None:
-                mono = state.prefetch_gpu
-                state.prefetch_valid = False
-            else:
-                mono = self._stage_input(indata)
+            mono = self._stage_input(indata)
             self._stage_preprocess(mono)
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
@@ -237,20 +232,6 @@ class InferenceRunner:
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 
-    def prefetch_input(self, indata: np.ndarray) -> None:
-        """预取下一块输入（只做 stage_input 的输入上传部分）。
-
-        在离线推理中，当前块做 GPU 计算时，提前把下一块输入拷贝到 GPU，
-        下一次 process_block 时直接用预取数据，跳过 CPU→GPU 传输等待。
-
-        实时推理中不调用此方法（下一块输入还没到达），prefetch_valid 保持 False。
-        """
-        state = self.state
-        if state.in_pin is None:
-            return
-        self._upload_input(indata)
-        state.prefetch_valid = True
-
     def route_secondary_output(self, outdata: np.ndarray, stream2, out2_q: queue.Queue,
                                 enable_out2: bool) -> None:
         """副输出路由（委托给 output_router）。"""
@@ -259,20 +240,25 @@ class InferenceRunner:
     # ── stage_input：硬件输入 ──
 
     def _upload_input(self, indata: np.ndarray) -> torch.Tensor:
-        """单声道化 + pinned 中转 + CPU→GPU 上传（A7：prefetch 与 stage_input 共用）。
+        """单声道化 + pinned 中转 + CPU→GPU 上传（P0-11 修复）。
 
-        返回 GPU 上的单声道张量。传输为异步（non_blocking），消费方在同一
-        CUDA Stream 上，流内顺序保证安全。
+        返回 GPU 上的单声道张量。
+
+        并发安全说明：GPU 侧拷贝必须是同步的（non_blocking=False）。
+        旧实现用异步 DMA，下一块立即在 CPU 上覆写 in_pin 时，上一块的
+        DMA 可能尚未执行——GPU 读到被污染的输入，HuBERT(fp16) 输出整块
+        NaN（S0 实证，时好时坏取决于流排队深度）。同步拷贝的代价是
+        约 n*4 字节的一次 DMA 等待（微秒级），相对块预算可忽略。
         """
         state = self.state
         mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
         mono = np.ascontiguousarray(mono)
         n = mono.shape[0]
-        state.in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
-        if state.prefetch_gpu is None or state.prefetch_gpu.shape[0] < n:
-            state.prefetch_gpu = torch.empty(n, device=state.device, dtype=torch.float32)
-        state.prefetch_gpu[:n].copy_(state.in_pin[:n], non_blocking=True)
-        return state.prefetch_gpu[:n]
+        state.in_pin[:n].copy_(torch.from_numpy(mono))
+        if state.input_gpu is None or state.input_gpu.shape[0] < n:
+            state.input_gpu = torch.empty(n, device=state.device, dtype=torch.float32)
+        state.input_gpu[:n].copy_(state.in_pin[:n])  # 同步：DMA 完成后才返回
+        return state.input_gpu[:n]
 
     def _stage_input(self, indata: np.ndarray) -> torch.Tensor:
         """stage_input：硬件输入 → GPU（复用 _upload_input）。"""

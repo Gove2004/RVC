@@ -98,50 +98,11 @@ def build_params(name: str, tmp_out: Path):
     return p
 
 
-def _patch_race():
-    """给旧代码的异步竞态打补丁（仅采集/校验期生效），恢复串行参考语义。
-
-    旧代码存在三处并发缺陷，导致输出间歇性 NaN / 不可复现：
-    1. _stage_input 的 pinned 内存 non_blocking DMA 未同步，下一块覆写导致
-       输入污染、HuBERT(fp16) 整块 NaN；
-    2. 块级异步链路（D2H）缺少块尾同步；
-    3. HuBERT 与 RMVPE 在两条 CUDA Stream 上并发 fp16 推理——cuBLAS/cuDNN
-       工作区跨流并发属未定义行为，实测随机产生整块 NaN（bisect 证据：
-       NaN 仅出现在 HuBERT 输出、块序随运行变化）。
-    补丁 = 输入拷贝后同步 + 串行化阶段2/3（_is_cuda→False 走顺序分支），
-    得到"算法本意"的确定性输出。重写版将在引擎内正确实现。
-    """
-    import torch
-    import rvc.streaming.runner as runner_mod
-    import rvc.pipeline.pipeline as pipeline_mod
-
-    def fixed_input(self, indata):
-        state = self.state
-        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
-        mono = np.ascontiguousarray(mono)
-        n = mono.shape[0]
-        state.in_pin[:n].copy_(torch.from_numpy(mono), non_blocking=True)
-        t = state.in_pin[:n].to(state.device, non_blocking=True)
-        torch.cuda.synchronize()
-        return t
-
-    orig_block = runner_mod.InferenceRunner.process_block
-
-    def fixed_block(self, indata, outdata, frames):
-        orig_block(self, indata, outdata, frames)
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-
-    runner_mod.InferenceRunner._stage_input = fixed_input
-    runner_mod.InferenceRunner.process_block = fixed_block
-    pipeline_mod._is_cuda = lambda device: False
-
-
 def _run_case_subprocess(action: str, name: str) -> int:
     """每个 case 用独立子进程执行。
 
-    旧代码存在跨实例状态污染：同一进程内第二个 RealtimeEngine 输出 NaN
-    （全局 CUDA Graph/静态缓存残留）。金标准采集与校验必须进程隔离。
+    采集时旧代码存在跨实例状态污染（P0-13），必须进程隔离。
+    新代码（S7 起）单/双实例均经实证无污染，进程隔离保留为通用卫生措施。
     """
     import subprocess
     cmd = [sys.executable, "-u", __file__, action, "--case", name]
@@ -176,12 +137,11 @@ def capture():
 
 
 def capture_one(name: str):
-    from rvc.streaming.engine import RealtimeEngine
+    from rvc.streaming.engine import VoiceEngine
 
-    _patch_race()
     out_tmp = GOLDEN / f"{name}_out.wav"
     params = build_params(name, out_tmp)
-    engine = RealtimeEngine(params)
+    engine = VoiceEngine(params)
     sr = engine.load_model(str(MODEL), hubert=HUBERT)
     print(f"[{name}] 模型加载完成 sr={sr}")
     result = np.ascontiguousarray(engine.process_file(params), dtype=np.float32)
@@ -210,13 +170,12 @@ def verify():
 
 
 def verify_one(name: str):
-    from rvc.streaming.engine import RealtimeEngine
+    from rvc.streaming.engine import VoiceEngine
 
-    _patch_race()
     golden = np.load(GOLDEN / f"{name}.npy")
     out_tmp = Path(tempfile.gettempdir()) / f"golden_{name}_verify_out.wav"
     params = build_params(name, out_tmp)
-    engine = RealtimeEngine(params)
+    engine = VoiceEngine(params)
     engine.load_model(str(MODEL), hubert=HUBERT)
     result = np.ascontiguousarray(engine.process_file(params), dtype=np.float32)
     if result.shape != golden.shape:

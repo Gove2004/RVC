@@ -155,7 +155,7 @@ class OfflineManager:
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
 
-        # 离线推理使用独立的 RealtimeEngine 实例，可与实时变声同时运行（需显存足够）
+        # 离线推理使用独立的 VoiceEngine 实例，可与实时变声同时运行（需显存足够）
 
         try:
 
@@ -312,13 +312,13 @@ class OfflineWorker(QThread):
 
     def _do_run(self):
 
-        from rvc.streaming.engine import RealtimeEngine
+        from rvc.streaming.engine import VoiceEngine
 
 
 
         self.progress.emit(0, 100)
 
-        engine = RealtimeEngine(self.params)
+        engine = VoiceEngine(self.params)
 
         engine.load_model(self.params.model_path, hubert=self.params.hubert)
 

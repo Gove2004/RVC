@@ -49,8 +49,8 @@ class InferController:
         if self._engine is None:
             with self._engine_lock:
                 if self._engine is None:
-                    from rvc.streaming.engine import RealtimeEngine
-                    self._engine = RealtimeEngine(
+                    from rvc.streaming.engine import VoiceEngine
+                    self._engine = VoiceEngine(
                         self.runtime_params, self.inference_cache,
                         on_runtime_error=self.on_runtime_error,
                     )

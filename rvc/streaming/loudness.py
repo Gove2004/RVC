@@ -1,6 +1,6 @@
 """音频效果器 — RMS 混合 / SOLA 时间对齐，统一 torch.Tensor（GPU）接口。
 
-RealtimeEngine._cb_impl 不再直接调用各底层函数，而是通过 AudioProcessor 编排：
+VoiceEngine._cb 不再直接调用各底层函数，而是通过 AudioProcessor 编排：
   输出侧：process_output(infer, ref, ...) → RMS 混合 → SOLA → 清辅音保护
 
 所有效果器在 setup() 时初始化（与 _init_processing 同时），process() 时零分配。

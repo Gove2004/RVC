@@ -81,6 +81,17 @@ class TestImportDirection(unittest.TestCase):
                     violations.append(f"{rel} references {name}")
         assert not violations, "已删模块被引用:\n" + "\n".join(violations)
 
+    def test_renamed_symbols_not_referenced(self):
+        """已改名符号不得在代码中残留（S7：RealtimeEngine → VoiceEngine）。"""
+        import re
+        violations = []
+        for module in list(RVC.rglob("*.py")) + list((PROJECT_ROOT / "gui").rglob("*.py")):
+            text = module.read_text(encoding="utf-8")
+            if re.search(r"\bRealtimeEngine\b", text):
+                rel = module.relative_to(PROJECT_ROOT)
+                violations.append(str(rel))
+        assert not violations, "旧门面名残留:\n" + "\n".join(violations)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 """音频流管理器 — 封装 sounddevice 设备查询、流创建/启动/停止、副输出。
 
-从 RealtimeEngine 中拆分出的设备/流管理组件，负责：
+从 VoiceEngine 中拆分出的设备/流管理组件，负责：
 - 设备查询与校验（输入/输出/副输出通道数）
 - 主流创建与启动（sd.Stream，显式指定设备 + 错误回调）
 - 副输出流创建与启动（sd.OutputStream + 队列）
@@ -8,7 +8,7 @@
 - 流健康检查与错误统计
 - 设备日志打印
 
-RealtimeEngine 保留对外接口，内部委托给本组件处理音频流。
+VoiceEngine 保留对外接口，内部委托给本组件处理音频流。
 """
 import logging
 import queue
