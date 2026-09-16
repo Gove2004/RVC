@@ -13,7 +13,7 @@ import unittest
 
 import torch
 
-from rvc.streaming.mix import apply_rms_mix, fast_rms
+from rvc.dsp.rms import apply_rms_mix, fast_rms
 
 
 class TestFastRms(unittest.TestCase):

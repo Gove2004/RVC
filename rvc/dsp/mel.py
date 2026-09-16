@@ -1,7 +1,7 @@
 """通用 mel 频谱处理函数（numpy 版）
 
-从 rvc.train.mel_processing 拆出，供推理侧（RMVPE）和训练侧共同使用。
-只依赖 numpy，不依赖 torch。
+只依赖 numpy，不依赖 torch。推理侧（RMVPE）与训练侧共用同一实现，
+避免两处独立滤波器导致的频谱口径漂移。
 """
 import numpy as np
 

@@ -6,6 +6,7 @@
 import numpy as np
 import torch
 
+from rvc.dsp.hz_midi import hz_to_midi, midi_to_hz
 from rvc.models.rmvpe.constants import F0_MEL_MAX, F0_MEL_MIN
 
 # Mel 频率转换常数（HTK 公式：mel = 1127 * ln(1 + f/700)）
@@ -20,28 +21,6 @@ PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 # RMVPE F0 提取阈值：低于此值的置信度判为静音/UV
 # 0.03 是 RMVPE 官方推荐值，与 FCPE 的 0.025 同档（底噪全判 uv）
 RMVPE_THRESHOLD = 0.03
-
-# MIDI 参考：A4 = 440Hz = MIDI 69
-MIDI_REF_FREQ = 440.0
-MIDI_REF_NOTE = 69
-
-
-def hz_to_midi(freq, xp=None):
-    """Hz → MIDI 半音（A4=440Hz = MIDI 69）。自动适配 torch/numpy。"""
-    if xp is None:
-        xp = torch if torch.is_tensor(freq) else np
-    if xp is torch and not torch.is_tensor(freq):
-        freq = torch.tensor(freq, dtype=torch.float32)
-    return 12.0 * xp.log2(freq / MIDI_REF_FREQ) + MIDI_REF_NOTE
-
-
-def midi_to_hz(midi, xp=None):
-    """MIDI 半音 → Hz。自动适配 torch/numpy。"""
-    if xp is None:
-        xp = torch if torch.is_tensor(midi) else np
-    if xp is torch and not torch.is_tensor(midi):
-        midi = torch.tensor(midi, dtype=torch.float32)
-    return MIDI_REF_FREQ * (2.0 ** ((midi - MIDI_REF_NOTE) / 12.0))
 
 
 # 音域映射预计算缓存：参数组合 → (src_min_m, src_max_m, dst_min_m, dst_max_m)

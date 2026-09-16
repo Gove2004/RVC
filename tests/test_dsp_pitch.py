@@ -16,12 +16,11 @@ import unittest
 import numpy as np
 import torch
 
+from rvc.dsp.hz_midi import hz_to_midi, midi_to_hz
 from rvc.pipeline.pitch.postprocess import (
     RMVPE_THRESHOLD,
     apply_pitch_map,
-    hz_to_midi,
     median_filter_f0,
-    midi_to_hz,
     normalize_f0_to_coarse,
 )
 
