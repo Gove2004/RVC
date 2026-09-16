@@ -3,9 +3,9 @@
 职责：WAV 文件的结构化读写——写 FLOAT32/PCM16 格式，读 WAV 头元信息。
 非 WAV 格式的元信息用 ffmpeg 解析（后备方案）。
 
-与 loader 的分工：
-- wav_io.py: WAV 文件读写（结构化，不需要解码）
-- loader.py: 任意格式解码到 numpy 数组（需要 ffmpeg）
+与 audio_file 的分工：
+- wav_file.py:  WAV 文件读写（结构化，不需要解码）
+- audio_file.py: 任意格式解码到 numpy 数组（需要 ffmpeg）
 """
 import re
 import struct
