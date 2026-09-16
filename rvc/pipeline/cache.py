@@ -2,37 +2,10 @@
 
 LRU 淘汰：synthesizer（几百 MB/个）只进不出会让显存/内存持续增长。
 各槽位保留最近使用的 N 个，超限淘汰最久未用的。
+槽位数量属于本层（pipeline 组装层）的策略，通用 LRU 基础设施在 runtime。
 """
-import threading
-from collections import OrderedDict
-
-
-class _LRU:
-    """线程安全的 LRU 字典。"""
-
-    def __init__(self, maxsize: int):
-        self.maxsize = maxsize
-        self._d = OrderedDict()
-        self._lock = threading.Lock()
-
-    def get(self, key):
-        with self._lock:
-            value = self._d.get(key)
-            if value is not None:
-                self._d.move_to_end(key)
-            return value
-
-    def set(self, key, value):
-        with self._lock:
-            self._d[key] = value
-            self._d.move_to_end(key)
-            while len(self._d) > self.maxsize:
-                self._d.popitem(last=False)
-
-    def values(self):
-        """线程安全地返回所有值的快照列表。"""
-        with self._lock:
-            return list(self._d.values())
+from rvc.runtime.caches import LRUCache
+from rvc.runtime.graph import clear_cuda_graph_cache
 
 
 class InferenceCache:
@@ -40,10 +13,10 @@ class InferenceCache:
         # 大对象少存：synthesizer 留最近 2 个（切模型时当前+上一个）；
         # hubert 的 key = 设备+精度+variant（base/chinese 各 1 个），留 2 避免来回切换重载；
         # rmvpe/fcpe 的 key 是设备+精度组合（各 1 个），留 1 即可。
-        self._hubert = _LRU(2)
-        self._rmvpe = _LRU(1)
-        self._fcpe = _LRU(1)
-        self._synthesizer = _LRU(2)  # key: pth_path
+        self._hubert = LRUCache(2)
+        self._rmvpe = LRUCache(1)
+        self._fcpe = LRUCache(1)
+        self._synthesizer = LRUCache(2)  # key: pth_path
 
     def get_hubert(self, key):
         return self._hubert.get(key)
@@ -93,10 +66,8 @@ class InferenceCache:
         for extractor in self._fcpe.values():
             extractor.clear_cuda_graph()
 
-
     def clear_synthesizer_cuda_graphs(self) -> None:
         """清除所有缓存的 synthesizer 的 CUDA Graph（公共方法，避免外部访问私有属性）。"""
-        from rvc.pipeline.cuda_graph import clear_cuda_graph_cache
         for syn_bundle in self._synthesizer.values():
             if hasattr(syn_bundle, 'synthesizer'):
                 clear_cuda_graph_cache(syn_bundle.synthesizer)

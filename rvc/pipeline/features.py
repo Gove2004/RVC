@@ -5,7 +5,7 @@
 import torch
 import torch.nn.functional as F
 
-from rvc.pipeline.cuda_graph import run_cuda_graph
+from rvc.runtime.graph import run_cuda_graph
 
 
 def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:

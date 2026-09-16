@@ -14,8 +14,8 @@ from pathlib import Path
 import torch
 
 from rvc.runtime.paths import RMVPE_PATH
-from rvc.pipeline.cuda_graph import run_cuda_graph
-from rvc.runtime.cuda_graph import cuda_graph_enabled
+from rvc.runtime.graph import run_cuda_graph
+from rvc.runtime.graph import cuda_graph_enabled
 from rvc.pipeline.pitch.postprocess import median_filter_f0, normalize_f0_to_coarse, apply_pitch_map
 
 # 最新原始输入音调（Hz，非零帧平均，音域映射之前的值，用于 GUI 显示）
@@ -192,7 +192,6 @@ class RMVPEExtractor(F0Extractor):
         return postprocess_f0(f0, self.device, confidence=conf, config=self.config)
 
     def clear_cuda_graph(self) -> None:
-        from rvc.pipeline.cuda_graph import clear_cuda_graph_cache
         clear_cuda_graph_cache(self.model.mel_extractor)
         clear_cuda_graph_cache(self.model)
 
@@ -267,7 +266,6 @@ class FCPEExtractor(F0Extractor):
         return postprocess_f0(f0, self.device, confidence=conf, config=self.config)
 
     def clear_cuda_graph(self) -> None:
-        from rvc.pipeline.cuda_graph import clear_cuda_graph_cache
         if hasattr(self.model, "model"):
             clear_cuda_graph_cache(self.model.model)
 

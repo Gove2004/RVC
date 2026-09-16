@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from rvc.models.rmvpe.transforms import MelSpectrogram
 from rvc.models.rmvpe.blocks import E2E
-from rvc.pipeline.cuda_graph import run_cuda_graph
+from rvc.runtime.graph import run_cuda_graph
 
 logger = logging.getLogger(__name__)
 

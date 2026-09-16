@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from rvc.core.errors import ModelLoadError
 from rvc.pipeline.loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
-from rvc.pipeline.cuda_graph import clear_cuda_graph_cache
+from rvc.runtime.graph import clear_cuda_graph_cache
 from rvc.pipeline.cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
