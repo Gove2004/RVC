@@ -214,6 +214,10 @@ class VoiceEngine:
         把整段音频当作持续输入流，逐块走实时 process_block（RMS/SOLA/缓存轮换），
         与实时完全同一算法。显存封顶，音质 = 实时音质。
         块/交叉淡化/额外上下文参数从 task（InferenceParams）中读取，与实时一致。
+
+        调用契约（现状语义，用户裁定保持）：离线与实时共用同一 engine/runner，
+        本方法会替换 self._runner 并原地更新 runtime_params——
+        因此**实时运行中不得调用**；先 stop() 再离线转换。
         """
         sr_model = self.pipeline.target_sr
         tgt_sr = sr_model
