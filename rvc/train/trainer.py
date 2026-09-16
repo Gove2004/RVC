@@ -24,7 +24,7 @@ from rvc.train.checkpoint import (
     save_checkpoint,
 )
 from rvc.runtime.paths import MODELS_DIR
-from rvc.train.data_utils import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
+from rvc.train.dataset import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 

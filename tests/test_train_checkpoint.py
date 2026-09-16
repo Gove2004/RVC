@@ -23,7 +23,7 @@ from rvc.train.checkpoint import (
     prune_keep_latest,
     save_checkpoint,
 )
-from rvc.train.data_utils import TextAudioLoaderMultiNSFsid
+from rvc.train.dataset import TextAudioLoaderMultiNSFsid
 
 
 class _TinyModel(torch.nn.Module):
