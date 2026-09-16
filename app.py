@@ -48,7 +48,7 @@ def main():
     apply_theme(app)
 
     if args.infer:
-        from gui.infer.view.main_window import MainWindow
+        from gui.infer.view.window import MainWindow
         win = MainWindow()
     else:
         from gui.train.view.main_window import TrainWindow

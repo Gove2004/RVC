@@ -20,13 +20,13 @@ from rvc.core.config import OfflineParams
 
 from gui.infer.view.widgets import _sl_value_as_float
 
-from gui.infer.viewmodel.param_binding import collect_params
+from gui.infer.state.bindings import collect_params
 
 
 
 if TYPE_CHECKING:
 
-    from gui.infer.view.main_window import MainWindow
+    from gui.infer.view.window import MainWindow
 
 
 
@@ -108,6 +108,11 @@ class OfflineManager:
 
             self.window._show_warning("已有转换任务正在运行")
 
+            return
+
+        # 实时推理运行时禁止离线转换（共享模型缓存，同时运行会互相干扰 CUDA Graph）
+        if hasattr(self.window, "engine") and self.window.engine is not None and self.window.engine.running:
+            self.window._show_warning("实时推理正在运行，请先停止实时推理再进行离线转换")
             return
 
         inp = self.window.offline_input_path.strip() if hasattr(self.window, 'offline_input_path') else ''

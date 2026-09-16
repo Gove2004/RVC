@@ -42,9 +42,9 @@ from PySide6.QtCore import QTimer, Qt, Signal
 
 from rvc.core.config import InferenceParams
 
-from gui.infer.controller.main_controller import InferController
+from gui.infer.controller.engine_controller import InferController
 
-from gui.infer.viewmodel.param_binding import (
+from gui.infer.state.bindings import (
     collect_params,
     apply_params,
 )
@@ -61,9 +61,9 @@ from gui.infer.view.tabs.offline_tab import build_offline_tab
 
 from gui.infer.view.tabs.experimental_tab import build_experimental_tab
 
-from gui.infer.controller.device_manager import DeviceManager
+from gui.infer.controller.device_controller import DeviceManager
 
-from gui.infer.controller.offline_manager import OfflineManager
+from gui.infer.controller.offline_controller import OfflineManager
 
 from gui.styles import ButtonStyles, Layout
 
@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
 
         from gui.configs import load_config
 
-        from gui.infer.viewmodel.param_binding import params_from_dict
+        from gui.infer.state.bindings import params_from_dict
 
         cfg = load_config()
 
@@ -211,7 +211,7 @@ class MainWindow(QMainWindow):
 
         from gui.configs import load_config, save_config
 
-        from gui.infer.viewmodel.param_binding import params_to_dict
+        from gui.infer.state.bindings import params_to_dict
 
         cfg = load_config()
 
@@ -254,26 +254,18 @@ class MainWindow(QMainWindow):
 
 
     def _warmup_engine(self):
-
         """后台线程预热 engine — 首次构造会加载 torch 并做 CUDA 探测。"""
-
         import threading
 
-
-
         def _do():
-
             try:
-
                 self.engine  # 触发惰性构造
-
                 logger.info("引擎预热完成")
-
-            except Exception:
-
+            except Exception as e:
                 logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
-
-
+                # 无 GPU 等致命错误：主线程弹友好提示（后台线程不能直接操作 Qt）
+                msg = str(e)
+                QTimer.singleShot(0, lambda: self._show_error(f"引擎初始化失败: {msg}\n\n请确认已安装 NVIDIA 显卡驱动并支持 CUDA。"))
 
         threading.Thread(target=_do, daemon=True, name="engine-warmup").start()
 
@@ -414,7 +406,7 @@ class MainWindow(QMainWindow):
             return
         self._signals_connected = True
 
-        from gui.infer.viewmodel.param_binding import (
+        from gui.infer.state.bindings import (
             BINDINGS, FLOAT, INT, COMBO, CHECK, RADIO_F0, RADIO_SR, _set_nested,
         )
 
@@ -531,22 +523,6 @@ class MainWindow(QMainWindow):
 
 
     # ── 参数应用（委托给 controller）──
-
-
-
-    def _apply_model_params(self):
-
-        # formant 已移到全局参数（参数调节），从全局状态读取
-
-        state = self.collect_gui_state()
-
-        inf = state.inference
-
-        self.controller.apply_model_params(
-
-            formant=inf.formant,
-
-        )
 
 
 

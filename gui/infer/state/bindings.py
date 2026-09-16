@@ -60,82 +60,41 @@ def _set_nested(obj, path: str, value):
 
 
 def params_from_dict(data: dict) -> InferenceParams:
-    """从嵌套 dict 构造 InferenceParams。
+    """从分组 dict 构造 InferenceParams。
 
-    支持的格式：
-    - 新格式：{"voice": {"formant": ...}, "f0": {"method": ...}, ...}
-    - 旧格式：{"inference": {"formant": ..., "f0_method": ...}, "engine": {"block_time": ...}, ...}
-    - 旧短键：{"f0": ..., "rms": ..., "bl": ..., ...}
+    格式：{"voice": {...}, "f0": {...}, "buffer": {...}, "audio": {...},
+           "rms_mix": ..., "model_path": ..., "hubert": ...}
     """
     params = InferenceParams()
+    voice = data.get("voice", {})
+    f0 = data.get("f0", {})
+    buf = data.get("buffer", {})
+    aud = data.get("audio", {})
 
-    # 新格式（分组）：f0 必须是 dict，旧短键格式中 f0 是字符串
-    if "voice" in data or isinstance(data.get("f0"), dict) or "buffer" in data or "audio" in data:
-        voice = data.get("voice", {})
-        f0 = data.get("f0", {})
-        buf = data.get("buffer", {})
-        aud = data.get("audio", {})
+    params.voice.formant = voice.get("formant", 0.0)
+    params.voice.pitch_map_src_min = voice.get("pitch_map_src_min", 100.0)
+    params.voice.pitch_map_src_max = voice.get("pitch_map_src_max", 500.0)
+    params.voice.pitch_map_dst_min = voice.get("pitch_map_dst_min", 200.0)
+    params.voice.pitch_map_dst_max = voice.get("pitch_map_dst_max", 800.0)
 
-        params.voice.formant = voice.get("formant", 0.0)
-        params.voice.pitch_map_src_min = voice.get("pitch_map_src_min", 100.0)
-        params.voice.pitch_map_src_max = voice.get("pitch_map_src_max", 500.0)
-        params.voice.pitch_map_dst_min = voice.get("pitch_map_dst_min", 200.0)
-        params.voice.pitch_map_dst_max = voice.get("pitch_map_dst_max", 800.0)
+    params.f0.method = f0.get("method", "rmvpe")
+    params.f0.rmvpe_threshold = f0.get("rmvpe_threshold", 0.05)
+    params.f0.fcpe_confidence_threshold = f0.get("fcpe_confidence_threshold", 0.05)
 
-        params.f0.method = f0.get("method", f0.get("f0_method", "rmvpe"))
-        params.f0.rmvpe_threshold = f0.get("rmvpe_threshold", 0.05)
-        params.f0.fcpe_confidence_threshold = f0.get("fcpe_confidence_threshold", 0.05)
+    params.buffer.block_time = buf.get("block_time", 0.25)
+    params.buffer.crossfade_time = buf.get("crossfade_time", 0.05)
+    params.buffer.extra_time = buf.get("extra_time", 2.5)
 
-        params.buffer.block_time = buf.get("block_time", 0.25)
-        params.buffer.crossfade_time = buf.get("crossfade_time", 0.05)
-        params.buffer.extra_time = buf.get("extra_time", 2.5)
-
-        params.audio.sr_mode = aud.get("sr_mode", "model")
-        params.audio.hostapi = aud.get("hostapi", "")
-        params.audio.input_device = aud.get("input_device", "")
-        params.audio.output_device = aud.get("output_device", "")
-        params.audio.output2_device = aud.get("output2_device", "")
-        params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
-
-        params.rms_mix = data.get("rms_mix", 0.0)
-        params.model_path = data.get("model_path", "")
-        params.hubert = data.get("hubert", "chinese")
-        return params
-
-    # 旧格式：inference.* / engine.*
-    inf = data.get("inference", {})
-    eng = data.get("engine", {})
-
-    def get(key, default):
-        if key in data:
-            return data[key]
-        if key in inf:
-            return inf[key]
-        if key in eng:
-            return eng[key]
-        return default
-
-    params.voice.formant = get("formant", 0.0)
-    params.voice.pitch_map_src_min = get("pitch_map_src_min", 100.0)
-    params.voice.pitch_map_src_max = get("pitch_map_src_max", 500.0)
-    params.voice.pitch_map_dst_min = get("pitch_map_dst_min", 200.0)
-    params.voice.pitch_map_dst_max = get("pitch_map_dst_max", 800.0)
-    params.rms_mix = get("rms_mix", get("rms", 0.0))
-    params.f0.method = get("f0_method", get("f0", "rmvpe"))
-    params.f0.rmvpe_threshold = get("rmvpe_threshold", 0.05)
-    params.f0.fcpe_confidence_threshold = get("fcpe_confidence_threshold", 0.05)
-    params.buffer.block_time = get("block_time", get("bl", 0.25))
-    params.buffer.crossfade_time = get("crossfade_time", get("cf", 0.05))
-    params.buffer.extra_time = get("extra_time", get("ex", 2.5))
-    params.audio.sr_mode = get("sr_mode", "model")
-    params.audio.hostapi = get("hostapi", get("ha", ""))
-    params.audio.input_device = get("input_device", get("in_dev", ""))
-    params.audio.output_device = get("output_device", get("out_dev", ""))
-    params.audio.output2_device = get("output2_device", get("out2_dev", ""))
+    params.audio.sr_mode = aud.get("sr_mode", "model")
+    params.audio.hostapi = aud.get("hostapi", "")
+    params.audio.input_device = aud.get("input_device", "")
+    params.audio.output_device = aud.get("output_device", "")
+    params.audio.output2_device = aud.get("output2_device", "")
     params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
-    params.model_path = get("model_path", "")
-    params.hubert = get("hubert", "chinese")
 
+    params.rms_mix = data.get("rms_mix", 0.0)
+    params.model_path = data.get("model_path", "")
+    params.hubert = data.get("hubert", "chinese")
     return params
 
 
