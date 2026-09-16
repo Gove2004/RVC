@@ -85,11 +85,12 @@ class Slicer:
 
 
 class PreProcessor:
-    def __init__(self, input_dir: str, exp_dir: str, sr: int, per: float = 3.7):
+    def __init__(self, input_dir: str, exp_dir: str, sr: int, per: float = 3.7, ffmpeg_exe: str | Path | None = None):
         self.input_dir = Path(input_dir)
         self.exp_dir = Path(exp_dir)
         self.sr = sr
         self.per = per
+        self.ffmpeg_exe = ffmpeg_exe
         self.gt_dir = self.exp_dir / "0_gt_wavs"
         self.wav16k_dir = self.exp_dir / "1_16k_wavs"
         self.slicer = Slicer(sr)
@@ -119,7 +120,7 @@ class PreProcessor:
         manifest_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _process_file(self, path: Path, file_index: int):
-        wav, _ = _load_audio_lib(path, self.sr)
+        wav, _ = _load_audio_lib(path, self.sr, ffmpeg_exe=self.ffmpeg_exe)
         if wav.size == 0:
             return
         wav = signal.lfilter(self.bh, self.ah, wav).astype(np.float32)

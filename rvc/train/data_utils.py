@@ -15,16 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 class TextAudioLoaderMultiNSFsid(Dataset):
-    def __init__(self, filelist_path: str, data_config: dict, spec_cache_dir: str | Path):
+    def __init__(self, filelist_path: str, data_config: dict, spec_cache_dir: str | Path,
+                 ffmpeg_exe: str | None = None):
         """数据集加载器。
 
         Args:
             spec_cache_dir: STFT 频谱缓存目录。A6：缓存不再写进切片产物
                 目录（0_gt_wavs/），统一放 {exp}/spec_cache/——切片目录保持
                 "纯产物"，缓存失效由 mtime 判断 + 素材变更时整目录清除。
+            ffmpeg_exe: ffmpeg 路径（D4 显式传参）。None = 用 runtime 默认。
         """
         self.data_config = data_config
         self.spec_cache_dir = Path(spec_cache_dir)
+        self.ffmpeg_exe = ffmpeg_exe
         self.audiopaths_and_text = self._load_filelist(filelist_path)
         self.max_wav_value = data_config["max_wav_value"]
         self.sampling_rate = data_config["sampling_rate"]
@@ -78,7 +81,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         return len(self.audiopaths_and_text)
 
     def _get_audio(self, filename: str):
-        wav, sr = load_audio(filename, target_sr=self.sampling_rate, mono=True)
+        wav, sr = load_audio(filename, target_sr=self.sampling_rate, mono=True, ffmpeg_exe=self.ffmpeg_exe)
         if sr != self.sampling_rate:
             raise ValueError(f"采样率不匹配: {sr} != {self.sampling_rate}")
         wav = torch.FloatTensor(wav).unsqueeze(0)

@@ -21,8 +21,14 @@ def _detect_ckpt_epoch(exp_dir: Path) -> int:
     return min(checkpoint_epoch(g), checkpoint_epoch(d))
 
 
-def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_dir: str) -> dict:
-    cfg = {"device": device, "fp16": fp16}
+def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_dir: str,
+               ffmpeg_exe: str = "") -> dict:
+    """交互收集训练参数。
+
+    ffmpeg_exe: 环境体检阶段定位的 ffmpeg 路径（D4 显式传参），随 cfg 下发给
+    后续所有解码调用；空串表示未定位到（仅 wav/flac/ogg 素材可继续）。
+    """
+    cfg = {"device": device, "fp16": fp16, "ffmpeg": ffmpeg_exe}
 
     log.section("第 3 步 / 训练参数（直接回车 = 使用默认值）")
 
@@ -37,7 +43,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
 
     input_dir = Path(ask("数据集路径", argv_dir, check=_dir_ok)).expanduser()
     files = _scan_audio(input_dir)
-    _probe_dataset(log, input_dir, files)
+    _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe or None)
     _require_ffmpeg(log, files)
 
     # 2) 实验名（决定产物落点，先拿到才好把日志搬过去）

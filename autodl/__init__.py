@@ -3,9 +3,10 @@ import os
 import sys
 from pathlib import Path
 
-# 项目内大量路径是相对 cwd 的，统一切到脚本所在目录（=项目根）
+# 项目内大量路径是相对 cwd 的，统一以脚本所在目录（=项目根）为基准。
+# 切 cwd 的动作在 main() 第一行做（Q6/D4：import 即 chdir 属隐式副作用），
+# 这里只保留 import 解析所需的 sys.path 注入。
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 

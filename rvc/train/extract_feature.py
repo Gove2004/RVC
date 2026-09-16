@@ -16,10 +16,12 @@ _hubert_cache = LRUCache(2)
 
 
 class HuBERTExtractor:
-    def __init__(self, device: str = "cuda:0", is_half: bool = True, hubert: str = "base"):
+    def __init__(self, device: str = "cuda:0", is_half: bool = True, hubert: str = "base",
+                 ffmpeg_exe: str | None = None):
         self.device = device
         self.is_half = is_half
         self.hubert = hubert
+        self.ffmpeg_exe = ffmpeg_exe
         cache_key = (device, is_half, hubert)
         model = _hubert_cache.get(cache_key)
         if model is None:
@@ -49,7 +51,7 @@ class HuBERTExtractor:
         return len(files)
 
     def extract(self, path: Path):
-        wav, _ = load_audio(path, HUBERT_SAMPLE_RATE)
+        wav, _ = load_audio(path, HUBERT_SAMPLE_RATE, ffmpeg_exe=self.ffmpeg_exe)
         feats = torch.from_numpy(wav).to(self.device)
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)

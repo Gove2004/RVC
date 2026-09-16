@@ -121,18 +121,15 @@ def _locate_ffmpeg() -> tuple[str, str]:
 
 
 def _probe_ffmpeg(log: TrainLogger) -> str:
-    """定位 ffmpeg 并实际验证可执行；找到就重定向 loader 的硬编码路径。"""
-    local_exe = FFMPEG_EXE
+    """定位 ffmpeg 并实际验证可执行，返回定位结果（空串 = 未找到）。
+
+    D4：定位结果由调用方显式传参下发（cfg["ffmpeg"]），不再改写
+    rvc.io.audio_file 的模块全局。
+    """
     chosen, source = _locate_ffmpeg()
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
         log.log("  素材若含 mp3/m4a/aac 会直接失败，安装：apt install -y ffmpeg", "WARN")
-        try:
-            import rvc.io.audio_file as _loader
-
-            _loader.FFMPEG_EXE = Path("")
-        except Exception:
-            pass
         return ""
     try:
         probe = subprocess.run([chosen, "-version"], capture_output=True, timeout=15)
@@ -147,14 +144,6 @@ def _probe_ffmpeg(log: TrainLogger) -> str:
         log.log(f"ffmpeg      : {chosen} 无法执行（{exc}）→ 请安装系统 ffmpeg：apt install -y ffmpeg", "ERROR")
         return ""
     log.log(f"ffmpeg      : {chosen}（来自 {source}）")
-    if Path(chosen).resolve() != local_exe.resolve():
-        try:
-            import rvc.io.audio_file as _loader
-
-            _loader.FFMPEG_EXE = Path(chosen)
-            log.log("             → 已重定向 rvc.io.audio_file 的 ffmpeg 路径")
-        except Exception as exc:
-            log.log(f"重定向 ffmpeg 路径失败（忽略）: {exc}", "WARN")
     return chosen
 
 
@@ -256,7 +245,7 @@ def _scan_audio(input_dir: Path) -> list[Path]:
     return sorted(result)
 
 
-def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
+def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_path: str | None = None):
     """统计素材：文件数、体积、总时长、采样率分布（超过 300 个只抽样后按比例外推）。"""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -272,7 +261,7 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path]):
 
     def _probe_one(path: Path):
         try:
-            info = read_audio_info(str(path))
+            info = read_audio_info(str(path), ffmpeg_path=ffmpeg_path)
             return info["duration"], info["samplerate"]
         except Exception:
             return None, None

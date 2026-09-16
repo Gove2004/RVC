@@ -4,6 +4,7 @@
     python -m autodl
     python autodl_train.py  (薄包装，等价)
 """
+import os
 import sys
 import warnings
 
@@ -12,6 +13,7 @@ from autodl import (
     EXIT_ENV,
     EXIT_OK,
     EXIT_RUNTIME,
+    PROJECT_ROOT,
     Cancelled,
     EnvFatal,
 )
@@ -23,6 +25,9 @@ from autodl.wizard import print_summary, run_wizard
 
 
 def main() -> int:
+    # 项目内大量路径是相对 cwd 的，入口第一行统一基准目录（Q6/D4：从 import 时移入 main）
+    os.chdir(PROJECT_ROOT)
+
     # Trainer 里 scheduler.step() 先于 optimizer.step() 的既有写法会每轮刷两条警告，
     # 属于原代码行为，这里只在脚本侧静音，不改源文件
     warnings.filterwarnings("ignore", message=r".*lr_scheduler\.step\(\).*")
@@ -43,13 +48,13 @@ def main() -> int:
         if _probe_packages(log):
             return EXIT_ENV
         device, fp16, vram_gb = _probe_gpu(log)
-        _probe_ffmpeg(log)
+        ffmpeg_exe = _probe_ffmpeg(log)
         log.log(f"最终设备    : device={device}  fp16={fp16}")
 
         log.section("第 2 步 / 预训练模型检查")
         _probe_assets(log)
 
-        cfg = run_wizard(log, device, fp16, vram_gb, argv_dir)
+        cfg = run_wizard(log, device, fp16, vram_gb, argv_dir, ffmpeg_exe=ffmpeg_exe)
         print_summary(log, cfg)
 
         if not ask_yes("开始训练？（训练中 Ctrl+C = 本轮跑完保存后退出）", default=True):

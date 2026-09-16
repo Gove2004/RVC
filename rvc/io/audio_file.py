@@ -26,8 +26,8 @@ def resolve_ffmpeg(ffmpeg_exe: str | Path | None = None) -> Path:
     - FileNotFoundError: 路径不存在。错误类型刻意与解码失败区分——
       "环境没装好"（调用方/用户可自行修复）和"文件坏"（数据问题）是两类故障。
 
-    默认值从模块全局 FFMPEG_EXE 读取（调用时解析）：autodl 在非 Windows
-    环境会进程内重定向该全局（S9 将改为显式传参后移除此通道）。
+    默认取 runtime.paths.FFMPEG_EXE（调用时解析）；显式传 ffmpeg_exe 是
+    唯一的路径覆盖方式——不存在进程内改写模块全局的通道。
     """
     exe = Path(ffmpeg_exe) if ffmpeg_exe is not None else FFMPEG_EXE
     if not exe.exists():

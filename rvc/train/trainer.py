@@ -31,13 +31,15 @@ from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 
 class Trainer:
     def __init__(self, train_config: TrainConfig, progress_callback=None, log_callback=None, loss_callback=None, batch_callback=None,
-                 export_dir: str | Path | None = None):
+                 export_dir: str | Path | None = None, ffmpeg_exe: str | None = None):
         """训练器。
 
         Args:
             export_dir: 导出模型目录。默认 assets/models/；云训练（autodl）
                 传数据盘目录——取代旧版"运行时改模块全局 WEIGHTS_DIR"的
                 monkey-patch 通道（隐式全局状态，多训练器实例会互相污染）。
+            ffmpeg_exe: ffmpeg 路径，下发给 Dataset 解码。默认 None = 用
+                runtime 默认路径；云训练（autodl）显式传环境体检的定位结果。
         """
         self.cfg = train_config
         self.progress_callback = progress_callback
@@ -45,6 +47,7 @@ class Trainer:
         self.loss_callback = loss_callback
         self.batch_callback = batch_callback
         self.export_dir = Path(export_dir) if export_dir else MODELS_DIR
+        self.ffmpeg_exe = ffmpeg_exe
         self.stop_requested = False
         self.json_config = load_train_json(self.cfg.sr)
         self.train_cfg = self.json_config["train"]
@@ -118,6 +121,7 @@ class Trainer:
         dataset = TextAudioLoaderMultiNSFsid(
             filelist, self.data_cfg,
             spec_cache_dir=Path(self.cfg.exp_dir) / "spec_cache",
+            ffmpeg_exe=self.ffmpeg_exe,
         )
         sampler = BucketSampler(dataset, self.cfg.batch_size)
         self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=2, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)

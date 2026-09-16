@@ -16,9 +16,10 @@ class TrainF0Extractor:
     职责不同，名字刻意区分，避免混淆。
     """
 
-    def __init__(self, device: str = "cuda:0", is_half: bool = True):
+    def __init__(self, device: str = "cuda:0", is_half: bool = True, ffmpeg_exe: str | None = None):
         self.device = device
         self.is_half = is_half
+        self.ffmpeg_exe = ffmpeg_exe
         self.model = RMVPE(str(RMVPE_PATH), is_half=is_half, device=device)
         self.stop_requested = False
 
@@ -39,7 +40,7 @@ class TrainF0Extractor:
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
-                wav, _ = load_audio(path, HUBERT_SAMPLE_RATE)
+                wav, _ = load_audio(path, HUBERT_SAMPLE_RATE, ffmpeg_exe=self.ffmpeg_exe)
                 f0 = self.model.infer_from_audio(wav, thred=RMVPE_THRESHOLD_TRAIN)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()

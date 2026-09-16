@@ -14,7 +14,7 @@ import numpy as np
 
 from rvc.core.errors import AudioLoadError
 from rvc.io.audio_file import load_audio, resolve_ffmpeg
-from rvc.io.wav_file import read_wav_info, write_wav
+from rvc.io.wav_file import read_audio_info, read_wav_info, write_wav
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_INPUT = PROJECT_ROOT / "tests" / "golden" / "input_48k.wav"
@@ -98,6 +98,35 @@ class TestWavFile(unittest.TestCase):
             bad.write_bytes(b"RIFFxxxxWAVEjunkjunkjunk")
             with self.assertRaises(ValueError):
                 read_wav_info(bad)
+
+
+class TestReadAudioInfoFfmpegParam(unittest.TestCase):
+    def test_non_wav_uses_explicit_ffmpeg_path(self):
+        # S9/D4：read_audio_info 的 ffmpeg_path 显式传参也必须真实生效——
+        # 传不存在的路径 → FileNotFoundError（若参数被吞，会静默走默认路径）
+        with tempfile.TemporaryDirectory() as td:
+            fake = Path(td) / "fake.mp3"
+            fake.write_bytes(b"\x00" * 64)
+            with self.assertRaises(FileNotFoundError):
+                read_audio_info(fake, ffmpeg_path="Z:/nope/ffmpeg.exe")
+
+
+class TestTrainPreprocessFfmpegParam(unittest.TestCase):
+    def test_preprocessor_threads_ffmpeg_exe(self):
+        # S9/D4：PreProcessor 的 ffmpeg_exe 显式传参必须贯穿到 load_audio——
+        # 传不存在的路径 → FileNotFoundError（若被吞，会用默认路径成功解码）
+        from rvc.train.preprocess import PreProcessor
+
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "src"
+            src.mkdir()
+            data = np.zeros(4800, dtype=np.float32)
+            write_wav(src / "a.wav", data, 48000, subtype="FLOAT")
+            exp = Path(td) / "exp"
+            processor = PreProcessor(str(src), str(exp), 48000, per=3.7,
+                                     ffmpeg_exe="Z:/nope/ffmpeg.exe")
+            with self.assertRaises(FileNotFoundError):
+                processor.run()
 
 
 if __name__ == "__main__":

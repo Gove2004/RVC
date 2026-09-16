@@ -59,7 +59,7 @@ def step_preprocess(log: TrainLogger, cfg: dict):
     exp_dir = cfg["exp_dir"]
     log.log(f"切片时长 {cfg['per']}s，目标采样率 {cfg['sr_hz']} Hz")
     t0 = time.time()
-    processor = PreProcessor(cfg["input_dir"], str(exp_dir), cfg["sr_hz"], per=cfg["per"])
+    processor = PreProcessor(cfg["input_dir"], str(exp_dir), cfg["sr_hz"], per=cfg["per"], ffmpeg_exe=cfg["ffmpeg"])
     count = processor.run(_make_progress(log, "预处理"))
     secs = time.time() - t0
     log.log(f"预处理完成：{count} 个源文件，用时 {_human_dur(secs)}")
@@ -92,7 +92,7 @@ def step_f0(log: TrainLogger, cfg: dict):
         log, cfg,
         title="步骤 2/4 提取 F0（RMVPE）",
         label="F0",
-        make_extractor=lambda c: TrainF0Extractor(c["device"], c["fp16"]),
+        make_extractor=lambda c: TrainF0Extractor(c["device"], c["fp16"], ffmpeg_exe=c["ffmpeg"]),
     )
 
 
@@ -103,7 +103,7 @@ def step_feature(log: TrainLogger, cfg: dict):
         log, cfg,
         title=f"步骤 3/4 提取 HuBERT 特征（{hubert}）",
         label="特征",
-        make_extractor=lambda c: HuBERTExtractor(c["device"], c["fp16"], hubert=hubert),
+        make_extractor=lambda c: HuBERTExtractor(c["device"], c["fp16"], hubert=hubert, ffmpeg_exe=c["ffmpeg"]),
         warn="若实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 再重跑（已存在的特征文件会被跳过）",
     )
 
@@ -220,7 +220,8 @@ def step_train(log: TrainLogger, cfg: dict):
         else:
             log.log(msg)
 
-    trainer = Trainer(train_config, on_epoch, on_trainer_log, on_loss, on_batch, export_dir=model_dir)
+    trainer = Trainer(train_config, on_epoch, on_trainer_log, on_loss, on_batch,
+                      export_dir=model_dir, ffmpeg_exe=cfg["ffmpeg"])
     STOP.trainer = trainer
     t0 = time.time()
     try:
