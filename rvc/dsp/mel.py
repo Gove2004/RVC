@@ -67,6 +67,8 @@ def mel_filter_bank(sr, n_fft, n_mels=128, fmin=0.0, fmax=None, htk=False, norm=
     if norm == "slaney":
         enorm = 2.0 / (mel_f[2:n_mels + 2] - mel_f[:n_mels])
         weights *= enorm[:, np.newaxis]
+    elif norm is not None:
+        raise ValueError(f"mel_filter_bank: 不支持的 norm={norm!r}（仅支持 'slaney' 或 None）")
 
     return weights
 

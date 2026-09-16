@@ -41,7 +41,7 @@ def upsample_features(
     p_len: int,
     is_half: bool,
 ) -> torch.Tensor:
-    """特征上采样：50fps → 100fps（线性插值），截取 p_len 帧。
+    """特征上采样：50fps → 100fps（最近邻插值，与上游一致），截取 p_len 帧。
 
     末帧 padding（重复最后一帧）在此处做，确保上采样后长度足够覆盖 p_len。
 
@@ -56,8 +56,14 @@ def upsample_features(
     # 末帧 padding：重复最后一帧，确保上采样后长度足够
     feats = torch.cat((feats, feats[:, -1:, :]), dim=1)
     feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+    # 长度不足 p_len 时必须显式失败：静默截短会让下游合成器的
+    # 特征/F0 掩码长度错位，产生错音或崩溃，且极难排查
+    if feats.shape[1] < p_len:
+        raise ValueError(
+            f"upsample_features: 上采样后长度 {feats.shape[1]} < 目标 {p_len}"
+            f"（输入 50fps 帧数 {feats.shape[1] // 2} 不足）"
+        )
     feats = feats[:, :p_len, :]
 
-    if is_half:
-        feats = feats.half()
+    feats = feats.half() if is_half else feats.float()
     return feats

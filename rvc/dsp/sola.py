@@ -43,7 +43,10 @@ def apply_sola(
         sola_search_samples: 搜索窗口大小
 
     Returns:
-        对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer
+        对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer。
+        注意：返回值与输入 infer 共享存储且已被原地改写（交叉淡化），
+        调用方不得复用传入的 infer；需要保留原值时自行 clone。
+        NaN 防护路径返回 clone（不共享存储）。
     """
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])

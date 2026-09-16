@@ -24,6 +24,12 @@ def fast_rms(wav: torch.Tensor, frame_length: int, hop_length: int) -> torch.Ten
         RMS包络张量 [frame_count]
     """
     padding = frame_length // 2
+    # reflect padding 要求 pad < 输入长度；过短输入给清晰报错而不是晦涩的 RuntimeError
+    if wav.shape[0] <= padding:
+        raise ValueError(
+            f"fast_rms: 输入长度 {wav.shape[0]} 必须 > 帧长一半 {padding}"
+            f"（frame_length={frame_length} 的 reflect padding 限制）"
+        )
     # pad 结果是本函数私有张量，原地平方省一次 [1,1,N] 分配（数值与 **2 完全一致）
     squared = F.pad(wav.unsqueeze(0).unsqueeze(0), (padding, padding), mode="reflect")
     squared = squared.mul_(squared)

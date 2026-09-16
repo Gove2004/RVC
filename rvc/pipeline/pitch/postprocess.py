@@ -71,9 +71,10 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
         dst_min_m = float(hz_to_midi(dst_min))
         dst_max_m = float(hz_to_midi(dst_max))
         _pitch_map_midi_cache[cache_key] = (src_min_m, src_max_m, dst_min_m, dst_max_m)
-        # 限制缓存大小，避免极端情况下无限增长
+        # 限制缓存大小，避免极端情况下无限增长；pop 带 default：双引擎并发
+        # 插入时 next(iter()) 与 pop 之间字典可能变化，竞态下跳过本次淘汰即可
         if len(_pitch_map_midi_cache) > 128:
-            _pitch_map_midi_cache.pop(next(iter(_pitch_map_midi_cache)))
+            _pitch_map_midi_cache.pop(next(iter(_pitch_map_midi_cache)), None)
     src_min_m, src_max_m, dst_min_m, dst_max_m = _pitch_map_midi_cache[cache_key]
 
     if torch.is_tensor(f0):
@@ -89,9 +90,9 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
                 for v in _pitch_map_midi_cache[cache_key]
             )
             _pitch_map_tensor_cache[tkey] = tensors
-            # 与 MIDI 缓存同策略：限制大小
+            # 与 MIDI 缓存同策略：限制大小；pop 带 default 容忍并发竞态
             if len(_pitch_map_tensor_cache) > 128:
-                _pitch_map_tensor_cache.pop(next(iter(_pitch_map_tensor_cache)))
+                _pitch_map_tensor_cache.pop(next(iter(_pitch_map_tensor_cache)), None)
         src_min_m_t, src_max_m_t, dst_min_m_t, dst_max_m_t = tensors
     else:
         xp = np
@@ -115,13 +116,12 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     # MIDI → Hz
     out = midi_to_hz(out_m, xp)
 
-    # NaN/inf 过滤：异常帧设为 0（清音），避免 CUDA device-side assert
+    # NaN/inf 过滤 + UV 置零：合并为单次 where/nan_to_num（原先两次布尔掩码
+    # scatter 各自分配索引张量；数值完全等价——nan/±inf 与 UV 帧均输出 0）
     if xp is torch:
-        out[~torch.isfinite(out)] = 0.0
+        out = torch.where(uv_mask, torch.zeros_like(out), torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
     else:
-        out[~np.isfinite(out)] = 0.0
-
-    out[uv_mask] = 0
+        out = np.where(uv_mask, 0.0, np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
     return out
 
 
@@ -144,7 +144,9 @@ def median_filter_f0(f0, kernel=3):
     Returns:
         滤波后的 F0（形状/设备/类型不变）
     """
-    if not torch.is_tensor(f0) or f0.numel() < kernel or kernel < 3:
+    # 非 1-D 输入原样返回（调用链保证 1-D；2-D 会走错 unfold 维度、4-D 直接
+    # NotImplementedError，与其让晦涩异常炸实时回调，不如按既有兜底约定透传）
+    if not torch.is_tensor(f0) or f0.dim() != 1 or f0.numel() < kernel or kernel < 3:
         return f0
     # 因果 padding：只在左边补 kernel-1 个首帧值（不看未来）
     f0_padded = torch.nn.functional.pad(
