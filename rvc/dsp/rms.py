@@ -24,7 +24,9 @@ def fast_rms(wav: torch.Tensor, frame_length: int, hop_length: int) -> torch.Ten
         RMS包络张量 [frame_count]
     """
     padding = frame_length // 2
-    squared = F.pad(wav.unsqueeze(0).unsqueeze(0), (padding, padding), mode="reflect") ** 2
+    # pad 结果是本函数私有张量，原地平方省一次 [1,1,N] 分配（数值与 **2 完全一致）
+    squared = F.pad(wav.unsqueeze(0).unsqueeze(0), (padding, padding), mode="reflect")
+    squared = squared.mul_(squared)
     return torch.sqrt(torch.clamp(F.avg_pool1d(squared, frame_length, hop_length).squeeze(), min=1e-8))
 
 

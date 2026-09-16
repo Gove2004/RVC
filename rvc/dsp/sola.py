@@ -57,7 +57,8 @@ def apply_sola(
     infer = infer[offset:]
 
     # NaN 防护：sola_buffer 被污染时跳过交叉淡化，避免 NaN 恶性循环
-    if torch.isnan(sola_buffer).any() or torch.isnan(infer[:sola_buffer_samples]).any():
+    # （两次独立 isnan 扫描合并为一次：.any() 各触发一次 GPU→CPU 同步）
+    if torch.isnan(torch.cat((sola_buffer, infer[:sola_buffer_samples]))).any():
         sola_buffer.zero_()
         return infer[:block_samples].clone()
 

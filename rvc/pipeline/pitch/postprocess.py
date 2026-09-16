@@ -24,6 +24,10 @@ PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 # 避免每次调用重复计算 4 次 hz_to_midi（参数在运行时很少变化）
 _pitch_map_midi_cache: dict[tuple, tuple] = {}
 
+# 参数组合+设备 → 4 个常量 tensor。torch.tensor(scalar, device=cuda) 是
+# 同步 H2D 拷贝，实时路径每块调用 4 次纯属浪费——参数与设备在会话内不变。
+_pitch_map_tensor_cache: dict[tuple, tuple] = {}
+
 
 def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     """半音尺度线性音域映射（保持音程不变，唱歌不跑调）。
@@ -76,12 +80,19 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
         xp = torch
         uv_mask = f0 <= 0
         f0_safe = xp.clamp(f0, min=1e-6)
-        device = f0.device
-        # 预计算的 MIDI 标量转成和 f0 同设备的 tensor
-        src_min_m_t = torch.tensor(src_min_m, dtype=torch.float32, device=device)
-        src_max_m_t = torch.tensor(src_max_m, dtype=torch.float32, device=device)
-        dst_min_m_t = torch.tensor(dst_min_m, dtype=torch.float32, device=device)
-        dst_max_m_t = torch.tensor(dst_max_m, dtype=torch.float32, device=device)
+        # 预计算的 MIDI 标量常量 tensor 按 (参数, 设备) 缓存，避免每块 4 次同步 H2D
+        tkey = (*cache_key, f0.device)
+        tensors = _pitch_map_tensor_cache.get(tkey)
+        if tensors is None:
+            tensors = tuple(
+                torch.tensor(v, dtype=torch.float32, device=f0.device)
+                for v in _pitch_map_midi_cache[cache_key]
+            )
+            _pitch_map_tensor_cache[tkey] = tensors
+            # 与 MIDI 缓存同策略：限制大小
+            if len(_pitch_map_tensor_cache) > 128:
+                _pitch_map_tensor_cache.pop(next(iter(_pitch_map_tensor_cache)))
+        src_min_m_t, src_max_m_t, dst_min_m_t, dst_max_m_t = tensors
     else:
         xp = np
         uv_mask = f0 <= 0
