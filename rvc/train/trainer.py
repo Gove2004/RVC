@@ -156,7 +156,7 @@ class Trainer:
         if last_epoch is None:
             raise RuntimeError("训练在首个 epoch 前已停止")
         # 最终模型路径（已在 _save 中导出）
-        return str(WEIGHTS_DIR / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
+        return str(self.export_dir / f"{Path(self.cfg.exp_dir).name}_e{last_epoch}.pth")
 
     def _train_epoch(self, epoch: int) -> tuple[float, float, float, float, float]:
         """训练一个 epoch，返回 (平均 G, Mel, KL, FM, D loss)"""
@@ -244,14 +244,14 @@ class Trainer:
         if removed:
             self.log(f"清理旧 checkpoint: {len(removed)} 个（每组保留最新 {keep_ckpts} 个）")
 
-        # 同时导出可用模型到 assets/models/
+        # 同时导出可用模型到 export_dir（默认 assets/models/，云训练传数据盘目录）
         exp_name = Path(self.cfg.exp_dir).name
-        output = WEIGHTS_DIR / f"{exp_name}_e{epoch}.pth"
+        output = self.export_dir / f"{exp_name}_e{epoch}.pth"
         export_model(self.synthesizer.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))
         self.log(f"导出模型: {output}")
 
         # 只清理本实验的 <exp>_e<N>.pth，不碰其他/合并出来的模型
         if self.cfg.keep_models > 0:
-            gone = prune_keep_latest(WEIGHTS_DIR, f"{exp_name}_e*.pth", self.cfg.keep_models, epoch_of=exported_epoch)
+            gone = prune_keep_latest(self.export_dir, f"{exp_name}_e*.pth", self.cfg.keep_models, epoch_of=exported_epoch)
             if gone:
                 self.log(f"清理旧导出模型: {len(gone)} 个（保留最新 {self.cfg.keep_models} 个）")
