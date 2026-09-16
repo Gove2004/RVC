@@ -37,7 +37,7 @@ from gui.infer.view.tabs.offline_tab import build_offline_tab
 
 from gui.infer.view.tabs.experimental_tab import build_experimental_tab
 
-from gui.infer.controller.device_controller import DeviceManager
+from gui.infer.controller.device_controller import DeviceCatalog
 
 from gui.infer.controller.offline_controller import OfflineManager
 
@@ -70,12 +70,12 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._connect_all_param_signals()
 
         # 初始化管理器
-        self.device_manager = DeviceManager(self)
+        self.device_catalog = DeviceCatalog(self)
         self.offline_manager = OfflineManager(self)
 
-        self.device_manager.load_hostapis()
+        self.device_catalog.load_hostapis()
         self._load_gui_config()
-        # Connect refresh button after device_manager is ready
+        # Connect refresh button after device catalog is ready
         self.refresh_btn.clicked.connect(self._reload_dev)
         # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
         QTimer.singleShot(300, self._warmup_engine)
@@ -236,23 +236,22 @@ class MainWindow(WindowLifecycle, QMainWindow):
         """F0 方法切换时，更新 runtime_params 和阈值滑动条。"""
         is_rmvpe = self.f0_rmvp_btn.isChecked()
         self.runtime_params.f0.method = "rmvpe" if is_rmvpe else "fcpe"
-        if hasattr(self, "exp_f0_threshold_slider") and hasattr(self, "exp_f0_threshold_name"):
-            params = self.runtime_params
-            val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
-            self.exp_f0_threshold_slider.setValue(val)
-            self.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+        params = self.runtime_params
+        val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
+        self.exp_f0_threshold_slider.setValue(val)
+        self.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
 
     # ── 设备/离线委托 ──
 
     def _reload_dev(self):
-        """委托给 DeviceManager（运行中禁止刷新，防止杀活动流）"""
+        """委托给 DeviceCatalog（运行中禁止刷新，防止杀活动流）"""
         if self.controller.is_running:
             self._show_warning("运行中不能刷新设备，请先停止")
             return
-        self.device_manager.reload_devices()
+        self.device_catalog.reload_devices()
 
     def _ha_changed(self, name):
-        self.device_manager.on_hostapi_changed(name)
+        self.device_catalog.on_hostapi_changed(name)
 
     def _off_browse(self, tgt, kind):
         self.offline_manager.browse_file(tgt, kind)

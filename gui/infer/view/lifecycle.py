@@ -210,9 +210,9 @@ class WindowLifecycle:
             state = self.collect_gui_state()
             stats = self.controller.setup_engine(
                 sr_mode=state.audio.sr_mode,
-                input_device_idx=self.device_manager.get_input_device_index(self.input_combo.currentIndex()),
-                output_device_idx=self.device_manager.get_output_device_index(self.output_combo.currentIndex()),
-                output2_device_idx=self.device_manager.get_output_device_index(self.output2_combo.currentIndex() - 1),
+                input_device_idx=self.device_catalog.get_input_device_index(self.input_combo.currentIndex()),
+                output_device_idx=self.device_catalog.get_output_device_index(self.output_combo.currentIndex()),
+                output2_device_idx=self.device_catalog.get_output_device_index(self.output2_combo.currentIndex() - 1),
                 block_time=state.buffer.block_time,
                 crossfade_time=state.buffer.crossfade_time,
                 extra_time=state.buffer.extra_time,

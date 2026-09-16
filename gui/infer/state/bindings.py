@@ -170,40 +170,37 @@ def _set(win, widget, kind, value):
 
 
 def apply_params(win, params: InferenceParams) -> None:
-    """把 InferenceParams 写到所有控件（启动时加载配置调用）。"""
+    """把 InferenceParams 写到所有控件（启动时加载配置调用）。
+
+    所有 BINDINGS 控件与实验控件都在窗口构建时无条件创建，不做 hasattr 探测——
+    控件缺失应立刻 AttributeError 暴露，而不是静默跳过。
+    """
     for path, widget, kind in BINDINGS:
-        if widget and hasattr(win, widget):
-            value = _get_nested(params, path)
-            _set(win, widget, kind, value)
+        value = _get_nested(params, path)
+        _set(win, widget, kind, value)
 
     # 实验参数：F0 阈值滑动条
-    if hasattr(win, "exp_f0_threshold_slider"):
-        is_rmvpe = params.f0.method == "rmvpe"
-        val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
-        slider = win.exp_f0_threshold_slider
-        slider.setValue(val)
-        if hasattr(slider, "_update_label"):
-            slider._update_label()
-        if hasattr(win, "exp_f0_threshold_name"):
-            win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+    is_rmvpe = params.f0.method == "rmvpe"
+    val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
+    slider = win.exp_f0_threshold_slider
+    slider.setValue(val)
+    if hasattr(slider, "_update_label"):
+        slider._update_label()
+    win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
 
     # 音域映射 RangeSlider
-    if hasattr(win, "exp_pitch_map_src_range"):
-        win.exp_pitch_map_src_range.setRange(
-            float(params.voice.pitch_map_src_min), float(params.voice.pitch_map_src_max)
-        )
-    if hasattr(win, "exp_pitch_map_dst_range"):
-        win.exp_pitch_map_dst_range.setRange(
-            float(params.voice.pitch_map_dst_min), float(params.voice.pitch_map_dst_max)
-        )
+    win.exp_pitch_map_src_range.setRange(
+        float(params.voice.pitch_map_src_min), float(params.voice.pitch_map_src_max)
+    )
+    win.exp_pitch_map_dst_range.setRange(
+        float(params.voice.pitch_map_dst_min), float(params.voice.pitch_map_dst_max)
+    )
 
 
 def collect_params(win) -> InferenceParams:
     """从控件收集 InferenceParams（保存配置时调用）。"""
     params = InferenceParams()
     for path, widget, kind in BINDINGS:
-        if not widget or not hasattr(win, widget):
-            continue
         w = getattr(win, widget)
         if kind == CHECK:
             value = w.isChecked()
@@ -224,20 +221,17 @@ def collect_params(win) -> InferenceParams:
         _set_nested(params, path, value)
 
     # 实验参数
-    if hasattr(win, "exp_f0_threshold_slider"):
-        is_rmvpe = params.f0.method == "rmvpe"
-        val = float(win.exp_f0_threshold_slider.value())
-        if is_rmvpe:
-            params.f0.rmvpe_threshold = val
-        else:
-            params.f0.fcpe_confidence_threshold = val
+    is_rmvpe = params.f0.method == "rmvpe"
+    val = float(win.exp_f0_threshold_slider.value())
+    if is_rmvpe:
+        params.f0.rmvpe_threshold = val
+    else:
+        params.f0.fcpe_confidence_threshold = val
 
-    if hasattr(win, "exp_pitch_map_src_range"):
-        params.voice.pitch_map_src_min = float(win.exp_pitch_map_src_range.low())
-        params.voice.pitch_map_src_max = float(win.exp_pitch_map_src_range.high())
-    if hasattr(win, "exp_pitch_map_dst_range"):
-        params.voice.pitch_map_dst_min = float(win.exp_pitch_map_dst_range.low())
-        params.voice.pitch_map_dst_max = float(win.exp_pitch_map_dst_range.high())
+    params.voice.pitch_map_src_min = float(win.exp_pitch_map_src_range.low())
+    params.voice.pitch_map_src_max = float(win.exp_pitch_map_src_range.high())
+    params.voice.pitch_map_dst_min = float(win.exp_pitch_map_dst_range.low())
+    params.voice.pitch_map_dst_max = float(win.exp_pitch_map_dst_range.high())
 
     # enable_out2 是 output2_device 的派生属性，根据当前选择动态计算
     params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"

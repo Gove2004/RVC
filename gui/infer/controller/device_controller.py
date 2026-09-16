@@ -1,9 +1,9 @@
-"""设备管理器 — 负责音频设备的枚举和选择"""
+"""设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。"""
 from typing import List
 from rvc.io.devices import get_audio_devices
 
-class DeviceManager:
-    """管理音频设备的加载和选择"""
+class DeviceCatalog:
+    """枚举音频设备并维护「下拉框位置 → PortAudio 索引」映射。"""
 
     def __init__(self, window: 'MainWindow'):
         self.window = window

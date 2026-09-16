@@ -2,7 +2,7 @@
 
 配置统一使用 rvc.config.InferenceParams 的子配置：
 - runtime_params: InferenceParams（推理参数）
-- engine setup: 由调用方传入设备索引（设备名称→索引的转换在 window/device_manager 层完成）
+- engine setup: 由调用方传入设备索引（设备名称→索引的转换在 window/device_catalog 层完成）
 
 GUI 分层后，本类承担业务逻辑（参数应用、引擎控制、错误处理），
 window.py 承担 UI 构建和信号连接，通过调用本类方法执行业务操作。
@@ -109,7 +109,7 @@ class InferController:
                      extra_time: float, enable_out2: bool):
         """配置并启动音频引擎。
 
-        设备索引由调用方（window/device_manager）从设备名称转换而来。
+        设备索引由调用方（window/device_catalog）从设备名称转换而来。
         副输出由 setup 内部统一启动（setup_out2 是幂等的，重复调用安全）。
         """
         sr_type = "sr_model" if sr_mode == "model" else "sr_device"
