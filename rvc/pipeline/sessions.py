@@ -2,11 +2,13 @@
 
 ModelSessions 是模型生命周期的唯一入口：
 - load(): 加载模型（HuBERT + Synthesizer），返回 ModelSession
-- get_f0_extractor(): 获取 F0 提取器（RMVPE/FCPE，带缓存）
 - clear_all(): 清除所有模型缓存和 CUDA Graph（停止/切换模型时调用）
 
 realtime_engine 和 offline_converter 都通过本会话层获取模型，
 避免缓存清除逻辑分散在多处导致遗漏（如之前的 FCPE CUDA Graph 未清除 bug）。
+
+F0 提取器（RMVPE/FCPE）不在此层管理：提取器带阈值等运行时参数，
+由 pipeline 在推理时经 create_f0_extractor 工厂直接创建/复用。
 """
 import logging
 import os
@@ -15,7 +17,7 @@ from dataclasses import dataclass
 from rvc.core.errors import ModelLoadError
 from rvc.pipeline.loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
-from rvc.runtime.graph import clear_cuda_graph_cache
+from rvc.runtime.graph import purge_cuda_graphs
 from rvc.pipeline.cache import default_inference_cache
 
 logger = logging.getLogger(__name__)
@@ -79,8 +81,7 @@ class ModelSessions:
             logger.warning("移除 weight_norm 失败：%s", e)
 
         # 清除旧模型的 CUDA Graph 缓存（避免形状/设备不匹配）
-        clear_cuda_graph_cache(synthesizer)
-        clear_cuda_graph_cache(hubert)
+        purge_cuda_graphs(synthesizer, hubert)
 
         session = ModelSession(
             hubert=hubert,
@@ -92,39 +93,28 @@ class ModelSessions:
         self._current_session = session
         return session
 
-    def get_f0_extractor(self, method: str, config=None):
-        """获取 F0 提取器（RMVPE/FCPE，带缓存）。
-
-        Args:
-            method: "rmvpe" 或 "fcpe"
-            config: InferenceParams（含实验参数），None 时用默认值
-        """
-        from rvc.pipeline.pitch.extractor import create_f0_extractor
-        from rvc.core.config import InferenceParams
-        if config is None:
-            config = InferenceParams()
-        return create_f0_extractor(method, self.device, self.is_half, self.inference_cache, config=config)
-
     def clear_all(self) -> None:
         """清除所有模型缓存和 CUDA Graph（停止/切换模型时调用）。
 
         清除范围：
         - F0 提取器（RMVPE/FCPE）的 CUDA Graph
         - 当前 session 的 synthesizer/hubert 的 CUDA Graph
-        - 推理缓存中的 synthesizer 缓存
+        - LRU 中全部 synthesizer 的 CUDA Graph
         """
         # F0 提取器 CUDA Graph
         self.inference_cache.clear_f0_cuda_graph_caches()
 
-        # 当前 session 的 CUDA Graph
+        # LRU 中全部 synthesizer + 当前 session（synthesizer 可能重叠，purge 幂等）
+        synthesizers = [
+            bundle.synthesizer
+            for bundle in self.inference_cache.synthesizer_bundles()
+            if hasattr(bundle, "synthesizer")
+        ]
         if self._current_session is not None:
-            clear_cuda_graph_cache(self._current_session.synthesizer)
-            clear_cuda_graph_cache(self._current_session.hubert)
-
-        # 清除 synthesizer 缓存（LRU 中的旧模型）
-        for syn_bundle in self.inference_cache._synthesizer.values():
-            if hasattr(syn_bundle, 'synthesizer'):
-                clear_cuda_graph_cache(syn_bundle.synthesizer)
+            synthesizers.extend(
+                [self._current_session.synthesizer, self._current_session.hubert]
+            )
+        purge_cuda_graphs(*synthesizers)
 
         self._current_pth = None
         self._current_session = None

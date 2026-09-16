@@ -3,9 +3,12 @@
 LRU 淘汰：synthesizer（几百 MB/个）只进不出会让显存/内存持续增长。
 各槽位保留最近使用的 N 个，超限淘汰最久未用的。
 槽位数量属于本层（pipeline 组装层）的策略，通用 LRU 基础设施在 runtime。
+
+失效语义（现状契约，测试锁定）：仅 LRU 容量淘汰，无文件 mtime 校验——
+同名 pth 被外部覆盖后仍会返回旧权重，属已知且被接受的现状。
 """
 from rvc.runtime.caches import LRUCache
-from rvc.runtime.graph import clear_cuda_graph_cache
+from rvc.runtime.graph import purge_cuda_graphs
 
 
 class InferenceCache:
@@ -67,10 +70,15 @@ class InferenceCache:
             extractor.clear_cuda_graph()
 
     def clear_synthesizer_cuda_graphs(self) -> None:
-        """清除所有缓存的 synthesizer 的 CUDA Graph（公共方法，避免外部访问私有属性）。"""
-        for syn_bundle in self._synthesizer.values():
-            if hasattr(syn_bundle, 'synthesizer'):
-                clear_cuda_graph_cache(syn_bundle.synthesizer)
+        """清除所有缓存的 synthesizer 的 CUDA Graph（外部经此操作，不触碰私有槽位）。"""
+        purge_cuda_graphs(
+            *(bundle.synthesizer for bundle in self.synthesizer_bundles()
+              if hasattr(bundle, "synthesizer"))
+        )
+
+    def synthesizer_bundles(self) -> tuple:
+        """当前缓存的全部 synthesizer bundle 快照（LRU 最新→最旧）。"""
+        return tuple(self._synthesizer.values())
 
 
 default_inference_cache = InferenceCache()

@@ -10,6 +10,16 @@ from rvc.pipeline.pitch.extractor import create_f0_extractor
 # → p_len_max ≈ 616，取 2048 留 3 倍余量。
 PITCH_CACHE_SIZE = 2048
 
+# RMVPE 输出帧中不可信的边缘帧数（写入缓存前丢弃）：
+# - 头部 3 帧：RMVPE mel 谱（hop=160, center padding）两端各补 2 帧后，
+#   头部前几帧的 receptance 不足，f0 系统性偏低/抖动（对齐源项目实测值 3）；
+# - 尾部 1 帧：窗口右端最后一帧对齐不完整。
+# 两者之和即缓存写入偏移：f0_raw 共 N 帧，缓存尾部 (N-4) 个槽位接收
+# f0_raw[3:-1]，即 cache[N-4:] = f0_raw[3:N-1]。
+RMVPE_F0_HEAD_MARGIN_FRAMES = 3
+RMVPE_F0_TAIL_MARGIN_FRAMES = 1
+RMVPE_F0_DISCARDED_FRAMES = RMVPE_F0_HEAD_MARGIN_FRAMES + RMVPE_F0_TAIL_MARGIN_FRAMES
+
 
 def create_pitch_cache(device: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """创建 F0 缓存（离散 pitch、连续 pitchf、confidence）。"""
@@ -76,10 +86,16 @@ def update_realtime_pitch_cache_raw(
     cache_pitchf[:-shift] = cache_pitchf[shift:].clone()
     cache_confidence[:-shift] = cache_confidence[shift:].clone()
 
-    # 帧对齐：pitch[3:-1] 去掉首尾边缘帧，按偏移 4 写入缓存尾部
-    write_start = 4 - f0_raw.shape[0]
-    cache_pitchf[write_start:] = f0_raw[3:-1]
-    cache_confidence[write_start:] = confidence_raw[3:-1]
+    # 帧对齐：丢弃 RMVPE 边缘帧（见 RMVPE_F0_*_MARGIN_FRAMES 推导），写入缓存尾部
+    write_start = RMVPE_F0_DISCARDED_FRAMES - f0_raw.shape[0]
+    cache_pitchf[write_start:] = f0_raw[
+        RMVPE_F0_HEAD_MARGIN_FRAMES:
+        f0_raw.shape[0] - RMVPE_F0_TAIL_MARGIN_FRAMES
+    ]
+    cache_confidence[write_start:] = confidence_raw[
+        RMVPE_F0_HEAD_MARGIN_FRAMES:
+        confidence_raw.shape[0] - RMVPE_F0_TAIL_MARGIN_FRAMES
+    ]
     # cache_pitch 只左移，新值由阶段5 postprocess_f0 后写入
 
     return (
