@@ -1,4 +1,4 @@
-"""变声引擎门面 — 实时与离线共用的唯一入口。
+﻿"""变声引擎门面 — 实时与离线共用的唯一入口。
 
 VoiceEngine 作为门面（Facade），内部委托给子组件：
 
@@ -181,6 +181,7 @@ class VoiceEngine:
         """sounddevice 回调函数 — 委托给 InferenceRunner.process_block。"""
         try:
             # 硬件时间戳实测端到端延迟
+            # 上限 2s：设备切换/流重启时时间戳可能异常重置，负值或 >2s 的值忽略避免显示乱跳
             d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
             if 0 < d < 2:
                 self.measure_ms = d * 1000
@@ -191,10 +192,10 @@ class VoiceEngine:
             # 副输出路由
             if self._stream_mgr.enable_out2:
                 self._runner.route_secondary_output(
-                    outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q, True
+                    outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q,
                 )
 
-            self._runner.reset_success_count()
+            self._runner.acknowledge_success()
         except Exception as e:
             should_stop = self._runner.handle_error(e)
             logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
@@ -225,8 +226,6 @@ class VoiceEngine:
 
         # 原地更新 runtime_params 字段（不替换对象引用，已创建的 runner 自动生效）
         self.runtime_params.update_from(task)
-        if self.pipeline:
-            self.pipeline.reset_pitch_cache()
         self.function = "vc"
 
         # 从 task 中读取缓冲区参数，与实时 setup 保持一致
@@ -277,3 +276,4 @@ class VoiceEngine:
         if audio_max > 1:
             result = result / audio_max
         write_wav(output_path, result, tgt_sr, subtype="FLOAT")
+

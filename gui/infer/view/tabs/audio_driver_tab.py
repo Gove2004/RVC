@@ -1,4 +1,4 @@
-"""音频驱动 Tab — 音频设备 + 采样率显示"""
+"""音频驱动 Tab — 音频设备 + 采样率"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QComboBox,
     QPushButton, QRadioButton, QButtonGroup,
@@ -19,7 +19,6 @@ def build_audio_driver_tab(win):
     win.hostapi_combo.currentTextChanged.connect(win._ha_changed)
     refresh_btn = QPushButton("刷新")
     refresh_btn.setStyleSheet(ButtonStyles.secondary())
-    # 连接将在 window 中进行
     g.addWidget(QLabel("音频驱动"), r, 0)
     g.addWidget(win.hostapi_combo, r, 1)
     g.addWidget(refresh_btn, r, 2)
@@ -40,7 +39,7 @@ def build_audio_driver_tab(win):
     g.addWidget(win.output2_combo, r, 1, 1, 2)
     r += 1
 
-    # ── 采样率 ──（QButtonGroup 隔离，避免与下方音高算法互斥）
+    # ── 采样率 ──
     win.sr_model_radio = QRadioButton("模型 -")
     win.sr_model_radio.setMaximumWidth(100)
     win.sr_device_radio = QRadioButton("设备 -")
@@ -54,25 +53,6 @@ def build_audio_driver_tab(win):
     g.addWidget(QLabel("采样率"), r, 0)
     g.addWidget(win.sr_model_radio, r, 1)
     g.addWidget(win.sr_device_radio, r, 2)
-    r += 1
-
-    # ── 音高算法 ──（独立 QButtonGroup，与采样率组互不干扰）
-    # 默认单源（D6）：按 runtime_params.f0.method 选中，不写第二份默认
-    win.f0_rmvp_btn = QRadioButton("RMVPE")
-    win.f0_rmvp_btn.setMaximumWidth(80)
-    win.f0_fcpe_btn = QRadioButton("FCPE")
-    win.f0_fcpe_btn.setMaximumWidth(80)
-    is_rmvpe = win.runtime_params.f0.method == "rmvpe"
-    win.f0_rmvp_btn.setChecked(is_rmvpe)
-    win.f0_fcpe_btn.setChecked(not is_rmvpe)
-
-    f0_group = QButtonGroup(w)
-    f0_group.addButton(win.f0_rmvp_btn)
-    f0_group.addButton(win.f0_fcpe_btn)
-
-    g.addWidget(QLabel("音高算法"), r, 0)
-    g.addWidget(win.f0_rmvp_btn, r, 1)
-    g.addWidget(win.f0_fcpe_btn, r, 2)
     r += 1
 
     return w, refresh_btn

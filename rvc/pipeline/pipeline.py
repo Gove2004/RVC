@@ -26,7 +26,7 @@ from rvc.pipeline.features import extract_hubert_features, upsample_features
 
 from rvc.pipeline.pitch.extractor import postprocess_f0
 from rvc.pipeline.sessions import ModelSessions
-from rvc.pipeline.pitch.tracker import create_pitch_cache, update_realtime_pitch_cache_raw
+from rvc.pipeline.pitch.tracker import extract_f0_for_block
 from rvc.pipeline.synthesis import cached_long_tensor, infer_synth_audio
 
 logger = logging.getLogger(__name__)
@@ -60,9 +60,6 @@ class InferencePipeline:
 
         self.pth_path = pth_path
         self.hubert_variant = hubert
-
-        # 初始化 F0 滚动缓存
-        self.state.pitch_cache, self.state.pitchf_cache, self.state.confidence_cache = create_pitch_cache(self.state.device)
 
         # 单块上下文（复用实例，每块 reset()）
         self.ctx = InferenceContext()
@@ -107,10 +104,6 @@ class InferencePipeline:
         self.state.model_sr = session.target_sr
         self.state.use_f0 = session.use_f0
 
-    def reset_pitch_cache(self) -> None:
-        """重置音高缓存（切换模型/文件时调用，避免跨上下文污染）。"""
-        self.state.reset_pitch_cache()
-
     # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
 
     def extract_features(self, input_wav: torch.Tensor, config: InferenceParams,
@@ -137,11 +130,9 @@ class InferencePipeline:
         ctx = self.ctx
 
         # ctx 已由 inference_runner 在调用前重置（ctx.reset）
-        # 这里只设置本块特有的 p_len
-        ctx.p_len = input_wav.shape[0] // HUBERT_FRAME_SIZE
+        # p_len 不再预计算，而是等 HuBERT upsample 后用实际长度
 
-        # 把参数存到 state（runner 层也可能设置，这里确保一致）
-        state.input_wav_16k = input_wav
+        # skip_head / return_length 由 runner 传入，同步到 state 供后续阶段使用
         state.skip_head = skip_head
         state.return_length = return_length
 
@@ -149,14 +140,11 @@ class InferencePipeline:
         formant_factor = config.voice.formant
         factor = pow(2, formant_factor / 12)
         ctx.formant_factor = factor
-        state.return_length2 = int(math.ceil(return_length * factor))
+        ctx.return_length2 = int(math.ceil(return_length * factor))
 
-        # P0-12 修复：HuBERT 与 F0 串行执行。旧实现把两者放到两条 CUDA Stream
-        # 并发跑 fp16 推理，cuBLAS/cuDNN 工作区跨流并发是未定义行为，
-        # 会随机产生整块 NaN（实测约 13% 块）。CUDA Graph 回放已消除
-        # 启动开销，串行化的延迟损失很小（方案 A，用户已批准）。
+        # 只提取 HuBERT 特征，F0 提取移到 postprocess_features
+        # 等 upsample 得到实际长度后，再让 F0 对齐到这个实际长度
         feats = self._stage_extract_hubert(ctx)
-        self._stage_extract_f0_raw(ctx)
 
         return feats
 
@@ -177,9 +165,15 @@ class InferencePipeline:
         state = self.state
         ctx = self.ctx
 
-        # 同 P0-12：F0 后处理与特征上采样串行执行（两者都是轻量算子）。
-        pitch, pitchf = self._stage_postprocess_f0(ctx)
+        # 先 upsample HuBERT 特征，得到实际长度 actual_len
+        # 然后 F0 对齐到 actual_len，确保两者长度完全一致
         feats = self._stage_upsample_features(ctx, feats)
+        ctx.p_len = feats.shape[1]  # 用 upsample 后的实际长度作为 p_len
+
+        # 提取 F0 原始值（对齐到实际 p_len）+ 后处理
+        self._stage_extract_f0_raw(ctx)
+        pitch, pitchf = self._stage_postprocess_f0(ctx)
+
         ctx.features_upsampled = feats
 
         return pitch, pitchf, feats
@@ -215,9 +209,10 @@ class InferencePipeline:
         return feats
 
     def _stage_extract_f0_raw(self, ctx: InferenceContext) -> None:
-        """F0 原始提取 + 缓存更新。
+        """F0 原始提取 — 每块从完整 input_wav 提取，与 HuBERT 输入对齐。
 
-        只调用 extract_raw 获取原始 (f0, confidence)，写入缓存。
+        直接调用 extract_f0_for_block 获取原始 (f0, confidence)，
+        与 HuBERT 从完全相同的音频提取，帧天然对齐。
         不做后处理（音域映射/中值滤波/离散化），后处理在 postprocess_features 完成。
 
         use_f0=0 时直接返回，不做任何操作。
@@ -235,22 +230,18 @@ class InferencePipeline:
             )
             state.f0_extractor_method = method
 
-        f0_raw, confidence_raw = update_realtime_pitch_cache_raw(
+        f0_raw, confidence_raw = extract_f0_for_block(
             state.input_wav_16k,
-            ctx.block_frame_16k,
             ctx.p_len,
             method,
-            state.pitch_cache,
-            state.pitchf_cache,
-            state.confidence_cache,
             state.device,
             state.is_half,
             state.inference_cache,
             config=ctx.config,
             extractor=state.f0_extractor,
         )
-        ctx.f0_raw = f0_raw
-        ctx.confidence_raw = confidence_raw
+        ctx.f0_raw = f0_raw[None, :]
+        ctx.confidence_raw = confidence_raw[None, :]
 
     def _stage_postprocess_f0(self, ctx: InferenceContext):
         """F0 后处理（音域映射 + 中值滤波 + 离散化）。
@@ -274,16 +265,13 @@ class InferencePipeline:
             state.last_input_pitch = float(nonzero.mean().item())
 
         pitch, pitchf, confidence = postprocess_f0(
-            ctx.f0_raw.squeeze(0),
+            f0_raw_flat,
             state.device,
             confidence=ctx.confidence_raw.squeeze(0),
             config=ctx.config,
         )
         # formant 缩放（pitchf 需要乘以 return_length2 / return_length）
-        pitchf = pitchf * state.return_length2 / state.return_length
-
-        # 把后处理后的离散 F0 写入 cache_pitch 的最后 p_len 帧
-        state.pitch_cache[-ctx.p_len:] = pitch
+        pitchf = pitchf * ctx.return_length2 / state.return_length
 
         ctx.f0_mapped = pitchf
         ctx.pitch_discrete = pitch[None, :]
@@ -295,7 +283,7 @@ class InferencePipeline:
 
         清辅音保护已移到输出侧，这里只做纯上采样。
         """
-        return upsample_features(feats, ctx.p_len, self.state.is_half)
+        return upsample_features(feats, self.state.is_half)
 
     def _stage_synthesize(
         self,
@@ -327,9 +315,10 @@ class InferencePipeline:
             state.use_f0, state.is_half,
             skip_head=state.skip_head,
             return_length=state.return_length,
-            return_length2=state.return_length2,
+            return_length2=ctx.return_length2,
         )
         infered_audio = infered_audio.squeeze(1).float()
         ctx.synthesized_audio = infered_audio
 
         return infered_audio.squeeze()
+

@@ -68,11 +68,6 @@ class EngineState:
     in_pin: torch.Tensor | None = None
     input_gpu: torch.Tensor | None = None  # GPU 侧单声道输入暂存
 
-    # ── F0 滚动缓存（pitch_tracker）──
-    pitch_cache: torch.Tensor | None = None
-    pitchf_cache: torch.Tensor | None = None
-    confidence_cache: torch.Tensor | None = None
-
     # ── 合成器相关缓存 ──
     resample_kernel: dict = field(default_factory=dict)
     long_tensor_cache: dict = field(default_factory=dict)
@@ -92,21 +87,11 @@ class EngineState:
     last_error: str = ""
     runtime_error_pending: bool = False
 
-    def reset_pitch_cache(self) -> None:
-        """重置音高缓存（切换模型/文件时调用）。"""
-        if self.pitch_cache is not None:
-            self.pitch_cache.zero_()
-        if self.pitchf_cache is not None:
-            self.pitchf_cache.zero_()
-        if self.confidence_cache is not None:
-            self.confidence_cache.zero_()
-
     def reset_buffers(self) -> None:
         """重置所有缓冲区（warmup 后调用，避免静音数据污染）。
 
         输出效果器的重置由 runner 负责（效果器不在 EngineState 里）。
         """
-        self.reset_pitch_cache()
         if self.input_wav_48k is not None:
             self.input_wav_48k.zero_()
         if self.input_wav_16k is not None:

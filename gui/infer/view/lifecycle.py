@@ -21,29 +21,13 @@ class WindowLifecycle:
     # ── 配置持久化 ──
 
     def _load_gui_config(self) -> None:
-        """从持久化配置加载 GUI 状态（嵌套结构 + 实验参数，向后兼容旧格式）。"""
+        """从持久化配置加载 GUI 状态。"""
         from gui.configs import load_config
 
         from gui.infer.state.bindings import params_from_dict
 
         cfg = load_config()
-
-        # 向后兼容：旧格式有独立的 "experimental" 部分，合并到 "gui" 部分
         gui_data = cfg.get("gui", {})
-
-        if "experimental" in cfg and "inference" not in gui_data:
-            exp = cfg["experimental"]
-
-            gui_data = dict(gui_data)
-
-            gui_data["inference"] = {
-                "rmvpe_threshold": exp.get("rmvpe_threshold", 0.05),
-                "fcpe_confidence_threshold": exp.get("fcpe_confidence_threshold", 0.05),
-                "pitch_map_src_min": exp.get("pitch_map_src_min", 100.0),
-                "pitch_map_src_max": exp.get("pitch_map_src_max", 500.0),
-                "pitch_map_dst_min": exp.get("pitch_map_dst_min", 200.0),
-                "pitch_map_dst_max": exp.get("pitch_map_dst_max", 800.0),
-            }
 
         state = params_from_dict(gui_data)
         # 原地更新 runtime_params 字段（不替换对象引用，engine/runner 自动生效）
@@ -59,19 +43,13 @@ class WindowLifecycle:
             self.model_path_btn.setToolTip(self.model_path)
 
     def _save_gui_config(self) -> None:
-        """保存当前 GUI 状态到持久化配置（嵌套结构，含实验参数）。"""
+        """保存当前 GUI 状态到持久化配置。"""
         from gui.configs import load_config, save_config
 
         from gui.infer.state.bindings import params_to_dict
 
         cfg = load_config()
-
-        # collect_gui_state 会从控件收集实验参数
         cfg["gui"] = params_to_dict(self.collect_gui_state())
-
-        # 删除旧格式的 "experimental" 部分（已合并到 "gui.inference"）
-        cfg.pop("experimental", None)
-
         save_config(cfg)
 
     # ── 托盘退出与窗口关闭 ──

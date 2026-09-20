@@ -16,12 +16,13 @@ def write_main_output(chunk: torch.Tensor, outdata: np.ndarray, channels: int) -
         outdata[:] = out_chunk[:, None]
 
 
-def route_secondary_output(outdata: np.ndarray, stream2, out2_q: queue.Queue, enable_out2: bool) -> None:
-    """把主输出块复制到副输出队列（仅启用时）。
+def route_secondary_output(outdata: np.ndarray, stream2, out2_q: queue.Queue) -> None:
+    """把主输出块复制到副输出队列。
 
+    调用方已判断 enable_out2（外层 if），这里只需要检查 stream2 存在即可。
     副输出流存在但未启用时，out2_callback 读到空队列输出静音，无需在此处理。
     """
-    if stream2 and enable_out2:
+    if stream2:
         if out2_q.full():
             try:
                 out2_q.get_nowait()

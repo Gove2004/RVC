@@ -1,104 +1,67 @@
-"""实时 pitch 跟踪与缓存。"""
-from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+"""实时 F0 提取 — 每块直接从完整 input_wav 提取，与 HuBERT 输入对齐。
+
+设计思路：
+- 以前用滚动缓存：每块只提取新增部分，写入缓存尾部
+- 问题：F0 提取窗口和 HuBERT 输入窗口长度不一样，导致帧时间轴偏移
+- 现在：每块直接从完整 input_wav_16k 提取 F0，和 HuBERT 输入完全一致
+- 收益：帧天然对齐，消除快速声调转折处的咬字变怪问题
+- 代价：F0 计算量增加（RMVPE 本来就快，延迟增加 <1ms）
+"""
+from rvc.core.constants import HUBERT_SAMPLE_RATE
 import torch
 
 from rvc.pipeline.pitch.extractor import create_f0_extractor
 
-# 实时 pitch 缓存长度：必须 ≥ 最大可能 p_len（16k 缓冲总帧数）。
-# p_len = 总时长(extra_time + block + 交叉淡化 + SOLA搜索) × 100 帧/秒；
-# UI 上限：extra_time 5.0s + block_time 1.0s + crossfade 0.15s + SOLA搜索 0.01s
-# → p_len_max ≈ 616，取 2048 留 3 倍余量。
-PITCH_CACHE_SIZE = 2048
 
-# RMVPE 输出帧中不可信的边缘帧数（写入缓存前丢弃）：
-# - 头部 3 帧：RMVPE mel 谱（hop=160, center padding）两端各补 2 帧后，
-#   头部前几帧的 receptance 不足，f0 系统性偏低/抖动（对齐源项目实测值 3）；
-# - 尾部 1 帧：窗口右端最后一帧对齐不完整。
-# 两者之和即缓存写入偏移：f0_raw 共 N 帧，缓存尾部 (N-4) 个槽位接收
-# f0_raw[3:-1]，即 cache[N-4:] = f0_raw[3:N-1]。
-RMVPE_F0_HEAD_MARGIN_FRAMES = 3
-RMVPE_F0_TAIL_MARGIN_FRAMES = 1
-RMVPE_F0_DISCARDED_FRAMES = RMVPE_F0_HEAD_MARGIN_FRAMES + RMVPE_F0_TAIL_MARGIN_FRAMES
-
-
-def create_pitch_cache(device: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """创建 F0 缓存（离散 pitch、连续 pitchf、confidence）。"""
-    return (
-        torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.long),
-        torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.float32),
-        torch.zeros(PITCH_CACHE_SIZE, device=device, dtype=torch.float32),
-    )
-
-
-def realtime_f0_window(block_frame_16k: int, method: str) -> int:
-    """计算实时 F0 提取窗口长度。"""
-    frames = block_frame_16k + 800
-    if method == "rmvpe":
-        frames = 5120 * ((frames - 1) // 5120 + 1) - HUBERT_FRAME_SIZE
-    return frames
-
-
-def update_realtime_pitch_cache_raw(
+def extract_f0_for_block(
     input_wav: torch.Tensor,
-    block_frame_16k: int,
     p_len: int,
     method: str,
-    cache_pitch: torch.Tensor,
-    cache_pitchf: torch.Tensor,
-    cache_confidence: torch.Tensor,
     device: str,
     is_half: bool,
     inference_cache,
     config=None,
     extractor=None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """阶段4：只做 F0 原始提取 + 缓存更新，不做后处理。
+    """从完整 input_wav 提取 F0，返回最后 p_len 帧。
 
-    调用 extractor.extract_raw 获取原始 (f0, confidence)，写入缓存。
-    后处理（音域映射/中值滤波/离散化）在阶段5由 postprocess_f0 完成。
+    与 HuBERT 输入完全一致（都是完整 input_wav_16k），帧天然对齐。
+
+    注意：不再丢弃边缘帧！以前丢弃是因为滚动缓存会把边缘帧滚到中间，
+    现在每块都从完整缓冲区重新提取，边缘帧就是头部旧音频，
+    我们取最后 p_len 帧时自然就避开了边缘帧。
+    而且最后 p_len 帧对应的是最近的音频，receptance 足够，不存在边缘不可信的问题。
 
     Args:
-        input_wav: 16k 滚动缓冲区
-        block_frame_16k: 本块新增的 16k 样本数
-        p_len: 需要的 F0 帧数
+        input_wav: 16k 滚动缓冲区（完整长度，和 HuBERT 输入一致）
+        p_len: 需要返回的 F0 帧数（100fps）
         method: F0 提取方法（rmvpe/fcpe）
-        cache_pitch/cache_pitchf/cache_confidence: F0 缓存
-            - cache_pitchf 写入原始连续 F0
-            - cache_confidence 写入原始 confidence
-            - cache_pitch 只左移，新值由阶段5后处理后写入
         device/is_half/inference_cache: 设备和缓存
         config: InferenceParams
         extractor: 已缓存的 F0 提取器实例（None 时内部创建）
 
     Returns:
-        (f0_raw, confidence_raw): 当前块需要的原始 F0 (1, p_len) 和 confidence (1, p_len)
+        (f0_raw, confidence_raw): 原始连续 F0 (p_len,)、原始 confidence (p_len,)
     """
-    f0_extractor_frame = realtime_f0_window(block_frame_16k, method)
     if extractor is None:
         extractor = create_f0_extractor(method, device, is_half, inference_cache, config=config)
+
+    # 从完整 input_wav 提取 F0，和 HuBERT 输入完全一致
     f0_raw, confidence_raw = extractor.extract_raw(
-        input_wav[-f0_extractor_frame:], HUBERT_SAMPLE_RATE,
+        input_wav, HUBERT_SAMPLE_RATE,
     )
 
-    shift = block_frame_16k // HUBERT_FRAME_SIZE
-    # 三个缓存同步左移
-    cache_pitch[:-shift] = cache_pitch[shift:].clone()
-    cache_pitchf[:-shift] = cache_pitchf[shift:].clone()
-    cache_confidence[:-shift] = cache_confidence[shift:].clone()
+    # 对齐到 p_len 帧：和 HuBERT 特征的前 p_len 帧对齐
+    # 特征是 upsample 后取前 p_len 帧，所以 F0 也应该取前 p_len 帧
+    n = f0_raw.shape[0]
+    if n >= p_len:
+        # 帧数足够，取前 p_len 帧（和特征对齐）
+        f0 = f0_raw[:p_len]
+        conf = confidence_raw[:p_len]
+    else:
+        # 帧数不足，尾部补零
+        pad_len = p_len - n
+        f0 = torch.nn.functional.pad(f0_raw, (0, pad_len))
+        conf = torch.nn.functional.pad(confidence_raw, (0, pad_len))
 
-    # 帧对齐：丢弃 RMVPE 边缘帧（见 RMVPE_F0_*_MARGIN_FRAMES 推导），写入缓存尾部
-    write_start = RMVPE_F0_DISCARDED_FRAMES - f0_raw.shape[0]
-    cache_pitchf[write_start:] = f0_raw[
-        RMVPE_F0_HEAD_MARGIN_FRAMES:
-        f0_raw.shape[0] - RMVPE_F0_TAIL_MARGIN_FRAMES
-    ]
-    cache_confidence[write_start:] = confidence_raw[
-        RMVPE_F0_HEAD_MARGIN_FRAMES:
-        confidence_raw.shape[0] - RMVPE_F0_TAIL_MARGIN_FRAMES
-    ]
-    # cache_pitch 只左移，新值由阶段5 postprocess_f0 后写入
-
-    return (
-        cache_pitchf[None, -p_len:].clone(),
-        cache_confidence[None, -p_len:].clone(),
-    )
+    return f0, conf

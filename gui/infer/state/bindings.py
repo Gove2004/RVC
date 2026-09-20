@@ -179,20 +179,20 @@ def apply_params(win, params: InferenceParams) -> None:
         value = _get_nested(params, path)
         _set(win, widget, kind, value)
 
-    # 实验参数：F0 阈值滑动条
+    # F0 阈值滑动条
     is_rmvpe = params.f0.method == "rmvpe"
     val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
-    slider = win.exp_f0_threshold_slider
+    slider = win.f0_threshold_slider
     slider.setValue(val)
     if hasattr(slider, "_update_label"):
         slider._update_label()
-    win.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+    win.f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
 
     # 音域映射 RangeSlider
-    win.exp_pitch_map_src_range.setRange(
+    win.pitch_map_src_range.setRange(
         float(params.voice.pitch_map_src_min), float(params.voice.pitch_map_src_max)
     )
-    win.exp_pitch_map_dst_range.setRange(
+    win.pitch_map_dst_range.setRange(
         float(params.voice.pitch_map_dst_min), float(params.voice.pitch_map_dst_max)
     )
 
@@ -220,18 +220,18 @@ def collect_params(win) -> InferenceParams:
             continue
         _set_nested(params, path, value)
 
-    # 实验参数
+    # F0 阈值
     is_rmvpe = params.f0.method == "rmvpe"
-    val = float(win.exp_f0_threshold_slider.value())
+    val = float(win.f0_threshold_slider.value())
     if is_rmvpe:
         params.f0.rmvpe_threshold = val
     else:
         params.f0.fcpe_confidence_threshold = val
 
-    params.voice.pitch_map_src_min = float(win.exp_pitch_map_src_range.low())
-    params.voice.pitch_map_src_max = float(win.exp_pitch_map_src_range.high())
-    params.voice.pitch_map_dst_min = float(win.exp_pitch_map_dst_range.low())
-    params.voice.pitch_map_dst_max = float(win.exp_pitch_map_dst_range.high())
+    params.voice.pitch_map_src_min = float(win.pitch_map_src_range.low())
+    params.voice.pitch_map_src_max = float(win.pitch_map_src_range.high())
+    params.voice.pitch_map_dst_min = float(win.pitch_map_dst_range.low())
+    params.voice.pitch_map_dst_max = float(win.pitch_map_dst_range.high())
 
     # enable_out2 是 output2_device 的派生属性，根据当前选择动态计算
     params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"

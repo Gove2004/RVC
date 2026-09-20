@@ -31,11 +31,11 @@ from gui.infer.view.widgets import LoadThread
 
 from gui.infer.view.tabs.audio_driver_tab import build_audio_driver_tab
 
-from gui.infer.view.tabs.global_params_tab import build_global_params_tab
+from gui.infer.view.tabs.global_params_tab import build_timbre_tab
 
 from gui.infer.view.tabs.offline_tab import build_offline_tab
 
-from gui.infer.view.tabs.experimental_tab import build_experimental_tab
+from gui.infer.view.tabs.experimental_tab import build_performance_tab
 
 from gui.infer.controller.device_controller import DeviceCatalog
 
@@ -122,8 +122,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # Create audio_driver_tab and get the refresh button
         driver_w, self.refresh_btn = build_audio_driver_tab(self)
         tabs.addTab(driver_w, "设备驱动")
-        tabs.addTab(build_global_params_tab(self), "参数调节")
-        tabs.addTab(build_experimental_tab(self), "高级功能")
+        tabs.addTab(build_timbre_tab(self), "音色调节")
+        tabs.addTab(build_performance_tab(self), "性能调节")
         tabs.addTab(build_offline_tab(self), "离线推理")
         root.addWidget(tabs)
 
@@ -169,7 +169,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         """统一连接所有参数控件的变化信号 → 实时更新 runtime_params。
 
         覆盖 BINDINGS 表中的所有控件类型（FLOAT/INT/COMBO/CHECK/RADIO_F0/RADIO_SR），
-        以及特殊控件（RangeSlider、exp_f0_threshold_slider）。
+        以及特殊控件（RangeSlider、f0_threshold_slider）。
         使用 _signals_connected 标志确保只连接一次，避免重复连接。
         """
         if getattr(self, '_signals_connected', False):
@@ -205,28 +205,28 @@ class MainWindow(WindowLifecycle, QMainWindow):
                 w.toggled.connect(lambda _: self._on_sr_mode_changed())
 
         # 2. RangeSlider（音域映射）— rangeChanged 信号
-        if hasattr(self, "exp_pitch_map_src_range"):
+        if hasattr(self, "pitch_map_src_range"):
             def _on_src_range(low, high):
                 self.runtime_params.voice.pitch_map_src_min = float(low)
                 self.runtime_params.voice.pitch_map_src_max = float(high)
-            self.exp_pitch_map_src_range.rangeChanged.connect(_on_src_range)
+            self.pitch_map_src_range.rangeChanged.connect(_on_src_range)
 
-        if hasattr(self, "exp_pitch_map_dst_range"):
+        if hasattr(self, "pitch_map_dst_range"):
             def _on_dst_range(low, high):
                 self.runtime_params.voice.pitch_map_dst_min = float(low)
                 self.runtime_params.voice.pitch_map_dst_max = float(high)
-            self.exp_pitch_map_dst_range.rangeChanged.connect(_on_dst_range)
+            self.pitch_map_dst_range.rangeChanged.connect(_on_dst_range)
 
         # 3. F0 阈值滑动条 — 根据当前 F0 方法更新对应字段
         # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，必须读取 slider.value()
-        if hasattr(self, "exp_f0_threshold_slider"):
-            def _on_f0_threshold(_v, slider=self.exp_f0_threshold_slider):
+        if hasattr(self, "f0_threshold_slider"):
+            def _on_f0_threshold(_v, slider=self.f0_threshold_slider):
                 val = slider.value()
                 if self.runtime_params.f0.method == "rmvpe":
                     self.runtime_params.f0.rmvpe_threshold = val
                 else:
                     self.runtime_params.f0.fcpe_confidence_threshold = val
-            self.exp_f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
+            self.f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
 
     def _on_sr_mode_changed(self):
         """采样率模式切换时，更新 runtime_params.audio.sr_mode。"""
@@ -238,8 +238,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.runtime_params.f0.method = "rmvpe" if is_rmvpe else "fcpe"
         params = self.runtime_params
         val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
-        self.exp_f0_threshold_slider.setValue(val)
-        self.exp_f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+        self.f0_threshold_slider.setValue(val)
+        self.f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
 
     # ── 设备/离线委托 ──
 

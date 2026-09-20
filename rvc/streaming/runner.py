@@ -145,8 +145,6 @@ class InferenceRunner:
     def reset_buffers(self) -> None:
         """重置所有缓冲区（warmup 后调用，避免静音数据污染）。"""
         state = self.state
-        if self.pipeline is not None:
-            self.pipeline.reset_pitch_cache()
         self.effects.reset()
         if state.input_wav_48k is not None:
             state.input_wav_48k.zero_()
@@ -156,7 +154,8 @@ class InferenceRunner:
     def reset_error_state(self) -> None:
         self.state.reset_error_state()
 
-    def reset_success_count(self) -> None:
+    def acknowledge_success(self) -> None:
+        """每块推理成功后清零错误计数（连续 N 次错误才停止）。"""
         self.state.error_count = 0
 
     def handle_error(self, error: Exception) -> bool:
@@ -232,10 +231,9 @@ class InferenceRunner:
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 
-    def route_secondary_output(self, outdata: np.ndarray, stream2, out2_q: queue.Queue,
-                                enable_out2: bool) -> None:
-        """副输出路由（委托给 output_router）。"""
-        route_secondary_output(outdata, stream2, out2_q, enable_out2)
+    def route_secondary_output(self, outdata: np.ndarray, stream2, out2_q: queue.Queue) -> None:
+        """副输出路由（调用方已判断 enable_out2，这里不再重复检查）。"""
+        route_secondary_output(outdata, stream2, out2_q)
 
     # ── stage_input：硬件输入 ──
 

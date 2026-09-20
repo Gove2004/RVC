@@ -1,78 +1,73 @@
-"""实验功能 Tab — F0 阈值 / 音域映射（无分组，直接罗列）。"""
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QGridLayout, QLabel
+"""性能调节 Tab — 缓冲区参数 / 音高算法 / F0 阈值"""
+from PySide6.QtWidgets import (
+    QWidget, QGridLayout, QLabel, QRadioButton, QButtonGroup,
+)
 
-from gui.infer.view.widgets import _create_slider_row, RangeSlider
-
-
-def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
-               fmt=".0f", unit="Hz", label_w=80):
-    """创建「双滑块范围 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
-
-    与 _create_slider_row 类似，但用于 RangeSlider 双滑块。标签显示 "下限-上限 单位"。
-    """
-    rs = RangeSlider(min_val, max_val, step, low_val, high_val, fmt=fmt, unit=unit)
-    lbl = QLabel()
-    lbl.setFixedWidth(label_w)
-    lbl.setAlignment(Qt.AlignCenter)
-
-    def _fmt(low, high):
-        return f"{low:{fmt}}-{high:{fmt}}{unit}"
-
-    lbl.setText(_fmt(rs.low(), rs.high()))
-    rs.rangeChanged.connect(lambda low, high: lbl.setText(_fmt(low, high)))
-    setattr(win, attr, rs)
-    label_attr = attr[:-6] + "_label" if attr.endswith("_range") else attr + "_label"
-    setattr(win, label_attr, lbl)
-    return rs
+from gui.infer.view.widgets import _create_slider_row
 
 
-def build_experimental_tab(win):
-    params = win.runtime_params  # InferenceParams
+def build_performance_tab(win):
+    """性能调节 Tab — 采样长度 / 上下文 / 淡入 / 音高算法 / F0 阈值。"""
+    params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
     g.setSpacing(6)
     g.setContentsMargins(8, 8, 8, 8)
-    # 列宽比例：标签 20%、滑动条 65%、值 15%
     g.setColumnStretch(0, 4)
     g.setColumnStretch(1, 13)
     g.setColumnStretch(2, 3)
     r = 0
 
-    # ── 1. 音高算法阈值（根据当前选择的 F0 方法动态切换） ──
-    # 统一用一个滑动条，RMVPE/FCPE 切换时自动加载对应阈值
+    # ── 采样长度（block_time）──
+    win.block_time_slider = _create_slider_row(win, "block_time_slider", 0.05, 0.50, 0.01, 0.25)
+    g.addWidget(QLabel("采样长度"), r, 0)
+    g.addWidget(win.block_time_slider, r, 1)
+    g.addWidget(win.block_time_label, r, 2)
+    r += 1
+
+    # ── 上下文长度（extra_time）──
+    win.extra_time_slider = _create_slider_row(win, "extra_time_slider", 0.10, 5.0, 0.10, 2.5)
+    g.addWidget(QLabel("上下文长度"), r, 0)
+    g.addWidget(win.extra_time_slider, r, 1)
+    g.addWidget(win.extra_time_label, r, 2)
+    r += 1
+
+    # ── 淡入长度（crossfade_time）──
+    win.crossfade_slider = _create_slider_row(win, "crossfade_slider", 0.01, 0.05, 0.01, 0.05)
+    g.addWidget(QLabel("淡入长度"), r, 0)
+    g.addWidget(win.crossfade_slider, r, 1)
+    g.addWidget(win.crossfade_label, r, 2)
+    r += 1
+
+    # ── 音高算法 ──
+    win.f0_rmvp_btn = QRadioButton("RMVPE")
+    win.f0_rmvp_btn.setMaximumWidth(80)
+    win.f0_fcpe_btn = QRadioButton("FCPE")
+    win.f0_fcpe_btn.setMaximumWidth(80)
+    is_rmvpe = params.f0.method == "rmvpe"
+    win.f0_rmvp_btn.setChecked(is_rmvpe)
+    win.f0_fcpe_btn.setChecked(not is_rmvpe)
+
+    f0_group = QButtonGroup(w)
+    f0_group.addButton(win.f0_rmvp_btn)
+    f0_group.addButton(win.f0_fcpe_btn)
+
+    g.addWidget(QLabel("音高算法"), r, 0)
+    g.addWidget(win.f0_rmvp_btn, r, 1)
+    g.addWidget(win.f0_fcpe_btn, r, 2)
+    r += 1
+
+    # ── F0 阈值（根据当前选择的 F0 方法动态切换）──
     initial_threshold = params.f0.rmvpe_threshold if params.f0.method == "rmvpe" else params.f0.fcpe_confidence_threshold
-    win.exp_f0_threshold_slider = _create_slider_row(
-        win, "exp_f0_threshold_slider", 0.01, 0.10, 0.01,
+    win.f0_threshold_slider = _create_slider_row(
+        win, "f0_threshold_slider", 0.01, 0.10, 0.01,
         initial_threshold, fmt=".2f",
     )
-    # 阈值标签（动态显示 RMVPE/FCPE）
-    win.exp_f0_threshold_name = QLabel("RMVPE 阈值" if params.f0.method == "rmvpe" else "FCPE 阈值")
+    win.f0_threshold_name = QLabel("RMVPE 阈值" if params.f0.method == "rmvpe" else "FCPE 阈值")
 
-    g.addWidget(win.exp_f0_threshold_name, r, 0)
-    g.addWidget(win.exp_f0_threshold_slider, r, 1)
-    g.addWidget(win.exp_f0_threshold_label, r, 2); r += 1
-
-    # ── 4. 原声音域 ──
-    win.exp_pitch_map_src_range = _range_row(
-        win, "exp_pitch_map_src_range",
-        20.0, 1000.0, 10.0,
-        params.voice.pitch_map_src_min, params.voice.pitch_map_src_max,
-        fmt=".0f", unit="Hz",
-    )
-    g.addWidget(QLabel("原声音域"), r, 0)
-    g.addWidget(win.exp_pitch_map_src_range, r, 1)
-    g.addWidget(win.exp_pitch_map_src_label, r, 2); r += 1
-
-    # ── 5. 目标音域 ──
-    win.exp_pitch_map_dst_range = _range_row(
-        win, "exp_pitch_map_dst_range",
-        20.0, 1000.0, 10.0,
-        params.voice.pitch_map_dst_min, params.voice.pitch_map_dst_max,
-        fmt=".0f", unit="Hz",
-    )
-    g.addWidget(QLabel("目标音域"), r, 0)
-    g.addWidget(win.exp_pitch_map_dst_range, r, 1)
-    g.addWidget(win.exp_pitch_map_dst_label, r, 2); r += 1
+    g.addWidget(win.f0_threshold_name, r, 0)
+    g.addWidget(win.f0_threshold_slider, r, 1)
+    g.addWidget(win.f0_threshold_label, r, 2)
+    r += 1
 
     return w
