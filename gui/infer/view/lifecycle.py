@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class WindowLifecycle:
-    """启动/停止/退出/持久化 — 生命周期职责单元。"""
+    """启动/停止/退出/持久化 — 生命周期职责单元。
+
+    宿主契约：`gui.infer.view.contracts.InferWindowHost`（MainWindow 结构化满足之；
+    本混入不重复声明属性，contracts.py 为唯一事实源）。
+    """
 
     # ── 配置持久化 ──
 

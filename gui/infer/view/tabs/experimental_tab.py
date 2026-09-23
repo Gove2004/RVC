@@ -1,12 +1,17 @@
 """性能调节 Tab — 缓冲区参数 / 音高算法 / F0 阈值"""
+from typing import TYPE_CHECKING
+
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QRadioButton, QButtonGroup,
 )
 
 from gui.infer.view.widgets import _create_slider_row
 
+if TYPE_CHECKING:
+    from gui.infer.view.contracts import InferWindowHost
 
-def build_performance_tab(win):
+
+def build_performance_tab(win: "InferWindowHost"):
     """性能调节 Tab — 采样长度 / 上下文 / 淡入 / 音高算法 / F0 阈值。"""
     params = win.runtime_params
     w = QWidget()

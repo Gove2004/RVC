@@ -52,6 +52,12 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(WindowLifecycle, QMainWindow):
+    """推理主窗口 — 实现 View 宿主契约 `gui.infer.view.contracts.InferWindowHost`。
+
+    装配顺序：UI 构建（含各 tab 控件挂载）→ 信号绑定 → 管理器初始化 →
+    配置加载 → 托盘。生命周期行为在 `WindowLifecycle` 混入中。
+    """
+
     # 音频回调线程产生的运行时错误通过此信号转发到主线程（禁止回调线程操作 Qt）
     runtime_error = Signal(str)
 
@@ -64,6 +70,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.runtime_error.connect(self._handle_runtime_error)
         self._loading = False
         self._lt = None
+        self._signals_connected = False
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
         self._build_ui()
@@ -169,7 +176,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         以及特殊控件（RangeSlider、f0_threshold_slider）。
         使用 _signals_connected 标志确保只连接一次，避免重复连接。
         """
-        if getattr(self, '_signals_connected', False):
+        if self._signals_connected:
             return
         self._signals_connected = True
 

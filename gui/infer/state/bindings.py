@@ -11,7 +11,12 @@ valueChanged 时自动更新参数对象，不再需要 collect/apply 双向搬�
 默认值单源（D6）：所有缺省值只活在 InferenceParams dataclass 上，
 本模块的 dict↔params 转换从 dataclass 实例取 fallback，不再写第二份字面量。
 """
+from typing import TYPE_CHECKING
+
 from rvc.core.config import InferenceParams
+
+if TYPE_CHECKING:
+    from gui.infer.view.contracts import InferWindowHost
 
 # dataclass 默认值实例（单源 fallback；只读用途）
 _DEFAULTS = InferenceParams()
@@ -136,7 +141,7 @@ def params_to_dict(params: InferenceParams) -> dict:
     }
 
 
-def _set(win, widget, kind, value):
+def _set(win: "InferWindowHost", widget, kind, value):
     """把值写到控件。"""
     if kind == FLOAT:
         slider = getattr(win, widget)
@@ -159,7 +164,7 @@ def _set(win, widget, kind, value):
         raise ValueError(f"未知读写方式: {kind}")
 
 
-def apply_params(win, params: InferenceParams) -> None:
+def apply_params(win: "InferWindowHost", params: InferenceParams) -> None:
     """把 InferenceParams 写到所有控件（启动时加载配置调用）。
 
     所有 BINDINGS 控件与实验控件都在窗口构建时无条件创建，不做 hasattr 探测——
@@ -186,7 +191,7 @@ def apply_params(win, params: InferenceParams) -> None:
     )
 
 
-def collect_params(win) -> InferenceParams:
+def collect_params(win: "InferWindowHost") -> InferenceParams:
     """从控件收集 InferenceParams（保存配置时调用）。"""
     params = InferenceParams()
     for path, widget, kind in BINDINGS:
@@ -196,7 +201,9 @@ def collect_params(win) -> InferenceParams:
         elif kind == COMBO:
             value = w.currentText()
         elif kind == ATTR:
-            value = getattr(win, widget, "")
+            # model_path 在 global_params_tab 构建时无条件创建（win.model_path = ""），
+            # 缺失应立刻 AttributeError，不做带默认的静默取值
+            value = getattr(win, widget)
         elif kind == RADIO_F0:
             value = "rmvpe" if win.f0_rmvp_btn.isChecked() else "fcpe"
         elif kind == RADIO_SR:

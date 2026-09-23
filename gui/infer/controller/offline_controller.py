@@ -63,7 +63,8 @@ class OfflineConversion:
             self.window._show_warning("实时推理正在运行，请先停止实时推理再进行离线转换")
             return
 
-        inp = self.window.offline_input_path.strip() if hasattr(self.window, "offline_input_path") else ""
+        # offline_input_path 在 offline_tab 构建时无条件创建（缺失即 AttributeError）
+        inp = self.window.offline_input_path.strip()
         out = self.window.offline_output.text().strip()
 
         if not inp:
@@ -77,7 +78,8 @@ class OfflineConversion:
             out = base + "_converted.wav"
             self.window.offline_output.setText(out)
 
-        pth = self.window.model_path.strip() if hasattr(self.window, "model_path") else ""
+        # model_path 在 global_params_tab 构建时无条件创建（缺失即 AttributeError）
+        pth = self.window.model_path.strip()
         if not pth:
             self.window._show_warning("请先在「音色调节」中选择模型文件")
             return

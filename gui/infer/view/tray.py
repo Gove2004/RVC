@@ -6,10 +6,14 @@
 """
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+
+if TYPE_CHECKING:
+    from gui.infer.view.window import MainWindow
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +57,7 @@ class SystemTray:
     （D5：View 层不直接 import rvc 路径常量）。
     """
 
-    def __init__(self, window, on_quit=None, icon_idle: Path | None = None, icon_active: Path | None = None):
+    def __init__(self, window: "MainWindow", on_quit=None, icon_idle: Path | None = None, icon_active: Path | None = None):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             raise RuntimeError("系统托盘不可用，无法最小化到托盘")
         self.window = window

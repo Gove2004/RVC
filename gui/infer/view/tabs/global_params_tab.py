@@ -1,4 +1,6 @@
 """音色调节 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子"""
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QPushButton, QComboBox,
@@ -8,6 +10,9 @@ from PySide6.QtWidgets import QFileDialog
 from gui.infer.view.widgets import _create_slider_row, RangeSlider
 from gui.styles.components import ButtonStyles
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from gui.infer.view.contracts import InferWindowHost
 
 
 def _range_row(min_val, max_val, step, low_val, high_val,
@@ -26,7 +31,7 @@ def _range_row(min_val, max_val, step, low_val, high_val,
     return rs, lbl
 
 
-def build_timbre_tab(win):
+def build_timbre_tab(win: "InferWindowHost"):
     """音色调节 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子。"""
     params = win.runtime_params
     w = QWidget()
@@ -96,7 +101,7 @@ def build_timbre_tab(win):
     return w
 
 
-def _browse_model(win):
+def _browse_model(win: "InferWindowHost"):
     path, _ = QFileDialog.getOpenFileName(win, "选择模型", str(win.controller.models_dir), "模型 (*.pth)")
     if path:
         win.model_path = path
