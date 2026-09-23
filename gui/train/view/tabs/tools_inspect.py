@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QTextEdit, QMessageBox,
 )
 
-from gui.train.view.widgets import ToolThread, browse_file
+from gui.train.controller.workers import ToolRunner
+from gui.train.view.widgets import browse_file
 from gui.styles import ButtonStyles, Layout
 
 
@@ -58,11 +59,11 @@ def _run_inspect(win):
         QMessageBox.warning(win, "提示", "文件不存在")
         return
     win.inspect_result.setText("加载中...")
-    if win._tool_thread and win._tool_thread.isRunning():
-        win._tool_thread.wait()
-    win._tool_thread = ToolThread(win.controller.inspect_model, path)
-    win._tool_thread.done.connect(lambda ok, msg: _on_inspect_done(win, ok, msg))
-    win._tool_thread.start()
+    if win.tool_runner and win.tool_runner.isRunning():
+        win.tool_runner.wait()
+    win.tool_runner = ToolRunner(win.controller.inspect_model, path)
+    win.tool_runner.done.connect(lambda ok, msg: _on_inspect_done(win, ok, msg))
+    win.tool_runner.start()
 
 
 def _on_inspect_done(win, success, result):
@@ -89,11 +90,11 @@ def _run_rename_archive(win):
     if not Path(path).exists():
         QMessageBox.warning(win, "提示", "文件不存在")
         return
-    if win._tool_thread and win._tool_thread.isRunning():
-        win._tool_thread.wait()
-    win._tool_thread = ToolThread(win.controller.change_archive_name, path, new_name)
-    win._tool_thread.done.connect(lambda ok, msg: _on_rename_done(win, ok, msg, path))
-    win._tool_thread.start()
+    if win.tool_runner and win.tool_runner.isRunning():
+        win.tool_runner.wait()
+    win.tool_runner = ToolRunner(win.controller.change_archive_name, path, new_name)
+    win.tool_runner.done.connect(lambda ok, msg: _on_rename_done(win, ok, msg, path))
+    win.tool_runner.start()
 
 
 def _on_rename_done(win, success, message, path):

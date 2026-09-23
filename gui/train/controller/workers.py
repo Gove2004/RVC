@@ -185,3 +185,21 @@ class TrainWorker(QThread):
             self._trainer.cleanup()
             self._trainer = None
         self.log_message.emit(f"模型已导出: {output}")
+
+
+class ToolRunner(QThread):
+    """后台执行模型合并等耗时操作"""
+    done = Signal(bool, str)
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
+
+    def run(self):
+        try:
+            result = self._fn(*self._args, **self._kwargs)
+            self.done.emit(True, result if isinstance(result, str) else "操作完成")
+        except Exception as e:
+            self.done.emit(False, str(e))

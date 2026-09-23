@@ -2,7 +2,7 @@
 
 View 层（gui/train/view/*）禁止直接 import rvc.*；
 采样率→底模路径映射、模型合并/检视/改名等业务操作统一经本类。
-耗时操作仍由 view 层 ToolThread 在后台线程执行，本类方法是其执行体。
+耗时操作仍由 view 层 ToolRunner 在后台线程执行，本类方法是其执行体。
 """
 import logging
 from pathlib import Path
@@ -31,7 +31,7 @@ class TrainController:
     # ── 模型工具 ──
 
     def merge_models(self, path_a: str, path_b: str, ratio: float, out_path: str) -> str:
-        """合并两个模型，返回成功消息。耗时操作（ToolThread 后台执行）。"""
+        """合并两个模型，返回成功消息。耗时操作（ToolRunner 后台执行）。"""
         from rvc.train.checkpoint import merge_models
 
         return merge_models(path_a, path_b, ratio, out_path)
@@ -43,19 +43,19 @@ class TrainController:
         return str(MODELS_DIR / f"{name}.pth")
 
     def inspect_model(self, path: str) -> str:
-        """查看模型信息（zip 原名/训练参数）。耗时操作（ToolThread 后台执行）。"""
+        """查看模型信息（zip 原名/训练参数）。耗时操作（ToolRunner 后台执行）。"""
         from rvc.train.checkpoint import inspect_model
 
         return inspect_model(path)
 
     def change_archive_name(self, path: str, new_name: str) -> str:
-        """修改模型 zip 原名。耗时操作（ToolThread 后台执行）。"""
+        """修改模型 zip 原名。耗时操作（ToolRunner 后台执行）。"""
         from rvc.train.checkpoint import change_archive_name
 
         return change_archive_name(path, new_name)
 
     def change_model_info(self, path: str, model_info: str) -> str:
-        """修正模型信息（真名）。耗时操作（ToolThread 后台执行）。"""
+        """修正模型信息（真名）。耗时操作（ToolRunner 后台执行）。"""
         from rvc.train.checkpoint import change_model_info
 
         return change_model_info(path, model_info)

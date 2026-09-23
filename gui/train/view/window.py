@@ -21,7 +21,7 @@ class TrainWindow(QMainWindow):
         self.resize(470, 400)
         self.controller = TrainController()
         self.worker = None
-        self._tool_thread = None
+        self.tool_runner = None
         self._last_loss_text = ""
         self._build_ui()
         self._load_cfg()
@@ -242,8 +242,8 @@ class TrainWindow(QMainWindow):
                 event.ignore()
                 QMessageBox.information(self, "提示", "任务正在停止，请稍候再关闭窗口")
                 return
-        if self._tool_thread and self._tool_thread.isRunning():
-            if not self._tool_thread.wait(5000):
+        if self.tool_runner and self.tool_runner.isRunning():
+            if not self.tool_runner.wait(5000):
                 event.ignore()
                 QMessageBox.information(self, "提示", "工具任务正在停止，请稍候再关闭窗口")
                 return

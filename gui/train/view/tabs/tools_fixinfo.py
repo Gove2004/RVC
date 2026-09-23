@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
 )
 
 from gui.train.view.tabs.tools_inspect import _run_inspect
-from gui.train.view.widgets import ToolThread, browse_file
+from gui.train.controller.workers import ToolRunner
+from gui.train.view.widgets import browse_file
 from gui.styles import ButtonStyles, Layout
 
 
@@ -51,11 +52,11 @@ def apply_model_info(win):
     if not Path(path).exists():
         QMessageBox.warning(win, "提示", "文件不存在")
         return
-    if win._tool_thread and win._tool_thread.isRunning():
-        win._tool_thread.wait()
-    win._tool_thread = ToolThread(win.controller.change_model_info, path, model_info)
-    win._tool_thread.done.connect(lambda ok, msg: apply_model_info_done(win, ok, msg, path))
-    win._tool_thread.start()
+    if win.tool_runner and win.tool_runner.isRunning():
+        win.tool_runner.wait()
+    win.tool_runner = ToolRunner(win.controller.change_model_info, path, model_info)
+    win.tool_runner.done.connect(lambda ok, msg: apply_model_info_done(win, ok, msg, path))
+    win.tool_runner.start()
 
 
 def apply_model_info_done(win, success, message, path):

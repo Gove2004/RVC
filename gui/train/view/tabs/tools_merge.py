@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QSlider, QMessageBox,
 )
 
-from gui.train.view.widgets import ToolThread, browse_file
+from gui.train.controller.workers import ToolRunner
+from gui.train.view.widgets import browse_file
 from gui.styles import ButtonStyles, Layout
 
 
@@ -84,11 +85,11 @@ def _run_merge(win):
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())
-    if win._tool_thread and win._tool_thread.isRunning():
-        win._tool_thread.wait()
-    win._tool_thread = ToolThread(win.controller.merge_models, a, b, ratio, out)
-    win._tool_thread.done.connect(lambda ok, msg: _on_merge_done(win, ok, msg))
-    win._tool_thread.start()
+    if win.tool_runner and win.tool_runner.isRunning():
+        win.tool_runner.wait()
+    win.tool_runner = ToolRunner(win.controller.merge_models, a, b, ratio, out)
+    win.tool_runner.done.connect(lambda ok, msg: _on_merge_done(win, ok, msg))
+    win.tool_runner.start()
 
 
 def _on_merge_done(win, success, message):

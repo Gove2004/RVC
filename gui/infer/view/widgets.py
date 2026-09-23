@@ -17,7 +17,8 @@ class DoubleSlider(QSlider):
     存档直接存物理值，不需要编码转换。
     """
 
-    def __init__(self, min_val, max_val, step, parent=None):
+    def __init__(self, min_val, max_val, step, parent=None,
+                 value_label=None, label_fmt=".2f", label_unit=""):
         super().__init__(Qt.Orientation.Horizontal, parent)
         self._step = float(step)
         self._int_min = round(min_val / self._step)
@@ -25,6 +26,10 @@ class DoubleSlider(QSlider):
         super().setMinimum(self._int_min)
         super().setMaximum(self._int_max)
         super().setSingleStep(1)
+        # 值标签与格式化参数（C-5：标签刷新是本类正式方法，不再是实例猴补）
+        self._value_label = value_label
+        self._label_fmt = label_fmt
+        self._label_unit = label_unit
 
     def value(self):
         """返回物理值（float）。"""
@@ -40,36 +45,32 @@ class DoubleSlider(QSlider):
     def maximum(self):
         return self._int_max * self._step
 
+    def _fmt(self, v):
+        return f"{v:{self._label_fmt}}{self._label_unit}"
 
-def _create_slider_row(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
-    """创建「滑杆 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。
+    def _update_label(self) -> None:
+        """刷新值标签：拖动经 valueChanged 自动触发；程序化 setValue 不触发
+        valueChanged 时（如控件未显示）由调用方手动调用。"""
+        self._value_label.setText(self._fmt(self.value()))
+
+
+def _create_slider_row(mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
+    """创建「滑杆 + 自动格式化值标签」，返回 (slider, label)。
 
     使用 DoubleSlider，基于步长动态编码，对外直接暴露物理值（float）。
     存档直接存物理值，不需要编码转换。拖动时的最小变化量 = step。
-    fmt/unit 控制标签显示。
-    返回 slider。
+    fmt/unit 控制标签显示，label_w 控制标签宽度。
+    挂载由调用点具名完成（C-5/P2-10：helper 不再 setattr 动态挂 win）。
     """
-    s = DoubleSlider(mn, mx, st)
-    s.setFixedHeight(18)
-    s.setValue(dv)
     lbl = QLabel()
     lbl.setFixedWidth(label_w)
     lbl.setAlignment(Qt.AlignCenter)
-
-    def _fmt(v):
-        return f"{v:{fmt}}{unit}"
-
-    def _update_label():
-        lbl.setText(_fmt(s.value()))
-
-    _update_label()
-    s.valueChanged.connect(lambda _v: _update_label())
-    s._update_label = _update_label  # 供外部手动刷新标签（setValue 不触发 valueChanged 时使用）
-    setattr(win, attr, s)
-    # 约定：滑块属性 xxx_slider → 值标签属性 xxx_label
-    label_attr = attr[:-7] + "_label" if attr.endswith("_slider") else attr + "_label"
-    setattr(win, label_attr, lbl)
-    return s
+    s = DoubleSlider(mn, mx, st, value_label=lbl, label_fmt=fmt, label_unit=unit)
+    s.setFixedHeight(18)
+    s.setValue(dv)
+    s._update_label()
+    s.valueChanged.connect(s._update_label)
+    return s, lbl
 
 
 class LoadThread(QThread):

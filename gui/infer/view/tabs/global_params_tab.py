@@ -10,9 +10,9 @@ from gui.styles.components import ButtonStyles
 from pathlib import Path
 
 
-def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
+def _range_row(min_val, max_val, step, low_val, high_val,
                fmt=".0f", unit="Hz", label_w=80):
-    """创建「双滑块范围 + 自动格式化值标签」并挂到 win.<attr> / win.<attr>_label。"""
+    """创建「双滑块范围 + 自动格式化值标签」，返回 (range_slider, label)。"""
     rs = RangeSlider(min_val, max_val, step, low_val, high_val, fmt=fmt, unit=unit)
     lbl = QLabel()
     lbl.setFixedWidth(label_w)
@@ -23,10 +23,7 @@ def _range_row(win, attr, min_val, max_val, step, low_val, high_val,
 
     lbl.setText(_fmt(rs.low(), rs.high()))
     rs.rangeChanged.connect(lambda low, high: lbl.setText(_fmt(low, high)))
-    setattr(win, attr, rs)
-    label_attr = attr[:-6] + "_label" if attr.endswith("_range") else attr + "_label"
-    setattr(win, label_attr, lbl)
-    return rs
+    return rs, lbl
 
 
 def build_timbre_tab(win):
@@ -61,41 +58,39 @@ def build_timbre_tab(win):
     r += 1
 
     # ── 原声音域 ──
-    win.pitch_map_src_range = _range_row(
-        win, "pitch_map_src_range",
+    win.pitch_map_src_range, pitch_map_src_label = _range_row(
         20.0, 1000.0, 10.0,
         params.voice.pitch_map_src_min, params.voice.pitch_map_src_max,
         fmt=".0f", unit="Hz",
     )
     g.addWidget(QLabel("原声音域"), r, 0)
     g.addWidget(win.pitch_map_src_range, r, 1)
-    g.addWidget(win.pitch_map_src_label, r, 2)
+    g.addWidget(pitch_map_src_label, r, 2)
     r += 1
 
     # ── 模型音域（原目标音域）──
-    win.pitch_map_dst_range = _range_row(
-        win, "pitch_map_dst_range",
+    win.pitch_map_dst_range, pitch_map_dst_label = _range_row(
         20.0, 1000.0, 10.0,
         params.voice.pitch_map_dst_min, params.voice.pitch_map_dst_max,
         fmt=".0f", unit="Hz",
     )
     g.addWidget(QLabel("模型音域"), r, 0)
     g.addWidget(win.pitch_map_dst_range, r, 1)
-    g.addWidget(win.pitch_map_dst_label, r, 2)
+    g.addWidget(pitch_map_dst_label, r, 2)
     r += 1
 
     # ── 性别因子（formant）──
-    win.formant_slider = _create_slider_row(win, "formant_slider", -2.5, 2.5, 0.05, 0.0, fmt="+.2f")
+    win.formant_slider, formant_label = _create_slider_row(-2.5, 2.5, 0.05, 0.0, fmt="+.2f")
     g.addWidget(QLabel("性别因子"), r, 0)
     g.addWidget(win.formant_slider, r, 1)
-    g.addWidget(win.formant_label, r, 2)
+    g.addWidget(formant_label, r, 2)
     r += 1
 
     # ── 响度因子（rms_mix）──
-    win.rms_mix_slider = _create_slider_row(win, "rms_mix_slider", 0.0, 1.0, 0.05, 0.0)
+    win.rms_mix_slider, rms_mix_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
     g.addWidget(QLabel("响度因子"), r, 0)
     g.addWidget(win.rms_mix_slider, r, 1)
-    g.addWidget(win.rms_mix_label, r, 2)
+    g.addWidget(rms_mix_label, r, 2)
     r += 1
 
     return w
