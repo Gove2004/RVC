@@ -2,7 +2,7 @@
 import sounddevice as sd
 
 
-def _rescan_portaudio_devices():
+def rescan_audio_devices():
     """重建 PortAudio 设备列表（热插拔后 query_devices 可能返回空）。
 
     ⚠ 依赖 sounddevice 私有 API `_terminate`/`_initialize`——公开 API 没有
@@ -24,7 +24,7 @@ def get_audio_devices(hostapi_name=None):
          输入设备索引列表, 输出设备索引列表)
     """
     if not sd.query_devices():
-        _rescan_portaudio_devices()
+        rescan_audio_devices()
     devices = sd.query_devices()
     hostapis = sd.query_hostapis()
     for ha in hostapis:

@@ -1,6 +1,6 @@
 """设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。"""
 from typing import List
-from rvc.io.devices import get_audio_devices
+from rvc.io.devices import get_audio_devices, rescan_audio_devices
 
 class DeviceCatalog:
     """枚举音频设备并维护「下拉框位置 → PortAudio 索引」映射。"""
@@ -15,12 +15,10 @@ class DeviceCatalog:
 
     def reload_devices(self) -> None:
         """刷新按钮：强制 PortAudio 重新枚举（支持设备热插拔），再刷新列表。"""
-        # PortAudio 会缓存设备列表；设备热插拔后必须用 _terminate + _initialize
-        # 强制重扫，否则 query_devices() 始终返回旧列表，刷新看起来「没反应」。
+        # PortAudio 会缓存设备列表；设备热插拔后必须强制重扫（唯一入口见 rvc/io/devices），
+        # 否则 query_devices() 始终返回旧列表，刷新看起来「没反应」。
         try:
-            import sounddevice as sd
-            sd._terminate()
-            sd._initialize()
+            rescan_audio_devices()
         except Exception:
             pass
         self._refresh_devices()
