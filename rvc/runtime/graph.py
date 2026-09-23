@@ -33,9 +33,28 @@ class RuntimeOptions:
     graph_cache_size: int = DEFAULT_GRAPH_CACHE_SIZE
 
 
-# 进程内唯一选项实例：仅由 configure_cuda_graph 写入（RuntimeDeviceConfig 初始化时调用一次），
-# 其余代码只读。显式单点写入优于散落的环境变量读写。
-_active_options: RuntimeOptions | None = None
+class _ActiveGraphOptions:
+    """进程内唯一生效选项的显式持有者（取代裸模块全局）。
+
+    写入仅经 configure_cuda_graph（RuntimeDeviceConfig 初始化时调用一次），
+    其余代码只经 get() 读取。以结构（唯一持有者 + 唯一写入口）承载
+    「进程内单点」契约，而非仅靠注释维持；显式单点优于散落的环境变量读写。
+    """
+    __slots__ = ("_value",)
+
+    def __init__(self) -> None:
+        self._value: RuntimeOptions | None = None
+
+    def apply(self, options: RuntimeOptions) -> None:
+        """写入当前生效选项（唯一写入口）。"""
+        self._value = options
+
+    def get(self) -> RuntimeOptions | None:
+        """读取当前生效选项（未配置前为 None）。"""
+        return self._value
+
+
+_active_options = _ActiveGraphOptions()
 
 
 def _device_type(device):
@@ -54,27 +73,27 @@ def _cuda_device(device):
 def configure_cuda_graph(device, options: RuntimeOptions | None = None) -> bool:
     """下发运行时选项并探测设备。返回 CUDA Graph 是否实际启用。
 
-    本函数是 _active_options 的唯一写入口；重复调用以最后一次为准。
+    本函数是生效选项的唯一写入口；重复调用以最后一次为准。
     """
-    global _active_options
     opts = options or RuntimeOptions()
     enabled = (
         opts.use_cuda_graph
         and _device_type(device) == "cuda"
         and torch.cuda.is_available()
     )
-    _active_options = RuntimeOptions(
+    _active_options.apply(RuntimeOptions(
         use_cuda_graph=enabled,
         graph_cache_size=max(1, int(opts.graph_cache_size)),
-    )
+    ))
     return enabled
 
 
 def cuda_graph_enabled(device) -> bool:
     """判断 CUDA Graph 是否对给定设备生效。"""
+    opts = _active_options.get()
     return (
-        _active_options is not None
-        and _active_options.use_cuda_graph
+        opts is not None
+        and opts.use_cuda_graph
         and _device_type(device) == "cuda"
         and torch.cuda.is_available()
     )
@@ -147,8 +166,9 @@ class _GraphCache:
         self.replay_count = 0
         self.eviction_count = 0
         self.capture_ms = 0.0
+        opts = _active_options.get()
         self.max_entries = (
-            _active_options.graph_cache_size if _active_options is not None
+            opts.graph_cache_size if opts is not None
             else DEFAULT_GRAPH_CACHE_SIZE
         )
 
