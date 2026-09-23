@@ -55,7 +55,7 @@ class TrainWindow(QMainWindow):
 
     def _start_step(self, step: str):
         try:
-            options = self.controller.validate_options(self._collect_raw_options())
+            request = self.controller.validate_options(self._collect_raw_options())
         except ValueError as exc:
             QMessageBox.warning(self, "参数错误", str(exc))
             return
@@ -66,7 +66,7 @@ class TrainWindow(QMainWindow):
             pass
         self._set_running(True)
         self.log_edit.clear()
-        self.worker = TrainWorker(options, step)
+        self.worker = TrainWorker(request, step)
         self.worker.stage_changed.connect(self.on_stage_changed)
         self.worker.progress.connect(self.on_progress)
         self.worker.log_message.connect(self.on_log)
@@ -190,11 +190,11 @@ class TrainWindow(QMainWindow):
 
         eta_text = ""
         if it_s > 0:
-            remaining_batches = (total - batch) + max(self.worker.options["epochs"] - epoch, 0) * total
+            remaining_batches = (total - batch) + max(self.worker.request.epochs - epoch, 0) * total
             eta_sec = remaining_batches / it_s
             eta_text = f" · ETA {int(eta_sec // 3600)}h{int(eta_sec % 3600 // 60)}m"
         speed = f"{it_s:.1f} it/s" if it_s > 0 else "-"
-        self.epoch_label.setText(f"Epoch: {epoch} / {self.worker.options['epochs']} · Batch {batch}/{total} · {speed}{eta_text}")
+        self.epoch_label.setText(f"Epoch: {epoch} / {self.worker.request.epochs} · Batch {batch}/{total} · {speed}{eta_text}")
 
     def on_loss(self, loss_report: dict):
         # 每 batch 都会收到信号，这里做 150ms 节流防止高频刷新 UI

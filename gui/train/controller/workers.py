@@ -4,11 +4,33 @@
 否则 train 窗口启动时就要加载重型依赖，导致启动慢（infer 窗口已遵守此约定）。
 """
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
 from rvc.runtime.paths import TRAIN_LOGS_ROOT, parse_sr
+
+
+@dataclass(frozen=True)
+class TrainRequest:
+    """训练请求参数（View → Controller → Worker 的显式契约）。
+
+    字段与默认值等价于旧 10 键 options dict：前 6 项由
+    TrainController.validate_options 强制提供，后 4 项对应旧 dict 的
+    .get 默认值（"48k"/"chinese"/""/""）。
+    """
+
+    exp_name: str
+    input_dir: str
+    epochs: int
+    batch_size: int
+    save_every_epoch: int
+    learning_rate: float
+    sr: str = "48k"
+    hubert: str = "chinese"
+    pretrain_g: str = ""
+    pretrain_d: str = ""
 
 
 class TrainWorker(QThread):
@@ -21,9 +43,9 @@ class TrainWorker(QThread):
     finished = Signal(bool, str)
     error = Signal(str)
 
-    def __init__(self, options: dict, step: str = "all"):
+    def __init__(self, request: TrainRequest, step: str = "all"):
         super().__init__()
-        self.options = options
+        self.request = request
         self.step = step
         self._stop_requested = False
         self._trainer = None
@@ -63,15 +85,15 @@ class TrainWorker(QThread):
         from rvc.train.preprocess import manifest_diff_reason
 
         config = RuntimeDeviceConfig()
-        exp_dir = TRAIN_LOGS_ROOT / self.options["exp_name"]
+        exp_dir = TRAIN_LOGS_ROOT / self.request.exp_name
         exp_dir.mkdir(parents=True, exist_ok=True)
         # 采样率来自 GUI（"40k"/"48k"），统一走 parse_sr
-        sr = parse_sr(self.options.get("sr", "48k"))
+        sr = parse_sr(self.request.sr)
 
         # 仅对「不含预处理」的单独步骤做一致性检查；一键全流程(all)第一步
         # 就是预处理，_prepare_exp_dir 内部会按需清理旧数据重建，无需提前拦截
         if self.step not in ("preprocess", "all") and exp_dir.exists():
-            reason = manifest_diff_reason(exp_dir, self.options["input_dir"], sr, 3.7)
+            reason = manifest_diff_reason(exp_dir, self.request.input_dir, sr, 3.7)
             if reason:
                 raise RuntimeError(f"实验目录与当前输入不一致：{reason}。请先重新执行预处理")
 
@@ -97,7 +119,7 @@ class TrainWorker(QThread):
         self._check_stop()
         self.stage_changed.emit("预处理音频")
         self.log_message.emit("开始预处理音频")
-        PreProcessor(self.options["input_dir"], str(exp_dir), sr).run(self.progress.emit)
+        PreProcessor(self.request.input_dir, str(exp_dir), sr).run(self.progress.emit)
         self._check_stop()
         self.log_message.emit("预处理完成")
 
@@ -117,7 +139,7 @@ class TrainWorker(QThread):
         from rvc.train.extract_feature import HuBERTExtractor
         self._check_stop()
         self.stage_changed.emit("提取 HuBERT 特征")
-        hubert = self.options.get("hubert", "chinese")
+        hubert = self.request.hubert
         self.log_message.emit(f"开始提取 HuBERT 特征（{hubert}）")
         self.log_message.emit("注意：若本实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 目录再重跑")
         extractor = HuBERTExtractor(config.device, config.is_half, hubert=hubert)
@@ -137,8 +159,7 @@ class TrainWorker(QThread):
             raise RuntimeError("没有可训练样本")
 
         # Validate pretrain paths before starting training
-        for name in ("pretrain_g", "pretrain_d"):
-            path = self.options.get(name, "")
+        for path in (self.request.pretrain_g, self.request.pretrain_d):
             if path and not Path(path).exists():
                 raise RuntimeError(f"预训练模型不存在: {path}")
 
@@ -147,12 +168,12 @@ class TrainWorker(QThread):
         train_config = TrainConfig(
             exp_dir=str(exp_dir),
             sr=sr,
-            epochs=self.options["epochs"],
-            batch_size=self.options["batch_size"],
-            save_every_epoch=self.options["save_every_epoch"],
-            learning_rate=self.options["learning_rate"],
-            pretrain_g=self.options.get("pretrain_g", ""),
-            pretrain_d=self.options.get("pretrain_d", ""),
+            epochs=self.request.epochs,
+            batch_size=self.request.batch_size,
+            save_every_epoch=self.request.save_every_epoch,
+            learning_rate=self.request.learning_rate,
+            pretrain_g=self.request.pretrain_g,
+            pretrain_d=self.request.pretrain_d,
             fp16_run=config.is_half,
             device=config.device,
         )

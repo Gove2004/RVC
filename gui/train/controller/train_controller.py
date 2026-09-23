@@ -62,7 +62,7 @@ class TrainController:
 
     # ── 参数校验 ──
 
-    def validate_options(self, raw: dict) -> dict:
+    def validate_options(self, raw: dict) -> "TrainRequest":
         """校验并整理训练参数（View 收集原始控件值，业务校验在此）。
 
         Raises:
@@ -78,15 +78,16 @@ class TrainController:
             lr = float(raw["learning_rate"])
         except ValueError as exc:
             raise ValueError("学习率格式不正确") from exc
-        return {
-            "exp_name": exp_name,
-            "input_dir": input_dir,
-            "sr": raw["sr"],
-            "epochs": raw["epochs"],
-            "batch_size": raw["batch_size"],
-            "save_every_epoch": raw["save_every_epoch"],
-            "learning_rate": lr,
-            "pretrain_g": raw["pretrain_g"],
-            "pretrain_d": raw["pretrain_d"],
-            "hubert": raw["hubert"],
-        }
+        from gui.train.controller.workers import TrainRequest
+        return TrainRequest(
+            exp_name=exp_name,
+            input_dir=input_dir,
+            sr=raw["sr"],
+            epochs=raw["epochs"],
+            batch_size=raw["batch_size"],
+            save_every_epoch=raw["save_every_epoch"],
+            learning_rate=lr,
+            pretrain_g=raw["pretrain_g"],
+            pretrain_d=raw["pretrain_d"],
+            hubert=raw["hubert"],
+        )
