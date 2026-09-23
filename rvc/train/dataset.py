@@ -7,6 +7,7 @@ import bisect
 import logging
 import random
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import torch
@@ -17,6 +18,36 @@ from torch.utils.data import Dataset, Sampler
 from rvc.train.mel_processing import spectrogram_torch
 
 logger = logging.getLogger(__name__)
+
+
+class TrainSample(NamedTuple):
+    """单条训练样本（`__getitem__` 的输出契约）。字段顺序即历史位置顺序。"""
+
+    phone: torch.Tensor
+    pitch: torch.Tensor
+    pitchf: torch.Tensor
+    spec: torch.Tensor
+    wav: torch.Tensor
+    sid: int
+
+
+class TrainBatch(NamedTuple):
+    """拼接后的 batch（collate 输出、trainer 消费的契约）。
+
+    必须保持 NamedTuple：DataLoader(pin_memory=True) 的默认钉页实现只对
+    namedtuple 逐元素重建（torch/utils/data/_utils/pin_memory.py:87-90），
+    普通容器会被原样返回、内部张量不钉页，改变 non_blocking 拷贝语义。
+    """
+
+    phone: torch.Tensor
+    phone_lengths: torch.Tensor
+    pitch: torch.Tensor
+    pitchf: torch.Tensor
+    spec: torch.Tensor
+    spec_lengths: torch.Tensor
+    wav: torch.Tensor
+    wav_lengths: torch.Tensor
+    sid: torch.Tensor
 
 
 class TextAudioLoaderMultiNSFsid(Dataset):
@@ -80,7 +111,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         pitch = pitch[:min_len]
         pitchf = pitchf[:min_len]
         spec = spec[:, :min_len]
-        return phone, pitch, pitchf, spec, wav, int(sid)
+        return TrainSample(phone, pitch, pitchf, spec, wav, int(sid))
 
     def __len__(self):
         return len(self.audiopaths_and_text)
@@ -120,13 +151,13 @@ class TextAudioLoaderMultiNSFsid(Dataset):
 
 
 class TextAudioCollateMultiNSFsid:
-    def __call__(self, batch):
-        batch = sorted(batch, key=lambda x: x[3].size(1), reverse=True)
-        max_phone_len = max(x[0].size(0) for x in batch)
-        max_spec_len = max(x[3].size(1) for x in batch)
-        max_wav_len = max(x[4].size(0) for x in batch)
-        spec_channels = batch[0][3].size(0)
-        feat_dim = batch[0][0].size(1)
+    def __call__(self, batch: list[TrainSample]) -> TrainBatch:
+        batch = sorted(batch, key=lambda x: x.spec.size(1), reverse=True)
+        max_phone_len = max(x.phone.size(0) for x in batch)
+        max_spec_len = max(x.spec.size(1) for x in batch)
+        max_wav_len = max(x.wav.size(0) for x in batch)
+        spec_channels = batch[0].spec.size(0)
+        feat_dim = batch[0].phone.size(1)
         b = len(batch)
 
         phone = torch.zeros(b, max_phone_len, feat_dim)
@@ -139,20 +170,20 @@ class TextAudioCollateMultiNSFsid:
         wav_lengths = torch.LongTensor(b)
         sid = torch.LongTensor(b)
 
-        for i, (phone_i, pitch_i, pitchf_i, spec_i, wav_i, sid_i) in enumerate(batch):
-            phone_len = phone_i.size(0)
-            spec_len = spec_i.size(1)
-            wav_len = wav_i.size(0)
-            phone[i, :phone_len] = phone_i
+        for i, sample in enumerate(batch):
+            phone_len = sample.phone.size(0)
+            spec_len = sample.spec.size(1)
+            wav_len = sample.wav.size(0)
+            phone[i, :phone_len] = sample.phone
             phone_lengths[i] = phone_len
-            pitch[i, :phone_len] = pitch_i
-            pitchf[i, :phone_len] = pitchf_i
-            spec[i, :, :spec_len] = spec_i
+            pitch[i, :phone_len] = sample.pitch
+            pitchf[i, :phone_len] = sample.pitchf
+            spec[i, :, :spec_len] = sample.spec
             spec_lengths[i] = spec_len
-            wav[i, :wav_len] = wav_i
+            wav[i, :wav_len] = sample.wav
             wav_lengths[i] = wav_len
-            sid[i] = sid_i
-        return phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wav, wav_lengths, sid
+            sid[i] = sample.sid
+        return TrainBatch(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wav, wav_lengths, sid)
 
 
 class BucketSampler(Sampler):

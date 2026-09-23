@@ -170,7 +170,17 @@ class Trainer:
         for batch_idx, batch in enumerate(self.loader, 1):
             if self.stop_requested:
                 break
-            phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = [x.to(self.cfg.device, non_blocking=True) for x in batch]
+            # TrainBatch 字段顺序即拷贝顺序（H2D 顺序冻结）；wav_lengths 现状即被
+            # 丢弃，但 .to() 的拷贝真实发生 —— 保持拷贝，不顺手优化掉
+            phone = batch.phone.to(self.cfg.device, non_blocking=True)
+            phone_lengths = batch.phone_lengths.to(self.cfg.device, non_blocking=True)
+            pitch = batch.pitch.to(self.cfg.device, non_blocking=True)
+            pitchf = batch.pitchf.to(self.cfg.device, non_blocking=True)
+            spec = batch.spec.to(self.cfg.device, non_blocking=True)
+            spec_lengths = batch.spec_lengths.to(self.cfg.device, non_blocking=True)
+            wave = batch.wav.to(self.cfg.device, non_blocking=True)
+            _ = batch.wav_lengths.to(self.cfg.device, non_blocking=True)
+            sid = batch.sid.to(self.cfg.device, non_blocking=True)
             wave = wave.unsqueeze(1)
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
                 y_hat, ids_slice, _, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = self.synthesizer(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
