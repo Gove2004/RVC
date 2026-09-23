@@ -1,3 +1,7 @@
+"""VITS 合成器网络组件 — LayerNorm、残差块(ResBlock)、WaveNet(WN)、耦合层等。
+
+这些 nn.Module 由合成器模型（rvc.models.synthesizer_model）组装使用。
+"""
 from typing import Optional, Tuple
 
 import torch

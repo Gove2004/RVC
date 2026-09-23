@@ -1,10 +1,10 @@
 """实时语音转换管线 — stage_features / stage_f0 / stage_synthesis 三个推理阶段。
 
 架构：
-- 持有 EngineState（跨块持续状态：模型引用、F0缓存、合成器缓存等）
+- 持有 EngineState（跨块持续状态：模型引用、缓冲区、合成器缓存等）
 - 每块复用 InferenceContext（单块临时状态）
-- extract_features（stage_features + stage_f0 原始提取）
-  → postprocess_features（stage_f0 后处理 + 特征上采样）
+- extract_features（stage_features：HuBERT 特征提取）
+  → postprocess_features（F0 提取 + 后处理 + 特征上采样）
   → synthesize_audio（stage_synthesis）
 - formant 因子在 extract_features 中计算并存到 ctx.formant_factor，输出侧复用避免重复计算
 
@@ -24,7 +24,7 @@ from rvc.pipeline.cache import default_inference_cache
 from rvc.pipeline.features import extract_hubert_features, upsample_features
 
 
-from rvc.pipeline.pitch.extractor import postprocess_f0
+from rvc.pipeline.pitch.extractor import postprocess_f0, create_f0_extractor
 from rvc.pipeline.sessions import ModelSessions
 from rvc.pipeline.pitch.tracker import extract_f0_for_block
 from rvc.pipeline.synthesis import cached_long_tensor, infer_synth_audio
@@ -151,10 +151,10 @@ class InferencePipeline:
     # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
 
     def postprocess_features(self, feats: torch.Tensor):
-        """stage_f0 后处理 — F0 后处理 + 特征上采样。
+        """postprocess：F0 提取 + 后处理 + 特征上采样。
 
-        F0 后处理（音域映射 + 中值滤波 + 离散化），供输出侧清辅音保护用
-        特征上采样（50fps → 100fps）
+        先 upsample HuBERT 特征得到实际长度，再让 F0 对齐到这个长度。
+        F0 后处理（音域映射 + 中值滤波 + 离散化）。
 
         Args:
             feats: HuBERT 特征 (1, T, 768)，50fps
@@ -173,8 +173,6 @@ class InferencePipeline:
         # 提取 F0 原始值（对齐到实际 p_len）+ 后处理
         self._stage_extract_f0_raw(ctx)
         pitch, pitchf = self._stage_postprocess_f0(ctx)
-
-        ctx.features_upsampled = feats
 
         return pitch, pitchf, feats
 
@@ -199,14 +197,12 @@ class InferencePipeline:
 
     def _stage_extract_hubert(self, ctx: InferenceContext) -> torch.Tensor:
         """从 16k 滚动缓冲区提取 HuBERT 特征（50fps）。"""
-        feats = extract_hubert_features(
+        return extract_hubert_features(
             self.state.hubert_model,
             self.state.input_wav_16k,
             self.state.device,
             self.state.is_half,
         )
-        ctx.hubert_features = feats
-        return feats
 
     def _stage_extract_f0_raw(self, ctx: InferenceContext) -> None:
         """F0 原始提取 — 每块从完整 input_wav 提取，与 HuBERT 输入对齐。
@@ -224,7 +220,6 @@ class InferencePipeline:
         # F0 提取器缓存：method 变化时重建，否则跨块复用
         method = ctx.config.f0.method
         if state.f0_extractor is None or state.f0_extractor_method != method:
-            from rvc.pipeline.pitch.extractor import create_f0_extractor
             state.f0_extractor = create_f0_extractor(
                 method, state.device, state.is_half, state.inference_cache, config=ctx.config,
             )
@@ -247,7 +242,6 @@ class InferencePipeline:
         """F0 后处理（音域映射 + 中值滤波 + 离散化）。
 
         从 ctx 读取 stage_f0 提取的原始 F0，调用 postprocess_f0 做后处理。
-        后处理后的离散 F0 写入 cache_pitch 的最后 p_len 帧。
         pitchf 乘以 return_length2/return_length 做 formant 缩放。
 
         Returns:
@@ -273,16 +267,10 @@ class InferencePipeline:
         # formant 缩放（pitchf 需要乘以 return_length2 / return_length）
         pitchf = pitchf * ctx.return_length2 / state.return_length
 
-        ctx.f0_mapped = pitchf
-        ctx.pitch_discrete = pitch[None, :]
-        ctx.pitchf_continuous = pitchf[None, :]
         return pitch[None, :], pitchf[None, :]
 
     def _stage_upsample_features(self, ctx: InferenceContext, feats: torch.Tensor) -> torch.Tensor:
-        """特征上采样（50fps → 100fps，截取 p_len 帧）。
-
-        清辅音保护已移到输出侧，这里只做纯上采样。
-        """
+        """特征上采样（50fps → 100fps，最近邻插值 + 末帧 padding）。"""
         return upsample_features(feats, self.state.is_half)
 
     def _stage_synthesize(
@@ -318,7 +306,6 @@ class InferencePipeline:
             return_length2=ctx.return_length2,
         )
         infered_audio = infered_audio.squeeze(1).float()
-        ctx.synthesized_audio = infered_audio
 
         return infered_audio.squeeze()
 

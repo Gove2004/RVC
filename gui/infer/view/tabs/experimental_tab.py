@@ -32,8 +32,8 @@ def build_performance_tab(win):
     g.addWidget(win.extra_time_label, r, 2)
     r += 1
 
-    # ── 淡入长度（crossfade_time）──
-    win.crossfade_slider = _create_slider_row(win, "crossfade_slider", 0.01, 0.05, 0.01, 0.05)
+    # ── 淡入长度（crossfade_time；上限 0.04 = SOLA 实际生效的 40ms，再大无效）──
+    win.crossfade_slider = _create_slider_row(win, "crossfade_slider", 0.01, 0.04, 0.01, 0.04)
     g.addWidget(QLabel("淡入长度"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(win.crossfade_label, r, 2)

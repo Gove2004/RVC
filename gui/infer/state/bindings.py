@@ -17,11 +17,8 @@ from rvc.core.config import InferenceParams
 _DEFAULTS = InferenceParams()
 
 # 读写方式
-CHECK = "check"
 FLOAT = "float"
-INT = "int"
 COMBO = "combo"
-TEXT = "text"
 ATTR = "attr"
 RADIO_F0 = "radio_f0"
 RADIO_SR = "radio_sr"
@@ -141,22 +138,16 @@ def params_to_dict(params: InferenceParams) -> dict:
 
 def _set(win, widget, kind, value):
     """把值写到控件。"""
-    if kind == CHECK:
-        getattr(win, widget).setChecked(bool(value))
-    elif kind == FLOAT:
+    if kind == FLOAT:
         slider = getattr(win, widget)
         slider.setValue(float(value))
         # 手动刷新标签：控件未显示时 setValue 可能不触发 valueChanged
         if hasattr(slider, "_update_label"):
             slider._update_label()
-    elif kind == INT:
-        getattr(win, widget).setValue(int(value))
     elif kind == COMBO:
         idx = getattr(win, widget).findText(str(value))
         if idx >= 0:
             getattr(win, widget).setCurrentIndex(idx)
-    elif kind == TEXT:
-        getattr(win, widget).setText(str(value))
     elif kind == ATTR:
         setattr(win, widget, str(value) if value else "")
     elif kind == RADIO_F0:
@@ -202,14 +193,10 @@ def collect_params(win) -> InferenceParams:
     params = InferenceParams()
     for path, widget, kind in BINDINGS:
         w = getattr(win, widget)
-        if kind == CHECK:
-            value = w.isChecked()
-        elif kind in (FLOAT, INT):
+        if kind == FLOAT:
             value = w.value()
         elif kind == COMBO:
             value = w.currentText()
-        elif kind == TEXT:
-            value = w.text()
         elif kind == ATTR:
             value = getattr(win, widget, "")
         elif kind == RADIO_F0:

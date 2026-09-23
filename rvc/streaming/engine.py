@@ -1,4 +1,4 @@
-﻿"""变声引擎门面 — 实时与离线共用的唯一入口。
+"""变声引擎门面 — 实时与离线共用的唯一入口。
 
 VoiceEngine 作为门面（Facade），内部委托给子组件：
 
@@ -89,8 +89,11 @@ class VoiceEngine:
 
         切换模型时清除 f0 提取器的旧 CUDA Graph 缓存。
         """
-        if self.inference_cache:
-            self.inference_cache.clear_f0_cuda_graph_caches()
+        # 离线场景 inference_cache=None，但 pipeline 内部回退到全局 default_inference_cache，
+        # 故这里对「显式 cache 或全局单例」无条件清理，避免离线切模型时残留旧图。
+        from rvc.pipeline.cache import default_inference_cache
+
+        (self.inference_cache or default_inference_cache).clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.pipeline.pipeline import InferencePipeline
@@ -146,7 +149,7 @@ class VoiceEngine:
             sr_model: 模型目标采样率
             reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
         """
-        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self._cfg.device, self.function)
+        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self.function)
         self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
         self._runner.reset_error_state()
         # 预热 30 次：2 次只够捕获 CUDA Graph，不足以让 GPU 升频/缓存预热。

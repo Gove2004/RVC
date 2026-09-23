@@ -1,18 +1,20 @@
-from rvc.core.constants import HUBERT_SAMPLE_RATE, RMVPE_THRESHOLD_TRAIN_TRAIN
+"""训练用 F0 提取 — 批量把切片 wav 转成离散/连续 F0 npy。"""
+
 from pathlib import Path
 
 import numpy as np
 
+from rvc.core.constants import HUBERT_SAMPLE_RATE, RMVPE_THRESHOLD_TRAIN
 from rvc.io.audio_file import load_audio
-from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
 from rvc.models.rmvpe import RMVPE
+from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
 from rvc.runtime.paths import RMVPE_PATH
 
 
 class TrainF0Extractor:
     """训练用 F0 提取器（批量处理切片 wav → 离散/连续 F0 npy）。
 
-    与推理侧 `rvc.inference.f0_extractor.F0Extractor`（抽象基类，RMVPE/FCPE 二选一）
+    与推理侧 `rvc.pipeline.pitch.extractor.F0Extractor`（抽象基类，RMVPE/FCPE 二选一）
     职责不同，名字刻意区分，避免混淆。
     """
 

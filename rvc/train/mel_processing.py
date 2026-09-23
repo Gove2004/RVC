@@ -1,3 +1,7 @@
+"""训练侧频谱计算 — STFT 线性谱与 Mel 谱。
+
+Hann 窗口和 Mel 滤波器按参数 key 缓存，避免每次重复构造。
+"""
 import torch
 
 from rvc.dsp.mel import mel_filter_bank

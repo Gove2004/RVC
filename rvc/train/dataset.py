@@ -1,3 +1,8 @@
+"""训练数据集 — 文件清单加载、特征/频谱读取、分桶采样与 batch 拼接。
+
+TextAudioLoaderMultiNSFsid 按帧长过滤样本，BucketSampler 按长度分桶减少
+batch 内 padding，TextAudioCollateMultiNSFsid 负责补齐并打包。
+"""
 import bisect
 import logging
 import random

@@ -3,13 +3,7 @@ from PySide6.QtWidgets import QSlider, QLabel, QWidget, QSizePolicy
 from PySide6.QtCore import Qt, QThread, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen
 
-__all__ = ["LoadThread", "_sl", "_create_slider_row", "_sl_value_as_float", "DoubleSlider", "RangeSlider"]
-
-
-def _sl(mn, mx, st, dv):
-    s = QSlider(Qt.Orientation.Horizontal)
-    s.setRange(mn, mx); s.setSingleStep(st); s.setValue(dv)
-    return s
+__all__ = ["LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider"]
 
 
 class DoubleSlider(QSlider):
@@ -76,11 +70,6 @@ def _create_slider_row(win, attr, mn, mx, st, dv, fmt=".2f", unit="", label_w=80
     label_attr = attr[:-7] + "_label" if attr.endswith("_slider") else attr + "_label"
     setattr(win, label_attr, lbl)
     return s
-
-
-def _sl_value_as_float(slider) -> float:
-    """从滑动条读取物理值（DoubleSlider.value() 已返回 float）。"""
-    return float(slider.value())
 
 
 class LoadThread(QThread):

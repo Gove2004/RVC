@@ -78,13 +78,22 @@ class DeviceCatalog:
         self.window.output2_combo.addItems(outs)
 
     def get_input_device_index(self, combo_idx: int) -> int:
-        """下拉框位置 → PortAudio 全局设备索引。越界时回退到 combo_idx（兼容旧行为）。"""
+        """下拉框位置 → PortAudio 全局设备索引。
+
+        输入下拉框恒为 0 基位置；越界说明下拉状态与设备表不一致，直接抛错而非静默回退。
+        """
         if 0 <= combo_idx < len(self._input_indices):
             return self._input_indices[combo_idx]
-        return combo_idx
+        raise IndexError(f"输入设备位置越界: {combo_idx}（共 {len(self._input_indices)} 项）")
 
     def get_output_device_index(self, combo_idx: int) -> int:
-        """下拉框位置 → PortAudio 全局设备索引。越界时回退到 combo_idx（兼容旧行为）。"""
+        """下拉框位置 → PortAudio 全局设备索引。
+
+        combo_idx=-1 是副输出「不使用」的有意取值（调用方据此转 None）；
+        其余越界说明下拉状态与设备表不一致，直接抛错而非静默回退。
+        """
+        if combo_idx == -1:
+            return -1
         if 0 <= combo_idx < len(self._output_indices):
             return self._output_indices[combo_idx]
-        return combo_idx
+        raise IndexError(f"输出设备位置越界: {combo_idx}（共 {len(self._output_indices)} 项）")

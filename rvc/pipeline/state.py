@@ -3,7 +3,6 @@
 所有需要在块与块之间保持的数据都放这里：
 - 模型引用（load 后注入）
 - 48k / 16k 滚动缓冲区
-- F0 滚动缓存
 - 合成器缓存（resample_kernel / long_tensor）
 - F0 提取器实例
 
@@ -53,7 +52,6 @@ class EngineState:
     extra_samples: int = 0
     skip_head: int = 0
     return_length: int = 0
-    return_length2: int = 0
     hz_centis: int = 0
     channels: int = 1
 

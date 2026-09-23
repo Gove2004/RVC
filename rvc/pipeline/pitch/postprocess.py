@@ -22,10 +22,13 @@ PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 
 # 音域映射预计算缓存：参数组合 → (src_min_m, src_max_m, dst_min_m, dst_max_m)
 # 避免每次调用重复计算 4 次 hz_to_midi（参数在运行时很少变化）
+# 无锁设计：GIL 保证单次 dict 读写原子；并发 check-then-set 最坏情况是两个线程
+# 各创建一份相同结果，后者覆盖前者，无正确性问题，仅浪费一次计算。
 _pitch_map_midi_cache: dict[tuple, tuple] = {}
 
 # 参数组合+设备 → 4 个常量 tensor。torch.tensor(scalar, device=cuda) 是
 # 同步 H2D 拷贝，实时路径每块调用 4 次纯属浪费——参数与设备在会话内不变。
+# 同上无锁设计。
 _pitch_map_tensor_cache: dict[tuple, tuple] = {}
 
 

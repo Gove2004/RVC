@@ -5,7 +5,6 @@
 
 """
 import contextlib
-from rvc.core.errors import F0ExtractionError
 import logging
 import sys
 from abc import ABC, abstractmethod
@@ -13,9 +12,10 @@ from pathlib import Path
 
 import torch
 
+from rvc.core.errors import F0ExtractionError
+from rvc.pipeline.pitch.postprocess import apply_pitch_map, median_filter_f0, normalize_f0_to_coarse
+from rvc.runtime.graph import clear_cuda_graph_cache, cuda_graph_enabled, run_cuda_graph
 from rvc.runtime.paths import RMVPE_PATH
-from rvc.runtime.graph import run_cuda_graph, cuda_graph_enabled, clear_cuda_graph_cache
-from rvc.pipeline.pitch.postprocess import median_filter_f0, normalize_f0_to_coarse, apply_pitch_map
 
 # 最新原始输入音调（Hz，非零帧平均，音域映射之前的值，用于 GUI 显示）
 

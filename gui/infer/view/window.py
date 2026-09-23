@@ -168,7 +168,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def _connect_all_param_signals(self) -> None:
         """统一连接所有参数控件的变化信号 → 实时更新 runtime_params。
 
-        覆盖 BINDINGS 表中的所有控件类型（FLOAT/INT/COMBO/CHECK/RADIO_F0/RADIO_SR），
+        覆盖 BINDINGS 表中的所有控件类型（FLOAT/COMBO/RADIO_F0/RADIO_SR），
         以及特殊控件（RangeSlider、f0_threshold_slider）。
         使用 _signals_connected 标志确保只连接一次，避免重复连接。
         """
@@ -177,7 +177,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._signals_connected = True
 
         from gui.infer.state.bindings import (
-            BINDINGS, FLOAT, INT, COMBO, CHECK, RADIO_F0, RADIO_SR, _set_nested,
+            BINDINGS, FLOAT, COMBO, RADIO_F0, RADIO_SR, _set_nested,
         )
 
         # 1. BINDINGS 表中的所有控件
@@ -185,7 +185,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
             if not widget or not hasattr(self, widget):
                 continue
             w = getattr(self, widget)
-            if kind in (FLOAT, INT):
+            if kind == FLOAT:
                 # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，
                 # 所以必须读取 w.value() 获取物理值，而不是用信号参数
                 def _on_val(_v, p=path, slider=w):
@@ -195,10 +195,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
                 def _on_text(_t, p=path):
                     _set_nested(self.runtime_params, p, _t)
                 w.currentTextChanged.connect(_on_text)
-            elif kind == CHECK:
-                def _on_check(_s, p=path):
-                    _set_nested(self.runtime_params, p, bool(_s))
-                w.stateChanged.connect(_on_check)
             elif kind == RADIO_F0:
                 w.toggled.connect(lambda _: self._on_f0_method_changed())
             elif kind == RADIO_SR:

@@ -26,8 +26,8 @@ class WindowLifecycle:
 
         from gui.infer.state.bindings import params_from_dict
 
-        cfg = load_config()
-        gui_data = cfg.get("gui", {})
+        config = load_config()
+        gui_data = config.get("gui", {})
 
         state = params_from_dict(gui_data)
         # 原地更新 runtime_params 字段（不替换对象引用，engine/runner 自动生效）
@@ -48,9 +48,9 @@ class WindowLifecycle:
 
         from gui.infer.state.bindings import params_to_dict
 
-        cfg = load_config()
-        cfg["gui"] = params_to_dict(self.collect_gui_state())
-        save_config(cfg)
+        config = load_config()
+        config["gui"] = params_to_dict(self.collect_gui_state())
+        save_config(config)
 
     # ── 托盘退出与窗口关闭 ──
 

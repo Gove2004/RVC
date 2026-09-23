@@ -5,7 +5,7 @@
 - 主流创建与启动（sd.Stream，显式指定设备 + 错误回调）
 - 副输出流创建与启动（sd.OutputStream + 队列）
 - 流安全中止与关闭
-- 流健康检查与错误统计
+- 流错误统计
 - 设备日志打印
 
 VoiceEngine 保留对外接口，内部委托给本组件处理音频流。
@@ -187,27 +187,6 @@ class AudioStreamManager:
         self.stream = None
         self.stream2 = None
         self.enable_out2 = False
-
-    def check_health(self) -> dict:
-        """检查流健康状态。
-
-        Returns:
-            dict: {
-                "main_active": bool,  # 主流是否活跃
-                "secondary_active": bool,  # 副输出是否活跃
-                "error_count": int,  # 累计错误数
-                "last_error": str,  # 最近错误信息
-            }
-        """
-        with self._error_lock:
-            error_count = self.stream_error_count
-            last_error = self.last_stream_error
-        return {
-            "main_active": self.stream is not None and self.stream.active,
-            "secondary_active": self.stream2 is not None and self.stream2.active,
-            "error_count": error_count,
-            "last_error": last_error,
-        }
 
     @staticmethod
     def _safe_close_stream(stream) -> None:

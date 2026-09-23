@@ -24,15 +24,6 @@ class EngineStats:
     sr_dev: int
 
 
-@dataclass
-class StartResult:
-    """开始推理的结果。"""
-    success: bool
-    error: str = ""
-    sr_model: int = 0
-    sr_dev: int = 0
-
-
 class InferController:
     def __init__(self, runtime_params: InferenceParams | None = None,
                  engine=None, inference_cache=None, on_runtime_error=None):
@@ -91,17 +82,6 @@ class InferController:
             error_count=eng.error_count,
         )
 
-    # ── 参数应用 ──
-
-    def apply_model_params(self, formant: float):
-        """应用模型卡片级参数（共振峰/特征器）。"""
-        self.runtime_params.voice.formant = formant
-
-    def apply_runtime_params(self, f0_method: str, rms_mix: float):
-        """应用全局推理参数（F0方法/响度混合）。"""
-        self.runtime_params.f0.method = f0_method
-        self.runtime_params.rms_mix = rms_mix
-
     # ── 引擎控制 ──
 
     def setup_engine(self, sr_mode: str, input_device_idx: int, output_device_idx: int,
@@ -123,29 +103,6 @@ class InferController:
             self.engine.stop()  # 启动失败时停掉所有流，避免引擎失控
             raise
         return EngineStats(self.engine.sr_model, self.engine.sr_dev)
-
-    def start_inference(self, pth_path: str, hubert: str,
-                        sr_mode: str, input_device_idx: int, output_device_idx: int,
-                        output2_device_idx: int, block_time: float, crossfade_time: float,
-                        extra_time: float, enable_out2: bool) -> StartResult:
-        """同步开始推理（加载模型 + 启动引擎）。
-
-        用于离线推理或测试场景。GUI 场景使用异步加载（LoadThread）。
-
-        Returns:
-            StartResult: 包含成功标志、错误信息和采样率信息
-        """
-        try:
-            self.engine.load_model(pth_path, hubert=hubert)
-            stats = self.setup_engine(
-                sr_mode, input_device_idx, output_device_idx,
-                output2_device_idx, block_time, crossfade_time, extra_time, enable_out2,
-            )
-            return StartResult(success=True, sr_model=stats.sr_model, sr_dev=stats.sr_dev)
-        except Exception as e:
-            logger.error("开始推理失败：%s", e, exc_info=True)
-            self.stop()
-            return StartResult(success=False, error=str(e))
 
     def stop(self):
         """停止引擎。"""
@@ -170,17 +127,6 @@ class InferController:
         """标记加载结束（LoadThread finished 时调用）。"""
         self._loading = False
         self._load_thread = None
-
-    def cancel_load(self, timeout: int = 3000) -> bool:
-        """取消正在进行的加载（请求停止 + 等待超时）。
-
-        Returns:
-            True 表示线程已结束，False 表示超时
-        """
-        if self._load_thread is not None and self._load_thread.isRunning():
-            self._load_thread.request_stop()
-            return self._load_thread.wait(timeout)
-        return True
 
     # ── 错误处理 ──
 

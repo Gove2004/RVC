@@ -1,10 +1,15 @@
-from rvc.core.constants import HUBERT_SAMPLE_RATE
+"""训练侧 HuBERT 特征提取 — 批量把 16k wav 转为 768 维内容特征 .npy。
+
+HuBERTExtractor 带进程级缓存（同配置模型只加载一次），供训练 GUI 调用。
+"""
+
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import torch
 
+from rvc.core.constants import HUBERT_SAMPLE_RATE
 from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
 from rvc.runtime.caches import LRUCache

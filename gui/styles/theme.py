@@ -102,16 +102,6 @@ def _build_global_stylesheet() -> str:
         QComboBox:hover {{
             border-color: {Colors.PRIMARY};
         }}
-        QComboBox::drop-down {{
-            border: none;
-            width: 20px;
-        }}
-        QComboBox QAbstractItemView {{
-            background-color: {Colors.SECONDARY};
-            color: {Colors.TEXT_PRIMARY};
-            selection-background-color: {Colors.PRIMARY};
-            outline: none;
-        }}
         QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus {{
             border-color: {Colors.PRIMARY};
         }}

@@ -1,27 +1,16 @@
 """推理运行器 — 封装实时推理的缓冲区管理、推理调用、效果器链。
 
-架构重构后（5阶段）：
+架构：
 - 所有跨块持续状态统一放在 EngineState（与 InferencePipeline 共享）
 - InferenceRunner 只持有 pipeline/runtime_params 引用，不重复持有状态字段
 - 每块复用 InferenceContext（单块临时状态）
-- process_block 按角色名阶段执行（全局唯一一套阶段命名）：
+- process_block 按阶段执行：
     stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样
     stage_features：HuBERT 特征提取（pipeline.extract_features）
-    stage_f0：F0 原始提取（与 stage_features 同步进行）与后处理（postprocess_features）
+    stage_f0：F0 提取与后处理（postprocess_features）
     stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
     stage_output：RMS 混合 + SOLA + 硬件输出
-- formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取避免重复计算
-- 清辅音保护的 pitchf 截取封装在 AudioProcessor 内部，本类只传 pitchf_cache
-
-从 VoiceEngine 中拆分出的推理调度组件，负责：
-- 处理状态初始化（采样率/块大小/缓存/重采样/效果器）
-- 输入准备（单声道转换、缓存轮换）
-- 推理调用（InferencePipeline 三阶段 + 模型→设备重采样）
-- 输出处理（RMS 混合、清辅音保护、SOLA 对齐）
-- 预热推理（CUDA Graph 捕获）
-- 缓冲区重置
-
-VoiceEngine 保留对外接口，内部委托给本组件处理推理逻辑。
+- formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取
 """
 import logging
 import math
@@ -49,13 +38,12 @@ class InferenceRunner:
     → stage_synthesis → stage_output。
     """
 
-    def __init__(self, pipeline, runtime_params, device: str, function: str = "vc"):
+    def __init__(self, pipeline, runtime_params, function: str = "vc"):
         self.pipeline = pipeline
         self.runtime_params = runtime_params
 
-        # 共享 EngineState（pipeline 创建并持有）
+        # 共享 EngineState（pipeline 创建并持有，device/is_half 已在 pipeline 构造时设置）
         self.state = pipeline.state
-        self.state.device = device
         self.state.function = function
 
         # 单块上下文（复用实例，每块 reset()）
@@ -180,6 +168,8 @@ class InferenceRunner:
         state = self.state
         ctx = self.ctx
         t0 = time.perf_counter()
+        # 热读 runtime_params：GUI 线程可能正在写，但 CPython float 赋值原子，
+        # 读到旧值或新值都安全（最多影响当前块 RMS 混合比例，不会崩溃）。
         p_rms_mix = self.runtime_params.rms_mix
 
         with torch.no_grad():
@@ -189,8 +179,7 @@ class InferenceRunner:
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
             if state.function == "vc" and self.pipeline:
-                # ctx 生命周期由 runner 管理，每块开始时重置（pipeline 不再负责 reset）
-                ctx.reset(self.runtime_params, state.block_samples_16k, state.block_samples)
+                ctx.reset(self.runtime_params)
                 feats = self.pipeline.extract_features(
                     state.input_wav_16k, self.runtime_params,
                     state.block_samples_16k, state.skip_head, state.return_length,
@@ -216,18 +205,15 @@ class InferenceRunner:
 
             # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
             infer = self._stage_formant(infer)
-            ctx.formanted_audio = infer
 
             # ── stage_output：RMS + SOLA + 硬件输出 ──
             ref = state.input_wav_48k[state.extra_samples:]
             chunk = self.effects.process_output(
                 infer, ref, p_rms_mix, state.function == "vc",
             )
-            ctx.final_output = chunk
 
             # 硬件输出（写入 outdata）
             write_main_output(chunk, outdata, state.channels)
-            ctx.output_np = outdata
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 

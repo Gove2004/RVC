@@ -8,12 +8,12 @@ float32 numpy 数组。这是"数据加载"，不是"文件读写"。
 - wav_file.py:   WAV 文件结构化读写（写 FLOAT32/PCM16，读元信息）
 """
 import logging
-from rvc.core.errors import AudioLoadError
 import subprocess
 from pathlib import Path
 
 import numpy as np
 
+from rvc.core.errors import AudioLoadError
 from rvc.runtime.paths import FFMPEG_EXE
 
 logger = logging.getLogger(__name__)
