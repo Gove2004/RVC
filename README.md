@@ -139,6 +139,18 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `gui/infer/` | 推理 GUI：window.py（装配）/lifecycle.py（生命周期）/页签 + 引擎/设备/离线控制器 + 遥测快照 + 参数绑定 |
 | `gui/train/` | 训练 GUI：窗口/页签 + TrainController + 训练工作线程 + 训练状态 |
 
+## 设计决策（为什么）
+
+- **训练数据集用 `NamedTuple` 而非 dataclass** — DataLoader 的 `pin_memory=True` 只对 namedtuple 逐元素重建并钉页（torch 内部按 `_fields` 识别）；dataclass 会被原样返回导致钉页**静默失效**，`non_blocking` 拷贝语义随之漂移。
+- **`load_model` 入口无条件清 F0 提取器的 CUDA Graph 缓存**（含命中缓存快路径）— 图内编译的是旧张量地址；且离线场景 `inference_cache=None` 时管线内部回退到全局 `default_inference_cache`，因此对「显式 cache 或全局单例」统一清理，避免离线切模型残留旧图。
+- **CUDA Graph：张量走参数、标量走闭包** — 捕获/回放要求张量地址静态，标量（`skip_head` 等）若作为参数传入会用外部变量地址而非静态地址，导致声音沙哑/失真；`return_length2` 随 formant 变化、经闭包编译进图，故必须进 `graph_key`，否则错误命中旧图（输出长度错误、爆音）。
+- **F0 每块从完整缓冲区重提取（取前 p_len 帧）** — 旧滚动缓存方案的 F0 窗口与 HuBERT 输入窗口长度不同会错位；现在两路输入完全一致、帧天然对齐，取前 p_len 帧是特征侧（upsample 后取前 p_len 帧）的对齐要求。
+- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。
+- **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
+- **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，改成实例归属会破坏跨管线复用。
+- **八层单向依赖（`gui/autodl → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
+- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 30） — 提升可读性而不改数值行为；`crossfade_time=0.04` 是 dataclass 字段默认值而非算法常数，故不具名化。
+
 ## 云训练
 
 详见 `autodl/` 包。交互式向导自动完成环境检查、参数配置、预处理、F0/特征提取、训练全流程，支持断点续训。ffmpeg 定位结果显式贯穿全部步骤（无进程内全局重定向）。
