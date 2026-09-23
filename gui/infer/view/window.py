@@ -179,8 +179,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         # 1. BINDINGS 表中的所有控件
         for path, widget, kind in BINDINGS:
-            if not widget or not hasattr(self, widget):
-                continue
             w = getattr(self, widget)
             if kind == FLOAT:
                 # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，
@@ -198,28 +196,25 @@ class MainWindow(WindowLifecycle, QMainWindow):
                 w.toggled.connect(lambda _: self._on_sr_mode_changed())
 
         # 2. RangeSlider（音域映射）— rangeChanged 信号
-        if hasattr(self, "pitch_map_src_range"):
-            def _on_src_range(low, high):
-                self.runtime_params.voice.pitch_map_src_min = float(low)
-                self.runtime_params.voice.pitch_map_src_max = float(high)
-            self.pitch_map_src_range.rangeChanged.connect(_on_src_range)
+        def _on_src_range(low, high):
+            self.runtime_params.voice.pitch_map_src_min = float(low)
+            self.runtime_params.voice.pitch_map_src_max = float(high)
+        self.pitch_map_src_range.rangeChanged.connect(_on_src_range)
 
-        if hasattr(self, "pitch_map_dst_range"):
-            def _on_dst_range(low, high):
-                self.runtime_params.voice.pitch_map_dst_min = float(low)
-                self.runtime_params.voice.pitch_map_dst_max = float(high)
-            self.pitch_map_dst_range.rangeChanged.connect(_on_dst_range)
+        def _on_dst_range(low, high):
+            self.runtime_params.voice.pitch_map_dst_min = float(low)
+            self.runtime_params.voice.pitch_map_dst_max = float(high)
+        self.pitch_map_dst_range.rangeChanged.connect(_on_dst_range)
 
         # 3. F0 阈值滑动条 — 根据当前 F0 方法更新对应字段
         # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，必须读取 slider.value()
-        if hasattr(self, "f0_threshold_slider"):
-            def _on_f0_threshold(_v, slider=self.f0_threshold_slider):
-                val = slider.value()
-                if self.runtime_params.f0.method == "rmvpe":
-                    self.runtime_params.f0.rmvpe_threshold = val
-                else:
-                    self.runtime_params.f0.fcpe_confidence_threshold = val
-            self.f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
+        def _on_f0_threshold(_v, slider=self.f0_threshold_slider):
+            val = slider.value()
+            if self.runtime_params.f0.method == "rmvpe":
+                self.runtime_params.f0.rmvpe_threshold = val
+            else:
+                self.runtime_params.f0.fcpe_confidence_threshold = val
+        self.f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
 
     def _on_sr_mode_changed(self):
         """采样率模式切换时，更新 runtime_params.audio.sr_mode。"""

@@ -115,7 +115,11 @@ def _locate_ffmpeg() -> tuple[str, str]:
     system_ffmpeg = shutil.which("ffmpeg")
     if system_ffmpeg:
         return system_ffmpeg, "系统 PATH"
-    if os.name == "nt" and local_exe.exists():
+    # 第三级：项目内只随包提供 Windows 版 ffmpeg.exe，故此处**有意**限定 Windows
+    # （os.name == "nt"），非 Windows 平台交给系统 PATH / RVC_FFMPEG 处理。
+    # 见《功能基线清单》§11.9：保持 Windows 硬编码，禁止改为跨平台判断。
+    on_windows = os.name == "nt"
+    if on_windows and local_exe.exists():
         return str(local_exe), "项目内 assets/ffmpeg/ffmpeg.exe"
     return "", ""
 

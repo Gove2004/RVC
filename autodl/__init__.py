@@ -47,18 +47,26 @@ NATIVE_EXTS = {".wav", ".flac", ".ogg"}
 EXIT_OK, EXIT_ENV, EXIT_RUNTIME = 0, 1, 2
 BAR = "─" * 66
 
-# 向导交互默认值（D6 单源：能对上 dataclass 的项从 rvc.core.config 取；
-# epochs/sr 展示默认与训练配置字面不同，属 UI 展示现状，保留字面量并注明）
+# 向导交互默认值（D6 单源：能对上 dataclass 的项从 rvc.core.config 取）。
+# §11.4 / §11.5：三层对外默认各自独立、**取值一律不变**；下面的具名常量只做「消除魔法数字」，
+# 不改变任何默认值：
+#   · epochs     —— 向导 250 / GUI 200 / TrainConfig.epochs 2000（三者不得统一）
+#   · save_every —— 向导 20  / TrainConfig.save_every_epoch 200（二者不得统一）
+#   · per        —— 切片时长固定 3.7s（展示现状）
+WIZARD_EPOCHS_DEFAULT = 250
+WIZARD_SAVE_EVERY_DEFAULT = 20
+WIZARD_SLICE_PERIOD_DEFAULT = 3.7
+
 # TrainConfig.exp_dir 为必填项，不可实例化，故直接读字段默认值
 _TC_FIELD = TrainConfig.__dataclass_fields__
 DEFAULTS = {
     "exp": "test",
     "sr": "48k",
-    "epochs": 250,  # 向导展示默认（与 TrainConfig.epochs=2000 / GUI 200 的差异为展示现状）
+    "epochs": WIZARD_EPOCHS_DEFAULT,
     "lr": _TC_FIELD["learning_rate"].default,
-    "save_every": 20,
+    "save_every": WIZARD_SAVE_EVERY_DEFAULT,
     "keep_ckpts": _TC_FIELD["keep_ckpts"].default,
-    "per": 3.7,
+    "per": WIZARD_SLICE_PERIOD_DEFAULT,
     "keep_models": _TC_FIELD["keep_models"].default,
     "hubert": HUBERT_DEFAULT,
     "use_pretrained": True,

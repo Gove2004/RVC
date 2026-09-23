@@ -105,7 +105,6 @@ def _browse_model(win):
     path, _ = QFileDialog.getOpenFileName(win, "选择模型", str(win.controller.models_dir), "模型 (*.pth)")
     if path:
         win.model_path = path
-        if hasattr(win, 'runtime_params'):
-            win.runtime_params.model_path = path
+        win.runtime_params.model_path = path
         win.model_path_btn.setText(Path(path).name)
         win.model_path_btn.setToolTip(path)

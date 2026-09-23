@@ -36,7 +36,7 @@ class WindowLifecycle:
         self.apply_gui_state(state)
 
         # 模型路径按钮：根据 win.model_path 更新显示文件名
-        if hasattr(self, "model_path") and self.model_path:
+        if self.model_path:
             from pathlib import Path
 
             self.model_path_btn.setText(Path(self.model_path).name)
@@ -129,7 +129,7 @@ class WindowLifecycle:
             self._start()
 
     def _start(self):
-        pth = self.model_path.strip() if hasattr(self, 'model_path') else ''
+        pth = self.model_path.strip()
 
         if not pth:
             self._show_warning("请先在参数调节中选择模型文件")

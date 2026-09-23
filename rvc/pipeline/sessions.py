@@ -108,7 +108,6 @@ class ModelSessions:
         synthesizers = [
             bundle.synthesizer
             for bundle in self.inference_cache.synthesizer_bundles()
-            if hasattr(bundle, "synthesizer")
         ]
         if self._current_session is not None:
             synthesizers.extend(

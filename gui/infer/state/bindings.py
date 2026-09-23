@@ -142,8 +142,7 @@ def _set(win, widget, kind, value):
         slider = getattr(win, widget)
         slider.setValue(float(value))
         # 手动刷新标签：控件未显示时 setValue 可能不触发 valueChanged
-        if hasattr(slider, "_update_label"):
-            slider._update_label()
+        slider._update_label()
     elif kind == COMBO:
         idx = getattr(win, widget).findText(str(value))
         if idx >= 0:
@@ -175,8 +174,7 @@ def apply_params(win, params: InferenceParams) -> None:
     val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
     slider = win.f0_threshold_slider
     slider.setValue(val)
-    if hasattr(slider, "_update_label"):
-        slider._update_label()
+    slider._update_label()
     win.f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
 
     # 音域映射 RangeSlider
