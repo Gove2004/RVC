@@ -38,13 +38,12 @@ class InferenceRunner:
     → stage_synthesis → stage_output。
     """
 
-    def __init__(self, pipeline, runtime_params, function: str = "vc"):
+    def __init__(self, pipeline, runtime_params):
         self.pipeline = pipeline
         self.runtime_params = runtime_params
 
         # 共享 EngineState（pipeline 创建并持有，device/is_half 已在 pipeline 构造时设置）
         self.state = pipeline.state
-        self.state.function = function
 
         # 单块上下文（复用实例，每块 reset()）
         self.ctx = pipeline.ctx
@@ -178,7 +177,7 @@ class InferenceRunner:
             self._stage_preprocess(mono)
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
-            if state.function == "vc" and self.pipeline:
+            if self.pipeline:
                 ctx.reset(self.runtime_params)
                 feats = self.pipeline.extract_features(
                     state.input_wav_16k, self.runtime_params,
@@ -208,9 +207,7 @@ class InferenceRunner:
 
             # ── stage_output：RMS + SOLA + 硬件输出 ──
             ref = state.input_wav_48k[state.extra_samples:]
-            chunk = self.effects.process_output(
-                infer, ref, p_rms_mix, state.function == "vc",
-            )
+            chunk = self.effects.process_output(infer, ref, p_rms_mix)
 
             # 硬件输出（写入 outdata）
             write_main_output(chunk, outdata, state.channels)

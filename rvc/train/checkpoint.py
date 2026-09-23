@@ -36,6 +36,7 @@ def load_checkpoint(path: str, model, optimizer=None):
     一致），但跳过会打 warning——旧版零提示，续训结构不匹配时静默产生
     半随机模型，排查困难。
     """
+    # 安全前提：训练 checkpoint 由本流程 torch.save 产出，来源可信，故 weights_only=False。
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     saved_state = checkpoint["model"]
     model_state = model.state_dict()
@@ -129,6 +130,7 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
 
 
 def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
+    # 安全前提：两个待合并模型均由用户提供或本流程导出，来源可信，故 weights_only=False。
     ckpt_a = torch.load(path_a, map_location="cpu", weights_only=False)
     ckpt_b = torch.load(path_b, map_location="cpu", weights_only=False)
     if ckpt_a["config"] != ckpt_b["config"]:
@@ -166,6 +168,7 @@ def _zip_archive_name(path: str):
 
 
 def inspect_model(path: str) -> str:
+    # 安全前提：仅检视用户提供的模型文件，来源可信，故 weights_only=False。
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     lines = []
     archive = _zip_archive_name(path)
@@ -222,6 +225,7 @@ def change_archive_name(path: str, new_name: str) -> str:
 
 
 def change_model_info(path: str, model_info: str) -> None:
+    # 安全前提：仅改写用户提供的模型文件，来源可信，故 weights_only=False。
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     ckpt["info"] = re.sub(r"\.pth$", "", model_info, flags=re.I).strip()
     archive = _zip_archive_name(path)

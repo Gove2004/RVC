@@ -1,12 +1,9 @@
 """音频效果器 — RMS 混合 / SOLA 时间对齐，统一 torch.Tensor（GPU）接口。
 
 VoiceEngine._cb 不再直接调用各底层函数，而是通过 AudioProcessor 编排：
-  输出侧：process_output(infer, ref, ...) → RMS 混合 → SOLA → 清辅音保护
+  输出侧：process_output(infer, ref, ...) → RMS 混合 → SOLA
 
 所有效果器在 setup() 时初始化（与 _init_processing 同时），process() 时零分配。
-
-清辅音保护的 pitchf 截取封装在 AudioProcessor 内部（_extract_pitchf_from_cache），
-调用方只传 pitchf_cache，不需要自己截取对应帧。
 """
 import logging
 
@@ -79,17 +76,15 @@ class SolaEffect:
 class AudioProcessor:
     """音频处理编排器 — 持有 RMS / SOLA 两个效果器，统一 setup/process/reset。
 
-    输出侧（推理后）：RMS 混合 → SOLA → 清辅音保护
+    输出侧（推理后）：RMS 混合 → SOLA
     """
 
     def __init__(self):
         self.rms_mix = RmsMixEffect()
         self.sola = SolaEffect()
-        self.sr = 48000
 
     def setup(self, sr: int, block_samples: int, sola_buffer_samples: int,
               sola_search_samples: int, device: str):
-        self.sr = sr
         self.rms_mix.setup(sr)
         self.sola.setup(sr, block_samples, sola_buffer_samples, sola_search_samples, device)
 
@@ -98,11 +93,7 @@ class AudioProcessor:
         self.sola.reset()
 
 
-    def process_output(self, infer, ref, rms_mix, is_vc=True):
-        """输出侧处理：RMS 混合 → SOLA 拼接。
-
-        is_vc=False（直通模式）时跳过 RMS 混合。
-        """
-        if is_vc:
-            infer = self.rms_mix.process(infer, ref, rms_mix)
+    def process_output(self, infer, ref, rms_mix):
+        """输出侧处理：RMS 混合 → SOLA 拼接。"""
+        infer = self.rms_mix.process(infer, ref, rms_mix)
         return self.sola.process(infer)

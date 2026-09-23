@@ -105,9 +105,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def _show_error(self, message: str) -> None:
         QMessageBox.critical(self, "错误", message)
 
-    def _show_info(self, message: str) -> None:
-        QMessageBox.information(self, "提示", message)
-
     # ── 窗口装配 ──
 
     def _build_ui(self):

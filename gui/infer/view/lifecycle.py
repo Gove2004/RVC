@@ -168,7 +168,7 @@ class WindowLifecycle:
 
         self._loading = True
 
-        self.controller.begin_load(None)
+        self.controller.begin_load()
         self._mark_loading()
         self._lt = LoadThread(self.engine, pth, hubert)
         self._lt.ok.connect(self._on_loaded)

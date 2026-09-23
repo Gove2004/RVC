@@ -4,7 +4,6 @@
 - ModelLoadError → 弹窗提示 + 保留旧模型
 - AudioDeviceError → 提示切换设备
 - InferenceError → 停止推理 + 显示错误
-- ConfigError → 配置校验失败提示
 """
 
 
@@ -30,10 +29,6 @@ class F0ExtractionError(InferenceError):
 
 class FeatureExtractionError(InferenceError):
     """HuBERT 特征提取失败。"""
-
-
-class ConfigError(RVCError):
-    """配置错误（参数越界/缺失/格式错误）。"""
 
 
 class AudioLoadError(RVCError):

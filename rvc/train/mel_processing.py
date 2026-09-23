@@ -6,8 +6,6 @@ import torch
 
 from rvc.dsp.mel import mel_filter_bank
 
-MAX_WAV_VALUE = 32768.0
-
 mel_basis = {}
 hann_window = {}
 
@@ -16,16 +14,8 @@ def dynamic_range_compression_torch(x, c=1, clip_val=1e-5):
     return torch.log(torch.clamp(x, min=clip_val) * c)
 
 
-def dynamic_range_decompression_torch(x, c=1):
-    return torch.exp(x) / c
-
-
 def spectral_normalize_torch(magnitudes):
     return dynamic_range_compression_torch(magnitudes)
-
-
-def spectral_de_normalize_torch(magnitudes):
-    return dynamic_range_decompression_torch(magnitudes)
 
 
 def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False):

@@ -37,7 +37,6 @@ class VoiceEngine:
         self.on_runtime_error = on_runtime_error
         self.pipeline = None
         self.running = False
-        self.function = "vc"
 
         # 子组件
         self._streams = AudioStreams()
@@ -149,7 +148,7 @@ class VoiceEngine:
             sr_model: 模型目标采样率
             reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
         """
-        self._runner = InferenceRunner(self.pipeline, self.runtime_params, self.function)
+        self._runner = InferenceRunner(self.pipeline, self.runtime_params)
         self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
         self._runner.reset_error_state()
         # 预热 30 次：2 次只够捕获 CUDA Graph，不足以让 GPU 升频/缓存预热。
@@ -229,7 +228,6 @@ class VoiceEngine:
 
         # 原地更新 runtime_params 字段（不替换对象引用，已创建的 runner 自动生效）
         self.runtime_params.update_from(task)
-        self.function = "vc"
 
         # 从 task 中读取缓冲区参数，与实时 setup 保持一致
         block_t = task.buffer.block_time

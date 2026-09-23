@@ -46,6 +46,7 @@ class SynthesizerLoader:
 
     def _load_pytorch(self, pth_path):
         """加载标准 PyTorch Synthesizer。"""
+        # 安全前提：用户自备或官方导出的 .pth 模型文件，来源可信，故 weights_only=False。
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
         target_sr = ckpt["config"][-1]
         use_f0 = ckpt.get("f0", 1)

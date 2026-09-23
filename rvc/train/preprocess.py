@@ -190,10 +190,6 @@ def clear_exp_runtime(exp_dir: str | Path):
                 path.unlink()
 
 
-def manifest_matches(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float):
-    return not manifest_diff_reason(exp_dir, input_dir, sr, per)
-
-
 def manifest_diff_reason(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float) -> str:
     """返回预处理指纹与当前素材不一致的原因；一致时返回空串。"""
     manifest_path = Path(exp_dir) / _MANIFEST_NAME

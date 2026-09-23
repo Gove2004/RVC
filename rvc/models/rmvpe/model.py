@@ -33,6 +33,7 @@ class RMVPE:
 
     def _load_model(self, model_path: str, is_half: bool):
         model = E2E(4, 1, (2, 2))
+        # 安全前提：RMVPE 权重为随仓库分发的官方资产（assets/rmvpe/rmvpe.pt），来源可信，故 weights_only=False。
         ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt)
         model.eval()

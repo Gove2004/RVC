@@ -32,9 +32,8 @@ class InferController:
         self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
         self._engine_lock = threading.Lock()  # 防预热线程与主线程并发构造双实例
         self.on_runtime_error = on_runtime_error
-        # 加载线程状态（由 window 层管理 LoadThread，本类只提供业务回调）
+        # 加载状态（由 window 层管理 LoadThread，本类只提供业务回调）
         self._loading = False
-        self._load_thread = None
 
     @property
     def engine(self):
@@ -113,20 +112,16 @@ class InferController:
         """停止推理（停止引擎 + 重置加载状态）。"""
         self.stop()
         self._loading = False
-        if self._load_thread is not None:
-            self._load_thread = None
 
     # ── 加载线程管理 ──
 
-    def begin_load(self, load_thread) -> None:
+    def begin_load(self) -> None:
         """标记开始加载模型（由 window 层创建 LoadThread 后调用）。"""
         self._loading = True
-        self._load_thread = load_thread
 
     def end_load(self) -> None:
         """标记加载结束（LoadThread finished 时调用）。"""
         self._loading = False
-        self._load_thread = None
 
     # ── 错误处理 ──
 

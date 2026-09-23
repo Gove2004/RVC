@@ -103,6 +103,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             and spec_path.stat().st_mtime >= wav_mtime
         )
         if cache_valid:
+            # 安全前提：spec 缓存由本进程 torch.save 就近写出，来源可信，故 weights_only=False。
             spec = torch.load(spec_path, map_location="cpu", weights_only=False)
         else:
             spec = spectrogram_torch(

@@ -40,7 +40,6 @@ class EngineState:
     device: str = "cuda"
     is_half: bool = True
     sid: int = 0
-    function: str = "vc"
 
     # ── 48kHz 滚动缓冲区（引擎层）──
     input_wav_48k: torch.Tensor | None = None

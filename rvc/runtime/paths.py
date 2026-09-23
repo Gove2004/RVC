@@ -35,7 +35,6 @@ TRAIN_LOGS_ROOT = PROJECT_ROOT / "logs"
 
 # ── ffmpeg（Windows 专用二进制，git 忽略）──
 FFMPEG_EXE = ASSETS_ROOT / "ffmpeg" / "ffmpeg.exe"
-FFPROBE_EXE = ASSETS_ROOT / "ffmpeg" / "ffprobe.exe"
 
 # ── 程序资源（png 随仓库跟踪）──
 RESOURCES_DIR = ASSETS_ROOT / "resources"

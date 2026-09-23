@@ -28,7 +28,6 @@ def _build_dataset_group(win) -> QGroupBox:
     grid.setHorizontalSpacing(6)
     grid.setVerticalSpacing(6)
 
-    _state_defaults = TrainGuiState()  # 控件初值与状态默认同源（D6）
     win.exp_name = QLineEdit("exp01")
     win.input_dir = QLineEdit()
     browse = QPushButton("浏览")

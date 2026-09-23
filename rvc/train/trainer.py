@@ -105,10 +105,12 @@ class Trainer:
             self.log(f"恢复训练: epoch {self.start_epoch}（G={Path(latest_g).name} D={Path(latest_d).name}）")
         else:
             if self.cfg.pretrain_g:
+                # 安全前提：预训练 G 为随仓库分发的官方资产，来源可信，故 weights_only=False。
                 state = torch.load(self.cfg.pretrain_g, map_location="cpu", weights_only=False)
                 self.synthesizer.load_state_dict(state["model"], strict=False)
                 self.log("加载预训练 G")
             if self.cfg.pretrain_d:
+                # 安全前提：预训练 D 为随仓库分发的官方资产，来源可信，故 weights_only=False。
                 state = torch.load(self.cfg.pretrain_d, map_location="cpu", weights_only=False)
                 self.net_d.load_state_dict(state["model"], strict=False)
                 self.log("加载预训练 D")
