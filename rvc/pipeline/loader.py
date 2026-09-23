@@ -61,6 +61,6 @@ class SynthesizerLoader:
         if self.is_half:
             synthesizer.half()
 
-        # CUDA Graph 已在 Config 初始化时探测，此处不再重复
+        # CUDA Graph 已在 RuntimeDeviceConfig 初始化时探测，此处不再重复
 
         return SynthesizerBundle(synthesizer, target_sr, use_f0)

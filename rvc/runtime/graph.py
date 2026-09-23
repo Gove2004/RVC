@@ -11,7 +11,7 @@ GC 可能延迟回收。此时新捕获的图可能复用旧静态张量的内�
 
 为什么用 RuntimeOptions 显式对象而非环境变量：旧实现以 RVC_CUDA_GRAPH /
 RVC_CUDA_GRAPH_MAX_CACHE 环境变量做进程内通信，模块 import 顺序敏感、
-可测试性差。开关现在由 device.Config 持有并一次性下发到本模块
+可测试性差。开关现在由 device.RuntimeDeviceConfig 持有并一次性下发到本模块
 （configure_cuda_graph），调用方一律经 run_cuda_graph/cuda_graph_enabled
 读取，不再触碰进程环境。
 """
@@ -33,7 +33,7 @@ class RuntimeOptions:
     graph_cache_size: int = DEFAULT_GRAPH_CACHE_SIZE
 
 
-# 进程内唯一选项实例：仅由 configure_cuda_graph 写入（Config 初始化时调用一次），
+# 进程内唯一选项实例：仅由 configure_cuda_graph 写入（RuntimeDeviceConfig 初始化时调用一次），
 # 其余代码只读。显式单点写入优于散落的环境变量读写。
 _active_options: RuntimeOptions | None = None
 

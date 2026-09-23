@@ -59,10 +59,10 @@ class TrainWorker(QThread):
     def _run_impl(self):
         # 惰性导入：rvc.train.* 顶层 import torch，放在线程内避免拖慢 GUI 启动
         # 各步骤方法（_step_*）内部自行导入所需类，这里只导入 _run_impl 本身用到的
-        from rvc.runtime import Config
+        from rvc.runtime import RuntimeDeviceConfig
         from rvc.train.preprocess import manifest_diff_reason
 
-        config = Config()
+        config = RuntimeDeviceConfig()
         exp_dir = TRAIN_LOGS_ROOT / self.options["exp_name"]
         exp_dir.mkdir(parents=True, exist_ok=True)
         # 采样率来自 GUI（"40k"/"48k"），统一走 parse_sr

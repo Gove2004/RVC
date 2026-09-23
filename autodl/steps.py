@@ -185,12 +185,12 @@ def step_train(log: TrainLogger, cfg: dict):
     def on_batch(epoch, batch, total):
         state["batches"] += 1
 
-    def on_loss(info):
-        if info["batch"] == 1:
+    def on_loss(loss_report):
+        if loss_report["batch"] == 1:
             _reset_epoch()
         s = state["sum"]
         for key, field in (("d", "loss_d"), ("g", "loss_g"), ("mel", "loss_mel"), ("kl", "loss_kl"), ("fm", "loss_fm")):
-            s[key] += info[field]
+            s[key] += loss_report[field]
         state["count"] += 1
 
     def on_epoch(epoch, total):

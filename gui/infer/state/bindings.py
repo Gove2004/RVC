@@ -62,7 +62,7 @@ def _set_nested(obj, path: str, value):
     setattr(obj, parts[-1], value)
 
 
-def params_from_dict(data: dict) -> InferenceParams:
+def params_from_dict(state: dict) -> InferenceParams:
     """从分组 dict 构造 InferenceParams。
 
     格式：{"voice": {...}, "f0": {...}, "buffer": {...}, "audio": {...},
@@ -70,10 +70,10 @@ def params_from_dict(data: dict) -> InferenceParams:
     缺省值取 InferenceParams 默认（D6 单源）。
     """
     params = InferenceParams()
-    voice = data.get("voice", {})
-    f0 = data.get("f0", {})
-    buf = data.get("buffer", {})
-    aud = data.get("audio", {})
+    voice = state.get("voice", {})
+    f0 = state.get("f0", {})
+    buf = state.get("buffer", {})
+    aud = state.get("audio", {})
 
     params.voice.formant = voice.get("formant", _DEFAULTS.voice.formant)
     params.voice.pitch_map_src_min = voice.get("pitch_map_src_min", _DEFAULTS.voice.pitch_map_src_min)
@@ -96,9 +96,9 @@ def params_from_dict(data: dict) -> InferenceParams:
     params.audio.output2_device = aud.get("output2_device", _DEFAULTS.audio.output2_device)
     params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
 
-    params.rms_mix = data.get("rms_mix", _DEFAULTS.rms_mix)
-    params.model_path = data.get("model_path", _DEFAULTS.model_path)
-    params.hubert = data.get("hubert", _DEFAULTS.hubert)
+    params.rms_mix = state.get("rms_mix", _DEFAULTS.rms_mix)
+    params.model_path = state.get("model_path", _DEFAULTS.model_path)
+    params.hubert = state.get("hubert", _DEFAULTS.hubert)
     return params
 
 

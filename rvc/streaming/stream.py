@@ -21,7 +21,7 @@ from rvc.core.errors import AudioDeviceError
 logger = logging.getLogger(__name__)
 
 
-class AudioStreamManager:
+class AudioStreams:
     """音频流管理器 — 管理 sounddevice 输入/输出/副输出流。"""
 
     def __init__(self):
@@ -49,41 +49,41 @@ class AudioStreamManager:
         Returns:
             channels: 最小通道数（min(输入, 输出, 2)）
         """
-        in_info = self.query_device(in_dev)
-        out_info = self.query_device(out_dev)
-        in_max = int(in_info["max_input_channels"])
-        out_max = int(out_info["max_output_channels"])
+        input_record = self.query_device(in_dev)
+        output_record = self.query_device(out_dev)
+        in_max = int(input_record["max_input_channels"])
+        out_max = int(output_record["max_output_channels"])
 
         if in_max <= 0:
             raise AudioDeviceError(
                 f"输入设备不支持录音（max_input_channels={in_max}）："
-                f"索引 {in_dev}「{in_info.get('name', '?')}」。请在设备设置中选择支持输入的设备。"
+                f"索引 {in_dev}「{input_record.get('name', '?')}」。请在设备设置中选择支持输入的设备。"
             )
         if out_max <= 0:
             raise AudioDeviceError(
                 f"输出设备不支持播放（max_output_channels={out_max}）："
-                f"索引 {out_dev}「{out_info.get('name', '?')}」。请在设备设置中选择支持输出的设备。"
+                f"索引 {out_dev}「{output_record.get('name', '?')}」。请在设备设置中选择支持输出的设备。"
             )
 
         self.channels = min(in_max, out_max, 2)
 
         logger.info("音频设备：")
-        logger.info("  · 麦克风：%s", in_info.get('name', '?'))
-        logger.info("  · 主输出：%s", out_info.get('name', '?'))
+        logger.info("  · 麦克风：%s", input_record.get('name', '?'))
+        logger.info("  · 主输出：%s", output_record.get('name', '?'))
 
         if out2_dev_idx is not None:
-            out2_info = self.query_device(out2_dev_idx)
-            logger.info("  · 副输出：%s", out2_info.get('name', f"#{out2_dev_idx}"))
+            secondary_record = self.query_device(out2_dev_idx)
+            logger.info("  · 副输出：%s", secondary_record.get('name', f"#{out2_dev_idx}"))
 
         return self.channels
 
     def validate_secondary_output(self, dev_idx: int, channels: int) -> None:
         """校验副输出设备通道数。"""
-        out2_info = self.query_device(dev_idx)
-        out2_max = int(out2_info["max_output_channels"])
+        secondary_record = self.query_device(dev_idx)
+        out2_max = int(secondary_record["max_output_channels"])
         if out2_max < channels:
             raise AudioDeviceError(
-                f"副输出设备「{out2_info.get('name', '?')}」只支持 {out2_max} 通道，"
+                f"副输出设备「{secondary_record.get('name', '?')}」只支持 {out2_max} 通道，"
                 f"但主输出使用 {channels} 通道。请选择支持至少 {channels} 通道的副输出设备。"
             )
 
@@ -130,10 +130,10 @@ class AudioStreamManager:
 
         device = (in_dev, out_dev) if (in_dev is not None and out_dev is not None) else None
 
-        def _wrapped_callback(indata, outdata, frames, time_info, status):
+        def _wrapped_callback(indata, outdata, frames, audio_clock, status):
             if status:
                 self._handle_stream_error(status)
-            callback(indata, outdata, frames, time_info, status)
+            callback(indata, outdata, frames, audio_clock, status)
 
         self.stream = sd.Stream(
             callback=_wrapped_callback,
@@ -156,7 +156,7 @@ class AudioStreamManager:
         """
         self.validate_secondary_output(dev_idx, channels)
 
-        def out2_callback(outdata, frames, time_info, status):
+        def out2_callback(outdata, frames, audio_clock, status):
             if status:
                 self._handle_stream_error(status, prefix="out2")
             if not self.out2_q.empty():

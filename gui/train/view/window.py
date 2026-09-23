@@ -196,7 +196,7 @@ class TrainWindow(QMainWindow):
         speed = f"{it_s:.1f} it/s" if it_s > 0 else "-"
         self.epoch_label.setText(f"Epoch: {epoch} / {self.worker.options['epochs']} · Batch {batch}/{total} · {speed}{eta_text}")
 
-    def on_loss(self, data: dict):
+    def on_loss(self, loss_report: dict):
         # 每 batch 都会收到信号，这里做 150ms 节流防止高频刷新 UI
         now = time.monotonic()
         if now - getattr(self, "_last_loss_t", 0.0) < 0.15:
@@ -204,10 +204,10 @@ class TrainWindow(QMainWindow):
         self._last_loss_t = now
         text = (
             "Loss: "
-            f"D {data['loss_d']:.4f} | G {data['loss_g']:.4f} | "
-            f"Mel {data['loss_mel']:.4f} | KL {data['loss_kl']:.4f} | FM {data['loss_fm']:.4f}"
+            f"D {loss_report['loss_d']:.4f} | G {loss_report['loss_g']:.4f} | "
+            f"Mel {loss_report['loss_mel']:.4f} | KL {loss_report['loss_kl']:.4f} | FM {loss_report['loss_fm']:.4f}"
         )
-        total = data.get("loss_total")
+        total = loss_report.get("loss_total")
         if total is not None:
             text += f" | 总 {total:.4f}"
         if text != self._last_loss_text:

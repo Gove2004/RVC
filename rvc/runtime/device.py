@@ -9,7 +9,7 @@ from rvc.runtime.graph import RuntimeOptions, configure_cuda_graph
 logger = logging.getLogger(__name__)
 
 
-class Config:
+class RuntimeDeviceConfig:
     """全局设备配置"""
     _instance = None
     _lock = threading.Lock()

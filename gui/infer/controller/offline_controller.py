@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class OfflineManager:
+class OfflineConversion:
     """管理离线音频文件转换流程。"""
 
     def __init__(self, window: "MainWindow"):

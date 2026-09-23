@@ -2,7 +2,7 @@
 
 VoiceEngine 作为门面（Facade），内部委托给子组件：
 
-- AudioStreamManager: 设备/流管理（PortAudio 封装）
+- AudioStreams: 设备/流管理（PortAudio 封装）
 - InferenceRunner: 推理调度（缓冲区/推理/效果器）
 - ModelSessions: 模型生命周期（通过 InferencePipeline 间接使用）
 
@@ -21,15 +21,15 @@ import sounddevice as sd
 import torch
 
 from rvc.streaming.runner import InferenceRunner
-from rvc.streaming.stream import AudioStreamManager
+from rvc.streaming.stream import AudioStreams
 from rvc.core.config import InferenceParams
-from rvc.runtime import Config
+from rvc.runtime import RuntimeDeviceConfig
 
 logger = logging.getLogger(__name__)
 
 
 class VoiceEngine:
-    """变声引擎门面 — 委托 AudioStreamManager 管流、InferenceRunner 推理。"""
+    """变声引擎门面 — 委托 AudioStreams 管流、InferenceRunner 推理。"""
 
     def __init__(self, runtime_params: InferenceParams, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params
@@ -40,7 +40,7 @@ class VoiceEngine:
         self.function = "vc"
 
         # 子组件
-        self._stream_mgr = AudioStreamManager()
+        self._streams = AudioStreams()
         self._runner = None  # InferenceRunner（setup 时创建）
 
         # 性能统计（GUI 读取）
@@ -48,7 +48,7 @@ class VoiceEngine:
         self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
 
         # 错误状态由 InferenceRunner 管理（通过属性代理访问）
-        self._cfg = Config()  # 单例缓存，避免多处重复获取
+        self._cfg = RuntimeDeviceConfig()  # 单例缓存，避免多处重复获取
         self.pth_path = ""
         self.sr_model = 0  # 模型目标采样率（setup 时赋值）
         self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
@@ -112,7 +112,7 @@ class VoiceEngine:
 
     def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
         """启动实时变声引擎。"""
-        if self._stream_mgr.stream is not None:
+        if self._streams.stream is not None:
             self.stop()
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
@@ -120,14 +120,14 @@ class VoiceEngine:
         sr = self.pipeline.target_sr if sr_type == "sr_model" else self.sr_dev
 
         # 设备校验与日志
-        self._stream_mgr.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
-        channels = self._stream_mgr.channels
+        self._streams.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
+        channels = self._streams.channels
 
         # 推理运行器初始化（实时模式：预热后重置缓冲区）
         self._create_runner(sr, channels, block_t, cf_t, extra_t, self.pipeline.target_sr, reset_buffers=True)
 
         # 启动主流（显式指定设备，不依赖 sd.default.device）
-        self._stream_mgr.start_main_stream(
+        self._streams.start_main_stream(
             self._cb, sr, channels, self._runner.state.block_samples,
             in_dev=in_dev, out_dev=out_dev,
         )
@@ -164,7 +164,7 @@ class VoiceEngine:
         """启动副输出流。"""
         if self._runner is None:
             raise RuntimeError("请先启动主引擎再设置副输出")
-        self._stream_mgr.start_secondary_output(
+        self._streams.start_secondary_output(
             dev_idx, self._runner.state.work_sr, self._runner.state.channels, self._runner.state.block_samples
         )
 
@@ -173,7 +173,7 @@ class VoiceEngine:
         self.running = False
         if self._runner:
             self._runner.reset_error_state()
-        self._stream_mgr.stop_all()
+        self._streams.stop_all()
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -193,9 +193,9 @@ class VoiceEngine:
             self.infer_ms = self._runner.state.infer_ms
 
             # 副输出路由
-            if self._stream_mgr.enable_out2:
+            if self._streams.enable_out2:
                 self._runner.route_secondary_output(
-                    outdata, self._stream_mgr.stream2, self._stream_mgr.out2_q,
+                    outdata, self._streams.stream2, self._streams.out2_q,
                 )
 
             self._runner.acknowledge_success()

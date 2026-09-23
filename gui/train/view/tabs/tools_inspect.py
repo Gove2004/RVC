@@ -36,14 +36,14 @@ def build_group(win) -> QGroupBox:
     win.inspect_result.setFixedHeight(90)
     grid.addWidget(win.inspect_result, 1, 0, 1, 4)
 
-    win.rename_edit = QLineEdit()
-    win.rename_edit.setPlaceholderText("点击查看后自动填入原名，可修改为新名")
+    win.archive_name_edit = QLineEdit()
+    win.archive_name_edit.setPlaceholderText("点击查看后自动填入原名，可修改为新名")
     btn_rename = QPushButton("修改 zip 原名")
     btn_rename.setFixedWidth(Layout.BTN_WIDTH_SMALL)
     btn_rename.setStyleSheet(ButtonStyles.small())
-    btn_rename.clicked.connect(lambda: _run_rename_zip(win))
+    btn_rename.clicked.connect(lambda: _run_rename_archive(win))
     grid.addWidget(QLabel("zip 原名"), 2, 0)
-    grid.addWidget(win.rename_edit, 2, 1)
+    grid.addWidget(win.archive_name_edit, 2, 1)
     grid.addWidget(btn_rename, 2, 2, 1, 2)
 
     return group
@@ -71,15 +71,15 @@ def _on_inspect_done(win, success, result):
         # 把当前 zip 原名填进改名框，方便直接改
         first = result.splitlines()[0]
         if "真名/模型信息:" in first:
-            win.rename_edit.setText(first.split("真名/模型信息:", 1)[1].strip())
+            win.archive_name_edit.setText(first.split("真名/模型信息:", 1)[1].strip())
     else:
         win.inspect_result.setText("")
         QMessageBox.critical(win, "错误", result)
 
 
-def _run_rename_zip(win):
+def _run_rename_archive(win):
     path = win.inspect_path.text().strip()
-    new_name = win.rename_edit.text().strip()
+    new_name = win.archive_name_edit.text().strip()
     if not path:
         QMessageBox.warning(win, "提示", "请先选择模型文件")
         return

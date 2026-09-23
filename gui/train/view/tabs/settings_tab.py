@@ -16,13 +16,13 @@ def build_settings_tab(win) -> QWidget:
     layout = QVBoxLayout(widget)
     layout.setContentsMargins(8, 8, 8, 8)
     layout.setSpacing(6)
-    layout.addWidget(_build_data_group(win))
+    layout.addWidget(_build_dataset_group(win))
     layout.addWidget(_build_train_group(win))
     layout.addStretch(1)
     return widget
 
 
-def _build_data_group(win) -> QGroupBox:
+def _build_dataset_group(win) -> QGroupBox:
     group = QGroupBox("数据设置")
     grid = QGridLayout(group)
     grid.setHorizontalSpacing(6)

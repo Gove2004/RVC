@@ -17,11 +17,11 @@ import numpy as np
 from rvc.io.audio_file import resolve_ffmpeg
 
 
-def write_wav(path: str | Path, data: np.ndarray, samplerate: int, subtype: str = "FLOAT"):
+def write_wav(path: str | Path, samples: np.ndarray, samplerate: int, subtype: str = "FLOAT"):
     """写 WAV 文件。
 
     Args:
-        data: 1D（单声道）或 2D（frames, channels）数组，取值范围 [-1, 1]
+        samples: 1D（单声道）或 2D（frames, channels）数组，取值范围 [-1, 1]
         samplerate: 采样率
         subtype: "FLOAT"（32-bit IEEE float）或 "PCM_16"（16-bit 整数）
 
@@ -33,29 +33,29 @@ def write_wav(path: str | Path, data: np.ndarray, samplerate: int, subtype: str 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if data.ndim == 1:
-        data = data.reshape(-1, 1)
+    if samples.ndim == 1:
+        samples = samples.reshape(-1, 1)
 
-    frames, channels = data.shape
+    frames, channels = samples.shape
 
     if subtype == "FLOAT":
         audio_format = 3  # WAVE_FORMAT_IEEE_FLOAT
         bits_per_sample = 32
-        raw = np.ascontiguousarray(data, dtype=np.float32).tobytes()
+        raw = np.ascontiguousarray(samples, dtype=np.float32).tobytes()
     elif subtype == "PCM_16":
         audio_format = 1  # WAVE_FORMAT_PCM
         bits_per_sample = 16
-        clipped = np.clip(data, -1.0, 1.0)
+        clipped = np.clip(samples, -1.0, 1.0)
         raw = np.ascontiguousarray(clipped * 32767, dtype=np.int16).tobytes()
     else:
         raise ValueError(f"不支持的 subtype: {subtype}（仅支持 FLOAT / PCM_16）")
 
     byte_rate = samplerate * channels * bits_per_sample // 8
     block_align = channels * bits_per_sample // 8
-    data_size = len(raw)
+    pcm_size = len(raw)
 
     # RIFF header (12 bytes)
-    riff_size = 36 + data_size
+    riff_size = 36 + pcm_size
     header = struct.pack("<4sI4s", b"RIFF", riff_size, b"WAVE")
 
     # fmt chunk (24 bytes)
@@ -66,13 +66,13 @@ def write_wav(path: str | Path, data: np.ndarray, samplerate: int, subtype: str 
     )
 
     # data chunk (8 + data)
-    data_chunk = struct.pack("<4sI", b"data", data_size) + raw
+    pcm_chunk = struct.pack("<4sI", b"data", pcm_size) + raw
 
     with open(path, "wb") as f:
-        f.write(header + fmt_chunk + data_chunk)
+        f.write(header + fmt_chunk + pcm_chunk)
 
 
-def read_wav_info(path: str | Path) -> dict:
+def read_wav_metadata(path: str | Path) -> dict:
     """读取 WAV 文件元信息。
 
     Returns:
@@ -91,7 +91,7 @@ def read_wav_info(path: str | Path) -> dict:
             raise ValueError(f"不是有效的 WAV 文件: {path}")
 
         samplerate = channels = bits_per_sample = None
-        data_size = 0
+        pcm_size = 0
 
         while f.tell() < size + 8:
             chunk_header = f.read(8)
@@ -102,15 +102,15 @@ def read_wav_info(path: str | Path) -> dict:
                 (audio_format, channels, samplerate,
                  byte_rate, block_align, bits_per_sample) = struct.unpack("<HHIIHH", f.read(16))
             elif chunk_id == b"data":
-                data_size = chunk_size
+                pcm_size = chunk_size
                 break
             else:
                 f.seek(chunk_size, 1)
 
-        if samplerate is None or data_size == 0:
+        if samplerate is None or pcm_size == 0:
             raise ValueError(f"无法解析 WAV 元信息: {path}")
 
-        frames = data_size // (bits_per_sample // 8) // channels
+        frames = pcm_size // (bits_per_sample // 8) // channels
         duration = frames / samplerate
 
         return {
@@ -122,7 +122,7 @@ def read_wav_info(path: str | Path) -> dict:
         }
 
 
-def read_audio_info(path: str | Path, ffmpeg_path: str | None = None) -> dict:
+def read_audio_metadata(path: str | Path, ffmpeg_path: str | None = None) -> dict:
     """读取任意音频格式的元信息。
 
     WAV 直接解析头（快）；其他格式用 ffmpeg 解析 stderr。
@@ -138,8 +138,8 @@ def read_audio_info(path: str | Path, ffmpeg_path: str | None = None) -> dict:
     ext = path.suffix.lower()
 
     if ext == ".wav":
-        info = read_wav_info(path)
-        return {k: info[k] for k in ("samplerate", "channels", "frames", "duration")}
+        metadata = read_wav_metadata(path)
+        return {k: metadata[k] for k in ("samplerate", "channels", "frames", "duration")}
 
     # 非 WAV：用 ffmpeg 解析
     if ffmpeg_path is None:

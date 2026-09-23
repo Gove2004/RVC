@@ -27,9 +27,9 @@ class WindowLifecycle:
         from gui.infer.state.bindings import params_from_dict
 
         config = load_config()
-        gui_data = config.get("gui", {})
+        saved_params = config.get("gui", {})
 
-        state = params_from_dict(gui_data)
+        state = params_from_dict(saved_params)
         # 原地更新 runtime_params 字段（不替换对象引用，engine/runner 自动生效）
         self.runtime_params.update_from(state)
         # apply_params 把控件值设置为 params 的值

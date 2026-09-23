@@ -25,19 +25,19 @@ class TrainGuiState:
     hubert: str = "chinese"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TrainGuiState":
+    def from_dict(cls, state: dict[str, Any]) -> "TrainGuiState":
         defaults = cls()
         return cls(
-            exp_name=str(data.get("exp_name", defaults.exp_name)),
-            input_dir=str(data.get("input_dir", defaults.input_dir)),
-            sample_rate=str(data.get("sr", defaults.sample_rate)),
-            epochs=int(data.get("epochs", defaults.epochs)),
-            batch_size=int(data.get("batch_size", defaults.batch_size)),
-            save_every=int(data.get("save_every", defaults.save_every)),
-            learning_rate=str(data.get("learning_rate", defaults.learning_rate)),
-            pretrain_g=str(data.get("pretrain_g", defaults.pretrain_g)),
-            pretrain_d=str(data.get("pretrain_d", defaults.pretrain_d)),
-            hubert=str(data.get("hubert", defaults.hubert)),
+            exp_name=str(state.get("exp_name", defaults.exp_name)),
+            input_dir=str(state.get("input_dir", defaults.input_dir)),
+            sample_rate=str(state.get("sr", defaults.sample_rate)),
+            epochs=int(state.get("epochs", defaults.epochs)),
+            batch_size=int(state.get("batch_size", defaults.batch_size)),
+            save_every=int(state.get("save_every", defaults.save_every)),
+            learning_rate=str(state.get("learning_rate", defaults.learning_rate)),
+            pretrain_g=str(state.get("pretrain_g", defaults.pretrain_g)),
+            pretrain_d=str(state.get("pretrain_d", defaults.pretrain_d)),
+            hubert=str(state.get("hubert", defaults.hubert)),
         )
 
     def to_dict(self) -> dict[str, Any]:

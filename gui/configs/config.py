@@ -30,12 +30,12 @@ def load_config() -> dict:
         return dict(_DEFAULT_STATE)
 
 
-def save_config(data: dict):
+def save_config(state: dict):
     with _lock:
         state_file = config_path()
         state_file.parent.mkdir(parents=True, exist_ok=True)
         # 原子写：先写临时文件，再 os.replace 替换。写入中断（崩溃/断电）
         # 不会损坏原文件（replace 是同文件系统原子操作）。
         tmp = state_file.with_suffix(state_file.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, state_file)

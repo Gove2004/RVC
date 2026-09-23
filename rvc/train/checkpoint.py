@@ -175,9 +175,9 @@ def inspect_model(path: str) -> str:
     f0 = ckpt.get("f0", 1)
     file_size_mb = Path(path).stat().st_size / (1024 * 1024)
     lines.append(f"真名/模型信息: {name}")
-    info_val = str(ckpt.get("info", "")).strip()
-    if info_val:
-        lines.append(f"Info: {info_val}")
+    model_info = str(ckpt.get("info", "")).strip()
+    if model_info:
+        lines.append(f"Info: {model_info}")
     lines.append(f"文件大小: {file_size_mb:.1f} MB")
     lines.append(f"采样率: {sr}")
     lines.append(f"版本: {version}")
@@ -221,9 +221,9 @@ def change_archive_name(path: str, new_name: str) -> str:
     return new_name
 
 
-def change_info(path: str, info: str) -> None:
+def change_model_info(path: str, model_info: str) -> None:
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
-    ckpt["info"] = re.sub(r"\.pth$", "", info, flags=re.I).strip()
+    ckpt["info"] = re.sub(r"\.pth$", "", model_info, flags=re.I).strip()
     archive = _zip_archive_name(path)
     tmp_path = path + ".tmp"
     torch.save(ckpt, tmp_path)
@@ -233,10 +233,10 @@ def change_info(path: str, info: str) -> None:
 
 
 def build_model_config(sr: int, config: dict):
-    data = config["data"]
+    mel_config = config["data"]
     model = config["model"]
     return [
-        data["filter_length"] // 2 + 1,
+        mel_config["filter_length"] // 2 + 1,
         32,
         model["inter_channels"],
         model["hidden_channels"],

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class TextAudioLoaderMultiNSFsid(Dataset):
-    def __init__(self, filelist_path: str, data_config: dict, spec_cache_dir: str | Path,
+    def __init__(self, filelist_path: str, mel_config: dict, spec_cache_dir: str | Path,
                  ffmpeg_exe: str | None = None):
         """数据集加载器。
 
@@ -30,15 +30,15 @@ class TextAudioLoaderMultiNSFsid(Dataset):
                 "纯产物"，缓存失效由 mtime 判断 + 素材变更时整目录清除。
             ffmpeg_exe: ffmpeg 路径（D4 显式传参）。None = 用 runtime 默认。
         """
-        self.data_config = data_config
+        self.mel_config = mel_config
         self.spec_cache_dir = Path(spec_cache_dir)
         self.ffmpeg_exe = ffmpeg_exe
         self.audiopaths_and_text = self._load_filelist(filelist_path)
-        self.max_wav_value = data_config["max_wav_value"]
-        self.sampling_rate = data_config["sampling_rate"]
-        self.filter_length = data_config["filter_length"]
-        self.hop_length = data_config["hop_length"]
-        self.win_length = data_config["win_length"]
+        self.max_wav_value = mel_config["max_wav_value"]
+        self.sampling_rate = mel_config["sampling_rate"]
+        self.filter_length = mel_config["filter_length"]
+        self.hop_length = mel_config["hop_length"]
+        self.win_length = mel_config["win_length"]
         self.lengths = self._filter()
 
     @staticmethod

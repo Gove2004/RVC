@@ -26,26 +26,26 @@ def build_group(win) -> QGroupBox:
     grid.addWidget(win.fix_path, 0, 1)
     grid.addWidget(btn_browse, 0, 2)
 
-    win.fix_info = QLineEdit()
-    win.fix_info.setPlaceholderText("输入新的真名，例如 exp01（自动去掉误带的 .pth）")
+    win.model_info = QLineEdit()
+    win.model_info.setPlaceholderText("输入新的真名，例如 exp01（自动去掉误带的 .pth）")
     btn_apply = QPushButton("应用")
     btn_apply.setFixedWidth(Layout.BTN_WIDTH_SMALL)
     btn_apply.setStyleSheet(ButtonStyles.small())
-    btn_apply.clicked.connect(lambda: _run_fixinfo(win))
+    btn_apply.clicked.connect(lambda: apply_model_info(win))
     grid.addWidget(QLabel("新真名"), 1, 0)
-    grid.addWidget(win.fix_info, 1, 1)
+    grid.addWidget(win.model_info, 1, 1)
     grid.addWidget(btn_apply, 1, 2)
 
     return group
 
 
-def _run_fixinfo(win):
+def apply_model_info(win):
     path = win.fix_path.text().strip()
-    info = win.fix_info.text().strip()
+    model_info = win.model_info.text().strip()
     if not path:
         QMessageBox.warning(win, "提示", "请选择模型文件")
         return
-    if not info:
+    if not model_info:
         QMessageBox.warning(win, "提示", "请输入新的真名")
         return
     if not Path(path).exists():
@@ -53,12 +53,12 @@ def _run_fixinfo(win):
         return
     if win._tool_thread and win._tool_thread.isRunning():
         win._tool_thread.wait()
-    win._tool_thread = ToolThread(win.controller.change_info, path, info)
-    win._tool_thread.done.connect(lambda ok, msg: _on_fixinfo_done(win, ok, msg, path))
+    win._tool_thread = ToolThread(win.controller.change_model_info, path, model_info)
+    win._tool_thread.done.connect(lambda ok, msg: apply_model_info_done(win, ok, msg, path))
     win._tool_thread.start()
 
 
-def _on_fixinfo_done(win, success, message, path):
+def apply_model_info_done(win, success, message, path):
     if success:
         QMessageBox.information(win, "完成", "模型信息已更新")
         # 若在检视框里也选了同一文件，刷新显示

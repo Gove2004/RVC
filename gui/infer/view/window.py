@@ -39,7 +39,7 @@ from gui.infer.view.tabs.experimental_tab import build_performance_tab
 
 from gui.infer.controller.device_controller import DeviceCatalog
 
-from gui.infer.controller.offline_controller import OfflineManager
+from gui.infer.controller.offline_controller import OfflineConversion
 
 from gui.styles import ButtonStyles, Layout
 from gui.styles.colors import Colors
@@ -71,7 +71,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         # 初始化管理器
         self.device_catalog = DeviceCatalog(self)
-        self.offline_manager = OfflineManager(self)
+        self.offline_conversion = OfflineConversion(self)
 
         self.device_catalog.load_hostapis()
         self._load_gui_config()
@@ -83,10 +83,10 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # 系统托盘：关闭=最小化到托盘；托盘不可用时直接报错退出
         self.tray = None
         try:
-            from gui.infer.view.tray import TrayManager
+            from gui.infer.view.tray import SystemTray
 
             idle_icon, active_icon = self.controller.tray_icon_paths
-            self.tray = TrayManager(self, on_quit=self._tray_quit,
+            self.tray = SystemTray(self, on_quit=self._tray_quit,
                                     icon_idle=idle_icon, icon_active=active_icon)
         except Exception as e:
             QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
@@ -250,7 +250,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.device_catalog.on_hostapi_changed(name)
 
     def _off_browse(self, tgt, kind):
-        self.offline_manager.browse_file(tgt, kind)
+        self.offline_conversion.browse_file(tgt, kind)
 
     def _off_start(self):
         # 保存配置（在开始转换前保存当前设置）
@@ -259,7 +259,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
             logger.debug("配置已保存")
         except Exception as e:
             logger.warning("保存配置失败：%s", e)
-        self.offline_manager.start_conversion()
+        self.offline_conversion.start_conversion()
 
     # ── 参数应用（委托给 controller）──
 

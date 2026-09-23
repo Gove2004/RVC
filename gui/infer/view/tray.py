@@ -46,7 +46,7 @@ def _load_or_make_icon(path: Path, base_color: QColor) -> QIcon:
     return icon
 
 
-class TrayManager:
+class SystemTray:
     """托盘图标（双色状态）+ 右键菜单（开始/停止、显示、退出）。
 
     icon_idle/icon_active：状态图标文件路径，由调用方经 controller 下发

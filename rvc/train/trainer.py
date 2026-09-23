@@ -51,11 +51,11 @@ class Trainer:
         self.stop_requested = False
         self.json_config = load_train_json(self.cfg.sr)
         self.train_cfg = self.json_config["train"]
-        self.data_cfg = self.json_config["data"]
+        self.mel_config = self.json_config["data"]
         # use_spectral_norm 只属于判别器，不能混进生成器构造参数（基类虽有 **kwargs 吞掉，但保持干净）
         self.model_cfg = self.json_config["model"].copy()
         self.use_spectral_norm = bool(self.model_cfg.pop("use_spectral_norm", False))
-        self.segment_size = self.train_cfg["segment_size"] // self.data_cfg["hop_length"]
+        self.segment_size = self.train_cfg["segment_size"] // self.mel_config["hop_length"]
         self.log_file = Path(self.cfg.exp_dir) / "train.log"
 
     def stop(self):
@@ -82,7 +82,7 @@ class Trainer:
         torch.manual_seed(self.train_cfg.get("seed", 1234))
         random.seed(self.train_cfg.get("seed", 1234))
         np.random.seed(self.train_cfg.get("seed", 1234))
-        spec_channels = self.data_cfg["filter_length"] // 2 + 1
+        spec_channels = self.mel_config["filter_length"] // 2 + 1
         self.synthesizer = SynthesizerTrnMsNSFsid(
             spec_channels,
             self.segment_size,
@@ -119,7 +119,7 @@ class Trainer:
 
         filelist = str(Path(self.cfg.exp_dir) / "filelist.txt")
         dataset = TextAudioLoaderMultiNSFsid(
-            filelist, self.data_cfg,
+            filelist, self.mel_config,
             spec_cache_dir=Path(self.cfg.exp_dir) / "spec_cache",
             ffmpeg_exe=self.ffmpeg_exe,
         )
@@ -172,10 +172,10 @@ class Trainer:
             wave = wave.unsqueeze(1)
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):
                 y_hat, ids_slice, _, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = self.synthesizer(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
-                mel = spec_to_mel_torch(spec, self.data_cfg["filter_length"], self.data_cfg["n_mel_channels"], self.cfg.sr, self.data_cfg["mel_fmin"], self.data_cfg["mel_fmax"])
+                mel = spec_to_mel_torch(spec, self.mel_config["filter_length"], self.mel_config["n_mel_channels"], self.cfg.sr, self.mel_config["mel_fmin"], self.mel_config["mel_fmax"])
                 y_mel = vits_blocks.slice_segments(mel, ids_slice, self.segment_size)
-                y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1), self.data_cfg["filter_length"], self.data_cfg["n_mel_channels"], self.cfg.sr, self.data_cfg["hop_length"], self.data_cfg["win_length"], self.data_cfg["mel_fmin"], self.data_cfg["mel_fmax"])
-                wave_slice = vits_blocks.slice_segments(wave, ids_slice * self.data_cfg["hop_length"], self.train_cfg["segment_size"])
+                y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1), self.mel_config["filter_length"], self.mel_config["n_mel_channels"], self.cfg.sr, self.mel_config["hop_length"], self.mel_config["win_length"], self.mel_config["mel_fmin"], self.mel_config["mel_fmax"])
+                wave_slice = vits_blocks.slice_segments(wave, ids_slice * self.mel_config["hop_length"], self.train_cfg["segment_size"])
                 y_d_hat_r, y_d_hat_g, _, _ = self.net_d(wave_slice, y_hat.detach())
                 loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
 

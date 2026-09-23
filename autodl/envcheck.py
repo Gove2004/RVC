@@ -253,7 +253,7 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_
     log.log(f"素材目录    : {input_dir.resolve()}")
     log.log(f"音频文件    : {len(files)} 个，共 {_human_size(total_bytes)}")
 
-    from rvc.io.wav_file import read_audio_info
+    from rvc.io.wav_file import read_audio_metadata
 
     limit = 300
     sample = files[:limit]
@@ -261,8 +261,8 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_
 
     def _probe_one(path: Path):
         try:
-            info = read_audio_info(str(path), ffmpeg_path=ffmpeg_path)
-            return info["duration"], info["samplerate"]
+            metadata = read_audio_metadata(str(path), ffmpeg_path=ffmpeg_path)
+            return metadata["duration"], metadata["samplerate"]
         except Exception:
             return None, None
 

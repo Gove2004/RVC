@@ -5,11 +5,11 @@ paths 轻量，启动即加载。
 """
 from rvc.runtime.paths import config_path, train_config_path
 
-__all__ = ["Config", "config_path", "train_config_path"]
+__all__ = ["RuntimeDeviceConfig", "config_path", "train_config_path"]
 
 
 def __getattr__(name):
-    if name == "Config":
-        from rvc.runtime.device import Config
-        return Config
+    if name == "RuntimeDeviceConfig":
+        from rvc.runtime.device import RuntimeDeviceConfig
+        return RuntimeDeviceConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
