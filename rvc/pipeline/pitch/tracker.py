@@ -23,14 +23,14 @@ def extract_f0_for_block(
     config=None,
     extractor=None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """从完整 input_wav 提取 F0，返回最后 p_len 帧。
+    """从完整 input_wav 提取 F0，返回前 p_len 帧。
 
     与 HuBERT 输入完全一致（都是完整 input_wav_16k），帧天然对齐。
 
-    注意：不再丢弃边缘帧！以前丢弃是因为滚动缓存会把边缘帧滚到中间，
-    现在每块都从完整缓冲区重新提取，边缘帧就是头部旧音频，
-    我们取最后 p_len 帧时自然就避开了边缘帧。
-    而且最后 p_len 帧对应的是最近的音频，relevance 足够，不存在边缘不可信的问题。
+    注意：取前 p_len 帧是特征侧对齐要求——HuBERT 特征就是 upsample 后
+    取前 p_len 帧，F0 必须与之一一对应（见下方切片逻辑）。
+    两路输入都是每块从完整缓冲区重新提取，不存在旧实现滚动缓存把
+    边缘帧滚到中间导致的边缘不可信问题。
 
     Args:
         input_wav: 16k 滚动缓冲区（完整长度，和 HuBERT 输入一致）

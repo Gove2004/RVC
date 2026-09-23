@@ -86,16 +86,25 @@ class VoiceEngine:
 
     # ── 模型加载 ──
 
-    def load_model(self, pth, force=False, hubert="chinese"):
-        """加载模型（创建 InferencePipeline）。
+    def _clear_f0_cuda_graph_caches(self) -> None:
+        """无条件清空 F0 提取器的 CUDA Graph 缓存（§11.2：显式步骤，非顺手前置）。
 
-        切换模型时清除 f0 提取器的旧 CUDA Graph 缓存。
+        load_model 入口必经——包括命中缓存快路径与首次加载，
+        不依赖任何条件；离线场景 inference_cache=None，但 pipeline 内部
+        回退到全局 default_inference_cache，故对「显式 cache 或全局单例」
+        统一清理，避免离线切模型时残留旧图。
         """
-        # 离线场景 inference_cache=None，但 pipeline 内部回退到全局 default_inference_cache，
-        # 故这里对「显式 cache 或全局单例」无条件清理，避免离线切模型时残留旧图。
         from rvc.pipeline.cache import default_inference_cache
 
         (self.inference_cache or default_inference_cache).clear_f0_cuda_graph_caches()
+
+    def load_model(self, pth, force=False, hubert="chinese"):
+        """加载模型（创建 InferencePipeline）。
+
+        入口先无条件清空 f0 提取器的旧 CUDA Graph 缓存
+        （见 _clear_f0_cuda_graph_caches）。
+        """
+        self._clear_f0_cuda_graph_caches()
         if not force and self.pipeline and self.pth_path == pth:
             return self.pipeline.target_sr
         from rvc.pipeline.pipeline import InferencePipeline

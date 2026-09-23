@@ -65,9 +65,9 @@ app.py                    # 入口：CLI 参数解析 → 启动推理/训练 GU
 │   ├── nn/               # 通用神经网络组件（注意力、判别器等）
 │   ├── pipeline/         # 推理管线：F0 提取/后处理、特征提取、合成、模型会话与缓存
 │   │   └── pitch/        # 音高子模块：提取器、后处理（音域映射/中值滤波）、跟踪器
-│   ├── streaming/        # 流处理：VoiceEngine 门面、运行器、音频流、输出路由、响度测量
+│   ├── streaming/        # 流处理：VoiceEngine 门面、运行器、音频流、输出路由、RMS/SOLA 效果处理
 │   └── train/            # 训练管线：预处理、F0/特征提取、训练器、checkpoint、损失
-├── gui/                  # PySide6 GUI 层（View 不得 import rvc——依赖单向由架构测试守护）
+├── gui/                  # PySide6 GUI 层（View 不得 import rvc——依赖单向约束）
 │   ├── infer/            # 推理 GUI
 │   │   ├── view/         # 视图：主窗口（window.py 装配 + lifecycle.py 生命周期）、控件、托盘、页签
 │   │   ├── controller/   # 控制器：引擎控制、遥测快照、设备目录、离线转换
@@ -86,7 +86,6 @@ app.py                    # 入口：CLI 参数解析 → 启动推理/训练 GU
 │   ├── steps.py          # 训练步骤执行
 │   └── __main__.py       # 主流程编排
 ├── autodl_train.py       # 云训练向导薄包装入口（等价 python -m autodl）
-└── tests/                # unittest 自动发现（python -m tests.run_tests，无需 pytest）
 ```
 
 ### 依赖方向（八层单向，无环）
@@ -112,7 +111,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 - `rvc/core` 无内部依赖；`rvc/` 不依赖 `gui/`，可作为库独立使用
 - `gui/` 只通过 `rvc/streaming.VoiceEngine` 与 `rvc/pipeline` 与核心交互，View 层经 Controller 取数（`snapshot()` 遥测快照），禁止直接 import rvc
 - `autodl/` 只通过 `rvc/train` 与训练管线交互
-- 依赖方向由 `tests/test_architecture.py`（AST 静态检查）自动守护
+- 依赖方向为设计约定：单向无环，新增代码必须遵守（View 层禁 import rvc 由代码评审把关）
 
 ### 关键数据流（实时推理）
 
@@ -134,19 +133,11 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询） |
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化）、`tracker.py`（音高跟踪） |
-| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`loudness.py`（响度测量） |
+| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`effects.py`（RMS 响度混合 / SOLA） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
-| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并）、`losses.py`、`data_utils.py`、`mel_processing.py` |
+| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并）、`losses.py`、`dataset.py`（TrainSample/TrainBatch 数据集与 collate）、`mel_processing.py` |
 | `gui/infer/` | 推理 GUI：window.py（装配）/lifecycle.py（生命周期）/页签 + 引擎/设备/离线控制器 + 遥测快照 + 参数绑定 |
 | `gui/train/` | 训练 GUI：窗口/页签 + TrainController + 训练工作线程 + 训练状态 |
-
-## 测试
-
-```bash
-.venv\Scripts\python.exe -m tests.run_tests    # 92 个用例，unittest 自动发现
-```
-
-覆盖：dsp 纯函数（SOLA/RMS/mel/Hz-MIDI）、音高后处理、配置 dataclass、io 层（ffmpeg 异常契约）、train 层（checkpoint 往返/spec 缓存）、架构守护（依赖方向 + View 层禁 import rvc）、GUI offscreen 冒烟、autodl 管道金标准（喂答案逐行 diff + 退出码，基准存 `tests/golden/`）。
 
 ## 云训练
 

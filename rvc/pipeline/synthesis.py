@@ -36,11 +36,11 @@ def infer_synth_audio(
     return_length: int | None = None,
     return_length2: int | None = None,
 ):
-    """Synthesizer 推理调用（实时/离线共用），走 CUDA Graph（如果启用）。
+    """Synthesizer 推理调用，走 CUDA Graph（如果启用）。
 
-    离线路径不传 skip_head/return_length/return_length2（synthesizer.infer 走 5 参签名）；
-    实时路径三者必传（8 参签名，含 skip_head/return_length/return_length2）。
-
+    当前唯一调用路径（实时管线）恒传 skip_head/return_length/return_length2
+    （8 参签名，realtime 分支）；offline 分支（5 参签名）按现状保留，
+    当前不可达。
     """
     realtime = skip_head is not None
     # tail 是标量参数（skip_head/return_length/return_length2），不是张量，
