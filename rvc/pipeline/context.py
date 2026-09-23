@@ -8,7 +8,7 @@
 - reset() 重置所有字段为默认值
 - 字段按数据流顺序排列
 """
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, MISSING
 
 import torch
 
@@ -37,5 +37,9 @@ class InferenceContext:
         """每块开始时重置所有字段，复用实例避免分配开销。"""
         self.config = config
         for f in fields(self):
-            if f.name != "config":
+            if f.name == "config":
+                continue
+            if f.default is not MISSING:
                 setattr(self, f.name, f.default)
+            elif f.default_factory is not MISSING:
+                setattr(self, f.name, f.default_factory())

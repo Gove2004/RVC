@@ -26,6 +26,6 @@ def route_secondary_output(outdata: np.ndarray, stream2, out2_q: queue.Queue) ->
         if out2_q.full():
             try:
                 out2_q.get_nowait()
-            except Exception:
+            except queue.Empty:
                 pass
         out2_q.put_nowait(outdata.copy())

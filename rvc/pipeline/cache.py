@@ -72,8 +72,7 @@ class InferenceCache:
     def clear_synthesizer_cuda_graphs(self) -> None:
         """清除所有缓存的 synthesizer 的 CUDA Graph（外部经此操作，不触碰私有槽位）。"""
         purge_cuda_graphs(
-            *(bundle.synthesizer for bundle in self.synthesizer_bundles()
-              if hasattr(bundle, "synthesizer"))
+            *(bundle.synthesizer for bundle in self.synthesizer_bundles())
         )
 
     def synthesizer_bundles(self) -> tuple:
