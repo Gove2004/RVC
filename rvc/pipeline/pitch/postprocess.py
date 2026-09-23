@@ -20,6 +20,9 @@ PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 
 
 
+# 音域映射缓存上限（MIDI 常量缓存与 (参数,设备) tensor 缓存共用同一上限）
+_PITCH_MAP_CACHE_LIMIT = 128
+
 # 音域映射预计算缓存：参数组合 → (src_min_m, src_max_m, dst_min_m, dst_max_m)
 # 避免每次调用重复计算 4 次 hz_to_midi（参数在运行时很少变化）
 # 无锁设计：GIL 保证单次 dict 读写原子；并发 check-then-set 最坏情况是两个线程
@@ -76,7 +79,7 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
         _pitch_map_midi_cache[cache_key] = (src_min_m, src_max_m, dst_min_m, dst_max_m)
         # 限制缓存大小，避免极端情况下无限增长；pop 带 default：双引擎并发
         # 插入时 next(iter()) 与 pop 之间字典可能变化，竞态下跳过本次淘汰即可
-        if len(_pitch_map_midi_cache) > 128:
+        if len(_pitch_map_midi_cache) > _PITCH_MAP_CACHE_LIMIT:
             _pitch_map_midi_cache.pop(next(iter(_pitch_map_midi_cache)), None)
     src_min_m, src_max_m, dst_min_m, dst_max_m = _pitch_map_midi_cache[cache_key]
 
@@ -94,7 +97,7 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
             )
             _pitch_map_tensor_cache[tkey] = tensors
             # 与 MIDI 缓存同策略：限制大小；pop 带 default 容忍并发竞态
-            if len(_pitch_map_tensor_cache) > 128:
+            if len(_pitch_map_tensor_cache) > _PITCH_MAP_CACHE_LIMIT:
                 _pitch_map_tensor_cache.pop(next(iter(_pitch_map_tensor_cache)), None)
         src_min_m_t, src_max_m_t, dst_min_m_t, dst_max_m_t = tensors
     else:

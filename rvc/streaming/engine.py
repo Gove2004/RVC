@@ -27,6 +27,9 @@ from rvc.runtime import RuntimeDeviceConfig
 
 logger = logging.getLogger(__name__)
 
+# 实时启动预热迭代次数（取值与依据见 _create_runner）
+_WARMUP_ITERATIONS = 30
+
 
 class VoiceEngine:
     """变声引擎门面 — 委托 AudioStreams 管流、InferenceRunner 推理。"""
@@ -155,7 +158,7 @@ class VoiceEngine:
         # 笔记本 GPU 冷启动时频率低、cuDNN 未调优、L2 缓存为空，
         # 首次实际推理会卡顿；停止重开后 GPU 仍热所以流畅。
         # 30 次约 300-600ms，换来首次启动即流畅。
-        self._runner.warmup(30)
+        self._runner.warmup(_WARMUP_ITERATIONS)
         if reset_buffers:
             self._runner.reset_buffers()
 

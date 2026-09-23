@@ -4,6 +4,9 @@ from torchaudio.transforms import Resample as TatResample
 
 from rvc.runtime.graph import run_cuda_graph
 
+# formant 重采样核缓存上限（达到该长度时整表 clear，见 apply_formant_resample）
+_RESAMPLE_KERNEL_LIMIT = 64
+
 
 def cached_long_tensor(cache: dict, value: int, device: str) -> torch.Tensor:
     value = int(value)
@@ -73,7 +76,7 @@ def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, r
         return audio
 
     if upp_res not in resample_kernel:
-        if len(resample_kernel) >= 64:
+        if len(resample_kernel) >= _RESAMPLE_KERNEL_LIMIT:
             resample_kernel.clear()
         resample_kernel[upp_res] = TatResample(
             orig_freq=upp_res,
