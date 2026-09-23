@@ -172,15 +172,18 @@ def inspect_model(path: str) -> str:
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     lines = []
     archive = _zip_archive_name(path)
-    name = archive if archive else str(ckpt.get("info", Path(path).stem))
+    # §12/D-3：首行优先展示 info；info 为空时回退 zip 原名 / 文件 stem（原兜底链）
+    model_info = str(ckpt.get("info", "")).strip()
+    name = model_info if model_info else (archive if archive else Path(path).stem)
+    lines.append(f"模型信息: {name}")
+    # §12.2：zip 归档原名独立成行——info 为空时与首行可能重复，属可接受冗余，不得省略。
+    # archive=None（非 zip 打包）时该行如实显示 None；据此改名会被
+    # change_archive_name 响亮拒绝（「该文件不是 zip 打包的模型」）。
+    lines.append(f"zip 原名: {archive}")
     sr = ckpt.get("sr", "unknown")
     version = ckpt.get("version", "unknown")
     f0 = ckpt.get("f0", 1)
     file_size_mb = Path(path).stat().st_size / (1024 * 1024)
-    lines.append(f"真名/模型信息: {name}")
-    model_info = str(ckpt.get("info", "")).strip()
-    if model_info:
-        lines.append(f"Info: {model_info}")
     lines.append(f"文件大小: {file_size_mb:.1f} MB")
     lines.append(f"采样率: {sr}")
     lines.append(f"版本: {version}")

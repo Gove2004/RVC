@@ -1,4 +1,4 @@
-"""训练工具 Tab — 修正模型信息（真名）（从 tools_tab.py 拆出）"""
+"""训练工具 Tab — 修正模型信息（info）（从 tools_tab.py 拆出）"""
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -13,7 +13,7 @@ from gui.styles import ButtonStyles, Layout
 
 
 def build_group(win) -> QGroupBox:
-    group = QGroupBox("修正模型信息（真名）")
+    group = QGroupBox("修正模型信息（info）")
     grid = QGridLayout(group)
     grid.setHorizontalSpacing(6)
     grid.setVerticalSpacing(4)
@@ -28,12 +28,12 @@ def build_group(win) -> QGroupBox:
     grid.addWidget(btn_browse, 0, 2)
 
     win.model_info = QLineEdit()
-    win.model_info.setPlaceholderText("输入新的真名，例如 exp01（自动去掉误带的 .pth）")
+    win.model_info.setPlaceholderText("输入新的模型信息，例如 exp01（自动去掉误带的 .pth）")
     btn_apply = QPushButton("应用")
     btn_apply.setFixedWidth(Layout.BTN_WIDTH_SMALL)
     btn_apply.setStyleSheet(ButtonStyles.small())
     btn_apply.clicked.connect(lambda: apply_model_info(win))
-    grid.addWidget(QLabel("新真名"), 1, 0)
+    grid.addWidget(QLabel("新模型信息"), 1, 0)
     grid.addWidget(win.model_info, 1, 1)
     grid.addWidget(btn_apply, 1, 2)
 
@@ -47,7 +47,7 @@ def apply_model_info(win):
         QMessageBox.warning(win, "提示", "请选择模型文件")
         return
     if not model_info:
-        QMessageBox.warning(win, "提示", "请输入新的真名")
+        QMessageBox.warning(win, "提示", "请输入新的模型信息")
         return
     if not Path(path).exists():
         QMessageBox.warning(win, "提示", "文件不存在")

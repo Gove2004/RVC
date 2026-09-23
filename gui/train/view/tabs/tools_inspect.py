@@ -70,9 +70,11 @@ def _on_inspect_done(win, success, result):
     if success:
         win.inspect_result.setText(result)
         # 把当前 zip 原名填进改名框，方便直接改
-        first = result.splitlines()[0]
-        if "真名/模型信息:" in first:
-            win.archive_name_edit.setText(first.split("真名/模型信息:", 1)[1].strip())
+        # （§12.3：解析「zip 原名:」行——首行现在优先展示 info，不能再读首行）
+        for line in result.splitlines():
+            if "zip 原名:" in line:
+                win.archive_name_edit.setText(line.split("zip 原名:", 1)[1].strip())
+                break
     else:
         win.inspect_result.setText("")
         QMessageBox.critical(win, "错误", result)

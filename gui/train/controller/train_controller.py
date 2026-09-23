@@ -55,7 +55,7 @@ class TrainController:
         return change_archive_name(path, new_name)
 
     def change_model_info(self, path: str, model_info: str) -> str:
-        """修正模型信息（真名）。耗时操作（ToolRunner 后台执行）。"""
+        """修正模型信息（info）。耗时操作（ToolRunner 后台执行）。"""
         from rvc.train.checkpoint import change_model_info
 
         return change_model_info(path, model_info)
