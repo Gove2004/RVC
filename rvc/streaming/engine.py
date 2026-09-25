@@ -70,10 +70,19 @@ class VoiceEngine:
         """当前输入音高（Hz，音域映射之前的原始值；无声/未运行为 0）。
 
         只读遥测——GUI 延迟/音高显示经此门面取数，禁止穿透 pipeline 内部状态。
+        热路径（pipeline）只留 GPU 定形统计，本属性被 GUI 低频读取时
+        才在这里做唯一一次 GPU→CPU 同步取值。
         """
         if self._runner is None:
             return 0.0
-        return float(self._runner.state.last_input_pitch)
+        stat = self._runner.state.last_input_pitch_gpu
+        if stat is None:
+            return 0.0
+        pitch_sum, count = stat
+        # count==0（本块全清音）→ 0，与本文档「无声为 0」的契约一致
+        # （旧实现此时保留上一块旧值，与文档矛盾，P1 重构时一并修正）。
+        # clamp(min=1) 防除零，全程单次 .item() 同步。
+        return float((pitch_sum / count.clamp(min=1)).item())
 
     @property
     def runtime_error_pending(self):

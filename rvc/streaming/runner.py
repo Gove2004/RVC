@@ -94,6 +94,11 @@ class InferenceRunner:
         # pinned memory 用于快速 CPU→GPU 传输
         state.in_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
 
+        # pinned memory 用于快速 GPU→CPU 传输（输出侧，与 in_pin 对称）。
+        # SOLA 输出恒为 block_samples（SOLA 期望固定长度的对齐契约），
+        # 长度异常块由 write_main_output 回退 chunk.cpu().numpy() 兜底。
+        state.out_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
+
         # 重采样器（48k → 16k）
         state.resampler_48k_to_16k = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(state.device)
 
@@ -209,8 +214,8 @@ class InferenceRunner:
             ref = state.input_wav_48k[state.extra_samples:]
             chunk = self.effects.process_output(infer, ref, p_rms_mix)
 
-            # 硬件输出（写入 outdata）
-            write_main_output(chunk, outdata, state.channels)
+            # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
+            write_main_output(chunk, outdata, state.channels, state.out_pin)
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 

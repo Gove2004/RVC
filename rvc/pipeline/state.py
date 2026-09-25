@@ -65,6 +65,9 @@ class EngineState:
     in_pin: torch.Tensor | None = None
     input_gpu: torch.Tensor | None = None  # GPU 侧单声道输入暂存
 
+    # ── 输出传输（pinned memory，GPU→CPU 快速传输，与 in_pin 对称）──
+    out_pin: torch.Tensor | None = None
+
     # ── 合成器相关缓存 ──
     resample_kernel: dict = field(default_factory=dict)
     long_tensor_cache: dict = field(default_factory=dict)
@@ -76,7 +79,9 @@ class EngineState:
     infer_ms: float = 0.0
 
     # ── 输入音高（GUI 显示用，音域映射之前的原始值）──
-    last_input_pitch: float = 0.0
+    # 热路径只留 GPU 定形统计 (pitch_sum, count)，不做 .item() 强制同步；
+    # GUI 低频读取 VoiceEngine.input_pitch 时才做唯一的 GPU→CPU 同步取值。
+    last_input_pitch_gpu: tuple | None = None
 
     # ── 错误状态 ──
     error_count: int = 0

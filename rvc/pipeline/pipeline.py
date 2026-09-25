@@ -252,11 +252,13 @@ class InferencePipeline:
         if state.use_f0 == 0:
             return None, None
 
-        # 计算原始输入音高（音域映射之前，非零帧平均，用于 GUI 显示）
+        # 输入音高统计（音域映射之前，非零帧平均，用于 GUI 显示）。
+        # 全程定形 GPU 算子（掩码乘法 + 求和），不做布尔索引 / .item()——
+        # 那会输出数据依赖形状，每块强制同步 GPU 队列 2~3 次打断流水线；
+        # GUI 低频读取 VoiceEngine.input_pitch 时才做唯一一次同步取值。
         f0_raw_flat = ctx.f0_raw.squeeze(0)
-        nonzero = f0_raw_flat[f0_raw_flat > 0]
-        if nonzero.numel() > 0:
-            state.last_input_pitch = float(nonzero.mean().item())
+        mask = f0_raw_flat > 0
+        state.last_input_pitch_gpu = ((f0_raw_flat * mask).sum(), mask.sum())
 
         pitch, pitchf, confidence = postprocess_f0(
             f0_raw_flat,
