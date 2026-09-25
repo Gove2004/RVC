@@ -223,6 +223,22 @@ class MainWindow(WindowLifecycle, QMainWindow):
                 self.runtime_params.f0.fcpe_confidence_threshold = val
         self.f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
 
+        # 4. 缓冲区参数滑块（块时长/交叉淡化/额外上下文）— 运行中改动自动停止转换。
+        #    这三个值在启动时一次性决定缓冲区分配（runner.init_processing），
+        #    运行中改动对当前流不生效；为避免「改了没反应」的错觉，运行中拖动
+        #    即自动停止，新值在下次启动生效（_on_loaded → setup_engine 重读滑块）。
+        #    加载中不停止：_on_loaded 会重新 collect_gui_state，拖动的新值自然被采用。
+        #    配置加载/启动回填也会触发 valueChanged，靠 is_running 守卫过滤（此时为 False）。
+        for _slider_name in ("block_time_slider", "crossfade_slider", "extra_time_slider"):
+            _slider = getattr(self, _slider_name)
+
+            def _on_buffer_param_changed(_v, s=_slider):
+                if self.controller.is_running:
+                    logger.info("缓冲区参数（块时长/交叉淡化/额外上下文）变更，自动停止转换（新值下次启动生效）")
+                    self._stop()
+
+            _slider.valueChanged.connect(_on_buffer_param_changed)
+
     def _on_sr_mode_changed(self):
         """采样率模式切换时，更新 runtime_params.audio.sr_mode。"""
         self.runtime_params.audio.sr_mode = "model" if self.sr_model_radio.isChecked() else "device"
