@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 def build_performance_tab(win: "InferWindowHost"):
-    """性能调节 Tab — 采样长度 / 上下文 / 淡入 / 音高算法 / F0 阈值 / 气泡音下限。"""
+    """性能调节 Tab — 采样长度 / 上下文 / 淡入 / 音高算法 / F0 阈值。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -73,16 +73,6 @@ def build_performance_tab(win: "InferWindowHost"):
     g.addWidget(win.f0_threshold_name, r, 0)
     g.addWidget(win.f0_threshold_slider, r, 1)
     g.addWidget(f0_threshold_label, r, 2)
-    r += 1
-
-    # ── 气泡音下限（fry_floor；0=关闭。低于该 Hz 的浊音帧按清音处理，
-    #    拦掉词尾 vocal fry；默认 70 取男声模态下限与气泡音上限的间隙）──
-    win.fry_floor_slider, fry_floor_label = _create_slider_row(
-        0, 150, 1, params.f0.fry_floor, fmt=".0f",
-    )
-    g.addWidget(QLabel("气泡音下限"), r, 0)
-    g.addWidget(win.fry_floor_slider, r, 1)
-    g.addWidget(fry_floor_label, r, 2)
     r += 1
 
     return w
