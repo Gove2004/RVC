@@ -13,12 +13,7 @@ from pathlib import Path
 import torch
 
 from rvc.core.errors import F0ExtractionError
-from rvc.pipeline.pitch.postprocess import (
-    F0_FRY_FLOOR_HZ,
-    apply_pitch_map,
-    median_filter_f0,
-    normalize_f0_to_coarse,
-)
+from rvc.pipeline.pitch.postprocess import apply_pitch_map, median_filter_f0, normalize_f0_to_coarse
 from rvc.runtime.graph import clear_cuda_graph_cache, cuda_graph_enabled, run_cuda_graph
 from rvc.runtime.paths import RMVPE_PATH
 
@@ -102,12 +97,15 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
 
-    # 气泡音下限门：低于 F0_FRY_FLOOR_HZ 的浊音帧按清音处理（置 0）。
+    # 气泡音下限门：低于 config.f0.fry_floor 的浊音帧按清音处理（置 0）。
     # 必须在音域映射之前做——映射是半音尺度保形变换，救不了气泡音，
     # 只会把它搬运/外推到别处；在源头按 Hz 判定才能与映射参数解耦。
-    f0 = torch.where(
-        (f0 > 0) & (f0 < F0_FRY_FLOOR_HZ), torch.zeros_like(f0), f0
-    )
+    # fry_floor <= 0 视为关闭此门（(f0>0)&(f0<floor) 为空集，自然跳过）。
+    fry_floor = float(config.f0.fry_floor)
+    if fry_floor > 0:
+        f0 = torch.where(
+            (f0 > 0) & (f0 < fry_floor), torch.zeros_like(f0), f0
+        )
 
     # confidence 因果中值滤波（kernel=3）：避免孤立低值帧
     if confidence is not None:

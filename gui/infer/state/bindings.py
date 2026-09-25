@@ -36,6 +36,7 @@ BINDINGS = [
     ("rms_mix", "rms_mix_slider", FLOAT),
     # ── F0 参数（f0.*）──
     ("f0.method", "f0_rmvp_btn", RADIO_F0),
+    ("f0.fry_floor", "fry_floor_slider", FLOAT),
     # ── 缓冲区参数（buffer.*）──
     ("buffer.block_time", "block_time_slider", FLOAT),
     ("buffer.crossfade_time", "crossfade_slider", FLOAT),
@@ -89,6 +90,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     params.f0.method = f0.get("method", _DEFAULTS.f0.method)
     params.f0.rmvpe_threshold = f0.get("rmvpe_threshold", _DEFAULTS.f0.rmvpe_threshold)
     params.f0.fcpe_confidence_threshold = f0.get("fcpe_confidence_threshold", _DEFAULTS.f0.fcpe_confidence_threshold)
+    params.f0.fry_floor = f0.get("fry_floor", _DEFAULTS.f0.fry_floor)
 
     params.buffer.block_time = buf.get("block_time", _DEFAULTS.buffer.block_time)
     params.buffer.crossfade_time = buf.get("crossfade_time", _DEFAULTS.buffer.crossfade_time)
@@ -121,6 +123,7 @@ def params_to_dict(params: InferenceParams) -> dict:
             "method": params.f0.method,
             "rmvpe_threshold": params.f0.rmvpe_threshold,
             "fcpe_confidence_threshold": params.f0.fcpe_confidence_threshold,
+            "fry_floor": params.f0.fry_floor,
         },
         "buffer": {
             "block_time": params.buffer.block_time,

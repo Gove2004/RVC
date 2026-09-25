@@ -25,10 +25,18 @@ class VoiceParams:
 
 @dataclass
 class F0Params:
-    """基频提取参数 — 方法 + 清浊判定阈值。"""
+    """基频参数 — 方法 + 清浊判定阈值 + 气泡音下限门。"""
     method: str = "rmvpe"  # rmvpe / fcpe
     rmvpe_threshold: float = 0.05
     fcpe_confidence_threshold: float = 0.05
+    # 气泡音（vocal fry / creaky voice）下限门（Hz）。
+    # 词尾放松发声时基频跌入 20~70Hz 且不规则：RMVPE 会如实跟踪（thred 拦不住）、
+    # 中值滤波对连续段无效、音域映射只搬运不清除，合成端 SineGen 对 f0>0 全量
+    # 正弦激励且训练数据无这么低的基频 → 源头气泡音被搬进输出并放大。
+    # 低于该下限的浊音帧按清音处理（f0=0），词尾音素仍由 HuBERT 特征经清音路径
+    # 渲染。默认 70 = 男声模态发声下限(约75~85)与气泡音上限(约65)的天然间隙；
+    # 设 0 关闭此门。
+    fry_floor: float = 70.0
 
 
 @dataclass

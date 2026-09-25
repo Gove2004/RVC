@@ -18,17 +18,6 @@ PITCH_MIN = 1
 PITCH_MAX = 255
 PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 
-# 气泡音（vocal fry / creaky voice）下限门（Hz）。
-# 词尾放松发声时声带振动变慢变不规则，基频跌入 20~70Hz：RMVPE 会如实跟踪
-# （气泡音帧周期性强、salience 峰值高，rmvpe_threshold 拦不住），中值滤波对
-# 连续低值段无效，音域映射在半音尺度上保形只会搬运不会清除；合成端 SineGen
-# 对一切 f0>0 的帧全量正弦激励（voiced_threshold=0），且模型训练数据里没有
-# 这么低的基频 → 源头词尾的气泡音被完整搬进输出并被放大。
-# 低于该下限的浊音帧按清音处理（f0=0），词尾音素内容仍由 HuBERT 特征经
-# 清音路径渲染。取值依据：正常男声模态发声下限约 75~85Hz，气泡音上限约
-# 65~70Hz，两者之间有天然间隙，70Hz 恰在间隙内。
-F0_FRY_FLOOR_HZ = 70.0
-
 
 
 # 音域映射缓存上限（MIDI 常量缓存与 (参数,设备) tensor 缓存共用同一上限）
