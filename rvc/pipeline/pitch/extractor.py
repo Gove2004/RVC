@@ -1,7 +1,7 @@
 """F0 提取器抽象层 — 统一 RMVPE 和 FCPE 的接口。
 
 后处理流程（简化后）：
-  原始 F0 → 音域映射（半音尺度）→ 因果中值滤波 → 离散化
+  原始 F0 → 气泡音下限门 → 音域映射（半音尺度）→ 因果中值滤波 → 离散化
 
 """
 import contextlib
@@ -13,7 +13,12 @@ from pathlib import Path
 import torch
 
 from rvc.core.errors import F0ExtractionError
-from rvc.pipeline.pitch.postprocess import apply_pitch_map, median_filter_f0, normalize_f0_to_coarse
+from rvc.pipeline.pitch.postprocess import (
+    F0_FRY_FLOOR_HZ,
+    apply_pitch_map,
+    median_filter_f0,
+    normalize_f0_to_coarse,
+)
 from rvc.runtime.graph import clear_cuda_graph_cache, cuda_graph_enabled, run_cuda_graph
 from rvc.runtime.paths import RMVPE_PATH
 
@@ -78,7 +83,7 @@ def _suppress_torchfcpe_output():
 def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf, confidence)。
 
-    流程：音域映射（半音尺度）→ 因果中值滤波 → 离散化。
+    流程：气泡音下限门 → 音域映射（半音尺度）→ 因果中值滤波 → 离散化。
 
     Args:
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
@@ -96,6 +101,13 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
+
+    # 气泡音下限门：低于 F0_FRY_FLOOR_HZ 的浊音帧按清音处理（置 0）。
+    # 必须在音域映射之前做——映射是半音尺度保形变换，救不了气泡音，
+    # 只会把它搬运/外推到别处；在源头按 Hz 判定才能与映射参数解耦。
+    f0 = torch.where(
+        (f0 > 0) & (f0 < F0_FRY_FLOOR_HZ), torch.zeros_like(f0), f0
+    )
 
     # confidence 因果中值滤波（kernel=3）：避免孤立低值帧
     if confidence is not None:
