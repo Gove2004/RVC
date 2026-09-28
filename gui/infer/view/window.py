@@ -154,7 +154,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         self.delay_lbl = QLabel("延迟: -")
         self.delay_lbl.setMinimumWidth(120)
-        self.delay_lbl.setToolTip("端到端实测延迟（含声卡缓冲）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
+        self.delay_lbl.setToolTip("端到端延迟 = 采样长度 + 推理耗时 + 端点缓冲（约 10-30ms）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
         btn_group.addWidget(self.delay_lbl)
 
         # 错误计数：实时链路吞错（清零输出继续跑）的唯一可见信号，>0 才显示

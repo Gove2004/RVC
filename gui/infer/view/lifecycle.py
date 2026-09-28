@@ -136,7 +136,7 @@ class WindowLifecycle:
         pth = self.model_path.strip()
 
         if not pth:
-            self._show_warning("请先在参数调节中选择模型文件")
+            self._show_warning("请先在「音色调节」中选择模型文件")
             return
 
         hubert = self.hubert_combo.currentText()

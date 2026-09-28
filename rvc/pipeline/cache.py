@@ -4,7 +4,7 @@ LRU 淘汰：synthesizer（几百 MB/个）只进不出会让显存/内存持续
 各槽位保留最近使用的 N 个，超限淘汰最久未用的。
 槽位数量属于本层（pipeline 组装层）的策略，通用 LRU 基础设施在 runtime。
 
-失效语义（现状契约，测试锁定）：仅 LRU 容量淘汰，无文件 mtime 校验——
+失效语义（现状契约）：仅 LRU 容量淘汰，无文件 mtime 校验——
 同名 pth 被外部覆盖后仍会返回旧权重，属已知且被接受的现状。
 """
 from rvc.runtime.caches import LRUCache

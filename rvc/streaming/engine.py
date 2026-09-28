@@ -47,7 +47,7 @@ class VoiceEngine:
 
         # 性能统计（GUI 读取）
         self.infer_ms = 0.0
-        self.measure_ms = 0.0  # 硬件时间戳实测端到端延迟（瞬时值）
+        self.measure_ms = 0.0  # 端到端延迟（块时长+推理耗时口径，瞬时值）
 
         # 错误状态由 InferenceRunner 管理（通过属性代理访问）
         self._cfg = RuntimeDeviceConfig()  # 单例缓存，避免多处重复获取
@@ -203,14 +203,16 @@ class VoiceEngine:
     def _cb(self, indata, outdata, frames, times, status):
         """sounddevice 回调函数 — 委托给 InferenceRunner.process_block。"""
         try:
-            # 硬件时间戳实测端到端延迟
-            # 上限 2s：设备切换/流重启时时间戳可能异常重置，负值或 >2s 的值忽略避免显示乱跳
-            d = float(times.outputBufferDacTime - times.inputBufferAdcTime)
-            if 0 < d < 2:
-                self.measure_ms = d * 1000
-
+            # 端到端延迟 = 块时长 + 本块推理耗时（块对齐后相位抵消，恒定项）。
+            # 不用 PortAudio 硬件时间戳（outputBufferDacTime - inputBufferAdcTime）：
+            # WASAPI 共享模式下它不含真实缓冲深度（输入捕获环 + 输出渲染环各约
+            # 一个块），实测比麦克风对拍小 ~180ms。
+            # 残差：两端端点 APO/驱动缓冲约 10-30ms，恒定、不在此显示。
             self._runner.process_block(indata, outdata, frames)
             self.infer_ms = self._runner.state.infer_ms
+            state = self._runner.state
+            if state.work_sr:
+                self.measure_ms = state.block_samples / state.work_sr * 1000 + self.infer_ms
 
             # 副输出路由
             if self._streams.enable_out2:

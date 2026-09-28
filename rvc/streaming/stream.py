@@ -135,6 +135,10 @@ class AudioStreams:
                 self._handle_stream_error(status)
             callback(indata, outdata, frames, audio_clock, status)
 
+        # latency 显式取 "low"（设备 defaultLow*Latency，WASAPI 共享约 10-30ms）。
+        # 不传时用设备默认建议延迟，可能高达 100-200ms：PortAudio 会按建议值
+        # 铺输出环，我们写的块要排在环内已缓冲音频之后才出声，这部分直接
+        # 叠加进端到端延迟（对拍实测比"块时长+推理"多 ~180ms 的主因）。
         self.stream = sd.Stream(
             callback=_wrapped_callback,
             blocksize=block_samples,
@@ -142,6 +146,7 @@ class AudioStreams:
             channels=channels,
             dtype="float32",
             device=device,
+            latency="low",
         )
         self.stream.start()
 
@@ -172,6 +177,7 @@ class AudioStreams:
             dtype="float32",
             blocksize=block_samples,
             callback=out2_callback,
+            latency="low",
         )
         self.stream2.start()
         self.enable_out2 = True
