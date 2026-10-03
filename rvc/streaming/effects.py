@@ -124,8 +124,13 @@ class MicAirflowEffect:
         self._prev_noise = None
         self._prev_gate = None
 
-    def setup(self, sr: int):
-        """根据采样率动态计算所有核大小（时间常量/截止频率与sr无关）。"""
+    def setup(self, sr: int, device: str = None):
+        """根据采样率动态计算所有核大小（时间常量/截止频率与sr无关）。
+
+        Args:
+            sr: 采样率
+            device: 若提供，将核预迁移到该设备，避免首块热路径H2D同步
+        """
         scale = sr / self._REF_SR
         slow_k = max(1, int(self._REF_SLOW_K * scale))
         floor_k = max(1, int(self._REF_FLOOR_K * scale))
@@ -155,9 +160,15 @@ class MicAirflowEffect:
         self._mod_norm = (1.0 / slow_k) ** 0.5  # box低通后白噪声理论σ
         self._gate_offset = float(torch.sigmoid(torch.tensor(-0.08 * 30)).item())
 
-        self._slow_kernel_gpu = None
-        self._combo_kernel_gpu = None
-        self._gate_kernel_gpu = None
+        # 预迁移核到设备（避免首块热路径H2D同步）
+        if device is not None:
+            self._slow_kernel_gpu = self._slow_kernel.to(device)
+            self._combo_kernel_gpu = self._combo_kernel.to(device)
+            self._gate_kernel_gpu = self._gate_kernel.to(device)
+        else:
+            self._slow_kernel_gpu = None
+            self._combo_kernel_gpu = None
+            self._gate_kernel_gpu = None
 
     def reset(self):
         self._prev_audio = None
@@ -185,20 +196,17 @@ class MicAirflowEffect:
             self._combo_kernel_gpu = self._combo_kernel.to(device)
             self._gate_kernel_gpu = self._gate_kernel.to(device)
 
-        slow_ctx = min(self._slow_ctx, n)
-        combo_ctx = min(self._combo_ctx, n)
-
-        # 1. 振幅调制 + 包络：因果卷积 + 块间上下文
+        # 1. 振幅调制 + 包络：因果卷积 + 跨块累积上下文（自动满长度，不依赖块长≥ctx）
         mod_raw = torch.randn(n, device=device)
-        if slow_ctx > 0 and self._prev_audio is not None and self._prev_audio.shape[0] == slow_ctx:
+        if self._prev_audio is not None:
             audio_ctx = torch.cat([self._prev_audio, audio])
             mod_ctx = torch.cat([self._prev_mod, mod_raw])
         else:
             audio_ctx = audio
             mod_ctx = mod_raw
-        if slow_ctx > 0:
-            self._prev_audio = audio[-slow_ctx:].clone()
-            self._prev_mod = mod_raw[-slow_ctx:].clone()
+        # 从拼接后的上下文取最后slow_ctx个，保证累积满长度（首块不足时自动累积）
+        self._prev_audio = audio_ctx[-self._slow_ctx:].clone()
+        self._prev_mod = mod_ctx[-self._slow_ctx:].clone()
 
         batch_in = torch.stack([mod_ctx, audio_ctx.abs()], dim=0).unsqueeze(1)
         batch_out = self._causal_conv1d(batch_in, self._slow_kernel_gpu)
@@ -212,14 +220,13 @@ class MicAirflowEffect:
         mod_scaled = 1.0 + (mod_low - 1.0) * intensity
         audio_mod = audio * mod_scaled
 
-        # 2. 分组卷积：风噪声（因果卷积 + 块间上下文）
+        # 2. 分组卷积：风噪声（因果卷积 + 跨块累积上下文）
         noise = torch.randn(n, device=device)
-        if combo_ctx > 0 and self._prev_noise is not None and self._prev_noise.shape[0] == combo_ctx:
+        if self._prev_noise is not None:
             noise_ctx = torch.cat([self._prev_noise, noise])
         else:
             noise_ctx = noise
-        if combo_ctx > 0:
-            self._prev_noise = noise[-combo_ctx:].clone()
+        self._prev_noise = noise_ctx[-self._combo_ctx:].clone()
 
         noise_3ch = noise_ctx.view(1, 1, -1).expand(1, 3, -1)
         combo_out = self._causal_conv1d(noise_3ch, self._combo_kernel_gpu, groups=3)
@@ -230,17 +237,17 @@ class MicAirflowEffect:
 
         # 3. 呼呼声门控：sigmoid（减去env=0偏移，静音严格=0）+ 因果EMA平滑
         gate_raw = torch.sigmoid((envelope - 0.08) * 30)
-        envelope_gate = ((gate_raw - self._gate_offset) / (1.0 - self._gate_offset)).clamp(min=0.0)
+        gate_in = ((gate_raw - self._gate_offset) / (1.0 - self._gate_offset)).clamp(min=0.0)
 
-        gate_ctx_len = min(self._gate_ctx, n)
-        if gate_ctx_len > 0 and self._prev_gate is not None and self._prev_gate.shape[0] == gate_ctx_len:
-            gate_ctx = torch.cat([self._prev_gate, envelope_gate])
+        # 缓存平滑前的gate（而非平滑后），避免下一块二次滤波
+        if self._prev_gate is not None:
+            gate_ctx = torch.cat([self._prev_gate, gate_in])
         else:
-            gate_ctx = envelope_gate
+            gate_ctx = gate_in
+        self._prev_gate = gate_ctx[-self._gate_ctx:].clone()
+
         gate_smooth = self._causal_conv1d(gate_ctx.view(1, 1, -1), self._gate_kernel_gpu)[0, 0]
         envelope_gate = gate_smooth[gate_ctx.shape[0] - n:]
-        if gate_ctx_len > 0:
-            self._prev_gate = envelope_gate[-gate_ctx_len:].clone()
 
         # wind缓慢起伏（MOD_DEPTH=0时保护，避免0/0）
         if self.MOD_DEPTH > 0:
@@ -276,7 +283,7 @@ class AudioProcessor:
               sola_search_samples: int, device: str):
         self.rms_mix.setup(sr)
         self.sola.setup(sr, block_samples, sola_buffer_samples, sola_search_samples, device)
-        self.airflow.setup(sr)
+        self.airflow.setup(sr, device)
 
     def reset(self):
         """重置所有有状态的效果器（warmup 后调用）。"""

@@ -211,7 +211,7 @@ class InferenceRunner:
             # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
             infer = self._stage_formant(infer)
 
-            # ── stage_output：RMS + SOLA + 卷积混响 + 麦克风气流声 + 硬件输出 ──
+            # ── stage_output：RMS + SOLA + 麦克风气流声 + 硬件输出 ──
             ref = state.input_wav_48k[state.extra_samples:]
             chunk = self.effects.process_output(
                 infer, ref, p_rms_mix, p_airflow,
