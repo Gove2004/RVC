@@ -98,6 +98,13 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(rms_mix_label, r, 2)
     r += 1
 
+    # ── 麦克风气流声（texture.airflow：说话时呼呼声 + 静音底噪）──
+    win.airflow_slider, airflow_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
+    g.addWidget(QLabel("气流感"), r, 0)
+    g.addWidget(win.airflow_slider, r, 1)
+    g.addWidget(airflow_label, r, 2)
+    r += 1
+
     return w
 
 

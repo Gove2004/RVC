@@ -257,8 +257,10 @@ class VoiceEngine:
         cf_t = task.buffer.crossfade_time
         extra_t = task.buffer.extra_time
 
-        # 创建推理运行器（离线模式：不重置缓冲区，避免清除 pad 上下文）
+        # 创建推理运行器（离线模式：不重置pipeline缓冲区，避免清除pad上下文）
         self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
+        # 但必须重置有状态效果器（airflow等），避免warmup零块污染上下文缓存
+        self._runner.effects.reset()
 
         result = self._infer_stream(wav, self._runner.state.block_samples, int(tgt_sr * pad_sec), progress_cb)
         self._write_output_wav(result, task.output_path, tgt_sr)

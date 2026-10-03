@@ -40,6 +40,8 @@ BINDINGS = [
     ("buffer.block_time", "block_time_slider", FLOAT),
     ("buffer.crossfade_time", "crossfade_slider", FLOAT),
     ("buffer.extra_time", "extra_time_slider", FLOAT),
+    # ── 输出质感参数（texture.*）──
+    ("texture.airflow", "airflow_slider", FLOAT),
     # ── 音频设备参数（audio.*）──
     ("audio.sr_mode", "sr_model_radio", RADIO_SR),
     ("audio.hostapi", "hostapi_combo", COMBO),
@@ -79,6 +81,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     f0 = state.get("f0", {})
     buf = state.get("buffer", {})
     aud = state.get("audio", {})
+    tex = state.get("texture", {})
 
     params.voice.formant = voice.get("formant", _DEFAULTS.voice.formant)
     params.voice.pitch_map_src_min = voice.get("pitch_map_src_min", _DEFAULTS.voice.pitch_map_src_min)
@@ -100,6 +103,8 @@ def params_from_dict(state: dict) -> InferenceParams:
     params.audio.output_device = aud.get("output_device", _DEFAULTS.audio.output_device)
     params.audio.output2_device = aud.get("output2_device", _DEFAULTS.audio.output2_device)
     params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
+
+    params.texture.airflow = tex.get("airflow", _DEFAULTS.texture.airflow)
 
     params.rms_mix = state.get("rms_mix", _DEFAULTS.rms_mix)
     params.model_path = state.get("model_path", _DEFAULTS.model_path)
@@ -134,6 +139,9 @@ def params_to_dict(params: InferenceParams) -> dict:
             "output_device": params.audio.output_device,
             "output2_device": params.audio.output2_device,
             "enable_out2": params.audio.enable_out2,
+        },
+        "texture": {
+            "airflow": params.texture.airflow,
         },
         "rms_mix": params.rms_mix,
         "model_path": params.model_path,

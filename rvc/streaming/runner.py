@@ -175,6 +175,7 @@ class InferenceRunner:
         # 热读 runtime_params：GUI 线程可能正在写，但 CPython float 赋值原子，
         # 读到旧值或新值都安全（最多影响当前块 RMS 混合比例，不会崩溃）。
         p_rms_mix = self.runtime_params.rms_mix
+        p_airflow = self.runtime_params.texture.airflow
 
         with torch.no_grad():
             # ── stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样 ──
@@ -210,9 +211,11 @@ class InferenceRunner:
             # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
             infer = self._stage_formant(infer)
 
-            # ── stage_output：RMS + SOLA + 硬件输出 ──
+            # ── stage_output：RMS + SOLA + 卷积混响 + 麦克风气流声 + 硬件输出 ──
             ref = state.input_wav_48k[state.extra_samples:]
-            chunk = self.effects.process_output(infer, ref, p_rms_mix)
+            chunk = self.effects.process_output(
+                infer, ref, p_rms_mix, p_airflow,
+            )
 
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)

@@ -94,6 +94,7 @@ class OfflineConversion:
                 f0=state.f0,
                 buffer=state.buffer,
                 audio=state.audio,
+                texture=state.texture,
                 rms_mix=state.rms_mix,
                 model_path=pth,
                 hubert=self.window.hubert_combo.currentText(),
