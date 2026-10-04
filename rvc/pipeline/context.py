@@ -29,6 +29,10 @@ class InferenceContext:
     f0_raw: torch.Tensor | None = None
     confidence_raw: torch.Tensor | None = None
 
+    # ── F0 并行提取临时字段（_start_f0_parallel 写入，_sync_f0_parallel 读取）──
+    _f0_raw_untruncated: torch.Tensor | None = None
+    _conf_raw_untruncated: torch.Tensor | None = None
+
     # ── formant（extract_features 写入，formant 重采样/F0 缩放读取）──
     formant_factor: float = 1.0
     return_length2: int = 0

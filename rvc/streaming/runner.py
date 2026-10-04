@@ -179,10 +179,13 @@ class InferenceRunner:
 
         with torch.no_grad():
             # ── stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样 ──
+            t_in = time.perf_counter()
             mono = self._stage_input(indata)
             self._stage_preprocess(mono)
+            state.t_input_ms = (time.perf_counter() - t_in) * 1000
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
+            t_feat = time.perf_counter()
             if self.pipeline:
                 ctx.reset(self.runtime_params)
                 feats = self.pipeline.extract_features(
@@ -191,14 +194,18 @@ class InferenceRunner:
                 )
             else:
                 feats = None
+            state.t_hubert_ms = (time.perf_counter() - t_feat) * 1000
 
             # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
+            t_f0 = time.perf_counter()
             if feats is not None:
                 pitch, pitchf, feats = self.pipeline.postprocess_features(feats)
             else:
                 pitch, pitchf = None, None
+            state.t_f0_ms = (time.perf_counter() - t_f0) * 1000
 
             # ── stage_synthesis：合成器推理 + 模型→工作采样率重采样 ──
+            t_synth = time.perf_counter()
             if feats is not None:
                 infer = self.pipeline.synthesize_audio(feats, pitch, pitchf)
                 # 模型采样率 → 工作采样率 重采样（如果需要）
@@ -207,11 +214,13 @@ class InferenceRunner:
             else:
                 # 直通模式（非 vc）：直接用原始输入
                 infer = state.input_wav_48k[state.extra_samples:].clone()
+            state.t_synth_ms = (time.perf_counter() - t_synth) * 1000
 
             # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
             infer = self._stage_formant(infer)
 
             # ── stage_output：RMS + SOLA + 麦克风气流声 + 硬件输出 ──
+            t_out = time.perf_counter()
             ref = state.input_wav_48k[state.extra_samples:]
             chunk = self.effects.process_output(
                 infer, ref, p_rms_mix, p_airflow,
@@ -219,6 +228,7 @@ class InferenceRunner:
 
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)
+            state.t_output_ms = (time.perf_counter() - t_out) * 1000
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 

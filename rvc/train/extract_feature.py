@@ -12,6 +12,7 @@ import torch
 from rvc.core.constants import HUBERT_SAMPLE_RATE
 from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
+from rvc.pipeline.features import hubert_forward
 from rvc.runtime.caches import LRUCache
 
 # 训练侧 HuBERT 进程级缓存（与推理侧 InferenceCache 的 hubert 槽位同配置 LRU=2）：
@@ -61,7 +62,7 @@ class HuBERTExtractor:
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)
         with torch.no_grad():
-            # transformers 模型返回 BaseModelOutput，取 last_hidden_state（与推理侧一致）
-            feats_result = self.model(feats).last_hidden_state
+            # 与推理侧共享 hubert_forward，保证模型前向传播路径一致
+            feats_result = hubert_forward(self.model, feats)
             feats = feats_result.squeeze(0).float().cpu().numpy()
         return feats.astype(np.float32)

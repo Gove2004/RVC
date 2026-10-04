@@ -8,6 +8,19 @@ import torch.nn.functional as F
 from rvc.runtime.graph import run_cuda_graph
 
 
+def hubert_forward(model, x: torch.Tensor) -> torch.Tensor:
+    """HuBERT 模型前向传播 — 训练侧和推理侧共享。
+
+    Args:
+        model: HuBERT 模型
+        x: 输入音频 (1, T)，已在正确设备和 dtype 上
+
+    Returns:
+        last_hidden_state (1, T', 768)
+    """
+    return model(x).last_hidden_state
+
+
 def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> torch.Tensor:
     """提取 HuBERT 特征，走 CUDA Graph 加速。
 
@@ -30,10 +43,11 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
     feats = feats.half() if is_half else feats.float()
     feats = feats.view(1, -1)
 
-    def _hubert_forward(x):
-        return model(x).last_hidden_state
+    # hubert_forward 是共享函数（训练侧直接调用），推理侧用闭包绑定 model 以适配 CUDA Graph
+    def _forward(x):
+        return hubert_forward(model, x)
 
-    return run_cuda_graph(model, "hubert", _hubert_forward, feats)
+    return run_cuda_graph(model, "hubert", _forward, feats)
 
 
 def upsample_features(

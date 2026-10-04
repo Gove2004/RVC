@@ -26,8 +26,8 @@ from rvc.pipeline.features import extract_hubert_features, upsample_features
 
 from rvc.pipeline.pitch.extractor import postprocess_f0, create_f0_extractor
 from rvc.pipeline.sessions import ModelSessions
-from rvc.pipeline.pitch.tracker import extract_f0_for_block
 from rvc.pipeline.synthesis import cached_long_tensor, infer_synth_audio
+from rvc.core.constants import HUBERT_SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,10 @@ class InferencePipeline:
         # 等 upsample 得到实际长度后，再让 F0 对齐到这个实际长度
         feats = self._stage_extract_hubert(ctx)
 
+        # 并行启动 F0 提取（side stream），与后续 upsample 重叠
+        # F0 提取不需要 p_len，只在最后截断时需要，所以可以提前启动
+        self._start_f0_parallel(ctx)
+
         return feats
 
     # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
@@ -170,8 +174,10 @@ class InferencePipeline:
         feats = self._stage_upsample_features(ctx, feats)
         ctx.p_len = feats.shape[1]  # 用 upsample 后的实际长度作为 p_len
 
-        # 提取 F0 原始值（对齐到实际 p_len）+ 后处理
-        self._stage_extract_f0_raw(ctx)
+        # 同步 F0 side stream，截断到 p_len
+        self._sync_f0_parallel(ctx)
+
+        # F0 后处理（音域映射 + 中值滤波 + 离散化）
         pitch, pitchf = self._stage_postprocess_f0(ctx)
 
         return pitch, pitchf, feats
@@ -205,19 +211,27 @@ class InferencePipeline:
         )
 
     def _stage_extract_f0_raw(self, ctx: InferenceContext) -> None:
-        """F0 原始提取 — 每块从完整 input_wav 提取，与 HuBERT 输入对齐。
+        """F0 原始提取 — 已由 _start_f0_parallel / _sync_f0_parallel 替代。
 
-        直接调用 extract_f0_for_block 获取原始 (f0, confidence)，
-        与 HuBERT 从完全相同的音频提取，帧天然对齐。
-        不做后处理（音域映射/中值滤波/离散化），后处理在 postprocess_features 完成。
+        保留为空方法以兼容可能的外部调用；实际提取在 side stream 上并行完成。
+        """
+        pass
 
-        use_f0=0 时直接返回，不做任何操作。
+    def _start_f0_parallel(self, ctx: InferenceContext) -> None:
+        """在 side stream 上并行启动 F0 原始提取（不截断，不后处理）。
+
+        与 HuBERT 在默认 stream 上并行执行。F0 提取不需要 p_len，
+        只在 _sync_f0_parallel 中截断到 p_len。
+
+        use_f0=0 时直接返回。
         """
         state = self.state
         if state.use_f0 == 0:
+            ctx.f0_raw = None
+            ctx.confidence_raw = None
             return
 
-        # F0 提取器缓存：method 变化时重建，否则跨块复用
+        # 确保 F0 提取器存在（懒加载，与原逻辑一致）
         method = ctx.config.f0.method
         if state.f0_extractor is None or state.f0_extractor_method != method:
             state.f0_extractor = create_f0_extractor(
@@ -225,18 +239,49 @@ class InferencePipeline:
             )
             state.f0_extractor_method = method
 
-        f0_raw, confidence_raw = extract_f0_for_block(
-            state.input_wav_16k,
-            ctx.p_len,
-            method,
-            state.device,
-            state.is_half,
-            state.inference_cache,
-            config=ctx.config,
-            extractor=state.f0_extractor,
-        )
-        ctx.f0_raw = f0_raw[None, :]
-        ctx.confidence_raw = confidence_raw[None, :]
+        # 确保 side stream 存在
+        if state.f0_stream is None:
+            state.f0_stream = torch.cuda.Stream(device=state.device)
+
+        # 在 side stream 上启动 F0 提取（原始值，未截断）
+        # extract_raw 内部使用 run_cuda_graph，会在当前 stream（f0_stream）上 capture/replay
+        with torch.cuda.stream(state.f0_stream):
+            f0_raw, confidence_raw = state.f0_extractor.extract_raw(
+                state.input_wav_16k, HUBERT_SAMPLE_RATE,
+            )
+        # 存储原始（未截断）结果引用；实际 GPU 计算在 f0_stream 上异步执行
+        ctx._f0_raw_untruncated = f0_raw
+        ctx._conf_raw_untruncated = confidence_raw
+
+    def _sync_f0_parallel(self, ctx: InferenceContext) -> None:
+        """同步 F0 side stream，截断到 p_len，存入 ctx.f0_raw / ctx.confidence_raw。
+
+        use_f0=0 时直接返回。
+        """
+        state = self.state
+        if state.use_f0 == 0:
+            return
+
+        # 等待 side stream 上的 F0 提取完成
+        if state.f0_stream is not None:
+            torch.cuda.current_stream(state.device).wait_stream(state.f0_stream)
+
+        f0_raw = ctx._f0_raw_untruncated
+        confidence_raw = ctx._conf_raw_untruncated
+        p_len = ctx.p_len
+
+        # 对齐到 p_len 帧（与 extract_f0_for_block 的截断逻辑一致）
+        n = f0_raw.shape[0]
+        if n >= p_len:
+            f0 = f0_raw[:p_len]
+            conf = confidence_raw[:p_len]
+        else:
+            pad_len = p_len - n
+            f0 = torch.nn.functional.pad(f0_raw, (0, pad_len))
+            conf = torch.nn.functional.pad(confidence_raw, (0, pad_len))
+
+        ctx.f0_raw = f0[None, :]
+        ctx.confidence_raw = conf[None, :]
 
     def _stage_postprocess_f0(self, ctx: InferenceContext):
         """F0 后处理（音域映射 + 中值滤波 + 离散化）。

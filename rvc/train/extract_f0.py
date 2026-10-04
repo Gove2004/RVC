@@ -43,7 +43,9 @@ class TrainF0Extractor:
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
                 wav, _ = load_audio(path, HUBERT_SAMPLE_RATE, ffmpeg_exe=self.ffmpeg_exe)
-                f0 = self.model.infer_from_audio(wav, thred=RMVPE_THRESHOLD_TRAIN)
+                # 与推理侧完全相同的提取路径（infer_from_audio_with_confidence），
+                # 训练侧忽略 confidence，只取 f0。保证训练/推理 F0 提取一致性。
+                f0, _ = self.model.infer_from_audio_with_confidence(wav, thred=RMVPE_THRESHOLD_TRAIN)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()
                 np.save(out_cont, f0.astype(np.float32), allow_pickle=False)
