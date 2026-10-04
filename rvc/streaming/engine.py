@@ -14,6 +14,7 @@ VoiceEngine 作为门面（Facade），内部委托给子组件：
 离线与实时走同一 InferenceRunner.process_block，保证音质一致。
 """
 
+import gc
 import logging
 
 import numpy as np
@@ -121,6 +122,9 @@ class VoiceEngine:
         try:
             self.pipeline = InferencePipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
             self.pipeline.load()
+            # 模型权重已搬到 GPU，释放加载过程中 CPU 侧的临时张量缓存还给 OS
+            torch.cuda.empty_cache()
+            gc.collect()
             self.pth_path = pth
             return self.pipeline.target_sr
         except Exception as e:
