@@ -226,6 +226,11 @@ class InferenceRunner:
                 infer, ref, p_rms_mix, p_airflow,
             )
 
+            # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）
+            vol = self.runtime_params.volume
+            if vol != 1.0:
+                chunk.mul_(vol)
+
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)
             state.t_output_ms = (time.perf_counter() - t_out) * 1000

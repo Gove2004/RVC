@@ -34,6 +34,7 @@ BINDINGS = [
     # ── 音色参数（voice.*）──
     ("voice.formant", "formant_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
+    ("volume", "volume_slider", FLOAT),
     # ── F0 参数（f0.*）──
     ("f0.method", "f0_rmvp_btn", RADIO_F0),
     # ── 缓冲区参数（buffer.*）──
@@ -107,6 +108,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     params.texture.airflow = tex.get("airflow", _DEFAULTS.texture.airflow)
 
     params.rms_mix = state.get("rms_mix", _DEFAULTS.rms_mix)
+    params.volume = state.get("volume", _DEFAULTS.volume)
     params.model_path = state.get("model_path", _DEFAULTS.model_path)
     params.hubert = state.get("hubert", _DEFAULTS.hubert)
     return params
@@ -144,6 +146,7 @@ def params_to_dict(params: InferenceParams) -> dict:
             "airflow": params.texture.airflow,
         },
         "rms_mix": params.rms_mix,
+        "volume": params.volume,
         "model_path": params.model_path,
         "hubert": params.hubert,
     }

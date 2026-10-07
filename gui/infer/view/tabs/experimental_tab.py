@@ -75,4 +75,13 @@ def build_performance_tab(win: "InferWindowHost"):
     g.addWidget(f0_threshold_label, r, 2)
     r += 1
 
+    # ── 输出音量（volume；纯标量增益，0=静音，1=原始，2=两倍）──
+    win.volume_slider, volume_label = _create_slider_row(
+        0.0, 2.0, 0.1, params.volume, fmt=".2f",
+    )
+    g.addWidget(QLabel("输出音量"), r, 0)
+    g.addWidget(win.volume_slider, r, 1)
+    g.addWidget(volume_label, r, 2)
+    r += 1
+
     return w

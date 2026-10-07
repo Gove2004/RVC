@@ -69,6 +69,7 @@ class InferenceParams:
     audio: AudioParams = field(default_factory=AudioParams)
     texture: TextureParams = field(default_factory=TextureParams)
     rms_mix: float = 0.0
+    volume: float = 1.0  # 输出音量增益（0.0-2.0，1.0=原始音量，纯标量乘法）
     model_path: str = ""
     hubert: str = HUBERT_DEFAULT
 
@@ -86,6 +87,7 @@ class InferenceParams:
                 setattr(dst_group, field_name, getattr(src_group, field_name))
         # 顶层字段
         self.rms_mix = other.rms_mix
+        self.volume = other.volume
         self.model_path = other.model_path
         self.hubert = other.hubert
 
