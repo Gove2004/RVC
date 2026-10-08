@@ -42,8 +42,9 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     Hz 尺度线性映射 y=kx+b（b≠0）会破坏半音音程，导致跑调。
     半音尺度映射 y_semi = k*x_semi + b 保持音程比例，旋律不变形。
 
-    线性外推（不钳制）：低于原声音域下限的帧外推到低于目标下限，
-    避免弹舌音等瞬态清音的低 F0 误判帧被强制钳制到目标下限产生固定音高。
+    模型音域侧钳制（不静音）：映射后的输出 F0 超出模型音域
+    [dst_min, dst_max] 的帧钳制到最近边界，避免破音的同时保持有声。
+    原声音域 [src_min, src_max] 仅用于校准映射比例，不做安全边界。
 
     安全保护：
     - 参数下限保护（最小 1Hz）：避免 hz_to_midi(0) = -inf 导致 NaN
@@ -56,7 +57,7 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
         dst_min/dst_max: 目标音域（Hz）
 
     Returns:
-        映射后的 F0，类型与输入一致，清音保持 0
+        映射后的 F0，类型与输入一致，清音保持 0，范围外钳制到边界
     """
     # 参数下限保护：避免 0 或负数导致 hz_to_midi 产生 -inf/NaN
     _MIN_FREQ = 1.0
@@ -112,18 +113,23 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     # Hz → MIDI 半音（只对 f0 计算，参数已缓存）
     f0_m = hz_to_midi(f0_safe, xp)
 
-    # 半音尺度线性映射（线性外推，不钳制）
+    # 半音尺度线性映射
     src_range = src_max_m_t - src_min_m_t
     if src_range < 1e-6:
         return f0  # 原声音域无效，原样返回
     ratio = (f0_m - src_min_m_t) / src_range
     out_m = dst_min_m_t + ratio * (dst_max_m_t - dst_min_m_t)
 
+    # 模型音域侧钳制：超出 [dst_min_m, dst_max_m] 的帧钳制到最近边界（保持有声）
+    if xp is torch:
+        out_m = torch.clamp(out_m, min=dst_min_m_t, max=dst_max_m_t)
+    else:
+        out_m = np.clip(out_m, dst_min_m_t, dst_max_m_t)
+
     # MIDI → Hz
     out = midi_to_hz(out_m, xp)
 
-    # NaN/inf 过滤 + UV 置零：合并为单次 where/nan_to_num（原先两次布尔掩码
-    # scatter 各自分配索引张量；数值完全等价——nan/±inf 与 UV 帧均输出 0）
+    # 合并掩码：原始 UV 帧 + NaN/inf 帧 → 输出 0
     if xp is torch:
         out = torch.where(uv_mask, torch.zeros_like(out), torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
     else:

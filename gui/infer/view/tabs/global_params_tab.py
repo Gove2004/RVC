@@ -64,7 +64,7 @@ def build_timbre_tab(win: "InferWindowHost"):
 
     # ── 原声音域 ──
     win.pitch_map_src_range, pitch_map_src_label = _range_row(
-        20.0, 1000.0, 10.0,
+        10.0, 1000.0, 10.0,
         params.voice.pitch_map_src_min, params.voice.pitch_map_src_max,
         fmt=".0f", unit="Hz",
     )
@@ -75,7 +75,7 @@ def build_timbre_tab(win: "InferWindowHost"):
 
     # ── 模型音域（原目标音域）──
     win.pitch_map_dst_range, pitch_map_dst_label = _range_row(
-        20.0, 1000.0, 10.0,
+        10.0, 1000.0, 10.0,
         params.voice.pitch_map_dst_min, params.voice.pitch_map_dst_max,
         fmt=".0f", unit="Hz",
     )

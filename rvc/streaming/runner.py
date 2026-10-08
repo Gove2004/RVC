@@ -74,7 +74,7 @@ class InferenceRunner:
         # 计算参数（对齐到 10ms 边界）
         state.block_samples = int(np.round(block_t * sr / zc)) * zc
         state.crossfade_samples = int(np.round(cf_t * sr / zc)) * zc
-        state.sola_buffer_samples = min(state.crossfade_samples, 4 * zc)
+        state.sola_buffer_samples = min(state.crossfade_samples, 5 * zc)
         state.sola_search_samples = zc
         state.extra_samples = int(np.round(extra_t * sr / zc)) * zc
 

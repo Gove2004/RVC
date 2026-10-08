@@ -37,8 +37,8 @@ def build_performance_tab(win: "InferWindowHost"):
     g.addWidget(extra_time_label, r, 2)
     r += 1
 
-    # ── 淡入长度（crossfade_time；上限 0.04 = SOLA 实际生效的 40ms，再大无效）──
-    win.crossfade_slider, crossfade_label = _create_slider_row(0.01, 0.04, 0.01, 0.04)
+    # ── 淡入长度（crossfade_time）──
+    win.crossfade_slider, crossfade_label = _create_slider_row(0.01, 0.05, 0.01, 0.05)
     g.addWidget(QLabel("淡入长度"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(crossfade_label, r, 2)
@@ -77,7 +77,7 @@ def build_performance_tab(win: "InferWindowHost"):
 
     # ── 输出音量（volume；纯标量增益，0=静音，1=原始，2=两倍）──
     win.volume_slider, volume_label = _create_slider_row(
-        0.0, 2.0, 0.1, params.volume, fmt=".2f",
+        0.0, 5.0, 0.1, params.volume, fmt=".2f",
     )
     g.addWidget(QLabel("输出音量"), r, 0)
     g.addWidget(win.volume_slider, r, 1)
