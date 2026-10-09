@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QFileDialog
 
 from gui.infer.state.bindings import collect_params
 from rvc.core.config import OfflineParams
+from rvc.core.errors import CancelledError
 
 if TYPE_CHECKING:
     from gui.infer.view.window import MainWindow
@@ -110,12 +111,21 @@ class OfflineConversion:
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
+        self.worker.cancelled.connect(self._on_cancelled)
         self.worker.start()
 
         self.window.offline_button.setEnabled(False)
         self.window.offline_button.setText("转换中...")
+        self.window.offline_cancel_btn.setEnabled(True)
         self.window.offline_status.setText("初始化...")
         self.window.offline_progress.setValue(0)
+
+    def cancel_conversion(self) -> None:
+        """请求取消当前离线转换（worker 在下一个块检查时中止）。"""
+        if self.worker and self._converting:
+            self.worker.request_cancel()
+            self.window.offline_cancel_btn.setEnabled(False)
+            self.window.offline_status.setText("正在取消...")
 
     def _on_progress(self, current: int, total: int) -> None:
         """更新进度。"""
@@ -128,15 +138,25 @@ class OfflineConversion:
         self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
+        self.window.offline_cancel_btn.setEnabled(False)
         self.window.offline_status.setText("完成")
         # QThread.run() 返回后线程自动结束，worker 对象稍后由 Qt 事件循环删除。
         # 不调用 deleteLater()/wait()，避免阻塞和 "Destroyed while thread still running" 警告。
+
+    def _on_cancelled(self) -> None:
+        """转换被用户取消。"""
+        self._converting = False
+        self.window.offline_button.setEnabled(True)
+        self.window.offline_button.setText("开始转换")
+        self.window.offline_cancel_btn.setEnabled(False)
+        self.window.offline_status.setText("已取消")
 
     def _on_error(self, msg: str) -> None:
         """转换出错。"""
         self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
+        self.window.offline_cancel_btn.setEnabled(False)
         self.window.offline_status.setText("错误")
         # 与 _on_finished 一致：finished/error 信号在 run() 内发出，此刻线程可能尚未
         # 真正退出，提前析构有竞态。引用保留到下次 start_conversion 被新 worker 覆盖。
@@ -149,16 +169,24 @@ class OfflineWorker(QThread):
     progress = Signal(int, int)
     finished = Signal(str)
     error = Signal(str)
+    cancelled = Signal()
 
     def __init__(self, params: OfflineParams):
         super().__init__()
         self.params = params
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        """请求取消（线程安全：bool 赋值在 GIL 下原子）。"""
+        self._cancel_requested = True
 
     def run(self):
         import torch  # 惰性导入，避免 GUI 启动时加载 torch
 
         try:
             self._do_run()
+        except CancelledError:
+            self.cancelled.emit()
         except Exception:
             tb = traceback.format_exc()
             logger.error("离线推理失败:\n%s", tb)
@@ -182,6 +210,9 @@ class OfflineWorker(QThread):
             pct = 20 + int(cur * 80 / total) if total > 0 else 20
             self.progress.emit(pct, 100)
 
-        engine.process_file(self.params, progress_cb=_progress)
+        def _cancel_check():
+            return self._cancel_requested
+
+        engine.process_file(self.params, progress_cb=_progress, cancel_cb=_cancel_check)
         self.progress.emit(100, 100)
         self.finished.emit(self.params.output_path)

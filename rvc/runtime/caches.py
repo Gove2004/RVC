@@ -34,3 +34,8 @@ class LRUCache:
         """线程安全地返回所有值的快照列表。"""
         with self._lock:
             return list(self._d.values())
+
+    def clear(self):
+        """清空所有条目（不释放值本身，调用方需先 release）。"""
+        with self._lock:
+            self._d.clear()

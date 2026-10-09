@@ -4,7 +4,6 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QPushButton,
     QGridLayout, QProgressBar,
 )
-
 from gui.styles import ButtonStyles
 
 
@@ -41,12 +40,25 @@ def build_offline_tab(win):
     g.addWidget(btn_out, r, 3)
     r += 1
 
-    # 开始转换（占满整行）
+    # 开始转换 + 取消（并排）
+    btn_row = QWidget()
+    btn_layout = QGridLayout(btn_row)
+    btn_layout.setContentsMargins(0, 0, 0, 0)
+    btn_layout.setSpacing(6)
+
     win.offline_button = QPushButton("开始转换")
     win.offline_button.setMinimumHeight(32)
     win.offline_button.setStyleSheet(ButtonStyles.primary())
     win.offline_button.clicked.connect(win._off_start)
-    g.addWidget(win.offline_button, r, 0, 1, 4)
+    btn_layout.addWidget(win.offline_button, 0, 0)
+
+    win.offline_cancel_btn = QPushButton("取消")
+    win.offline_cancel_btn.setMinimumHeight(32)
+    win.offline_cancel_btn.setEnabled(False)
+    win.offline_cancel_btn.clicked.connect(win._off_cancel)
+    btn_layout.addWidget(win.offline_cancel_btn, 0, 1)
+
+    g.addWidget(btn_row, r, 0, 1, 4)
     r += 1
 
     # 状态标签

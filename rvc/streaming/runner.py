@@ -126,7 +126,7 @@ class InferenceRunner:
         indata = np.zeros((frames, state.channels), dtype=np.float32)
         outdata = np.zeros((frames, state.channels), dtype=np.float32)
         try:
-            with torch.no_grad():
+            with torch.inference_mode():
                 for _ in range(n):
                     self.process_block(indata, outdata, frames)
             if torch.cuda.is_available():
@@ -177,7 +177,7 @@ class InferenceRunner:
         p_rms_mix = self.runtime_params.rms_mix
         p_airflow = self.runtime_params.texture.airflow
 
-        with torch.no_grad():
+        with torch.inference_mode():
             # ── stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样 ──
             t_in = time.perf_counter()
             mono = self._stage_input(indata)
@@ -230,6 +230,9 @@ class InferenceRunner:
             vol = self.runtime_params.volume
             if vol != 1.0:
                 chunk.mul_(vol)
+            # 硬钳位到 [-1, 1]：高增益时防止削波溢出（sounddevice 写设备前的最后一道保护）
+            if vol > 1.0:
+                chunk.clamp_(min=-1.0, max=1.0)
 
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)

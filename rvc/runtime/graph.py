@@ -123,37 +123,44 @@ class _CapturedCall:
     def __init__(self, function, inputs):
         started = time.perf_counter()
         self.lock = threading.RLock()
-        self.inputs = tuple(torch.empty_like(value) for value in inputs)
-        for static, value in zip(self.inputs, inputs):
-            static.copy_(value)
-        device = self.inputs[0].device
-        current = torch.cuda.current_stream(device)
-        warmup = torch.cuda.Stream(device=device)
-        warmup.wait_stream(current)
-        with torch.cuda.stream(warmup), torch.no_grad():
-            for _ in range(3):
-                output = function(*self.inputs)
-        current.wait_stream(warmup)
-        torch.cuda.synchronize(device)
-        self.graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(self.graph), torch.no_grad():
-            self.output = function(*self.inputs)
+        # inference_mode 是线程上下文状态，与创建算子无关——在 inference_mode 内
+        # 调用 torch.empty/empty_like 仍产出 inference tensor，导致模式外 replay 时
+        # static.copy_() 抛 RuntimeError。用 inference_mode(False) 显式退出，
+        # 确保静态输入和图输出始终是普通张量，replay 不受调用方模式影响。
+        with torch.inference_mode(False):
+            self.inputs = tuple(torch.empty_like(value) for value in inputs)
+            for static, value in zip(self.inputs, inputs):
+                static.copy_(value)
+            device = self.inputs[0].device
+            current = torch.cuda.current_stream(device)
+            warmup = torch.cuda.Stream(device=device)
+            warmup.wait_stream(current)
+            with torch.cuda.stream(warmup), torch.no_grad():
+                for _ in range(3):
+                    output = function(*self.inputs)
+            current.wait_stream(warmup)
+            torch.cuda.synchronize(device)
+            self.graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(self.graph), torch.no_grad():
+                self.output = function(*self.inputs)
         self.capture_ms = (time.perf_counter() - started) * 1000.0
         self.done_event = None
         del output
 
     def replay(self, inputs):
         with self.lock:
-            stream = torch.cuda.current_stream(self.inputs[0].device)
-            if self.done_event is not None:
-                stream.wait_event(self.done_event)
-            for static, value in zip(self.inputs, inputs):
-                static.copy_(value, non_blocking=True)
-            self.graph.replay()
-            output = _clone_output(self.output)
-            self.done_event = torch.cuda.Event(blocking=False)
-            self.done_event.record(stream)
-            return output
+            # 同 __init__：inference_mode(False) 确保 copy_ 和 clone_output 产出普通张量
+            with torch.inference_mode(False):
+                stream = torch.cuda.current_stream(self.inputs[0].device)
+                if self.done_event is not None:
+                    stream.wait_event(self.done_event)
+                for static, value in zip(self.inputs, inputs):
+                    static.copy_(value, non_blocking=True)
+                self.graph.replay()
+                output = _clone_output(self.output)
+                self.done_event = torch.cuda.Event(blocking=False)
+                self.done_event.record(stream)
+                return output
 
 
 class _GraphCache:

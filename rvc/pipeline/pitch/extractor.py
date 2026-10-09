@@ -5,6 +5,7 @@
 
 """
 import contextlib
+import gc
 import logging
 import sys
 from abc import ABC, abstractmethod
@@ -161,6 +162,23 @@ class F0Extractor(ABC):
         """清除该提取器的 CUDA Graph 缓存（模型切换/重启时调用）。"""
         pass
 
+    def release(self) -> None:
+        """完全释放提取器：清除 CUDA Graph + 删除模型 + 回收显存。
+
+        切换 F0 方法时调用，避免旧模型驻留显存。
+        模板方法：clear_cuda_graph() → _release_model() → gc.collect() → empty_cache()。
+        子类只需重写 _release_model() 删除自身模型属性。
+        """
+        self.clear_cuda_graph()
+        self._release_model()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def _release_model(self) -> None:
+        """子类重写：删除自身模型属性。默认空实现。"""
+        pass
+
 
 class RMVPEExtractor(F0Extractor):
     """RMVPE F0 提取器"""
@@ -193,6 +211,9 @@ class RMVPEExtractor(F0Extractor):
     def clear_cuda_graph(self) -> None:
         clear_cuda_graph_cache(self.model.mel_extractor)
         clear_cuda_graph_cache(self.model)
+
+    def _release_model(self) -> None:
+        self.model = None
 
 
 class FCPEExtractor(F0Extractor):
@@ -268,6 +289,11 @@ class FCPEExtractor(F0Extractor):
         if hasattr(self.model, "model"):
             clear_cuda_graph_cache(self.model.model)
 
+    def _release_model(self) -> None:
+        self.model = None
+        if hasattr(self, "local_offsets"):
+            self.local_offsets = None
+
 
 def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache, config=None) -> F0Extractor:
     """F0 提取器工厂函数 — 支持缓存。
@@ -277,6 +303,8 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
     CUDA Graph 缓存在模型加载时（ModelSessions）统一清除。
     """
     if method == "rmvpe":
+        # 方法切换时释放 FCPE（仅在真正变化时执行，内部有 _active_f0_method 标记）
+        inference_cache.switch_f0_method("rmvpe")
         cache_key = (device, is_half)
         cached = inference_cache.get_rmvpe(cache_key)
         if cached is None:
@@ -284,6 +312,8 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
             inference_cache.set_rmvpe(cache_key, cached)
         return cached
     elif method == "fcpe":
+        # 方法切换时释放 RMVPE（仅在真正变化时执行）
+        inference_cache.switch_f0_method("fcpe")
         cache_key = device
         cached = inference_cache.get_fcpe(cache_key)
         if cached is None:

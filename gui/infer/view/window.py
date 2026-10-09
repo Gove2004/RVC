@@ -276,6 +276,10 @@ class MainWindow(WindowLifecycle, QMainWindow):
             logger.warning("保存配置失败：%s", e)
         self.offline_conversion.start_conversion()
 
+    def _off_cancel(self):
+        """取消当前离线转换。"""
+        self.offline_conversion.cancel_conversion()
+
     # ── 参数应用（委托给 controller）──
 
     def _apply_runtime_params(self):

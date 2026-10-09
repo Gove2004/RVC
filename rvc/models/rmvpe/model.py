@@ -41,7 +41,7 @@ class RMVPE:
         return model.to(self.device)
 
     def mel2hidden(self, mel):
-        with torch.no_grad():
+        with torch.inference_mode():
             n_frames = mel.shape[-1]
             n_pad = 32 * ((n_frames - 1) // 32 + 1) - n_frames
             if n_pad > 0:

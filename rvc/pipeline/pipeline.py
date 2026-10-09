@@ -243,6 +243,11 @@ class InferencePipeline:
         if state.f0_stream is None:
             state.f0_stream = torch.cuda.Stream(device=state.device)
 
+        # 关键：side stream 必须等待主 stream 完成 input_wav_16k 的写入，
+        # 否则 F0 可能读到半写入的缓冲区（数据竞争 → 偶发 NaN）。
+        # 反向同步在 _sync_f0_parallel 中通过 wait_stream(f0_stream) 完成。
+        state.f0_stream.wait_stream(torch.cuda.current_stream(state.device))
+
         # 在 side stream 上启动 F0 提取（原始值，未截断）
         # extract_raw 内部使用 run_cuda_graph，会在当前 stream（f0_stream）上 capture/replay
         with torch.cuda.stream(state.f0_stream):

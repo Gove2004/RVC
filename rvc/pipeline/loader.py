@@ -57,6 +57,10 @@ class SynthesizerLoader:
         else:
             synthesizer = SynthesizerTrnMsNSFsid_nono(*ckpt["config"])
 
+        # enc_q（PosteriorEncoder）仅训练时使用，推理 infer() 完全不调用。
+        # 在 load_state_dict 之前删除，避免加载其权重（strict=False 会跳过缺失键），省 ~30MB 显存。
+        del synthesizer.enc_q
+
         synthesizer.load_state_dict(ckpt["weight"], strict=False)
         synthesizer.eval().to(self.device)
         if self.is_half:

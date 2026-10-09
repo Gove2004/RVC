@@ -14,6 +14,8 @@ import logging
 import os
 from dataclasses import dataclass
 
+import torch
+
 from rvc.core.errors import ModelLoadError
 from rvc.pipeline.loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
@@ -56,6 +58,9 @@ class ModelSessions:
             return self._current_session
 
         logger.info("加载 %s", os.path.basename(pth_path))
+        # 加载前先回收 CUDA 缓存碎片，确保最大可用显存（避免碎片导致 OOM）
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         try:
             # HuBERT 缓存查/存由本组装层负责：模型层 load_hubert 是纯加载器
             cache_key = (self.device, self.is_half, hubert_variant)

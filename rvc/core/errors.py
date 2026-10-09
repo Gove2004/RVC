@@ -33,3 +33,7 @@ class FeatureExtractionError(InferenceError):
 
 class AudioLoadError(RVCError):
     """音频加载失败（文件不存在/解码失败/格式不支持）。"""
+
+
+class CancelledError(RVCError):
+    """离线推理被用户取消时抛出。"""

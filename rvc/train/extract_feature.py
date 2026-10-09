@@ -61,7 +61,7 @@ class HuBERTExtractor:
         feats = torch.from_numpy(wav).to(self.device)
         feats = feats.half() if self.is_half else feats.float()
         feats = feats.view(1, -1)
-        with torch.no_grad():
+        with torch.inference_mode():
             # 与推理侧共享 hubert_forward，保证模型前向传播路径一致
             feats_result = hubert_forward(self.model, feats)
             feats = feats_result.squeeze(0).float().cpu().numpy()
