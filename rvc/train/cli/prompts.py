@@ -111,17 +111,6 @@ def _as_sr(raw):
     return f"{value // 1000}k" if value >= 1000 else f"{value}k"
 
 
-def _as_pair(raw):
-    """解析两个浮点数，接受 `0.8,0.99` / `0.8 0.99` / `(0.8, 0.99)` 三种写法。"""
-    text = str(raw).strip().strip("()[]")
-    for sep in ("，", ",", " ", "/", "、"):
-        text = text.replace(sep, ",")
-    parts = [p for p in text.split(",") if p]
-    if len(parts) != 2:
-        raise ValueError("需要两个数，用逗号分隔")
-    return (float(parts[0]), float(parts[1]))
-
-
 def _human_size(num_bytes: float) -> str:
     size = float(num_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB"):

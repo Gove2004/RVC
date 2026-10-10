@@ -1,8 +1,8 @@
 """跨层共享常量 — 音频基础参数、F0 阈值、训练预处理默认值。
 
-放在 `rvc/core` 是因为下面三处都要用到，而它们分属不同层：
-`rvc/train/preprocess.py`（切片实现）、`rvc/train/trainer.py`（DataLoader）、
-`rvc/train/cli/`（训练向导的提问默认值）。默认值只在这里声明一次，
+放在 `rvc/core` 是因为下面几处都要用到，而它们分属不同层：
+`rvc/train/preprocess.py`（切片/滤波实现）、`rvc/train/trainer.py`（DataLoader 进程数）、
+`rvc/train/cli/`（切片时长默认值）。默认值只在这里声明一次，
 各处引用常量而非字面量 —— 改一处即全链路生效。
 """
 

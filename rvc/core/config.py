@@ -129,8 +129,3 @@ class TrainConfig:
     device: str = "cuda:0"
     keep_ckpts: int = 1
     keep_models: int = 0
-    # 训练底参覆盖：只作用于 assets/configs/<sr>train_config.json 里**已有**的键
-    # （c_mel / c_kl / lr_decay / seed / segment_size / betas / eps），
-    # 外加 json 里没有的运行时项 num_workers。空 dict = 完全按 json。
-    # 用 dict 而非逐项字段，是为了不让 json 的默认值在同一处再抄一遍。
-    overrides: dict = field(default_factory=dict)

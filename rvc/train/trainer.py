@@ -51,12 +51,7 @@ class Trainer:
         self.ffmpeg_exe = ffmpeg_exe
         self.stop_requested = False
         self.json_config = load_train_json(self.cfg.sr)
-        # 底参以 json 为唯一默认来源，再用向导给出的覆盖项盖一层
-        # （只放行 json 里已有的键：模型结构/数据段不可经此通道改动）
-        overrides = dict(self.cfg.overrides or {})
-        self.num_workers = int(overrides.pop("num_workers", TRAIN_NUM_WORKERS_DEFAULT))
-        self.train_cfg = dict(self.json_config["train"])
-        self.train_cfg.update({k: v for k, v in overrides.items() if k in self.train_cfg})
+        self.train_cfg = self.json_config["train"]
         self.mel_config = self.json_config["data"]
         # use_spectral_norm 只属于判别器，不能混进生成器构造参数（基类虽有 **kwargs 吞掉，但保持干净）
         self.model_cfg = self.json_config["model"].copy()
@@ -132,7 +127,7 @@ class Trainer:
             ffmpeg_exe=self.ffmpeg_exe,
         )
         sampler = BucketSampler(dataset, self.cfg.batch_size)
-        self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=self.num_workers, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)
+        self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=TRAIN_NUM_WORKERS_DEFAULT, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)
         if len(self.loader) == 0:
             raise RuntimeError("训练样本不足，无法组成 batch")
 

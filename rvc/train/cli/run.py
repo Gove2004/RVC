@@ -81,13 +81,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # 预处理指纹核对放在「配置确认」之前：重新预处理会连同 checkpoint 一起清掉，
         # 若等到确认完才发现要重跑，摘要里的「从 epoch N 续训」就是假的
-        from rvc.train.preprocess import PREPROCESS_FINGERPRINT_KEYS, manifest_diff_reason
+        from rvc.train.preprocess import manifest_diff_reason
 
         exp_dir = cfg["exp_dir"]
-        reason = manifest_diff_reason(
-            exp_dir, cfg["input_dir"], cfg["sr_hz"], cfg["per"],
-            {k: cfg[k] for k in PREPROCESS_FINGERPRINT_KEYS},
-        )
+        reason = manifest_diff_reason(exp_dir, cfg["input_dir"], cfg["sr_hz"], cfg["per"])
         if reason and cfg["ckpt_epoch"]:
             log.log(f"预处理需要重跑（{reason}）→ 已有 checkpoint（epoch {cfg['ckpt_epoch']}）"
                     "会被一并清除，将从第 1 轮重新训练", "WARN")
