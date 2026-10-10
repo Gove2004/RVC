@@ -1,4 +1,3 @@
-from rvc.core.constants import HUBERT_SAMPLE_RATE
 import hashlib
 import json
 import shutil
@@ -7,12 +6,48 @@ from pathlib import Path
 import numpy as np
 from scipy import signal
 
+from rvc.core.constants import (
+    HUBERT_SAMPLE_RATE,
+    PREPROCESS_HIGHPASS_DEFAULT,
+    SLICE_HOP_SIZE_DEFAULT,
+    SLICE_MAX_SIL_KEPT_DEFAULT,
+    SLICE_MIN_INTERVAL_DEFAULT,
+    SLICE_MIN_LENGTH_DEFAULT,
+    SLICE_OVERLAP_DEFAULT,
+    SLICE_PERIOD_DEFAULT,
+    SLICE_THRESHOLD_DEFAULT,
+)
 from rvc.io.audio_file import load_audio as _load_audio_lib
 from rvc.io.wav_file import write_wav
 from rvc.train.checkpoint import CHECKPOINT_DIR_NAME
 
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"
+
+# 除 `per` 外参与预处理指纹的键；必须与 PreProcessor.preprocess_params() 的键集合一致。
+# 改其中任意一项都必须重新预处理，否则新参数会被静默忽略、沿用旧切片。
+PREPROCESS_FINGERPRINT_KEYS = (
+    "overlap",
+    "highpass",
+    "slice_threshold",
+    "slice_min_length",
+    "slice_min_interval",
+    "slice_hop_size",
+    "slice_max_sil_kept",
+)
+
+# 本次改动之前生成的 manifest 没有 "preprocess" 段。比对时按内置默认值代入，
+# 这样「从没改过这些参数」的老实验不会被平白触发一次重新预处理
+# （重新预处理会连同 checkpoint 一起清掉，代价很高）。
+_LEGACY_PREPROCESS = {
+    "overlap": SLICE_OVERLAP_DEFAULT,
+    "highpass": PREPROCESS_HIGHPASS_DEFAULT,
+    "slice_threshold": SLICE_THRESHOLD_DEFAULT,
+    "slice_min_length": SLICE_MIN_LENGTH_DEFAULT,
+    "slice_min_interval": SLICE_MIN_INTERVAL_DEFAULT,
+    "slice_hop_size": SLICE_HOP_SIZE_DEFAULT,
+    "slice_max_sil_kept": SLICE_MAX_SIL_KEPT_DEFAULT,
+}
 _RUNTIME_DIRS = [
     "0_gt_wavs",
     "1_16k_wavs",
@@ -43,7 +78,11 @@ def _rms(y: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
 
 
 class Slicer:
-    def __init__(self, sr: int, threshold: float = -42.0, min_length: int = 1500, min_interval: int = 400, hop_size: int = 15, max_sil_kept: int = 500):
+    def __init__(self, sr: int, threshold: float = SLICE_THRESHOLD_DEFAULT,
+                 min_length: int = SLICE_MIN_LENGTH_DEFAULT,
+                 min_interval: int = SLICE_MIN_INTERVAL_DEFAULT,
+                 hop_size: int = SLICE_HOP_SIZE_DEFAULT,
+                 max_sil_kept: int = SLICE_MAX_SIL_KEPT_DEFAULT):
         self.sr = sr
         self.threshold = 10 ** (threshold / 20.0)
         self.min_length = int(sr * min_length / 1000)
@@ -85,16 +124,53 @@ class Slicer:
 
 
 class PreProcessor:
-    def __init__(self, input_dir: str, exp_dir: str, sr: int, per: float = 3.7, ffmpeg_exe: str | Path | None = None):
+    """切片 + 重采样。
+
+    切片/滤波参数全部可配（训练向导逐项提问），默认值取自 `rvc.core.constants`
+    ——Slicer 的签名默认值引用同一批常量，故「不传即为历史行为」。
+    """
+
+    def __init__(self, input_dir: str, exp_dir: str, sr: int, per: float = SLICE_PERIOD_DEFAULT,
+                 ffmpeg_exe: str | Path | None = None, overlap: float = SLICE_OVERLAP_DEFAULT,
+                 highpass: float = PREPROCESS_HIGHPASS_DEFAULT,
+                 slice_threshold: float = SLICE_THRESHOLD_DEFAULT,
+                 slice_min_length: int = SLICE_MIN_LENGTH_DEFAULT,
+                 slice_min_interval: int = SLICE_MIN_INTERVAL_DEFAULT,
+                 slice_hop_size: int = SLICE_HOP_SIZE_DEFAULT,
+                 slice_max_sil_kept: int = SLICE_MAX_SIL_KEPT_DEFAULT):
         self.input_dir = Path(input_dir)
         self.exp_dir = Path(exp_dir)
         self.sr = sr
         self.per = per
+        # 重叠 >= 切片时长时切片推进为零 → _process_file 会死循环，宁可早报错
+        if not 0 <= overlap < per:
+            raise ValueError(f"切片重叠需要在 0 ~ {per}s 之间（收到 {overlap}）")
+        self.overlap = overlap
+        self.highpass = highpass
         self.ffmpeg_exe = ffmpeg_exe
         self.gt_dir = self.exp_dir / "0_gt_wavs"
         self.wav16k_dir = self.exp_dir / "1_16k_wavs"
-        self.slicer = Slicer(sr)
-        self.bh, self.ah = signal.butter(5, 48, btype="high", fs=sr)
+        self.slicer = Slicer(
+            sr,
+            threshold=slice_threshold,
+            min_length=slice_min_length,
+            min_interval=slice_min_interval,
+            hop_size=slice_hop_size,
+            max_sil_kept=slice_max_sil_kept,
+        )
+        # Slicer 内部把阈值转成了线性幅度，这里另存一份原始参数用于指纹比对
+        self.slice_params = {
+            "slice_threshold": slice_threshold,
+            "slice_min_length": slice_min_length,
+            "slice_min_interval": slice_min_interval,
+            "slice_hop_size": slice_hop_size,
+            "slice_max_sil_kept": slice_max_sil_kept,
+        }
+        self.bh, self.ah = signal.butter(5, highpass, btype="high", fs=sr)
+
+    def preprocess_params(self) -> dict:
+        """除 `per` 外的切片/滤波参数，键与 PREPROCESS_FINGERPRINT_KEYS 一致。"""
+        return {"overlap": self.overlap, "highpass": self.highpass, **self.slice_params}
 
     def run(self, progress_callback=None):
         self._prepare_exp_dir()
@@ -109,12 +185,13 @@ class PreProcessor:
 
     def _prepare_exp_dir(self):
         self.exp_dir.mkdir(parents=True, exist_ok=True)
-        current = build_exp_manifest(self.input_dir, self.sr, self.per)
+        current = build_exp_manifest(self.input_dir, self.sr, self.per, self.preprocess_params())
         manifest_path = self.exp_dir / _MANIFEST_NAME
         if manifest_path.exists():
             previous = json.loads(manifest_path.read_text(encoding="utf-8"))
-            previous_key = {k: previous.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
-            current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
+            keys = ("input_dir", "input_hash", "sr", "per", "preprocess")
+            previous_key = {k: previous.get(k, _LEGACY_PREPROCESS if k == "preprocess" else None) for k in keys}
+            current_key = {k: current.get(k) for k in keys}
             if previous_key != current_key:
                 clear_exp_runtime(self.exp_dir)
         manifest_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -126,7 +203,7 @@ class PreProcessor:
         wav = signal.lfilter(self.bh, self.ah, wav).astype(np.float32)
         pieces = self.slicer.slice(wav)
         chunk_len = int(self.per * self.sr)
-        overlap = int(0.3 * self.sr)
+        overlap = int(self.overlap * self.sr)
         idx = 0
         for piece in pieces:
             start = 0
@@ -155,7 +232,7 @@ def normalize_audio(wav: np.ndarray):
     return wav.astype(np.float32)
 
 
-def build_exp_manifest(input_dir: str | Path, sr: int, per: float):
+def build_exp_manifest(input_dir: str | Path, sr: int, per: float, preprocess: dict | None = None):
     root = Path(input_dir).resolve()
     files = sorted(
         f"{str(p.relative_to(root)).replace('\\', '/')}|{p.stat().st_size}|{int(p.stat().st_mtime)}"
@@ -168,6 +245,7 @@ def build_exp_manifest(input_dir: str | Path, sr: int, per: float):
         "input_hash": digest,
         "sr": sr,
         "per": per,
+        "preprocess": preprocess if preprocess is not None else dict(_LEGACY_PREPROCESS),
     }
 
 
@@ -190,19 +268,30 @@ def clear_exp_runtime(exp_dir: str | Path):
                 path.unlink()
 
 
-def manifest_diff_reason(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float) -> str:
-    """返回预处理指纹与当前素材不一致的原因；一致时返回空串。"""
+def manifest_diff_reason(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float,
+                        preprocess: dict | None = None) -> str:
+    """返回预处理指纹与当前素材/参数不一致的原因；一致时返回空串。
+
+    preprocess 为本次要用的切片/滤波参数（键见 PREPROCESS_FINGERPRINT_KEYS）；
+    缺省时按内置默认值比对（老调用点/老实验的兼容口径）。
+    """
     manifest_path = Path(exp_dir) / _MANIFEST_NAME
     if not manifest_path.exists():
         return "该实验目录还没有预处理产物（manifest.json 缺失），需要先执行预处理"
     saved = json.loads(manifest_path.read_text(encoding="utf-8"))
-    current = build_exp_manifest(input_dir, sr, per)
+    current = build_exp_manifest(input_dir, sr, per, preprocess)
     if str(saved.get("input_dir")) != str(current.get("input_dir")):
         return f"输入目录不一致（预处理: {saved.get('input_dir')}，当前: {current.get('input_dir')}）"
     if saved.get("sr") != current.get("sr"):
         return f"采样率不一致（{saved.get('sr')} vs {current.get('sr')}）"
     if saved.get("per") != current.get("per"):
         return f"切片时长不一致（{saved.get('per')} vs {current.get('per')}）"
+    saved_pre = saved.get("preprocess", _LEGACY_PREPROCESS)
+    if saved_pre != current["preprocess"]:
+        changed = [k for k in PREPROCESS_FINGERPRINT_KEYS
+                   if (saved_pre or {}).get(k) != current["preprocess"][k]]
+        detail = "、".join(changed) if changed else "切片/滤波参数"
+        return f"预处理参数不一致（{detail}）"
     if saved.get("input_hash") != current.get("input_hash"):
         return "素材文件有变化（新增/删除/大小或修改时间变动），旧特征已过期"
     return ""

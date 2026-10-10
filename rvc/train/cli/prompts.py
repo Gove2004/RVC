@@ -1,17 +1,43 @@
-"""交互式提问与通用格式化工具。"""
+"""交互式提问与通用格式化工具。
+
+提示文案统一为「问题（可选 a / b；默认 x；补充说明）: 」—— 可选项、默认值与
+补充说明收进**同一对括号**（否则 `学习率（说明）（默认 …）` 会出现两个连续括号）。
+"""
 from rvc.train.cli import Cancelled, EnvFatal
+
+_YES = ("y", "yes", "是", "1")
+_NO = ("n", "no", "否", "0")
 
 
 def _clean(raw: str) -> str:
     return raw.strip().strip('"').strip("'").strip()
 
 
-def ask(prompt: str, default="", cast=None, check=None, allow_blank=False):
-    """提问。default 为空串 = 必填；EOF（管道结束）自动取默认值。"""
+def _hint(default="", options=None, note="", allow_blank=False) -> str:
+    """问题旁的括号提示：补充说明 + 可选项 + 默认值（同括号内，分号分隔）。"""
+    parts = []
+    if note:
+        parts.append(note.strip().rstrip("；;"))
+    if options:
+        parts.append("可选 " + " / ".join(str(o) for o in options))
+    if default != "":
+        parts.append(f"默认 {default}")
+    elif allow_blank:
+        parts.append("可留空")
+    else:
+        parts.append("必填")
+    return f"（{'；'.join(parts)}）"
+
+
+def ask(prompt: str, default="", cast=None, check=None, allow_blank=False,
+        options=None, note="") -> object:
+    """提问。default 为空串且 allow_blank=False 时视为必填；EOF（管道结束）自动取默认值。
+
+    options 仅用于在问题旁提示可选项，校验仍由 check 负责（两者不要各写一份）。
+    """
     while True:
-        hint = f"（默认 {default}）" if default != "" else ""
         try:
-            raw = _clean(input(f"{prompt}{hint}: "))
+            raw = _clean(input(f"{prompt}{_hint(default, options, note, allow_blank)}: "))
         except EOFError:
             print(flush=True)
             if allow_blank or default != "":
@@ -48,11 +74,11 @@ def ask(prompt: str, default="", cast=None, check=None, allow_blank=False):
         return val
 
 
-def ask_yes(prompt: str, default: bool = True) -> bool:
-    hint = "Y/n" if default else "y/N"
+def ask_yes(prompt: str, default: bool = True, note: str = "") -> bool:
     while True:
+        hint = _hint("y" if default else "n", ("y", "n"), note)
         try:
-            raw = _clean(input(f"{prompt} [{hint}]: ")).lower()
+            raw = _clean(input(f"{prompt}{hint}: ")).lower()
         except EOFError:
             print(flush=True)
             return default
@@ -61,9 +87,9 @@ def ask_yes(prompt: str, default: bool = True) -> bool:
             raise Cancelled() from None
         if raw == "":
             return default
-        if raw in ("y", "yes", "是", "1"):
+        if raw in _YES:
             return True
-        if raw in ("n", "no", "否", "0"):
+        if raw in _NO:
             return False
         print("  × 请输入 y 或 n", flush=True)
 
@@ -83,6 +109,17 @@ def _as_sr(raw):
         return f"{_as_int(text[:-1])}k"
     value = _as_int(text)
     return f"{value // 1000}k" if value >= 1000 else f"{value}k"
+
+
+def _as_pair(raw):
+    """解析两个浮点数，接受 `0.8,0.99` / `0.8 0.99` / `(0.8, 0.99)` 三种写法。"""
+    text = str(raw).strip().strip("()[]")
+    for sep in ("，", ",", " ", "/", "、"):
+        text = text.replace(sep, ",")
+    parts = [p for p in text.split(",") if p]
+    if len(parts) != 2:
+        raise ValueError("需要两个数，用逗号分隔")
+    return (float(parts[0]), float(parts[1]))
 
 
 def _human_size(num_bytes: float) -> str:

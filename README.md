@@ -49,11 +49,30 @@ python -m venv .venv
 # 等价于: python -m rvc.train.cli [数据集目录]
 ```
 
-向导会依次询问数据集路径、产物根目录、实验名与训练超参（直接回车 = 默认值），
-并自动跳过已完成的阶段（切片指纹一致则跳过预处理，F0/特征齐全则跳过提取，检测到
-checkpoint 则自动续训）。**向导有存档**：首次运行各项默认值即内置默认值，问完后本次答案
-会写进 `assets/configs/train_cli_defaults.json`，作为下次运行的默认值（删掉该文件即恢复
-内置默认值；命令行传入的数据集路径始终优先于存档）。
+向导会依次询问 29 项参数（直接回车 = 默认值），每项都在问题旁用括号标出**可选项与默认值**，
+例如 `采样率（40k 更省显存、更快；48k 高频细节更多；可选 40k / 48k；默认 48k）: `。提问按
+「路径与规模 → 预处理/切片 → 训练底参 → 优化器 → 运行时」平铺，没有隐藏项：
+
+| 分组 | 参数 |
+|---|---|
+| 路径与规模 | 数据集路径、产物根目录、实验名、采样率、HuBERT 特征器、batch size、学习率、训练轮次、保存间隔、保留 checkpoint 组数、是否用预训练底模 |
+| 预处理/切片 | 切片时长、相邻切片重叠、高通截止、静音判定阈值、最短切片、最短静音间隔、单次最多保留静音、静音分析帧步长 |
+| 训练底参 | c_mel、c_kl、lr_decay、seed、segment_size |
+| 优化器 | AdamW betas、eps |
+| 运行时 | num_workers、训练侧 RMVPE 阈值、保留导出模型数 |
+
+训练底参（c_mel/c_kl/lr_decay/seed/segment_size/betas/eps）的默认值直接来自
+`assets/configs/<40k\|48k>train_config.json`，向导只在用户改动时才经 `TrainConfig.overrides`
+覆盖它（只放行 json 里已有的键，模型结构不可经此改动）。
+
+向导会自动跳过已完成的阶段（切片指纹一致则跳过预处理，F0/特征齐全则跳过提取，检测到
+checkpoint 则自动续训）。**切片/滤波参数也参与指纹**：改动其中任一项都会重新切片，并连同
+旧 checkpoint 一起清除——这种情况会在「配置确认」之前先明确告警。
+
+**向导有存档**：首次运行各项默认值即内置默认值，问完后本次答案会写进
+`assets/configs/train_cli_defaults.json`，作为下次运行的默认值（删掉该文件即恢复内置默认值；
+命令行传入的数据集路径始终优先于存档；存档里越界/类型不符的项与当前机器上不存在的目录
+一律丢弃回退默认）。
 
 产物根目录默认按平台自适应：
 
@@ -131,7 +150,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 
 | 目录 | 职责 |
 |---|---|
-| `rvc/core/` | `config.py`（InferenceParams/OfflineParams/TrainConfig 等 dataclass）、`constants.py`（采样率/阈值等常量）、`errors.py`（异常类型） |
+| `rvc/core/` | `config.py`（InferenceParams/OfflineParams/TrainConfig 等 dataclass）、`constants.py`（采样率、F0 阈值、训练预处理默认值等跨层常量）、`errors.py`（异常类型） |
 | `rvc/runtime/` | `device.py`（设备管理）、`graph.py`（CUDA Graph 捕获/重放）、`caches.py`（通用 LRU）、`paths.py`（路径配置） |
 | `rvc/dsp/` | `sola.py`（SOLA 时长对齐拼接）、`rms.py`（RMS 音量混合）、`mel.py`（mel 频谱）、`hz_midi.py`（Hz↔MIDI 换算）——纯函数、无 torch/IO 依赖 |
 | `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询） |
@@ -139,7 +158,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化） |
 | `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`effects.py`（RMS 响度混合 / SOLA） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
-| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（TrainSample/TrainBatch 数据集与 collate）、`mel_processing.py` |
+| `rvc/train/` | `trainer.py`（训练主循环；`overrides` 覆盖 `<sr>train_config.json` 底参，`export_dir` 显式参数）、`preprocess.py`（切片/重采样，切片与滤波参数全部可配）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（TrainSample/TrainBatch 数据集与 collate）、`mel_processing.py` |
 | `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`defaults.py`（上次参数存档 → 下次默认值）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
 | `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具）+ `state/`（参数绑定）+ `configs/` + `styles/` |
 

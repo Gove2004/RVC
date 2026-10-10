@@ -18,10 +18,12 @@ class TrainF0Extractor:
     职责不同，名字刻意区分，避免混淆。
     """
 
-    def __init__(self, device: str = "cuda:0", is_half: bool = True, ffmpeg_exe: str | None = None):
+    def __init__(self, device: str = "cuda:0", is_half: bool = True, ffmpeg_exe: str | None = None,
+                 threshold: float = RMVPE_THRESHOLD_TRAIN):
         self.device = device
         self.is_half = is_half
         self.ffmpeg_exe = ffmpeg_exe
+        self.threshold = threshold
         self.model = RMVPE(str(RMVPE_PATH), is_half=is_half, device=device)
         self.stop_requested = False
 
@@ -45,7 +47,7 @@ class TrainF0Extractor:
                 wav, _ = load_audio(path, HUBERT_SAMPLE_RATE, ffmpeg_exe=self.ffmpeg_exe)
                 # 与推理侧完全相同的提取路径（infer_from_audio_with_confidence），
                 # 训练侧忽略 confidence，只取 f0。保证训练/推理 F0 提取一致性。
-                f0, _ = self.model.infer_from_audio_with_confidence(wav, thred=RMVPE_THRESHOLD_TRAIN)
+                f0, _ = self.model.infer_from_audio_with_confidence(wav, thred=self.threshold)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()
                 np.save(out_cont, f0.astype(np.float32), allow_pickle=False)

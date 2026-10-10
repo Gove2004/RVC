@@ -9,6 +9,18 @@ import os
 from pathlib import Path
 
 from rvc.core.config import HUBERT_DEFAULT, TrainConfig
+from rvc.core.constants import (
+    PREPROCESS_HIGHPASS_DEFAULT,
+    RMVPE_THRESHOLD_TRAIN,
+    SLICE_HOP_SIZE_DEFAULT,
+    SLICE_MAX_SIL_KEPT_DEFAULT,
+    SLICE_MIN_INTERVAL_DEFAULT,
+    SLICE_MIN_LENGTH_DEFAULT,
+    SLICE_OVERLAP_DEFAULT,
+    SLICE_PERIOD_DEFAULT,
+    SLICE_THRESHOLD_DEFAULT,
+    TRAIN_NUM_WORKERS_DEFAULT,
+)
 from rvc.runtime.paths import PROJECT_ROOT
 
 # 环境检测用（纯元数据查询，不真正执行模块）
@@ -33,14 +45,13 @@ BAR = "─" * 66
 # 本文件记录体检 / 参数 / 步骤进度。
 LOG_NAME = "train_cli.log"
 
-# 向导交互默认值（单源：能对上 dataclass 的项从 rvc.core.config 取）。
+# 向导交互默认值（单源：能对上 dataclass 的项从 rvc.core.config 取，
+# 预处理/运行时项从 rvc.core.constants 取 —— 那正是各模块签名默认值引用的同一批常量）。
 # 三层对外默认各自独立、取值一律不变，下面的具名常量只做「消除魔法数字」：
 #   · epochs     —— 向导 250 / TrainConfig.epochs 2000
 #   · save_every —— 向导 20  / TrainConfig.save_every_epoch 200
-#   · per        —— 切片时长固定 3.7s
 WIZARD_EPOCHS_DEFAULT = 250
 WIZARD_SAVE_EVERY_DEFAULT = 20
-WIZARD_SLICE_PERIOD_DEFAULT = 3.7
 
 # TrainConfig.exp_dir 为必填项，不可实例化，故直接读字段默认值
 _TC_FIELD = TrainConfig.__dataclass_fields__
@@ -51,11 +62,27 @@ DEFAULTS = {
     "lr": _TC_FIELD["learning_rate"].default,
     "save_every": WIZARD_SAVE_EVERY_DEFAULT,
     "keep_ckpts": _TC_FIELD["keep_ckpts"].default,
-    "per": WIZARD_SLICE_PERIOD_DEFAULT,
     "keep_models": _TC_FIELD["keep_models"].default,
     "hubert": HUBERT_DEFAULT,
     "use_pretrained": True,
+    # ── 预处理 / 切片 ──
+    "per": SLICE_PERIOD_DEFAULT,
+    "overlap": SLICE_OVERLAP_DEFAULT,
+    "highpass": PREPROCESS_HIGHPASS_DEFAULT,
+    "slice_threshold": SLICE_THRESHOLD_DEFAULT,
+    "slice_min_length": SLICE_MIN_LENGTH_DEFAULT,
+    "slice_min_interval": SLICE_MIN_INTERVAL_DEFAULT,
+    "slice_hop_size": SLICE_HOP_SIZE_DEFAULT,
+    "slice_max_sil_kept": SLICE_MAX_SIL_KEPT_DEFAULT,
+    # ── 运行时 ──
+    "num_workers": TRAIN_NUM_WORKERS_DEFAULT,
+    "rmvpe_threshold": RMVPE_THRESHOLD_TRAIN,
 }
+
+# 训练底参（c_mel / c_kl / lr_decay / seed / segment_size / betas / eps）的默认值
+# **不在这里**：唯一事实源是 assets/configs/<sr>train_config.json，由向导在采样率
+# 确定后读取，避免同一批数字在 json 与代码里各存一份（见 wizard.run_wizard）。
+JSON_TRAIN_KEYS = ("c_mel", "c_kl", "lr_decay", "seed", "segment_size", "betas", "eps")
 
 
 def default_output_root() -> Path:

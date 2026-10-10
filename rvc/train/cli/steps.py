@@ -58,8 +58,20 @@ def step_preprocess(log: TrainLogger, cfg: dict):
     log.section("步骤 1/4 预处理（切片 + 重采样）")
     exp_dir = cfg["exp_dir"]
     log.log(f"切片时长 {cfg['per']}s，目标采样率 {cfg['sr_hz']} Hz")
+    log.log(
+        f"切片参数 重叠 {cfg['overlap']}s | 高通 {cfg['highpass']}Hz | "
+        f"静音阈值 {cfg['slice_threshold']}dB | 最短切片 {cfg['slice_min_length']}ms | "
+        f"最短静音 {cfg['slice_min_interval']}ms | 保留静音 {cfg['slice_max_sil_kept']}ms | "
+        f"帧步长 {cfg['slice_hop_size']}ms"
+    )
     t0 = time.time()
-    processor = PreProcessor(cfg["input_dir"], str(exp_dir), cfg["sr_hz"], per=cfg["per"], ffmpeg_exe=cfg["ffmpeg"])
+    processor = PreProcessor(
+        cfg["input_dir"], str(exp_dir), cfg["sr_hz"], per=cfg["per"], ffmpeg_exe=cfg["ffmpeg"],
+        overlap=cfg["overlap"], highpass=cfg["highpass"],
+        slice_threshold=cfg["slice_threshold"], slice_min_length=cfg["slice_min_length"],
+        slice_min_interval=cfg["slice_min_interval"], slice_hop_size=cfg["slice_hop_size"],
+        slice_max_sil_kept=cfg["slice_max_sil_kept"],
+    )
     count = processor.run(_make_progress(log, "预处理"))
     secs = time.time() - t0
     log.log(f"预处理完成：{count} 个源文件，用时 {_human_dur(secs)}")
@@ -92,7 +104,8 @@ def step_f0(log: TrainLogger, cfg: dict):
         log, cfg,
         title="步骤 2/4 提取 F0（RMVPE）",
         label="F0",
-        make_extractor=lambda c: TrainF0Extractor(c["device"], c["fp16"], ffmpeg_exe=c["ffmpeg"]),
+        make_extractor=lambda c: TrainF0Extractor(c["device"], c["fp16"], ffmpeg_exe=c["ffmpeg"],
+                                                  threshold=c["rmvpe_threshold"]),
     )
 
 
@@ -171,6 +184,18 @@ def step_train(log: TrainLogger, cfg: dict):
         device=cfg["device"],
         keep_ckpts=cfg["keep_ckpts"],
         keep_models=cfg["keep_models"],
+        # 训练底参覆盖：Trainer 只放行 <sr>train_config.json 里已有的键，
+        # num_workers 是 json 之外、单独取用的运行时项
+        overrides={
+            "num_workers": cfg["num_workers"],
+            "c_mel": cfg["c_mel"],
+            "c_kl": cfg["c_kl"],
+            "lr_decay": cfg["lr_decay"],
+            "seed": cfg["seed"],
+            "segment_size": cfg["segment_size"],
+            "betas": list(cfg["betas"]),
+            "eps": cfg["eps"],
+        },
     )
 
     state = {"t_epoch": time.time(), "sum": None, "count": 0, "batches": 0, "samples": 0, "last_ckpt": 0, "ema_secs": None}
