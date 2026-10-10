@@ -9,7 +9,7 @@ from rvc.runtime import config_path
 logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 
-_DEFAULT_STATE = {"gui": {}, "train": {}}
+_DEFAULT_STATE = {"gui": {}}
 
 
 def load_config() -> dict:

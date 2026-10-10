@@ -2,14 +2,14 @@
 import time
 from pathlib import Path
 
-from autodl import BAR
+from rvc.train.cli import BAR
 
 
 class TrainLogger:
     """控制台 + 日志文件。
 
-    启动即写到引导日志（输出根/logs/autodl_train.log），实验名确定后 reattach 到
-    <实验目录>/autodl_train.log，并把引导阶段的内容原样搬到新文件头部，最终只留一份。
+    启动即写到引导日志（<项目根>/logs/train_cli.log），实验名确定后 reattach 到
+    <实验目录>/train_cli.log，并把引导阶段的内容原样搬到新文件头部，最终只留一份。
     """
 
     def __init__(self):

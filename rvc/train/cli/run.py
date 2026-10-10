@@ -1,31 +1,55 @@
-"""RVC 云 GPU 训练向导主入口。
+"""训练命令行向导主流程。
 
 用法:
-    python -m autodl
-    python autodl_train.py  (薄包装，等价)
+    python app.py --train [数据集目录]
+    python -m rvc.train.cli [数据集目录]
+
+Windows 与 Linux 同一套流程：环境体检 → 素材检查 → 参数向导 → 预处理 →
+F0 → HuBERT 特征 → 训练 → 汇总。逐步跳过已完成的阶段（manifest 指纹 / 特征完整性）。
 """
 import os
 import sys
 import warnings
 
-from autodl import (
-    DATA_ROOT,
+from rvc.runtime.paths import PROJECT_ROOT, TRAIN_LOGS_ROOT
+
+from rvc.train.cli import (
     EXIT_ENV,
     EXIT_OK,
     EXIT_RUNTIME,
-    PROJECT_ROOT,
+    LOG_NAME,
     Cancelled,
     EnvFatal,
 )
-from autodl.envcheck import _probe_assets, _probe_disk, _probe_ffmpeg, _probe_gpu, _probe_packages, _probe_platform
-from autodl.logger import TrainLogger
-from autodl.prompts import _human_size, ask_yes
-from autodl.steps import STOP, _features_ready, _install_signal_handlers, step_f0, step_feature, step_preprocess, step_train
-from autodl.wizard import print_summary, run_wizard
+from rvc.train.cli.envcheck import (
+    _probe_assets,
+    _probe_ffmpeg,
+    _probe_gpu,
+    _probe_packages,
+    _probe_platform,
+)
+from rvc.train.cli.logger import TrainLogger
+from rvc.train.cli.prompts import _human_size, ask_yes
+from rvc.train.cli.steps import (
+    STOP,
+    _features_ready,
+    _install_signal_handlers,
+    step_f0,
+    step_feature,
+    step_preprocess,
+    step_train,
+)
+from rvc.train.cli.wizard import print_summary, run_wizard
 
 
-def main() -> int:
-    # 项目内大量路径是相对 cwd 的，入口第一行统一基准目录（Q6/D4：从 import 时移入 main）
+def main(argv: list[str] | None = None) -> int:
+    """argv: 传给向导的参数（第一个非选项参数视为数据集路径）。
+
+    None 时取 sys.argv[1:]（`python -m rvc.train.cli` 路径）。
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+
+    # 项目内存在以 cwd 为基准的相对引用，入口统一基准目录（进程级副作用，CLI 入口可接受）
     os.chdir(PROJECT_ROOT)
 
     # Trainer 里 scheduler.step() 先于 optimizer.step() 的既有写法会每轮刷两条警告，
@@ -33,18 +57,17 @@ def main() -> int:
     warnings.filterwarnings("ignore", message=r".*lr_scheduler\.step\(\).*")
 
     argv_dir = ""
-    for arg in sys.argv[1:]:
+    for arg in args:
         if not arg.startswith("-"):
             argv_dir = arg
 
     log = TrainLogger()
     try:
-        log.attach(DATA_ROOT / "logs" / "autodl_train.log")
-        log.section("RVC 云 GPU 训练向导")
+        log.attach(TRAIN_LOGS_ROOT / LOG_NAME)
+        log.section("RVC 训练向导")
 
         log.section("第 1 步 / 环境检查")
         _probe_platform(log)
-        _probe_disk(log)
         if _probe_packages(log):
             return EXIT_ENV
         device, fp16, vram_gb = _probe_gpu(log)
@@ -119,7 +142,3 @@ def main() -> int:
         return EXIT_RUNTIME
     finally:
         log.close()
-
-
-if __name__ == "__main__":
-    sys.exit(main())

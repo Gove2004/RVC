@@ -1,5 +1,5 @@
 """交互式提问与通用格式化工具。"""
-from autodl import Cancelled, EnvFatal
+from rvc.train.cli import Cancelled, EnvFatal
 
 
 def _clean(raw: str) -> str:

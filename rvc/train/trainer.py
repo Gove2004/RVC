@@ -35,11 +35,11 @@ class Trainer:
         """训练器。
 
         Args:
-            export_dir: 导出模型目录。默认 assets/models/；云训练（autodl）
-                传数据盘目录——取代旧版"运行时改模块全局 WEIGHTS_DIR"的
+            export_dir: 导出模型目录。默认 assets/models/；训练命令行向导
+                传产物模型目录——取代旧版"运行时改模块全局 WEIGHTS_DIR"的
                 monkey-patch 通道（隐式全局状态，多训练器实例会互相污染）。
             ffmpeg_exe: ffmpeg 路径，下发给 Dataset 解码。默认 None = 用
-                runtime 默认路径；云训练（autodl）显式传环境体检的定位结果。
+                runtime 默认路径；训练命令行向导显式传环境体检的定位结果。
         """
         self.cfg = train_config
         self.progress_callback = progress_callback

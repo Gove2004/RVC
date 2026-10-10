@@ -2,7 +2,7 @@
 
 用法:
     python app.py --infer    启动推理 GUI
-    python app.py --train    启动训练 GUI
+    python app.py --train    启动训练命令行向导（Windows / Linux 通用）
 """
 import argparse
 import io
@@ -38,22 +38,26 @@ def main():
     parser = argparse.ArgumentParser(description="RVC 实时语音转换工具")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--infer", action="store_true", help="启动推理 GUI")
-    group.add_argument("--train", action="store_true", help="启动训练 GUI")
-    args = parser.parse_args()
+    group.add_argument("--train", action="store_true", help="启动训练命令行向导")
+    # 训练向导自己解释额外参数（第一个非选项参数 = 数据集路径），
+    # 故这里用 parse_known_args 把其余参数原样透传，而不是由入口解析。
+    args, extra = parser.parse_known_args()
+
+    if args.train:
+        from rvc.train.cli.run import main as train_main
+
+        sys.exit(train_main(extra))
 
     from PySide6.QtWidgets import QApplication
+
     from gui.styles import apply_theme
 
     app = QApplication(sys.argv)
     apply_theme(app)
 
-    if args.infer:
-        from gui.infer.view.window import MainWindow
-        win = MainWindow()
-    else:
-        from gui.train.view.window import TrainWindow
-        win = TrainWindow()
+    from gui.infer.view.window import MainWindow
 
+    win = MainWindow()
     win.show()
     sys.exit(app.exec())
 

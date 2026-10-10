@@ -4,10 +4,10 @@ import sys
 import time
 from pathlib import Path
 
-from autodl import EXIT_RUNTIME
-from autodl.logger import TrainLogger
-from autodl.prompts import _human_dur, _human_size
-from autodl.wizard import _detect_ckpt_epoch
+from rvc.train.cli import EXIT_RUNTIME
+from rvc.train.cli.logger import TrainLogger
+from rvc.train.cli.prompts import _human_dur, _human_size
+from rvc.train.cli.wizard import _detect_ckpt_epoch
 
 
 class _StopFlag:
@@ -137,7 +137,7 @@ def step_train(log: TrainLogger, cfg: dict):
     exp_dir = cfg["exp_dir"]
     model_dir = cfg["model_dir"]
     model_dir.mkdir(parents=True, exist_ok=True)
-    # 导出目录经显式参数传入 Trainer（旧版靠改模块全局 WEIGHTS_DIR，已删）
+    # 导出目录经显式参数传入 Trainer（不靠改模块全局）
     log.log(f"导出模型目录: {model_dir}")
 
     # 从头训练时清掉同名旧模型

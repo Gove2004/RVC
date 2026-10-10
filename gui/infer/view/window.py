@@ -37,9 +37,13 @@ from gui.infer.view.tabs.offline_tab import build_offline_tab
 
 from gui.infer.view.tabs.experimental_tab import build_performance_tab
 
+from gui.infer.view.tabs.tools_tab import build_tools_tab
+
 from gui.infer.controller.device_controller import DeviceCatalog
 
 from gui.infer.controller.offline_controller import OfflineConversion
+
+from gui.infer.controller.tool_controller import ModelToolController
 
 from gui.styles import ButtonStyles, Layout
 from gui.styles.colors import Colors
@@ -82,6 +86,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # 初始化管理器
         self.device_catalog = DeviceCatalog(self)
         self.offline_conversion = OfflineConversion(self)
+        self.model_tools = ModelToolController()
+        self.tool_runner = None
 
         self.device_catalog.load_hostapis()
         self._load_gui_config()
@@ -132,6 +138,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         tabs.addTab(build_timbre_tab(self), "音色调节")
         tabs.addTab(build_performance_tab(self), "性能调节")
         tabs.addTab(build_offline_tab(self), "离线推理")
+        tabs.addTab(build_tools_tab(self), "工具")
         root.addWidget(tabs)
 
         # ── 底部控制栏 ──

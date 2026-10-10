@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from gui.infer.controller.device_controller import DeviceCatalog
     from gui.infer.controller.engine_controller import InferController
+    from gui.infer.controller.tool_controller import ModelToolController, ToolRunner
     from gui.infer.view.tray import SystemTray
     from gui.infer.view.widgets import DoubleSlider, LoadThread, RangeSlider
     from rvc.core.config import InferenceParams
@@ -33,6 +34,10 @@ class InferWindowHost(Protocol):
     runtime_params: "InferenceParams"
     device_catalog: "DeviceCatalog"
     tray: "SystemTray | None"
+
+    # ── 模型工具（「工具」Tab + 生命周期退出等待）──
+    model_tools: "ModelToolController"
+    tool_runner: "ToolRunner | None"
 
     # ── 生命周期状态（window.__init__ 初始化）──
     _timer: "QTimer"

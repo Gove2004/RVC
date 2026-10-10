@@ -7,19 +7,24 @@ import subprocess
 import sys
 from pathlib import Path
 
-from rvc.runtime.paths import CONFIG_ROOT, FFMPEG_EXE, HUBERT_ROOT, PRETRAINED_ROOT, RMVPE_PATH
+from rvc.runtime.paths import (
+    CONFIG_ROOT,
+    FFMPEG_EXE,
+    HUBERT_ROOT,
+    PRETRAINED_ROOT,
+    PROJECT_ROOT,
+    RMVPE_PATH,
+)
 
-from autodl import (
+from rvc.train.cli import (
     AUDIO_EXTS,
-    DATA_ROOT,
     NATIVE_EXTS,
     OPTIONAL_PACKAGES,
-    PROJECT_ROOT,
     REQUIRED_PACKAGES,
     EnvFatal,
 )
-from autodl.logger import TrainLogger
-from autodl.prompts import _human_dur, _human_size
+from rvc.train.cli.logger import TrainLogger
+from rvc.train.cli.prompts import _human_dur, _human_size
 
 
 def _probe_platform(log: TrainLogger):
@@ -35,11 +40,11 @@ def _probe_platform(log: TrainLogger):
     log.log(f"Python      : {sys.version.split()[0]}  ({sys.executable})")
     log.log(f"CPU / 内存  : {os.cpu_count()} 核 / {mem_gb:.1f} GB" if mem_gb else f"CPU         : {os.cpu_count()} 核")
     log.log(f"项目根目录  : {PROJECT_ROOT}")
-    log.log(f"产物根目录  : {DATA_ROOT}")
 
 
-def _probe_disk(log: TrainLogger):
-    for label, path in (("系统盘", PROJECT_ROOT), ("产物盘", DATA_ROOT)):
+def _probe_disk(log: TrainLogger, output_root: Path):
+    """检查项目盘与产物盘剩余空间（产物盘由向导参数决定，故在参数收集后调用）。"""
+    for label, path in (("项目盘", PROJECT_ROOT), ("产物盘", output_root)):
         try:
             usage = shutil.disk_usage(path if path.exists() else Path(path.anchor))
             log.log(f"{label}剩余   : {_human_size(usage.free)} / {_human_size(usage.total)}  ({path})")
@@ -67,15 +72,15 @@ def _probe_packages(log: TrainLogger) -> list[str]:
         for pip_name, desc in missing:
             log.log(f"  · {pip_name:<14} {desc}", "ERROR")
         log.plain()
-        log.log("安装命令（AutoDL 镜像一般已带 torch，只补缺的即可）：", "ERROR")
+        log.log("安装命令（镜像/虚拟环境一般已带 torch，只补缺的即可）：", "ERROR")
         log.log(f"  pip install {' '.join(p for p, _ in missing)}", "ERROR")
         log.plain()
-        log.log("注意：torch 必须与镜像 CUDA 版本匹配，重装前先确认：", "ERROR")
+        log.log("注意：torch 必须与本机 CUDA 版本匹配，重装前先确认：", "ERROR")
         log.log('  python -c "import torch; print(torch.__version__, torch.version.cuda)"', "ERROR")
         return [p for p, _ in missing]
 
     absent = [pip for imp, pip, _ in OPTIONAL_PACKAGES if importlib.util.find_spec(imp) is None]
-    log.log("必需依赖齐全" + (f"（云端用不到的没装: {', '.join(absent)}）" if absent else ""))
+    log.log("必需依赖齐全" + (f"（推理端用不到的没装: {', '.join(absent)}）" if absent else ""))
     return []
 
 
@@ -117,7 +122,6 @@ def _locate_ffmpeg() -> tuple[str, str]:
         return system_ffmpeg, "系统 PATH"
     # 第三级：项目内只随包提供 Windows 版 ffmpeg.exe，故此处**有意**限定 Windows
     # （os.name == "nt"），非 Windows 平台交给系统 PATH / RVC_FFMPEG 处理。
-    # 见《功能基线清单》§11.9：保持 Windows 硬编码，禁止改为跨平台判断。
     on_windows = os.name == "nt"
     if on_windows and local_exe.exists():
         return str(local_exe), "项目内 assets/ffmpeg/ffmpeg.exe"
@@ -127,13 +131,12 @@ def _locate_ffmpeg() -> tuple[str, str]:
 def _probe_ffmpeg(log: TrainLogger) -> str:
     """定位 ffmpeg 并实际验证可执行，返回定位结果（空串 = 未找到）。
 
-    D4：定位结果由调用方显式传参下发（cfg["ffmpeg"]），不再改写
-    rvc.io.audio_file 的模块全局。
+    定位结果由调用方显式传参下发（cfg["ffmpeg"]），不改写任何模块全局。
     """
     chosen, source = _locate_ffmpeg()
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
-        log.log("  素材若含 mp3/m4a/aac 会直接失败，安装：apt install -y ffmpeg", "WARN")
+        log.log("  素材若含 mp3/m4a/aac 会直接失败；安装：winget install ffmpeg / apt install -y ffmpeg", "WARN")
         return ""
     try:
         probe = subprocess.run([chosen, "-version"], capture_output=True, timeout=15)
@@ -162,7 +165,8 @@ def _require_ffmpeg(log: TrainLogger, files: list[Path]):
         return
     raise EnvFatal(
         f"素材里有 {len(foreign)} 个非 wav/flac/ogg 文件（如 {foreign[0].name}），但没找到 ffmpeg。\n"
-        "  安装：apt install -y ffmpeg    （或 conda install -c conda-forge ffmpeg）"
+        "  Windows：winget install ffmpeg（或把 ffmpeg.exe 放进 assets/ffmpeg/）\n"
+        "  Linux：apt install -y ffmpeg（或 conda install -c conda-forge ffmpeg）"
     )
 
 
@@ -207,11 +211,10 @@ def _probe_assets(log: TrainLogger) -> dict:
         for msg in fatal:
             log.log(msg, "ERROR")
         log.plain()
-        log.log("以上权重都在 .gitignore 里，git clone 不会带下来，需要单独上传：", "ERROR")
+        log.log("以上权重都在 .gitignore 里，git clone 不会带下来，需要单独放置：", "ERROR")
         log.log("  · assets/hubert/base/ + assets/hubert/chinese/（各含 config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
         log.log("  · assets/rmvpe/rmvpe.pt", "ERROR")
         log.log("  · assets/pretrained/f0G48k.pth + f0D48k.pth（可选，但强烈建议）", "ERROR")
-        log.log("  上传方式：AutoDL 网盘 / scp / rsync，放到项目根目录对应位置", "ERROR")
         raise EnvFatal("模型权重缺失")
 
     for msg in warns:
@@ -219,7 +222,7 @@ def _probe_assets(log: TrainLogger) -> dict:
     log.log(f"预训练模型  : {'齐全' if all(ready.values()) else '底模有缺失（见上方 WARN）'}")
 
     if not any(ready.values()):
-        log.log("两个采样率的底模都没有 → 完全从零训练，收敛会慢很多，建议先把权重传上来", "WARN")
+        log.log("两个采样率的底模都没有 → 完全从零训练，收敛会慢很多，建议先补齐权重", "WARN")
     return ready
 
 

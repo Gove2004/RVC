@@ -3,10 +3,22 @@ from pathlib import Path
 
 from rvc.runtime.paths import PRETRAINED_ROOT
 
-from autodl import AUDIO_EXTS, BAR, DEFAULTS, LOGS_ROOT, MODELS_ROOT
-from autodl.envcheck import _probe_dataset, _require_ffmpeg, _scan_audio, _suggest_batch
-from autodl.logger import TrainLogger
-from autodl.prompts import _as_float, _as_int, _as_sr, ask, ask_yes
+from rvc.train.cli import (
+    AUDIO_EXTS,
+    BAR,
+    DEFAULTS,
+    default_output_root,
+    output_dirs,
+)
+from rvc.train.cli.envcheck import (
+    _probe_dataset,
+    _probe_disk,
+    _require_ffmpeg,
+    _scan_audio,
+    _suggest_batch,
+)
+from rvc.train.cli.logger import TrainLogger
+from rvc.train.cli.prompts import _as_float, _as_int, _as_sr, ask, ask_yes
 
 
 def _detect_ckpt_epoch(exp_dir: Path) -> int:
@@ -25,8 +37,9 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
                ffmpeg_exe: str = "") -> dict:
     """交互收集训练参数。
 
-    ffmpeg_exe: 环境体检阶段定位的 ffmpeg 路径（D4 显式传参），随 cfg 下发给
-    后续所有解码调用；空串表示未定位到（仅 wav/flac/ogg 素材可继续）。
+    argv_dir: 命令行给出的数据集路径（第一个非选项参数），作为数据集提问的默认值。
+    ffmpeg_exe: 环境体检阶段定位的 ffmpeg 路径，随 cfg 下发给后续所有解码调用；
+    空串表示未定位到（仅 wav/flac/ogg 素材可继续）。
     """
     cfg = {"device": device, "fp16": fp16, "ffmpeg": ffmpeg_exe}
 
@@ -46,24 +59,39 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe or None)
     _require_ffmpeg(log, files)
 
-    # 2) 实验名（决定产物落点，先拿到才好把日志搬过去）
+    # 2) 产物根目录（实验目录与导出模型目录都在其下；默认按平台自适应）
+    root_default = default_output_root()
+
+    def _root_ok(text):
+        path = Path(text).expanduser()
+        if path.exists() and not path.is_dir():
+            return False, f"已存在同名文件: {path}"
+        return True, ""
+
+    output_root = Path(ask("产物根目录（切片/特征/checkpoint/导出模型都在其下）",
+                           str(root_default), check=_root_ok)).expanduser()
+    _probe_disk(log, output_root)
+
+    # 3) 实验名（决定产物落点，先拿到才好把日志搬过去）
     exp_name = ask("实验名", DEFAULTS["exp"])
-    exp_dir = LOGS_ROOT / exp_name
-    model_dir = MODELS_ROOT / exp_name
-    log.reattach(exp_dir / "autodl_train.log")
+    exp_dir, model_dir = output_dirs(output_root, exp_name)
+    # 必须在 reattach 之前记录：reattach 会创建实验目录，之后 exists() 恒为真
+    exp_existed = exp_dir.exists()
+    log.reattach(exp_dir / "train_cli.log")
+    log.log(f"产物根目录  : {output_root}")
     log.log(f"实验目录    : {exp_dir}")
     log.log(f"模型目录    : {model_dir}")
     log.log(f"日志文件    : {log.log_file}")
 
-    # 3) 续训检测（不提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
+    # 4) 续训检测（不提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
     ckpt_epoch = _detect_ckpt_epoch(exp_dir)
     if ckpt_epoch:
         log.log(f"检测到已有 checkpoint（已训练到 epoch {ckpt_epoch}）→ 自动续训")
         log.log(f"  要重新训练请先删掉: {exp_dir / '4_checkpoints'}")
-    elif exp_dir.exists():
+    elif exp_existed:
         log.log("实验目录已存在但无 checkpoint，将复用其中已有的切片/特征")
 
-    # 4) 采样率
+    # 5) 采样率
     def _sr_ok(value):
         if value not in ("40k", "48k"):
             return False, "只能填 40k 或 48k"
@@ -74,7 +102,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    # 5) HuBERT 特征器
+    # 6) HuBERT 特征器
     def _hubert_ok(value):
         if value not in ("base", "chinese"):
             return False, "只能填 base 或 chinese"
@@ -85,10 +113,10 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
         log.log("chinese = 腾讯 chinese-hubert-base（WenetSpeech 中文预训练，中文音素/声调更准）", "WARN")
         log.log("  推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
 
-    # 6) batch size
+    # 7) batch size
     batch = ask("batch size", str(_suggest_batch(vram_gb, sr_hz)), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    # 7) 学习率
+    # 8) 学习率
     lr = ask(
         "学习率（1e-4=0.0001；太大易炸，太小收敛慢）",
         f"{DEFAULTS['lr']:g}",
@@ -100,7 +128,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     elif lr < 1e-5:
         log.log("学习率偏小，100 轮大概率训不出东西", "WARN")
 
-    # 8) 总轮次
+    # 9) 总轮次
     def _epochs_ok(value):
         if value < 1:
             return False, "至少 1 轮"
@@ -110,13 +138,13 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
 
     epochs = ask("训练轮次", str(DEFAULTS["epochs"]), cast=_as_int, check=_epochs_ok)
 
-    # 9) 保存间隔
+    # 10) 保存间隔
     save_every = ask("每多少轮保存一次", str(DEFAULTS["save_every"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    # 10) 保留 checkpoint 组数
+    # 11) 保留 checkpoint 组数
     keep_ckpts = ask("保留最近几组 checkpoint", str(DEFAULTS["keep_ckpts"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
-    # 11) 是否使用预训练底模
+    # 12) 是否使用预训练底模
     use_pretrained = ask_yes("是否使用预训练模型（No = 随机初始化）", DEFAULTS["use_pretrained"])
     if not use_pretrained:
         log.log("已选择不用预训练底模 → 从随机权重开始训练，需要更多轮次，效果通常不如用底模", "WARN")
@@ -127,6 +155,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
 
     cfg.update(
         input_dir=str(input_dir),
+        output_root=str(output_root),
         exp_name=exp_name,
         exp_dir=exp_dir,
         model_dir=model_dir,
@@ -153,6 +182,7 @@ def print_summary(log: TrainLogger, cfg: dict):
     ckpt = cfg["ckpt_epoch"]
     rows = [
         ("数据集", cfg["input_dir"]),
+        ("产物根目录", cfg["output_root"]),
         ("实验名", cfg["exp_name"]),
         ("实验目录", str(cfg["exp_dir"])),
         ("模型目录", str(cfg["model_dir"])),
@@ -165,7 +195,7 @@ def print_summary(log: TrainLogger, cfg: dict):
         ("切片时长", f"{cfg['per']}s（固定）"),
         ("保留 checkpoint", f"最近 {cfg['keep_ckpts']} 组"),
         ("设备", f"{cfg['device']}  fp16={cfg['fp16']}"),
-        ("底模", cfg["pretrain_g"] or ("无（随机初始化）" if not cfg.get("use_pretrained", True) else "无（未上传底模）")),
+        ("底模", cfg["pretrain_g"] or ("无（随机初始化）" if not cfg.get("use_pretrained", True) else "无（未找到底模）")),
     ]
     for key, value in rows:
         log.plain(f"  {key:<14} {value}")

@@ -2,7 +2,7 @@
 
 所有 assets 下的路径只在本文件声明一次，各模块从这里取，禁止在脚本里硬编码。
 路径一律基于项目根（PROJECT_ROOT）解析为绝对路径，与启动时 cwd 无关；
-云训练（autodl_train.py）clone 后结构一致，同样可用。
+训练命令行向导（`python app.py --train`）clone 后结构一致，同样可用。
 """
 import os
 from pathlib import Path
@@ -31,7 +31,9 @@ RMVPE_PATH = ASSETS_ROOT / "rmvpe" / "rmvpe.pt"
 PRETRAINED_ROOT = ASSETS_ROOT / "pretrained"
 # 训练导出的可用模型
 MODELS_DIR = ASSETS_ROOT / "models"
-# 本地训练工作目录（切片/特征/ckpt/导出中间产物），基于项目根、与启动 cwd 无关
+# 项目内的日志目录：训练命令行向导在「实验名确定前」的引导日志落在这里
+# （之后 reattach 到 <实验目录>/train_cli.log）。产物根目录缺省为项目根时，
+# 实验目录即本目录/<实验名>。基于项目根、与启动 cwd 无关。
 TRAIN_LOGS_ROOT = PROJECT_ROOT / "logs"
 
 # ── ffmpeg（Windows 专用二进制，git 忽略）──

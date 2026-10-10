@@ -73,6 +73,11 @@ class WindowLifecycle:
         # 不处理会让进程挂在退出上（表现为「点了退出没反应」）。
         self.offline_conversion.shutdown()
 
+        # 模型工具线程（合并 / 检视）同为 QThread，退出前等它结束
+        if self.tool_runner and self.tool_runner.isRunning():
+            if not self.tool_runner.wait(5000):
+                logger.warning("模型工具线程 5s 内未结束，继续退出")
+
         try:
             self._save_gui_config()
         except Exception as e:
