@@ -227,18 +227,6 @@ def change_archive_name(path: str, new_name: str) -> str:
     return new_name
 
 
-def change_model_info(path: str, model_info: str) -> None:
-    # 安全前提：仅改写用户提供的模型文件，来源可信，故 weights_only=False。
-    ckpt = torch.load(path, map_location="cpu", weights_only=False)
-    ckpt["info"] = re.sub(r"\.pth$", "", model_info, flags=re.I).strip()
-    archive = _zip_archive_name(path)
-    tmp_path = path + ".tmp"
-    torch.save(ckpt, tmp_path)
-    if archive:
-        _rewrite_archive_prefix(tmp_path, archive)
-    os.replace(tmp_path, path)
-
-
 def build_model_config(sr: int, config: dict):
     mel_config = config["data"]
     model = config["model"]

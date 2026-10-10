@@ -10,7 +10,7 @@
 - **系统托盘** — 关闭窗口最小化到托盘（变声不中断），托盘可开始/停止变声
 - **离线推理** — 音频文件流式转换（复用实时全链路，显存封顶，任意长不 OOM）
 - **模型训练** — 命令行向导（`app.py --train`）：环境体检 → 预处理 → F0/特征提取 → 训练 → 导出，支持 40k/48k、中断续训、按指纹跳过已完成阶段；Windows / Linux 同一套流程
-- **模型工具** — 推理 GUI「工具」页签：模型合并、模型信息查看、改 zip 原名、修正 info
+- **模型工具** — 推理 GUI「融合」/「详情」页签：模型合并、模型信息查看、改 zip 原名
 - **音域映射** — 半音尺度线性映射（原声音域 → 目标音域），保持音程不变不跑调；超出模型音域的帧钳制到最近边界（保持有声，不变气声）
 - **双输出** — 主输出 + 可选副输出（虚拟音频设备）
 - **参数结构统一** — `InferenceParams` 分组对象（voice/f0/buffer/audio），实时/离线共用
@@ -80,10 +80,9 @@ app.py                    # 入口：--infer 启动推理 GUI；--train 启动�
 │   └── train/            # 训练管线：预处理、F0/特征提取、训练器、checkpoint、损失
 │       └── cli/          # 训练命令行向导（Windows/Linux 共用）：体检、参数向导、步骤执行
 ├── gui/                  # PySide6 GUI 层（View 不得 import rvc——依赖单向约束）
-│   ├── infer/            # 推理 GUI
-│   │   ├── view/         # 视图：主窗口（window.py 装配 + lifecycle.py 生命周期）、控件、托盘、页签
-│   │   ├── controller/   # 控制器：引擎控制、遥测快照、设备目录、离线转换、模型工具
-│   │   └── state/        # 状态：参数绑定、配置持久化
+│   ├── view/             # 视图：主窗口（window.py 装配 + lifecycle.py 生命周期）、控件、托盘、页签
+│   ├── controller/       # 控制器：引擎控制、遥测快照、设备目录、离线转换、模型工具
+│   ├── state/            # 状态：参数绑定、配置持久化
 │   ├── configs/          # 通用配置读写
 │   └── styles/           # QSS 主题与样式
 ```
@@ -138,7 +137,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
 | `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（TrainSample/TrainBatch 数据集与 collate）、`mel_processing.py` |
 | `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
-| `gui/infer/` | 推理 GUI：window.py（装配）/lifecycle.py（生命周期）/页签（设备驱动、音色调节、性能调节、离线推理、工具）+ 引擎/设备/离线/模型工具控制器 + 遥测快照 + 参数绑定 |
+| `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具）+ `state/`（参数绑定）+ `configs/` + `styles/` |
 
 ## 设计决策（为什么）
 

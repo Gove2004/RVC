@@ -2,7 +2,7 @@
 
 §④ C-14 / D-10：以 Protocol 显式声明 `WindowLifecycle` 混入通过 `self` 访问的
 全部宿主属性与方法，替代「mixin 隐式宿主属性」。结构化契约：`MainWindow` 满足之；
-`WindowLifecycle`/`bindings`/`global_params_tab`/`experimental_tab` 以此为宿主类型。
+`WindowLifecycle`/`bindings`/`timbre_tab`/`params_tab` 以此为宿主类型。
 运行期零使用（仅类型层）——本模块不承载任何行为。
 """
 from typing import TYPE_CHECKING, Protocol
@@ -10,14 +10,15 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer, Signal
     from PySide6.QtWidgets import (
-        QComboBox, QLabel, QPushButton, QRadioButton,
+        QComboBox, QLabel, QLineEdit, QProgressBar, QPushButton,
+        QRadioButton, QSlider, QTextEdit,
     )
 
-    from gui.infer.controller.device_controller import DeviceCatalog
-    from gui.infer.controller.engine_controller import InferController
-    from gui.infer.controller.tool_controller import ModelToolController, ToolRunner
-    from gui.infer.view.tray import SystemTray
-    from gui.infer.view.widgets import DoubleSlider, LoadThread, RangeSlider
+    from gui.controller.device_controller import DeviceCatalog
+    from gui.controller.engine_controller import InferController
+    from gui.controller.tool_controller import ModelToolController, ToolRunner
+    from gui.view.tray import SystemTray
+    from gui.view.widgets import DoubleSlider, LoadThread, RangeSlider
     from rvc.core.config import InferenceParams
     from rvc.streaming.engine import VoiceEngine
 
@@ -44,7 +45,7 @@ class InferWindowHost(Protocol):
     _lt: "LoadThread | None"
     _loading: bool
 
-    # ── 音色调节控件（global_params_tab）──
+    # ── 音色控件（timbre_tab）──
     model_path: str
     model_path_btn: "QPushButton"
     hubert_combo: "QComboBox"
@@ -54,7 +55,7 @@ class InferWindowHost(Protocol):
     rms_mix_slider: "DoubleSlider"
     airflow_slider: "DoubleSlider"
 
-    # ── 性能调节控件（experimental_tab）──
+    # ── 参数控件（params_tab）──
     block_time_slider: "DoubleSlider"
     extra_time_slider: "DoubleSlider"
     crossfade_slider: "DoubleSlider"
@@ -64,7 +65,7 @@ class InferWindowHost(Protocol):
     f0_rmvp_btn: "QRadioButton"
     f0_fcpe_btn: "QRadioButton"
 
-    # ── 设备驱动控件（audio_driver_tab / BINDINGS）──
+    # ── 设备控件（device_tab / BINDINGS）──
     hostapi_combo: "QComboBox"
     input_combo: "QComboBox"
     output_combo: "QComboBox"
@@ -72,6 +73,30 @@ class InferWindowHost(Protocol):
     gpu_combo: "QComboBox"
     sr_model_radio: "QRadioButton"
     sr_device_radio: "QRadioButton"
+
+    # ── 融合控件（merge_tab）──
+    merge_a: "QLineEdit"
+    merge_b: "QLineEdit"
+    merge_slider: "QSlider"
+    merge_label: "QLabel"
+    merge_name: "QLineEdit"
+    btn_merge: "QPushButton"
+    merge_status: "QLabel"
+
+    # ── 详情控件（details_tab）──
+    inspect_path: "QLineEdit"
+    inspect_result: "QTextEdit"
+    archive_name_edit: "QLineEdit"
+
+    # ── 离线控件（offline_tab）──
+    offline_input_path: str
+    offline_input_btn: "QPushButton"
+    offline_output: "QLineEdit"
+    offline_button: "QPushButton"
+    offline_cancel_btn: "QPushButton"
+    offline_clear_btn: "QPushButton"
+    offline_status: "QLabel"
+    offline_progress: "QProgressBar"
 
     # ── 底部状态栏控件 ──
     delay_lbl: "QLabel"

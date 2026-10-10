@@ -1,19 +1,19 @@
-"""性能调节 Tab — 缓冲区参数 / 音高算法 / F0 阈值"""
+"""参数 Tab — 缓冲区参数 / 音高算法 / 音高阈值 / 输出音量"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QRadioButton, QButtonGroup,
 )
 
-from gui.infer.view.widgets import _create_slider_row
+from gui.view.widgets import _create_slider_row
 from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 
 if TYPE_CHECKING:
-    from gui.infer.view.contracts import InferWindowHost
+    from gui.view.contracts import InferWindowHost
 
 
-def build_performance_tab(win: "InferWindowHost"):
-    """性能调节 Tab — 采样长度 / 上下文 / 淡入 / 音高算法 / F0 阈值。"""
+def build_params_tab(win: "InferWindowHost"):
+    """参数 Tab — 采样长度 / 上下文长度 / 淡入长度 / 音高算法 / 音高阈值 / 输出音量。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -63,7 +63,7 @@ def build_performance_tab(win: "InferWindowHost"):
     g.addWidget(win.f0_fcpe_btn, r, 2)
     r += 1
 
-    # ── F0 阈值（根据当前选择的 F0 方法动态切换）──
+    # ── 音高阈值（行标签随音高算法动态切换为 RMVPE/FCPE 阈值）──
     initial_threshold = params.f0.rmvpe_threshold if params.f0.method == "rmvpe" else params.f0.fcpe_confidence_threshold
     win.f0_threshold_slider, f0_threshold_label = _create_slider_row(
         0.01, 0.10, 0.01,

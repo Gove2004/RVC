@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from rvc.core.config import InferenceParams
 
 if TYPE_CHECKING:
-    from gui.infer.view.contracts import InferWindowHost
+    from gui.view.contracts import InferWindowHost
 
 # dataclass 默认值实例（单源 fallback；只读用途）
 _DEFAULTS = InferenceParams()
@@ -224,7 +224,7 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
         elif kind == COMBO:
             value = w.currentText()
         elif kind == ATTR:
-            # model_path 在 global_params_tab 构建时无条件创建（win.model_path = ""），
+            # model_path 在 timbre_tab 构建时无条件创建（win.model_path = ""），
             # 缺失应立刻 AttributeError，不做带默认的静默取值
             value = getattr(win, widget)
         elif kind == RADIO_F0:

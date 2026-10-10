@@ -1,4 +1,4 @@
-"""音色调节 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子"""
+"""音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子 / 气息感"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
@@ -7,12 +7,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QFileDialog
 
-from gui.infer.view.widgets import _create_slider_row, RangeSlider
+from gui.view.widgets import _create_slider_row, RangeSlider
 from gui.styles.components import ButtonStyles
 from pathlib import Path
 
 if TYPE_CHECKING:
-    from gui.infer.view.contracts import InferWindowHost
+    from gui.view.contracts import InferWindowHost
 
 
 def _range_row(min_val, max_val, step, low_val, high_val,
@@ -32,7 +32,7 @@ def _range_row(min_val, max_val, step, low_val, high_val,
 
 
 def build_timbre_tab(win: "InferWindowHost"):
-    """音色调节 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子。"""
+    """音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子 / 气息感。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -73,7 +73,7 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(pitch_map_src_label, r, 2)
     r += 1
 
-    # ── 模型音域（原目标音域）──
+    # ── 模型音域 ──
     win.pitch_map_dst_range, pitch_map_dst_label = _range_row(
         10.0, 1000.0, 10.0,
         params.voice.pitch_map_dst_min, params.voice.pitch_map_dst_max,
@@ -98,9 +98,9 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(rms_mix_label, r, 2)
     r += 1
 
-    # ── 麦克风气流声（texture.airflow：说话时呼呼声 + 静音底噪）──
+    # ── 气息感（texture.airflow：说话时呼呼声 + 静音底噪）──
     win.airflow_slider, airflow_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
-    g.addWidget(QLabel("气流感"), r, 0)
+    g.addWidget(QLabel("气息感"), r, 0)
     g.addWidget(win.airflow_slider, r, 1)
     g.addWidget(airflow_label, r, 2)
     r += 1

@@ -42,5 +42,5 @@ class CancelledError(BaseException):
     与标准库 asyncio.CancelledError 同口径——若继承 Exception，任何
     「except Exception」兜底（日志/弹窗/重试）都会把取消误判为故障，
     并吞掉取消信号让上层的取消分支永不触发。调用方必须显式
-    「except CancelledError」捕获（见 gui/infer/controller/offline_controller.py）。
+    「except CancelledError」捕获（见 gui/controller/offline_controller.py）。
     """

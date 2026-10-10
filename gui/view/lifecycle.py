@@ -10,7 +10,7 @@ import logging
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from gui.infer.view.widgets import LoadThread
+from gui.view.widgets import LoadThread
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class WindowLifecycle:
     """启动/停止/退出/持久化 — 生命周期职责单元。
 
-    宿主契约：`gui.infer.view.contracts.InferWindowHost`（MainWindow 结构化满足之；
+    宿主契约：`gui.view.contracts.InferWindowHost`（MainWindow 结构化满足之；
     本混入不重复声明属性，contracts.py 为唯一事实源）。
     """
 
@@ -28,7 +28,7 @@ class WindowLifecycle:
         """从持久化配置加载 GUI 状态。"""
         from gui.configs import load_config
 
-        from gui.infer.state.bindings import params_from_dict
+        from gui.state.bindings import params_from_dict
 
         config = load_config()
         saved_params = config.get("gui", {})
@@ -50,7 +50,7 @@ class WindowLifecycle:
         """保存当前 GUI 状态到持久化配置。"""
         from gui.configs import load_config, save_config
 
-        from gui.infer.state.bindings import params_to_dict
+        from gui.state.bindings import params_to_dict
 
         config = load_config()
         config["gui"] = params_to_dict(self.collect_gui_state())
@@ -153,7 +153,7 @@ class WindowLifecycle:
         pth = self.model_path.strip()
 
         if not pth:
-            self._show_warning("请先在「音色调节」中选择模型文件")
+            self._show_warning("请先在「音色」中选择模型文件")
             return
 
         hubert = self.hubert_combo.currentText()

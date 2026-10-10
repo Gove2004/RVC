@@ -1,4 +1,4 @@
-"""推理 GUI 的模型工具控制器 — 模型合并 / 检视 / 改 zip 原名 / 修正 info。
+"""推理 GUI 的模型工具控制器 — 模型合并 / 检视 / 改 zip 原名。
 
 原挂在训练 GUI 的 `TrainController` 上；训练改为命令行向导后，是 GUI 侧保留的
 唯一「非推理」功能，故迁到推理端。耗时操作由 `ToolRunner` 在后台线程执行，
@@ -31,7 +31,7 @@ class ToolRunner(QThread):
 
 
 class ModelToolController:
-    """模型文件工具：合并 / 检视 / 改 zip 原名 / 修正 info。"""
+    """模型文件工具：合并 / 检视 / 改 zip 原名。"""
 
     def merge_output_path(self, name: str) -> str:
         """合并输出的完整路径（assets/models/<name>.pth）。"""
@@ -53,8 +53,3 @@ class ModelToolController:
         from rvc.train.checkpoint import change_archive_name
 
         return change_archive_name(path, new_name)
-
-    def change_model_info(self, path: str, model_info: str) -> None:
-        from rvc.train.checkpoint import change_model_info
-
-        change_model_info(path, model_info)

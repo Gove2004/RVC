@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from rvc.core.config import InferenceParams
 from rvc.pipeline.cache import default_inference_cache
-from gui.infer.controller.telemetry import RuntimeTelemetry
+from gui.controller.telemetry import RuntimeTelemetry
 
 logger = logging.getLogger(__name__)
 

@@ -19,31 +19,33 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import QTimer, Signal
 
-from gui.infer.controller.engine_controller import InferController
+from gui.controller.engine_controller import InferController
 
-from gui.infer.state.bindings import (
+from gui.state.bindings import (
     collect_params,
     apply_params,
 )
 
-from gui.infer.view.lifecycle import WindowLifecycle
-from gui.infer.view.widgets import LoadThread
+from gui.view.lifecycle import WindowLifecycle
+from gui.view.widgets import LoadThread
 
-from gui.infer.view.tabs.audio_driver_tab import build_audio_driver_tab
+from gui.view.tabs.device_tab import build_device_tab
 
-from gui.infer.view.tabs.global_params_tab import build_timbre_tab
+from gui.view.tabs.timbre_tab import build_timbre_tab
 
-from gui.infer.view.tabs.offline_tab import build_offline_tab
+from gui.view.tabs.params_tab import build_params_tab
 
-from gui.infer.view.tabs.experimental_tab import build_performance_tab
+from gui.view.tabs.offline_tab import build_offline_tab
 
-from gui.infer.view.tabs.tools_tab import build_tools_tab
+from gui.view.tabs.merge_tab import build_merge_tab
 
-from gui.infer.controller.device_controller import DeviceCatalog
+from gui.view.tabs.details_tab import build_details_tab
 
-from gui.infer.controller.offline_controller import OfflineConversion
+from gui.controller.device_controller import DeviceCatalog
 
-from gui.infer.controller.tool_controller import ModelToolController
+from gui.controller.offline_controller import OfflineConversion
+
+from gui.controller.tool_controller import ModelToolController
 
 from gui.styles import ButtonStyles, Layout
 from gui.styles.colors import Colors
@@ -56,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(WindowLifecycle, QMainWindow):
-    """推理主窗口 — 实现 View 宿主契约 `gui.infer.view.contracts.InferWindowHost`。
+    """推理主窗口 — 实现 View 宿主契约 `gui.view.contracts.InferWindowHost`。
 
     装配顺序：UI 构建（含各 tab 控件挂载）→ 信号绑定 → 管理器初始化 →
     配置加载 → 托盘。生命周期行为在 `WindowLifecycle` 混入中。
@@ -99,7 +101,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # 系统托盘：关闭=最小化到托盘；托盘不可用时直接报错退出
         self.tray = None
         try:
-            from gui.infer.view.tray import SystemTray
+            from gui.view.tray import SystemTray
 
             idle_icon, active_icon = self.controller.tray_icon_paths
             self.tray = SystemTray(self, on_quit=self._tray_quit,
@@ -132,13 +134,14 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         tabs = QTabWidget()
 
-        # Create audio_driver_tab and get the refresh button
-        driver_w, self.refresh_btn = build_audio_driver_tab(self)
-        tabs.addTab(driver_w, "设备驱动")
-        tabs.addTab(build_timbre_tab(self), "音色调节")
-        tabs.addTab(build_performance_tab(self), "性能调节")
-        tabs.addTab(build_offline_tab(self), "离线推理")
-        tabs.addTab(build_tools_tab(self), "工具")
+        # 设备页签同时返回刷新按钮（device_catalog 就绪后由 window 连信号）
+        device_w, self.refresh_btn = build_device_tab(self)
+        tabs.addTab(device_w, "设备")
+        tabs.addTab(build_timbre_tab(self), "音色")
+        tabs.addTab(build_params_tab(self), "参数")
+        tabs.addTab(build_offline_tab(self), "离线")
+        tabs.addTab(build_merge_tab(self), "融合")
+        tabs.addTab(build_details_tab(self), "详情")
         root.addWidget(tabs)
 
         # ── 底部控制栏 ──
@@ -190,7 +193,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
             return
         self._signals_connected = True
 
-        from gui.infer.state.bindings import (
+        from gui.state.bindings import (
             BINDINGS, FLOAT, COMBO, RADIO_F0, RADIO_SR, _set_nested,
         )
 
@@ -260,7 +263,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def _on_output2_changed(self, text: str) -> None:
         """副输出选择变化时同步派生字段 enable_out2。"""
-        from gui.infer.state.bindings import output2_enabled
+        from gui.state.bindings import output2_enabled
 
         self.runtime_params.audio.enable_out2 = output2_enabled(text)
 
@@ -310,8 +313,12 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def _ha_changed(self, name):
         self.device_catalog.on_hostapi_changed(name)
 
-    def _off_browse(self, tgt, kind):
-        self.offline_conversion.browse_file(tgt, kind)
+    def _off_browse_input(self):
+        self.offline_conversion.browse_input()
+
+    def _off_clear(self):
+        """清空离线的输入/输出路径。"""
+        self.offline_conversion.clear_paths()
 
     def _off_start(self):
         # 保存配置（在开始转换前保存当前设置）

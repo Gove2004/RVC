@@ -1,8 +1,6 @@
 """离线 Tab — 离线音频文件转换"""
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QLineEdit, QPushButton,
-    QGridLayout, QProgressBar,
+    QWidget, QLabel, QLineEdit, QPushButton, QGridLayout, QProgressBar,
 )
 from gui.styles import ButtonStyles
 
@@ -20,27 +18,20 @@ def build_offline_tab(win):
     win.offline_input_btn.setMinimumHeight(28)
     win.offline_input_btn.setToolTip("点击选择输入音频文件")
     win.offline_input_btn.setStyleSheet(ButtonStyles.path_button())
-    win.offline_input_btn.clicked.connect(lambda: win._off_browse(None, "in"))
+    win.offline_input_btn.clicked.connect(win._off_browse_input)
     g.addWidget(QLabel("输入文件"), r, 0)
     g.addWidget(win.offline_input_btn, r, 1, 1, 3)
     r += 1
 
-    # 输出文件行（输入框 + 浏览按钮，直接用 GridLayout）
-    g.addWidget(QLabel("输出文件"), r, 0)
+    # 输出文件行（纯文本框：选输入文件时自动填入默认名，用户可直接改写路径）
     win.offline_output = QLineEdit()
     win.offline_output.setMinimumHeight(28)
     win.offline_output.setPlaceholderText("输出文件路径（可直接输入）")
-    win.offline_output.setFocusPolicy(Qt.StrongFocus)
-    btn_out = QPushButton("…")
-    btn_out.setFixedWidth(36)
-    btn_out.setMinimumHeight(28)
-    btn_out.setStyleSheet(ButtonStyles.small())
-    btn_out.clicked.connect(lambda: win._off_browse(win.offline_output, "out"))
-    g.addWidget(win.offline_output, r, 1, 1, 2)
-    g.addWidget(btn_out, r, 3)
+    g.addWidget(QLabel("输出文件"), r, 0)
+    g.addWidget(win.offline_output, r, 1, 1, 3)
     r += 1
 
-    # 开始转换 + 取消（并排）
+    # 开始转换 / 取消转换 / 清空路径（并排）
     btn_row = QWidget()
     btn_layout = QGridLayout(btn_row)
     btn_layout.setContentsMargins(0, 0, 0, 0)
@@ -52,16 +43,22 @@ def build_offline_tab(win):
     win.offline_button.clicked.connect(win._off_start)
     btn_layout.addWidget(win.offline_button, 0, 0)
 
-    win.offline_cancel_btn = QPushButton("取消")
+    win.offline_cancel_btn = QPushButton("取消转换")
     win.offline_cancel_btn.setMinimumHeight(32)
     win.offline_cancel_btn.setEnabled(False)
     win.offline_cancel_btn.clicked.connect(win._off_cancel)
     btn_layout.addWidget(win.offline_cancel_btn, 0, 1)
 
+    win.offline_clear_btn = QPushButton("清空路径")
+    win.offline_clear_btn.setMinimumHeight(32)
+    win.offline_clear_btn.setStyleSheet(ButtonStyles.secondary())
+    win.offline_clear_btn.clicked.connect(win._off_clear)
+    btn_layout.addWidget(win.offline_clear_btn, 0, 2)
+
     g.addWidget(btn_row, r, 0, 1, 4)
     r += 1
 
-    # 状态标签
+    # 状态文本
     win.offline_status = QLabel("")
     g.addWidget(win.offline_status, r, 0, 1, 4)
     r += 1

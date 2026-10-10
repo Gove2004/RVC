@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QFileDialog
 
-from gui.infer.state.bindings import collect_params
+from gui.state.bindings import collect_params
 from rvc.core.config import OfflineParams
 from rvc.core.errors import CancelledError
 
 if TYPE_CHECKING:
-    from gui.infer.view.window import MainWindow
+    from gui.view.window import MainWindow
 
 logger = logging.getLogger(__name__)
 
@@ -27,30 +27,28 @@ class OfflineConversion:
         self.worker = None
         self._converting = False
 
-    def browse_file(self, target_widget, kind: str) -> None:
-        """浏览选择输入文件（kind="in"）或输出文件（kind="out"）。"""
-        if kind == "in":
-            path, _ = QFileDialog.getOpenFileName(
-                self.window, "选择输入文件", "",
-                "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus)",
-            )
-        else:
-            path, _ = QFileDialog.getSaveFileName(
-                self.window, "保存音频", "", "WAV (*.wav)",
-            )
+    def browse_input(self) -> None:
+        """浏览选择输入文件；输出框为空时给一个默认输出名（输出框是纯文本框）。"""
+        path, _ = QFileDialog.getOpenFileName(
+            self.window, "选择输入文件", "",
+            "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus)",
+        )
         if not path:
             return
 
-        if kind == "in":
-            # 输入文件：更新按钮文本、完整路径，并在输出为空时给一个默认输出名
-            self.window.offline_input_path = path
-            self.window.offline_input_btn.setText(Path(path).name)
-            self.window.offline_input_btn.setToolTip(path)
-            if not self.window.offline_output.text():
-                base, _ = os.path.splitext(path)
-                self.window.offline_output.setText(base + "_converted.wav")
-        else:
-            target_widget.setText(path)
+        self.window.offline_input_path = path
+        self.window.offline_input_btn.setText(Path(path).name)
+        self.window.offline_input_btn.setToolTip(path)
+        if not self.window.offline_output.text():
+            base, _ = os.path.splitext(path)
+            self.window.offline_output.setText(base + "_converted.wav")
+
+    def clear_paths(self) -> None:
+        """清空输入/输出路径（输入按钮文案复位）。"""
+        self.window.offline_input_path = ""
+        self.window.offline_input_btn.setText("选择输入文件...")
+        self.window.offline_input_btn.setToolTip("点击选择输入音频文件")
+        self.window.offline_output.clear()
 
     def start_conversion(self) -> None:
         """开始离线转换。"""
@@ -79,10 +77,10 @@ class OfflineConversion:
             out = base + "_converted.wav"
             self.window.offline_output.setText(out)
 
-        # model_path 在 global_params_tab 构建时无条件创建（缺失即 AttributeError）
+        # model_path 在 timbre_tab 构建时无条件创建（缺失即 AttributeError）
         pth = self.window.model_path.strip()
         if not pth:
-            self.window._show_warning("请先在「音色调节」中选择模型文件")
+            self.window._show_warning("请先在「音色」中选择模型文件")
             return
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）

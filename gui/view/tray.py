@@ -13,7 +13,7 @@ from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 if TYPE_CHECKING:
-    from gui.infer.view.window import MainWindow
+    from gui.view.window import MainWindow
 
 logger = logging.getLogger(__name__)
 

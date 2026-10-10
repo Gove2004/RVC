@@ -55,7 +55,7 @@ def main():
     app = QApplication(sys.argv)
     apply_theme(app)
 
-    from gui.infer.view.window import MainWindow
+    from gui.view.window import MainWindow
 
     win = MainWindow()
     win.show()

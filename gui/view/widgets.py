@@ -1,9 +1,40 @@
-"""推理 GUI 通用组件 — 滑动条辅助、加载线程、双滑块范围控件"""
-from PySide6.QtWidgets import QSlider, QLabel, QWidget, QSizePolicy
+"""推理 GUI 通用组件 — 滑动条辅助、加载线程、双滑块范围控件、文件选择行"""
+from PySide6.QtWidgets import (
+    QSlider, QLabel, QWidget, QSizePolicy,
+    QHBoxLayout, QPushButton, QLineEdit, QFileDialog,
+)
 from PySide6.QtCore import Qt, QThread, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen
 
-__all__ = ["LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider"]
+from gui.styles import ButtonStyles, Layout
+
+__all__ = [
+    "LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider",
+    "create_browse_row",
+]
+
+
+def _pick_file(parent, line_edit: QLineEdit, filter_str: str) -> None:
+    path, _ = QFileDialog.getOpenFileName(parent, "选择文件", "", filter_str)
+    if path:
+        line_edit.setText(path)
+
+
+def create_browse_row(parent, line_edit: QLineEdit,
+                      filter_str: str = "PyTorch (*.pth)") -> QHBoxLayout:
+    """创建「路径文本框 + 浏览按钮」行布局，返回 QHBoxLayout（供 addLayout 挂载）。
+
+    融合 / 详情两个 Tab 都用它选模型文件，故抽到通用组件层，避免各写一份。
+    """
+    row = QHBoxLayout()
+    row.setSpacing(4)
+    row.addWidget(line_edit)
+    btn = QPushButton("浏览")
+    btn.setFixedWidth(Layout.BTN_WIDTH_SMALL)
+    btn.setStyleSheet(ButtonStyles.small())
+    btn.clicked.connect(lambda: _pick_file(parent, line_edit, filter_str))
+    row.addWidget(btn)
+    return row
 
 
 class DoubleSlider(QSlider):
