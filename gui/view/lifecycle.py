@@ -36,15 +36,8 @@ class WindowLifecycle:
         state = params_from_dict(saved_params)
         # 原地更新 runtime_params 字段（不替换对象引用，engine/runner 自动生效）
         self.runtime_params.update_from(state)
-        # apply_params 把控件值设置为 params 的值
+        # apply_params 把控件值设置为 params 的值（模型路径按钮由 PATH 方式一并回填）
         self.apply_gui_state(state)
-
-        # 模型路径按钮：根据 win.model_path 更新显示文件名
-        if self.model_path:
-            from pathlib import Path
-
-            self.model_path_btn.setText(Path(self.model_path).name)
-            self.model_path_btn.setToolTip(self.model_path)
 
     def _save_gui_config(self) -> None:
         """保存当前 GUI 状态到持久化配置。"""
@@ -150,7 +143,7 @@ class WindowLifecycle:
             self._start()
 
     def _start(self):
-        pth = self.model_path.strip()
+        pth = self.model_path_btn.path().strip()
 
         if not pth:
             self._show_warning("请先在「音色」中选择模型文件")

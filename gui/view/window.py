@@ -27,7 +27,6 @@ from gui.state.bindings import (
 )
 
 from gui.view.lifecycle import WindowLifecycle
-from gui.view.widgets import LoadThread
 
 from gui.view.tabs.device_tab import build_device_tab
 
@@ -194,7 +193,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._signals_connected = True
 
         from gui.state.bindings import (
-            BINDINGS, FLOAT, COMBO, RADIO_F0, RADIO_SR, _set_nested,
+            BINDINGS, FLOAT, COMBO, PATH, RADIO_F0, RADIO_SR, _set_nested,
         )
 
         # 1. BINDINGS 表中的所有控件
@@ -210,6 +209,10 @@ class MainWindow(WindowLifecycle, QMainWindow):
                 def _on_text(_t, p=path):
                     _set_nested(self.runtime_params, p, _t)
                 w.currentTextChanged.connect(_on_text)
+            elif kind == PATH:
+                def _on_path(new_path, p=path):
+                    _set_nested(self.runtime_params, p, new_path)
+                w.pathChanged.connect(_on_path)
             elif kind == RADIO_F0:
                 w.toggled.connect(lambda _: self._on_f0_method_changed())
             elif kind == RADIO_SR:
@@ -312,9 +315,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def _ha_changed(self, name):
         self.device_catalog.on_hostapi_changed(name)
-
-    def _off_browse_input(self):
-        self.offline_conversion.browse_input()
 
     def _off_clear(self):
         """清空离线的输入/输出路径。"""

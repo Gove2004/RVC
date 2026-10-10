@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from gui.controller.tool_controller import ToolRunner
 from gui.styles import ButtonStyles, Layout
-from gui.view.widgets import create_browse_row
+from gui.view.widgets import PathPickerButton
 
 
 def build_details_tab(win) -> QWidget:
@@ -23,16 +23,18 @@ def build_details_tab(win) -> QWidget:
     g.setColumnStretch(1, 1)
     r = 0
 
-    # ── 模型文件 + 查看 ──
-    win.inspect_path = QLineEdit()
-    win.inspect_path.setPlaceholderText("选择模型文件 (.pth)")
+    # ── 模型文件（自带文件对话框的路径按钮，与音色页签一致）+ 查看 ──
+    win.inspect_path = PathPickerButton(
+        win, title="选择模型文件", placeholder="选择模型...",
+        base_dir=lambda: win.controller.models_dir,
+    )
     btn_inspect = QPushButton("查看")
     btn_inspect.setFixedWidth(Layout.BTN_WIDTH_SMALL)
     btn_inspect.setStyleSheet(ButtonStyles.small())
     btn_inspect.clicked.connect(lambda: _run_inspect(win))
 
     g.addWidget(QLabel("模型文件"), r, 0)
-    g.addLayout(create_browse_row(win, win.inspect_path), r, 1)
+    g.addWidget(win.inspect_path, r, 1)
     g.addWidget(btn_inspect, r, 2)
     r += 1
 
@@ -71,7 +73,7 @@ def _run_tool(win, fn, *args, on_done):
 
 
 def _run_inspect(win):
-    path = win.inspect_path.text().strip()
+    path = win.inspect_path.path().strip()
     if not path:
         QMessageBox.warning(win, "提示", "请选择模型文件")
         return
@@ -98,7 +100,7 @@ def _on_inspect_done(win, success, result):
 
 
 def _run_rename_archive(win):
-    path = win.inspect_path.text().strip()
+    path = win.inspect_path.path().strip()
     new_name = win.archive_name_edit.text().strip()
     if not path:
         QMessageBox.warning(win, "提示", "请先选择模型文件")
@@ -116,7 +118,7 @@ def _run_rename_archive(win):
 def _on_rename_done(win, success, message, path):
     if success:
         QMessageBox.information(win, "完成", f"zip 原名已修改为：{message}")
-        if Path(win.inspect_path.text().strip()).resolve() == Path(path).resolve():
+        if Path(win.inspect_path.path().strip()).resolve() == Path(path).resolve():
             _run_inspect(win)
     else:
         QMessageBox.critical(win, "失败", message)

@@ -1,7 +1,8 @@
-"""推理 GUI 通用组件 — 滑动条辅助、加载线程、双滑块范围控件、文件选择行"""
+"""推理 GUI 通用组件 — 滑动条辅助、加载线程、双滑块范围控件、路径选择按钮"""
+from pathlib import Path
+
 from PySide6.QtWidgets import (
-    QSlider, QLabel, QWidget, QSizePolicy,
-    QHBoxLayout, QPushButton, QLineEdit, QFileDialog,
+    QSlider, QLabel, QWidget, QSizePolicy, QPushButton, QFileDialog,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen
@@ -10,31 +11,61 @@ from gui.styles import ButtonStyles, Layout
 
 __all__ = [
     "LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider",
-    "create_browse_row",
+    "PathPickerButton",
 ]
 
 
-def _pick_file(parent, line_edit: QLineEdit, filter_str: str) -> None:
-    path, _ = QFileDialog.getOpenFileName(parent, "选择文件", "", filter_str)
-    if path:
-        line_edit.setText(path)
+class PathPickerButton(QPushButton):
+    """路径选择按钮 — 自带文件对话框的路径控件。
 
+    按钮文本显示所选文件名（未选时显示 placeholder），tooltip 显示完整路径；
+    路径由控件自身持有（`path()` / `set_path()`），调用方不再维护平行的字符串字段。
 
-def create_browse_row(parent, line_edit: QLineEdit,
-                      filter_str: str = "PyTorch (*.pth)") -> QHBoxLayout:
-    """创建「路径文本框 + 浏览按钮」行布局，返回 QHBoxLayout（供 addLayout 挂载）。
-
-    融合 / 详情两个 Tab 都用它选模型文件，故抽到通用组件层，避免各写一份。
+    取代「只读文本框 + 浏览按钮」两件套：音色页签的模型路径、离线页签的输入文件、
+    融合/详情页签的模型文件统一使用本控件，交互一致（点一下即弹选择框）。
     """
-    row = QHBoxLayout()
-    row.setSpacing(4)
-    row.addWidget(line_edit)
-    btn = QPushButton("浏览")
-    btn.setFixedWidth(Layout.BTN_WIDTH_SMALL)
-    btn.setStyleSheet(ButtonStyles.small())
-    btn.clicked.connect(lambda: _pick_file(parent, line_edit, filter_str))
-    row.addWidget(btn)
-    return row
+
+    pathChanged = Signal(str)
+
+    def __init__(self, parent=None, *, title="选择文件",
+                 filter_str="PyTorch (*.pth)", placeholder="选择文件...",
+                 base_dir=None, tooltip=None):
+        super().__init__(placeholder, parent)
+        self._placeholder = placeholder
+        self._title = title
+        self._filter = filter_str
+        # base_dir 允许传 callable：起始目录可能来自惰性构造的 controller
+        self._base_dir = base_dir
+        self._path = ""
+        self.setMinimumHeight(Layout.BTN_HEIGHT_NORMAL)
+        self.setStyleSheet(ButtonStyles.path_button())
+        self.setToolTip(tooltip or self._idle_tooltip())
+        self.clicked.connect(self._pick)
+
+    def _idle_tooltip(self) -> str:
+        return f"点击{self._placeholder.rstrip('.')}"
+
+    def _pick(self) -> None:
+        base = self._base_dir() if callable(self._base_dir) else (self._base_dir or "")
+        path, _ = QFileDialog.getOpenFileName(self, self._title, str(base), self._filter)
+        if path:
+            self.set_path(path)
+
+    def path(self) -> str:
+        """当前选中的完整路径（未选择时为空串）。"""
+        return self._path
+
+    def set_path(self, path: str, *, emit: bool = True) -> None:
+        """程序化设置路径（配置回填 / 清空）；emit=False 时不触发 pathChanged。"""
+        self._path = path or ""
+        if self._path:
+            self.setText(Path(self._path).name)
+            self.setToolTip(self._path)
+        else:
+            self.setText(self._placeholder)
+            self.setToolTip(self._idle_tooltip())
+        if emit:
+            self.pathChanged.emit(self._path)
 
 
 class DoubleSlider(QSlider):

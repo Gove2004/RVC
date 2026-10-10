@@ -98,7 +98,7 @@ class ButtonStyles:
 
     @staticmethod
     def small(color="secondary"):
-        """小按钮（浏览、刷新等）"""
+        """小按钮（查看、修改原名、刷新等）"""
         colors = {
             "primary": (Colors.PRIMARY, Colors.PRIMARY_HOVER),
             "secondary": (Colors.SECONDARY, Colors.SECONDARY_HOVER),

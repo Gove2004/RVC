@@ -1,8 +1,20 @@
 """离线 Tab — 离线音频文件转换"""
+import os
+
 from PySide6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QPushButton, QGridLayout, QProgressBar,
 )
 from gui.styles import ButtonStyles
+from gui.view.widgets import PathPickerButton
+
+AUDIO_FILTER = "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus)"
+
+
+def _on_input_picked(win, path: str) -> None:
+    """选完输入文件后，输出框为空则给一个默认输出名（输出框是纯文本框，可直接改写）。"""
+    if path and not win.offline_output.text().strip():
+        base, _ = os.path.splitext(path)
+        win.offline_output.setText(base + "_converted.wav")
 
 
 def build_offline_tab(win):
@@ -12,13 +24,12 @@ def build_offline_tab(win):
     g.setContentsMargins(8, 8, 8, 8)
     r = 0
 
-    # 输入文件行（路径选择按钮，显示文件名）
-    win.offline_input_path = ""  # 完整路径存储在这里
-    win.offline_input_btn = QPushButton("选择输入文件...")
-    win.offline_input_btn.setMinimumHeight(28)
-    win.offline_input_btn.setToolTip("点击选择输入音频文件")
-    win.offline_input_btn.setStyleSheet(ButtonStyles.path_button())
-    win.offline_input_btn.clicked.connect(win._off_browse_input)
+    # 输入文件行（自带文件对话框的路径按钮，文本显示所选文件名）
+    win.offline_input_btn = PathPickerButton(
+        win, title="选择输入文件", filter_str=AUDIO_FILTER,
+        placeholder="选择输入文件...",
+    )
+    win.offline_input_btn.pathChanged.connect(lambda p: _on_input_picked(win, p))
     g.addWidget(QLabel("输入文件"), r, 0)
     g.addWidget(win.offline_input_btn, r, 1, 1, 3)
     r += 1

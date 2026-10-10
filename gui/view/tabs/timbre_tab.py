@@ -2,14 +2,9 @@
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QPushButton, QComboBox,
-)
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QWidget, QGridLayout, QLabel, QComboBox
 
-from gui.view.widgets import _create_slider_row, RangeSlider
-from gui.styles.components import ButtonStyles
-from pathlib import Path
+from gui.view.widgets import _create_slider_row, RangeSlider, PathPickerButton
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -44,12 +39,13 @@ def build_timbre_tab(win: "InferWindowHost"):
     r = 0
 
     # ── 模型路径 + 特征器 ──
-    win.model_path = ""
-    win.model_path_btn = QPushButton("选择模型...")
-    win.model_path_btn.setMinimumHeight(28)
-    win.model_path_btn.setToolTip("点击选择模型文件 (.pth)")
-    win.model_path_btn.setStyleSheet(ButtonStyles.path_button())
-    win.model_path_btn.clicked.connect(lambda: _browse_model(win))
+    # 路径由按钮自带（path()），不再另存 win.model_path 平行字段；
+    # 参数绑定里 model_path 走 PATH 方式直接读按钮。
+    win.model_path_btn = PathPickerButton(
+        win, title="选择模型", filter_str="模型 (*.pth)",
+        placeholder="选择模型...",
+        base_dir=lambda: win.controller.models_dir,
+    )
 
     win.hubert_combo = QComboBox()
     win.hubert_combo.addItems(["base", "chinese"])
@@ -106,12 +102,3 @@ def build_timbre_tab(win: "InferWindowHost"):
     r += 1
 
     return w
-
-
-def _browse_model(win: "InferWindowHost"):
-    path, _ = QFileDialog.getOpenFileName(win, "选择模型", str(win.controller.models_dir), "模型 (*.pth)")
-    if path:
-        win.model_path = path
-        win.runtime_params.model_path = path
-        win.model_path_btn.setText(Path(path).name)
-        win.model_path_btn.setToolTip(path)

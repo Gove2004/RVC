@@ -18,7 +18,7 @@ class Layout:
     BTN_HEIGHT_NORMAL = 28        # 标准按钮高度
     BTN_HEIGHT_SMALL = 24         # 小按钮高度
     BTN_WIDTH_ICON = 28           # 图标按钮宽度
-    BTN_WIDTH_SMALL = 48          # 小按钮宽度（浏览等）
+    BTN_WIDTH_SMALL = 48          # 小按钮宽度（查看/修改原名/刷新等）
     BTN_WIDTH_NORMAL = 60         # 标准按钮宽度（开始/停止）
 
     # 圆角（Windows 11 风格）

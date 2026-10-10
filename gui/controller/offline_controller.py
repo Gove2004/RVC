@@ -3,11 +3,9 @@
 import logging
 import os
 import traceback
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QFileDialog
 
 from gui.state.bindings import collect_params
 from rvc.core.config import OfflineParams
@@ -27,27 +25,9 @@ class OfflineConversion:
         self.worker = None
         self._converting = False
 
-    def browse_input(self) -> None:
-        """浏览选择输入文件；输出框为空时给一个默认输出名（输出框是纯文本框）。"""
-        path, _ = QFileDialog.getOpenFileName(
-            self.window, "选择输入文件", "",
-            "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus)",
-        )
-        if not path:
-            return
-
-        self.window.offline_input_path = path
-        self.window.offline_input_btn.setText(Path(path).name)
-        self.window.offline_input_btn.setToolTip(path)
-        if not self.window.offline_output.text():
-            base, _ = os.path.splitext(path)
-            self.window.offline_output.setText(base + "_converted.wav")
-
     def clear_paths(self) -> None:
-        """清空输入/输出路径（输入按钮文案复位）。"""
-        self.window.offline_input_path = ""
-        self.window.offline_input_btn.setText("选择输入文件...")
-        self.window.offline_input_btn.setToolTip("点击选择输入音频文件")
+        """清空输入/输出路径（输入按钮复位为未选择文案）。"""
+        self.window.offline_input_btn.set_path("")
         self.window.offline_output.clear()
 
     def start_conversion(self) -> None:
@@ -62,8 +42,8 @@ class OfflineConversion:
             self.window._show_warning("实时推理正在运行，请先停止实时推理再进行离线转换")
             return
 
-        # offline_input_path 在 offline_tab 构建时无条件创建（缺失即 AttributeError）
-        inp = self.window.offline_input_path.strip()
+        # offline_input_btn 在 offline_tab 构建时无条件创建（缺失即 AttributeError）
+        inp = self.window.offline_input_btn.path().strip()
         out = self.window.offline_output.text().strip()
 
         if not inp:
@@ -77,8 +57,8 @@ class OfflineConversion:
             out = base + "_converted.wav"
             self.window.offline_output.setText(out)
 
-        # model_path 在 timbre_tab 构建时无条件创建（缺失即 AttributeError）
-        pth = self.window.model_path.strip()
+        # model_path_btn 在 timbre_tab 构建时无条件创建（缺失即 AttributeError）
+        pth = self.window.model_path_btn.path().strip()
         if not pth:
             self.window._show_warning("请先在「音色」中选择模型文件")
             return

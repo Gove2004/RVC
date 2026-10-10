@@ -24,7 +24,7 @@ _DEFAULTS = InferenceParams()
 # 读写方式
 FLOAT = "float"
 COMBO = "combo"
-ATTR = "attr"
+PATH = "path"
 RADIO_F0 = "radio_f0"
 RADIO_SR = "radio_sr"
 
@@ -50,7 +50,8 @@ BINDINGS = [
     ("audio.output_device", "output_combo", COMBO),
     ("audio.output2_device", "output2_combo", COMBO),
     # ── 顶层 ──
-    ("model_path", "model_path", ATTR),
+    # 模型路径由 PathPickerButton 自身持有（path()），不另存平行字段
+    ("model_path", "model_path_btn", PATH),
     ("hubert", "hubert_combo", COMBO),
 ]
 
@@ -175,8 +176,9 @@ def _set(win: "InferWindowHost", widget, kind, value):
         idx = getattr(win, widget).findText(str(value))
         if idx >= 0:
             getattr(win, widget).setCurrentIndex(idx)
-    elif kind == ATTR:
-        setattr(win, widget, str(value) if value else "")
+    elif kind == PATH:
+        # 程序化回填（配置加载）：只改显示与内部路径，不反向触发 pathChanged
+        getattr(win, widget).set_path(str(value) if value else "", emit=False)
     elif kind == RADIO_F0:
         win.f0_rmvp_btn.setChecked(value == "rmvpe")
         win.f0_fcpe_btn.setChecked(value != "rmvpe")
@@ -223,10 +225,8 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
             value = w.value()
         elif kind == COMBO:
             value = w.currentText()
-        elif kind == ATTR:
-            # model_path 在 timbre_tab 构建时无条件创建（win.model_path = ""），
-            # 缺失应立刻 AttributeError，不做带默认的静默取值
-            value = getattr(win, widget)
+        elif kind == PATH:
+            value = w.path()
         elif kind == RADIO_F0:
             value = "rmvpe" if win.f0_rmvp_btn.isChecked() else "fcpe"
         elif kind == RADIO_SR:

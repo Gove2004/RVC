@@ -12,9 +12,9 @@ from PySide6.QtWidgets import (
 )
 
 from gui.controller.tool_controller import ToolRunner
-from gui.styles import ButtonStyles, Layout
+from gui.styles import ButtonStyles
 from gui.styles.colors import Colors
-from gui.view.widgets import create_browse_row
+from gui.view.widgets import PathPickerButton
 
 
 def build_merge_tab(win) -> QWidget:
@@ -25,19 +25,23 @@ def build_merge_tab(win) -> QWidget:
     g.setColumnStretch(1, 1)
     r = 0
 
-    # ── 模型 A / 模型 B ──
-    win.merge_a = QLineEdit()
-    win.merge_a.setPlaceholderText("第一个模型 (.pth)")
-    win.merge_a.textChanged.connect(lambda: _update_merge_label(win, win.merge_slider.value()))
+    # ── 模型 A / 模型 B（自带文件对话框的路径按钮，与音色页签一致）──
+    win.merge_a = PathPickerButton(
+        win, title="选择模型 A", placeholder="选择模型...",
+        base_dir=lambda: win.controller.models_dir,
+    )
+    win.merge_a.pathChanged.connect(lambda _: _update_merge_label(win, win.merge_slider.value()))
     g.addWidget(QLabel("模型 A"), r, 0)
-    g.addLayout(create_browse_row(win, win.merge_a), r, 1)
+    g.addWidget(win.merge_a, r, 1)
     r += 1
 
-    win.merge_b = QLineEdit()
-    win.merge_b.setPlaceholderText("第二个模型 (.pth)")
-    win.merge_b.textChanged.connect(lambda: _update_merge_label(win, win.merge_slider.value()))
+    win.merge_b = PathPickerButton(
+        win, title="选择模型 B", placeholder="选择模型...",
+        base_dir=lambda: win.controller.models_dir,
+    )
+    win.merge_b.pathChanged.connect(lambda _: _update_merge_label(win, win.merge_slider.value()))
     g.addWidget(QLabel("模型 B"), r, 0)
-    g.addLayout(create_browse_row(win, win.merge_b), r, 1)
+    g.addWidget(win.merge_b, r, 1)
     r += 1
 
     # ── 融合比例（A 的占比；B = 100 - A）──
@@ -80,8 +84,8 @@ def build_merge_tab(win) -> QWidget:
 
 
 def _update_merge_label(win, value: int):
-    a = Path(win.merge_a.text()).stem or "A"
-    b = Path(win.merge_b.text()).stem or "B"
+    a = Path(win.merge_a.path()).stem or "A"
+    b = Path(win.merge_b.path()).stem or "B"
     win.merge_label.setText(f"{a}:{value}% {b}:{100 - value}%")
 
 
@@ -91,8 +95,8 @@ def _set_merge_status(win, text: str, color: str = "") -> None:
 
 
 def _run_merge(win):
-    a = win.merge_a.text().strip()
-    b = win.merge_b.text().strip()
+    a = win.merge_a.path().strip()
+    b = win.merge_b.path().strip()
     name = win.merge_name.text().strip()
     if not a or not b or not name:
         _set_merge_status(win, "请填写所有字段", Colors.ERROR)

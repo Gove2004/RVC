@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from gui.controller.engine_controller import InferController
     from gui.controller.tool_controller import ModelToolController, ToolRunner
     from gui.view.tray import SystemTray
-    from gui.view.widgets import DoubleSlider, LoadThread, RangeSlider
+    from gui.view.widgets import DoubleSlider, LoadThread, PathPickerButton, RangeSlider
     from rvc.core.config import InferenceParams
     from rvc.streaming.engine import VoiceEngine
 
@@ -46,8 +46,7 @@ class InferWindowHost(Protocol):
     _loading: bool
 
     # ── 音色控件（timbre_tab）──
-    model_path: str
-    model_path_btn: "QPushButton"
+    model_path_btn: "PathPickerButton"
     hubert_combo: "QComboBox"
     pitch_map_src_range: "RangeSlider"
     pitch_map_dst_range: "RangeSlider"
@@ -75,8 +74,8 @@ class InferWindowHost(Protocol):
     sr_device_radio: "QRadioButton"
 
     # ── 融合控件（merge_tab）──
-    merge_a: "QLineEdit"
-    merge_b: "QLineEdit"
+    merge_a: "PathPickerButton"
+    merge_b: "PathPickerButton"
     merge_slider: "QSlider"
     merge_label: "QLabel"
     merge_name: "QLineEdit"
@@ -84,13 +83,12 @@ class InferWindowHost(Protocol):
     merge_status: "QLabel"
 
     # ── 详情控件（details_tab）──
-    inspect_path: "QLineEdit"
+    inspect_path: "PathPickerButton"
     inspect_result: "QTextEdit"
     archive_name_edit: "QLineEdit"
 
     # ── 离线控件（offline_tab）──
-    offline_input_path: str
-    offline_input_btn: "QPushButton"
+    offline_input_btn: "PathPickerButton"
     offline_output: "QLineEdit"
     offline_button: "QPushButton"
     offline_cancel_btn: "QPushButton"
