@@ -11,7 +11,7 @@ from gui.styles import ButtonStyles, Layout
 
 __all__ = [
     "LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider",
-    "PathPickerButton",
+    "PathPickerButton", "ElidedLabel",
 ]
 
 
@@ -66,6 +66,39 @@ class PathPickerButton(QPushButton):
             self.setToolTip(self._idle_tooltip())
         if emit:
             self.pathChanged.emit(self._path)
+
+
+class ElidedLabel(QLabel):
+    """单行只读文本标签 — 超宽时按中间省略号截断，完整内容放在 tooltip。
+
+    用于展示「由其它输入派生、用户不可编辑」的路径/结果文本：既不使用输入框
+    （不可编辑，视觉上也不是输入控件），又不会因文本过长把所在页签撑宽
+    （sizeHint 被 Ignored，宽度完全跟随布局分配）。
+    """
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setText(text)
+
+    def text(self) -> str:
+        """完整文本（未截断）。"""
+        return self._full
+
+    def setText(self, text: str) -> None:
+        self._full = text or ""
+        self.setToolTip(self._full)
+        self._relayout()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout()
+
+    def _relayout(self) -> None:
+        fm = self.fontMetrics()
+        width = max(0, self.width() - 2)
+        super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideMiddle, width))
 
 
 class DoubleSlider(QSlider):

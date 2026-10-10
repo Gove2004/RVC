@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from gui.controller.engine_controller import InferController
     from gui.controller.tool_controller import ModelToolController, ToolRunner
     from gui.view.tray import SystemTray
-    from gui.view.widgets import DoubleSlider, LoadThread, PathPickerButton, RangeSlider
+    from gui.view.widgets import (
+        DoubleSlider, ElidedLabel, LoadThread, PathPickerButton, RangeSlider,
+    )
     from rvc.core.config import InferenceParams
     from rvc.streaming.engine import VoiceEngine
 
@@ -89,10 +91,9 @@ class InferWindowHost(Protocol):
 
     # ── 离线控件（offline_tab）──
     offline_input_btn: "PathPickerButton"
-    offline_output: "QLineEdit"
+    offline_output: "ElidedLabel"
     offline_button: "QPushButton"
     offline_cancel_btn: "QPushButton"
-    offline_clear_btn: "QPushButton"
     offline_status: "QLabel"
     offline_progress: "QProgressBar"
 

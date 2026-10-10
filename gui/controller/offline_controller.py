@@ -16,6 +16,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 输出文件后缀：输出恒与输入同目录，只在文件名后追加该后缀（界面不可修改）
+OUTPUT_SUFFIX = "_converted.wav"
+
+
+def default_output_path(input_path: str) -> str:
+    """由输入路径派生输出路径：同目录 + `<原名>_converted.wav`。"""
+    if not input_path:
+        return ""
+    base, _ = os.path.splitext(input_path)
+    return base + OUTPUT_SUFFIX
+
 
 class OfflineConversion:
     """管理离线音频文件转换流程。"""
@@ -24,11 +35,6 @@ class OfflineConversion:
         self.window = window
         self.worker = None
         self._converting = False
-
-    def clear_paths(self) -> None:
-        """清空输入/输出路径（输入按钮复位为未选择文案）。"""
-        self.window.offline_input_btn.set_path("")
-        self.window.offline_output.clear()
 
     def start_conversion(self) -> None:
         """开始离线转换。"""
@@ -44,7 +50,6 @@ class OfflineConversion:
 
         # offline_input_btn 在 offline_tab 构建时无条件创建（缺失即 AttributeError）
         inp = self.window.offline_input_btn.path().strip()
-        out = self.window.offline_output.text().strip()
 
         if not inp:
             self.window._show_warning("请选择输入文件")
@@ -52,10 +57,9 @@ class OfflineConversion:
         if not os.path.exists(inp):
             self.window._show_warning(f"文件不存在: {inp}")
             return
-        if not out:
-            base, _ = os.path.splitext(inp)
-            out = base + "_converted.wav"
-            self.window.offline_output.setText(out)
+
+        # 输出路径由输入派生（界面上是只读文本，用户不可修改）
+        out = default_output_path(inp)
 
         # model_path_btn 在 timbre_tab 构建时无条件创建（缺失即 AttributeError）
         pth = self.window.model_path_btn.path().strip()

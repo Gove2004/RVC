@@ -316,10 +316,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def _ha_changed(self, name):
         self.device_catalog.on_hostapi_changed(name)
 
-    def _off_clear(self):
-        """清空离线的输入/输出路径。"""
-        self.offline_conversion.clear_paths()
-
     def _off_start(self):
         # 保存配置（在开始转换前保存当前设置）
         try:
