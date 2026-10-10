@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from gui.controller.tool_controller import ToolRunner
 from gui.styles import ButtonStyles
 from gui.styles.colors import Colors
-from gui.view.widgets import ElidedLabel, PathPickerButton
+from gui.view.widgets import PathPickerButton
 
 
 def build_merge_tab(win) -> QWidget:
@@ -22,8 +22,10 @@ def build_merge_tab(win) -> QWidget:
     g = QGridLayout(w)
     g.setSpacing(6)
     g.setContentsMargins(8, 8, 8, 8)
-    # 与「音色 / 参数」页签同一套列比例：滑块独占第 1 列，左边界与宽度
-    # 与其它页签的滑块一致（实测 560px 宽下 x=120 / 宽 346，音色页签 x=118 / 宽 338）
+    # 与「音色 / 参数」页签同一套列比例（滑块独占第 1 列、值标签 80px 占第 2 列），
+    # 三个页签的滑块因此逐像素对齐：实测页宽 525 时融合 x=112/宽 319，
+    # 参数 x=112/宽 319，音色 x=110/宽 312（音色第 1 列含 RangeSlider 最小宽 180，
+    # 分配略有 7px 残差，视觉不可见）。
     g.setColumnStretch(0, 4)
     g.setColumnStretch(1, 13)
     g.setColumnStretch(2, 3)
@@ -49,20 +51,23 @@ def build_merge_tab(win) -> QWidget:
     r += 1
 
     # ── 融合比例（A 的占比；B = 100 - A）──
+    # 版式与「音色 / 参数」页签的滑块行完全一致：标签 | 滑块(col1) | 值(col2)。
+    # 值列必须是**定宽标签**（同 _create_slider_row(label_w=80)）：定宽后列宽
+    # 才与其它页签相同，滑块也就拿到同样的宽度与左边界；换成长度随内容变化的
+    # 标签，col2 会被挤掉、多余宽度全归滑块（这正是之前「宽度不太对」的成因）。
     win.merge_slider = QSlider(Qt.Orientation.Horizontal)
     win.merge_slider.setRange(0, 100)
     win.merge_slider.setValue(50)
     win.merge_slider.setFixedHeight(18)
     win.merge_slider.valueChanged.connect(lambda v: _update_merge_label(win, v))
+
+    win.merge_label = QLabel()
+    win.merge_label.setFixedWidth(80)
+    win.merge_label.setAlignment(Qt.AlignCenter)
+
     g.addWidget(QLabel("融合比例"), r, 0)
     g.addWidget(win.merge_slider, r, 1)
-    r += 1
-
-    # 比例文字单独一行（在滑块下方）：可容纳长模型名而不挤压滑块宽度；
-    # 超宽时中间省略，完整内容在 tooltip 里。
-    win.merge_label = ElidedLabel()
-    win.merge_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
-    g.addWidget(win.merge_label, r, 1, 1, 2)
+    g.addWidget(win.merge_label, r, 2)
     r += 1
 
     # ── 模型名（输出文件名，落 assets/models/<名>.pth）──
@@ -92,9 +97,14 @@ def build_merge_tab(win) -> QWidget:
 
 
 def _update_merge_label(win, value: int):
+    """刷新比例值标签 — 只显示百分比（宽 80px），完整模型名放 tooltip。
+
+    模型名在上面两个路径按钮上已经可见，值标签不重复占用宽度。
+    """
     a = Path(win.merge_a.path()).stem or "A"
     b = Path(win.merge_b.path()).stem or "B"
-    win.merge_label.setText(f"{a}:{value}% {b}:{100 - value}%")
+    win.merge_label.setText(f"{value}% / {100 - value}%")
+    win.merge_label.setToolTip(f"{a}: {value}%    {b}: {100 - value}%")
 
 
 def _set_merge_status(win, text: str, color: str = "") -> None:
