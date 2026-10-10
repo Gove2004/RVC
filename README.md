@@ -51,7 +51,11 @@ python -m venv .venv
 
 向导会依次询问数据集路径、产物根目录、实验名与训练超参（直接回车 = 默认值），
 并自动跳过已完成的阶段（切片指纹一致则跳过预处理，F0/特征齐全则跳过提取，检测到
-checkpoint 则自动续训）。产物根目录默认按平台自适应：
+checkpoint 则自动续训）。**向导有存档**：首次运行各项默认值即内置默认值，问完后本次答案
+会写进 `assets/configs/train_cli_defaults.json`，作为下次运行的默认值（删掉该文件即恢复
+内置默认值；命令行传入的数据集路径始终优先于存档）。
+
+产物根目录默认按平台自适应：
 
 | 平台 | 默认产物根目录 |
 |---|---|
@@ -136,7 +140,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`effects.py`（RMS 响度混合 / SOLA） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
 | `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（TrainSample/TrainBatch 数据集与 collate）、`mel_processing.py` |
-| `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
+| `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`defaults.py`（上次参数存档 → 下次默认值）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
 | `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具）+ `state/`（参数绑定）+ `configs/` + `styles/` |
 
 ## 设计决策（为什么）

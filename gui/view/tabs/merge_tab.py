@@ -7,14 +7,14 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QWidget, QGridLayout, QLabel, QLineEdit,
     QPushButton, QSlider,
 )
 
 from gui.controller.tool_controller import ToolRunner
 from gui.styles import ButtonStyles
 from gui.styles.colors import Colors
-from gui.view.widgets import PathPickerButton
+from gui.view.widgets import ElidedLabel, PathPickerButton
 
 
 def build_merge_tab(win) -> QWidget:
@@ -22,7 +22,11 @@ def build_merge_tab(win) -> QWidget:
     g = QGridLayout(w)
     g.setSpacing(6)
     g.setContentsMargins(8, 8, 8, 8)
-    g.setColumnStretch(1, 1)
+    # 与「音色 / 参数」页签同一套列比例：滑块独占第 1 列，左边界与宽度
+    # 与其它页签的滑块一致（实测 560px 宽下 x=120 / 宽 346，音色页签 x=118 / 宽 338）
+    g.setColumnStretch(0, 4)
+    g.setColumnStretch(1, 13)
+    g.setColumnStretch(2, 3)
     r = 0
 
     # ── 模型 A / 模型 B（自带文件对话框的路径按钮，与音色页签一致）──
@@ -32,7 +36,7 @@ def build_merge_tab(win) -> QWidget:
     )
     win.merge_a.pathChanged.connect(lambda _: _update_merge_label(win, win.merge_slider.value()))
     g.addWidget(QLabel("模型 A"), r, 0)
-    g.addWidget(win.merge_a, r, 1)
+    g.addWidget(win.merge_a, r, 1, 1, 2)
     r += 1
 
     win.merge_b = PathPickerButton(
@@ -41,29 +45,31 @@ def build_merge_tab(win) -> QWidget:
     )
     win.merge_b.pathChanged.connect(lambda _: _update_merge_label(win, win.merge_slider.value()))
     g.addWidget(QLabel("模型 B"), r, 0)
-    g.addWidget(win.merge_b, r, 1)
+    g.addWidget(win.merge_b, r, 1, 1, 2)
     r += 1
 
     # ── 融合比例（A 的占比；B = 100 - A）──
-    ratio_row = QHBoxLayout()
-    ratio_row.setSpacing(6)
     win.merge_slider = QSlider(Qt.Orientation.Horizontal)
     win.merge_slider.setRange(0, 100)
     win.merge_slider.setValue(50)
+    win.merge_slider.setFixedHeight(18)
     win.merge_slider.valueChanged.connect(lambda v: _update_merge_label(win, v))
-    win.merge_label = QLabel("A:50% B:50%")
-    win.merge_label.setMinimumWidth(160)
-    ratio_row.addWidget(win.merge_slider)
-    ratio_row.addWidget(win.merge_label)
     g.addWidget(QLabel("融合比例"), r, 0)
-    g.addLayout(ratio_row, r, 1)
+    g.addWidget(win.merge_slider, r, 1)
+    r += 1
+
+    # 比例文字单独一行（在滑块下方）：可容纳长模型名而不挤压滑块宽度；
+    # 超宽时中间省略，完整内容在 tooltip 里。
+    win.merge_label = ElidedLabel()
+    win.merge_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
+    g.addWidget(win.merge_label, r, 1, 1, 2)
     r += 1
 
     # ── 模型名（输出文件名，落 assets/models/<名>.pth）──
     win.merge_name = QLineEdit("merged")
     win.merge_name.setPlaceholderText("输出模型名（不含 .pth）")
     g.addWidget(QLabel("模型名"), r, 0)
-    g.addWidget(win.merge_name, r, 1)
+    g.addWidget(win.merge_name, r, 1, 1, 2)
     r += 1
 
     # ── 开始融合 ──
@@ -71,13 +77,15 @@ def build_merge_tab(win) -> QWidget:
     win.btn_merge.setMinimumHeight(32)
     win.btn_merge.setStyleSheet(ButtonStyles.primary())
     win.btn_merge.clicked.connect(lambda: _run_merge(win))
-    g.addWidget(win.btn_merge, r, 0, 1, 2)
+    g.addWidget(win.btn_merge, r, 0, 1, 3)
     r += 1
 
     # ── 状态文本 ──
     win.merge_status = QLabel("")
-    g.addWidget(win.merge_status, r, 0, 1, 2)
+    g.addWidget(win.merge_status, r, 0, 1, 3)
     r += 1
+
+    _update_merge_label(win, win.merge_slider.value())
 
     g.setRowStretch(r, 1)
     return w

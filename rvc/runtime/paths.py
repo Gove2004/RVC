@@ -14,6 +14,9 @@ ASSETS_ROOT = PROJECT_ROOT / "assets"
 # ── 运行时配置（configs 随仓库跟踪，仅 save_state.json 忽略）──
 CONFIG_ROOT = ASSETS_ROOT / "configs"
 STATE_FILE = CONFIG_ROOT / "save_state.json"
+# 训练命令行向导的「上次用过的参数」存档（个人偏好，git 忽略）：
+# 没有它时用内置默认值；跑过一次后各项默认值即变成上次的答案。
+TRAIN_CLI_DEFAULTS_FILE = CONFIG_ROOT / "train_cli_defaults.json"
 
 # 训练采样率 → 配置文件（40k/48k）
 TRAIN_CONFIG_FILES = {

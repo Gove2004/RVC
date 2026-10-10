@@ -45,6 +45,8 @@ Thumbs.db
 # logs
 logs
 assets/configs/save_state.json
+assets/configs/train_cli_defaults.json
+assets/configs/train_cli_defaults.json.bak
 
 # WorkBuddy local memory
 .workbuddy/

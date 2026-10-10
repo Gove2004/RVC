@@ -1,15 +1,15 @@
 """训练参数向导：交互式收集所有训练参数并输出配置字典。"""
 from pathlib import Path
 
-from rvc.runtime.paths import PRETRAINED_ROOT
+from rvc.runtime.paths import PRETRAINED_ROOT, TRAIN_CLI_DEFAULTS_FILE
 
 from rvc.train.cli import (
     AUDIO_EXTS,
     BAR,
     DEFAULTS,
-    default_output_root,
     output_dirs,
 )
+from rvc.train.cli.defaults import load_defaults, save_defaults
 from rvc.train.cli.envcheck import (
     _probe_dataset,
     _probe_disk,
@@ -40,12 +40,16 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     argv_dir: 命令行给出的数据集路径（第一个非选项参数），作为数据集提问的默认值。
     ffmpeg_exe: 环境体检阶段定位的 ffmpeg 路径，随 cfg 下发给后续所有解码调用；
     空串表示未定位到（仅 wav/flac/ogg 素材可继续）。
+
+    各提问项的默认值来自上次运行的存档（`rvc.train.cli.defaults`），
+    问完后本次答案会被存回去，作为下次的默认值。
     """
     cfg = {"device": device, "fp16": fp16, "ffmpeg": ffmpeg_exe}
+    defaults = load_defaults()
 
-    log.section("第 3 步 / 训练参数（直接回车 = 使用默认值）")
+    log.section("第 3 步 / 训练参数（直接回车 = 使用默认值，默认值 = 上次的答案）")
 
-    # 1) 数据集路径
+    # 1) 数据集路径（命令行参数 > 上次的路径 > 必填）
     def _dir_ok(text):
         path = Path(text).expanduser()
         if not path.is_dir():
@@ -54,13 +58,14 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
             return False, f"目录里没有音频文件（支持 {', '.join(sorted(AUDIO_EXTS))}）: {path}"
         return True, ""
 
-    input_dir = Path(ask("数据集路径", argv_dir, check=_dir_ok)).expanduser()
+    input_dir = Path(ask("数据集路径", argv_dir or defaults["input_dir"],
+                         check=_dir_ok)).expanduser()
     files = _scan_audio(input_dir)
     _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe or None)
     _require_ffmpeg(log, files)
 
     # 2) 产物根目录（实验目录与导出模型目录都在其下；默认按平台自适应）
-    root_default = default_output_root()
+    root_default = Path(defaults["output_root"])
 
     def _root_ok(text):
         path = Path(text).expanduser()
@@ -73,7 +78,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     _probe_disk(log, output_root)
 
     # 3) 实验名（决定产物落点，先拿到才好把日志搬过去）
-    exp_name = ask("实验名", DEFAULTS["exp"])
+    exp_name = ask("实验名", defaults["exp_name"])
     exp_dir, model_dir = output_dirs(output_root, exp_name)
     # 必须在 reattach 之前记录：reattach 会创建实验目录，之后 exists() 恒为真
     exp_existed = exp_dir.exists()
@@ -97,7 +102,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
             return False, "只能填 40k 或 48k"
         return True, ""
 
-    sr = ask("采样率 40k / 48k", DEFAULTS["sr"], cast=_as_sr, check=_sr_ok)
+    sr = ask("采样率 40k / 48k", defaults["sr"], cast=_as_sr, check=_sr_ok)
     sr_hz = 48000 if sr == "48k" else 40000
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
@@ -108,18 +113,19 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
             return False, "只能填 base 或 chinese"
         return True, ""
 
-    hubert = ask("HuBERT 特征器 base / chinese", DEFAULTS["hubert"], check=_hubert_ok)
+    hubert = ask("HuBERT 特征器 base / chinese", defaults["hubert"], check=_hubert_ok)
     if hubert == "chinese":
         log.log("chinese = 腾讯 chinese-hubert-base（WenetSpeech 中文预训练，中文音素/声调更准）", "WARN")
         log.log("  推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
 
-    # 7) batch size
-    batch = ask("batch size", str(_suggest_batch(vram_gb, sr_hz)), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+    # 7) batch size（上次填过就用上次的，没填过按显存现算）
+    batch_default = defaults["batch_size"] or _suggest_batch(vram_gb, sr_hz)
+    batch = ask("batch size", str(batch_default), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
 
     # 8) 学习率
     lr = ask(
         "学习率（1e-4=0.0001；太大易炸，太小收敛慢）",
-        f"{DEFAULTS['lr']:g}",
+        f"{defaults['lr']:g}",
         cast=_as_float,
         check=lambda v: (0 < v <= 0.1, "需要在 0 ~ 0.1 之间"),
     )
@@ -136,16 +142,21 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
             return False, f"已训到 epoch {ckpt_epoch}，总轮次必须大于它（填的是目标终点，不是新增轮数）"
         return True, ""
 
-    epochs = ask("训练轮次", str(DEFAULTS["epochs"]), cast=_as_int, check=_epochs_ok)
+    # 续训时「总轮次」必须大于已训到的 epoch：存档值若已不满足（上次正好训到该轮），
+    # 默认值取 2 倍已训轮次，否则非交互输入（管道喂 stdin）会卡在反复重问上
+    epochs_default = ckpt_epoch * 2 if ckpt_epoch >= defaults["epochs"] else defaults["epochs"]
+    epochs = ask("训练轮次", str(epochs_default), cast=_as_int, check=_epochs_ok)
 
     # 10) 保存间隔
-    save_every = ask("每多少轮保存一次", str(DEFAULTS["save_every"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+    save_every = ask("每多少轮保存一次", str(defaults["save_every"]), cast=_as_int,
+                     check=lambda v: (v >= 1, "至少 1"))
 
     # 11) 保留 checkpoint 组数
-    keep_ckpts = ask("保留最近几组 checkpoint", str(DEFAULTS["keep_ckpts"]), cast=_as_int, check=lambda v: (v >= 1, "至少 1"))
+    keep_ckpts = ask("保留最近几组 checkpoint", str(defaults["keep_ckpts"]), cast=_as_int,
+                     check=lambda v: (v >= 1, "至少 1"))
 
     # 12) 是否使用预训练底模
-    use_pretrained = ask_yes("是否使用预训练模型（No = 随机初始化）", DEFAULTS["use_pretrained"])
+    use_pretrained = ask_yes("是否使用预训练模型（No = 随机初始化）", defaults["use_pretrained"])
     if not use_pretrained:
         log.log("已选择不用预训练底模 → 从随机权重开始训练，需要更多轮次，效果通常不如用底模", "WARN")
 
@@ -174,6 +185,12 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
         pretrain_g=str(pretrain_g) if (use_pretrained and pretrain_g.exists()) else "",
         pretrain_d=str(pretrain_d) if (use_pretrained and pretrain_d.exists()) else "",
     )
+
+    # 本次答案存为下次默认值（即使随后在「开始训练？」处取消也已保存）
+    save_defaults(cfg)
+    log.log(f"本次参数已存为下次默认值: {TRAIN_CLI_DEFAULTS_FILE}")
+    log.log("  （想要恢复内置默认值，删掉该文件即可）")
+
     return cfg
 
 

@@ -79,7 +79,7 @@ class InferWindowHost(Protocol):
     merge_a: "PathPickerButton"
     merge_b: "PathPickerButton"
     merge_slider: "QSlider"
-    merge_label: "QLabel"
+    merge_label: "ElidedLabel"
     merge_name: "QLineEdit"
     btn_merge: "QPushButton"
     merge_status: "QLabel"
