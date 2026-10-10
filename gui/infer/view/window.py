@@ -60,6 +60,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     # 音频回调线程产生的运行时错误通过此信号转发到主线程（禁止回调线程操作 Qt）
     runtime_error = Signal(str)
+    # 引擎预热线程探测到的显卡列表 → 主线程回填「显卡」下拉框
+    gpu_list_ready = Signal(list)
 
     def __init__(self):
         super().__init__()
@@ -68,6 +70,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.runtime_error.connect(self._handle_runtime_error)
+        self.gpu_list_ready.connect(self._populate_gpu_combo)
         self._loading = False
         self._lt = None
         self._signals_connected = False
@@ -238,6 +241,42 @@ class MainWindow(WindowLifecycle, QMainWindow):
                     self._stop()
 
             _slider.valueChanged.connect(_on_buffer_param_changed)
+
+        # 5. 副输出下拉框 — enable_out2 是 output2_device 的派生值，
+        #    BINDINGS 的通用处理器只写 output2_device，这里补上派生字段，
+        #    否则「选了副输出设备但没重启过」时 collect_params 之外的地方读到旧值。
+        self.output2_combo.currentTextChanged.connect(self._on_output2_changed)
+
+        # 6. 显卡下拉框 — 直接写 runtime_params.audio.device_index（无 BINDINGS 路径，
+        #    下拉项来自运行时探测的显卡列表）。
+        self.gpu_combo.currentIndexChanged.connect(self._on_gpu_changed)
+
+    def _on_output2_changed(self, text: str) -> None:
+        """副输出选择变化时同步派生字段 enable_out2。"""
+        from gui.infer.state.bindings import output2_enabled
+
+        self.runtime_params.audio.enable_out2 = output2_enabled(text)
+
+    def _on_gpu_changed(self, index: int) -> None:
+        """显卡选择变化时写入 runtime_params（重启后经 RuntimeDeviceConfig 生效）。"""
+        if index >= 0:
+            self.runtime_params.audio.device_index = int(index)
+
+    def _populate_gpu_combo(self, names: list) -> None:
+        """回填显卡下拉框（引擎预热线程探测完成后经信号投递到主线程）。
+
+        names 为空（无 CUDA / 探测失败）时保持占位项不动。
+        """
+        if not names:
+            return
+        combo = self.gpu_combo
+        combo.blockSignals(True)
+        combo.clear()
+        for i, name in enumerate(names):
+            combo.addItem(f"GPU {i}: {name}")
+        index = int(self.runtime_params.audio.device_index)
+        combo.setCurrentIndex(index if 0 <= index < len(names) else 0)
+        combo.blockSignals(False)
 
     def _on_sr_mode_changed(self):
         """采样率模式切换时，更新 runtime_params.audio.sr_mode。"""

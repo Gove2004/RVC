@@ -100,10 +100,13 @@ def cuda_graph_enabled(device) -> bool:
 
 
 def _clone_output(value):
+    """深拷贝图输出：张量 clone、容器逐元素递归，其余原样返回。"""
     if torch.is_tensor(value):
         return value.clone()
     if isinstance(value, tuple):
         return tuple(_clone_output(item) for item in value)
+    if isinstance(value, list):
+        return [_clone_output(item) for item in value]
     return value
 
 

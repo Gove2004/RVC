@@ -32,55 +32,6 @@ class LayerNorm(nn.Module):
 
 
 
-class DDSConv(nn.Module):
-    """
-    Dialted and Depth-Separable Convolution
-    """
-
-    def __init__(self, channels, kernel_size, n_layers, p_dropout=0.0):
-        super(DDSConv, self).__init__()
-        self.channels = channels
-        self.kernel_size = kernel_size
-        self.n_layers = n_layers
-        self.p_dropout = float(p_dropout)
-
-        self.drop = nn.Dropout(float(p_dropout))
-        self.convs_sep = nn.ModuleList()
-        self.convs_1x1 = nn.ModuleList()
-        self.norms_1 = nn.ModuleList()
-        self.norms_2 = nn.ModuleList()
-        for i in range(n_layers):
-            dilation = kernel_size**i
-            padding = (kernel_size * dilation - dilation) // 2
-            self.convs_sep.append(
-                nn.Conv1d(
-                    channels,
-                    channels,
-                    kernel_size,
-                    groups=channels,
-                    dilation=dilation,
-                    padding=padding,
-                )
-            )
-            self.convs_1x1.append(nn.Conv1d(channels, channels, 1))
-            self.norms_1.append(LayerNorm(channels))
-            self.norms_2.append(LayerNorm(channels))
-
-    def forward(self, x, x_mask, g: Optional[torch.Tensor] = None):
-        if g is not None:
-            x = x + g
-        for i in range(self.n_layers):
-            y = self.convs_sep[i](x * x_mask)
-            y = self.norms_1[i](y)
-            y = F.gelu(y)
-            y = self.convs_1x1[i](y)
-            y = self.norms_2[i](y)
-            y = F.gelu(y)
-            y = self.drop(y)
-            x = x + y
-        return x * x_mask
-
-
 class WN(torch.nn.Module):
     def __init__(
         self,
@@ -103,6 +54,11 @@ class WN(torch.nn.Module):
         self.in_layers = torch.nn.ModuleList()
         self.res_skip_layers = torch.nn.ModuleList()
         self.drop = nn.Dropout(float(p_dropout))
+        # 刻意用**普通 Python 属性**而非 register_buffer 持有通道数：
+        # 该张量只被 fused_add_tanh_sigmoid_multiply 当作切片索引使用
+        # （n_channels[0] 走 __index__）。若注册成 buffer，Module.to(cuda)
+        # 会把它搬到 GPU，0 维 CUDA 张量取 __index__ 需隐式 D2H 同步——
+        # 在 CUDA Graph 捕获期间这会直接让捕获失败。保持 CPU 常量即可。
         self._n_channels_tensor = torch.IntTensor([hidden_channels])
 
         if gin_channels != 0:

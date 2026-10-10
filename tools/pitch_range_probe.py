@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from rvc.core.config import InferenceParams, OfflineParams
+from rvc.core.constants import RMVPE_THRESHOLD_INFER
 from rvc.runtime.paths import RMVPE_PATH, config_path
 from rvc.streaming.engine import VoiceEngine
 
@@ -70,7 +71,9 @@ class F0Extractor:
     def extract(self, audio, sr):
         """提取 F0(Hz) 和 confidence，10ms 帧分辨率。"""
         audio_t = torch.from_numpy(np.ascontiguousarray(audio)).float().to(self.device)
-        f0, conf = self.model.infer_from_audio_with_confidence(audio_t, thred=0.05)
+        f0, conf = self.model.infer_from_audio_with_confidence(
+            audio_t, thred=RMVPE_THRESHOLD_INFER,
+        )
         return f0.cpu().numpy().astype(np.float32), conf.cpu().numpy().astype(np.float32)
 
 

@@ -232,11 +232,16 @@ class FCPEExtractor(F0Extractor):
         finally:
             fcpe_logger.setLevel(saved_level)
 
-        # CUDA Graph 需要 local_offsets 在 GPU 上
-        if cuda_graph_enabled(device) and hasattr(self.model, "model"):
-            self.local_offsets = torch.arange(9, device=device, dtype=torch.long).view(1, 1, 9)
-        else:
-            self.local_offsets = None
+        # 手动解码（含 confidence 计算）依赖 torchfcpe 的模型核心 `infer_model.model`；
+        # 缺失时降级到官方 self.model.infer（不需要 local_offsets，也没有 confidence）。
+        self._has_model_core = hasattr(self.model, "model")
+        # 局部窗口偏移表：图捕获与非图手动解码都要求它常驻设备，故不再与
+        # 「CUDA Graph 是否可用」绑定（旧逻辑只在图可用时创建，导致非图路径
+        # 一旦需要它就直接 AttributeError）。
+        self.local_offsets = (
+            torch.arange(9, device=device, dtype=torch.long).view(1, 1, 9)
+            if self._has_model_core else None
+        )
         self.device = device
 
     def extract_raw(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -246,7 +251,7 @@ class FCPEExtractor(F0Extractor):
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
         with _suppress_torchfcpe_output():
-            if cuda_graph_enabled(self.device):
+            if cuda_graph_enabled(self.device) and self._has_model_core:
                 mel = self.model.wav2mel(wav_t, sr)
 
                 def graphable_infer(mel_input):
@@ -286,13 +291,12 @@ class FCPEExtractor(F0Extractor):
         return postprocess_f0(f0, self.device, confidence=conf, config=self.config)
 
     def clear_cuda_graph(self) -> None:
-        if hasattr(self.model, "model"):
+        if self._has_model_core:
             clear_cuda_graph_cache(self.model.model)
 
     def _release_model(self) -> None:
         self.model = None
-        if hasattr(self, "local_offsets"):
-            self.local_offsets = None
+        self.local_offsets = None
 
 
 def create_f0_extractor(method: str, device: torch.device, is_half: bool, inference_cache, config=None) -> F0Extractor:

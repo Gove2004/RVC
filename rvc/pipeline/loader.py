@@ -62,6 +62,7 @@ class SynthesizerLoader:
         del synthesizer.enc_q
 
         synthesizer.load_state_dict(ckpt["weight"], strict=False)
+        del ckpt  # 释放 CPU 侧 checkpoint 副本（~200MB，fp32 权重字典）
         synthesizer.eval().to(self.device)
         if self.is_half:
             synthesizer.half()

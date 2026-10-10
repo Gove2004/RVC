@@ -18,6 +18,11 @@ sr2sr = {
     "48k": 48000,
 }
 
+# flow 侧的左侧上下文补偿帧数：flow 分支（WaveNet 感受野更长）必须比
+# decoder 分支多看这么多帧，才能让 dec_head 处切出的隐变量与整段推理一致。
+# 即 flow 的起点 head - FLOW_CONTEXT_COMPENSATION_FRAMES，decoder 的起点 head。
+FLOW_CONTEXT_COMPENSATION_FRAMES = 24
+
 
 class _SynthesizerTrnMsBase(nn.Module):
     """统一的 Synthesizer 基类 — 通过 use_f0 参数控制是否使用 F0。"""
@@ -48,6 +53,12 @@ class _SynthesizerTrnMsBase(nn.Module):
         phone_dim=256,
         **kwargs
     ):
+        """构造合成器。
+
+        `**kwargs` 只用于**吸收**调用方多余的关键字（如 `is_half`）：
+        推理侧 loader 与训练侧 trainer 都会传它，但精度由外部 `.half()`
+        决定，模型内部没有任何地方需要该信息。签名保留以兼容这两处调用点。
+        """
         super(_SynthesizerTrnMsBase, self).__init__()
         if isinstance(sr, str):
             sr = sr2sr.get(sr, 48000)
@@ -95,7 +106,6 @@ class _SynthesizerTrnMsBase(nn.Module):
                 upsample_kernel_sizes,
                 gin_channels=gin_channels,
                 sr=sr,
-                is_half=kwargs.get("is_half", True),
             )
         else:
             self.dec = Generator(
@@ -177,7 +187,7 @@ class _SynthesizerTrnMsBase(nn.Module):
 
         if skip_head > 0 or return_length > 0:
             head = int(skip_head)
-            flow_head = max(head - 24, 0)
+            flow_head = max(head - FLOW_CONTEXT_COMPENSATION_FRAMES, 0)
             dec_head = head - flow_head
             length = int(return_length)
             if self.use_f0:

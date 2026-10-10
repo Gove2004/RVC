@@ -35,5 +35,12 @@ class AudioLoadError(RVCError):
     """音频加载失败（文件不存在/解码失败/格式不支持）。"""
 
 
-class CancelledError(RVCError):
-    """离线推理被用户取消时抛出。"""
+class CancelledError(BaseException):
+    """离线推理被用户取消时抛出。
+
+    刻意**不**继承 RVCError/Exception：取消是用户意图而非错误。
+    与标准库 asyncio.CancelledError 同口径——若继承 Exception，任何
+    「except Exception」兜底（日志/弹窗/重试）都会把取消误判为故障，
+    并吞掉取消信号让上层的取消分支永不触发。调用方必须显式
+    「except CancelledError」捕获（见 gui/infer/controller/offline_controller.py）。
+    """

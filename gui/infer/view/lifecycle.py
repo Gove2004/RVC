@@ -59,12 +59,19 @@ class WindowLifecycle:
     # ── 托盘退出与窗口关闭 ──
 
     def _tray_quit(self):
-        """托盘退出：完整清理（停 timer/加载线程/离线/引擎/保存配置）后退出应用。"""
+        """托盘退出：完整清理（停 timer/加载线程/离线转换/引擎/保存配置）后退出应用。"""
         self._timer.stop()
 
+        # LoadThread.run() 内部没有事件循环，quit() 对它无效（只会留下残线程），
+        # 必须先 request_stop() 让 run() 自己退出，再等它结束。
         if self._lt and self._lt.isRunning():
-            self._lt.quit()
-            self._lt.wait(2000)
+            self._lt.request_stop()
+            if not self._lt.wait(3000):
+                logger.warning("加载线程 3s 内未结束，继续退出")
+
+        # 离线转换 worker 是 QThread（非 daemon），且可能正卡在 CUDA 推理中。
+        # 不处理会让进程挂在退出上（表现为「点了退出没反应」）。
+        self.offline_conversion.shutdown()
 
         try:
             self._save_gui_config()
@@ -92,6 +99,9 @@ class WindowLifecycle:
             try:
                 self.engine  # 触发惰性构造
                 logger.info("引擎预热完成")
+                # torch 此刻已就绪，把显卡列表投递回主线程回填下拉框
+                # （信号跨线程，Qt 自动走队列投递，不违反「后台线程不碰 Qt」）
+                self.gpu_list_ready.emit(self.controller.list_gpus())
             except Exception as e:
                 logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
                 # 无 GPU 等致命错误：主线程弹友好提示（后台线程不能直接操作 Qt）
@@ -127,7 +137,9 @@ class WindowLifecycle:
     # ── 启动/停止 ──
 
     def _on_toggle_clicked(self):
-        if self.engine.running:
+        # 用 controller.is_running 而非 self.engine.running：后者会触发引擎惰性
+        # 构造（加载 torch 约 1.6s，主线程阻塞），让「没选模型就点开始」白等。
+        if self.controller.is_running:
             self._stop()
         else:
             self._start()
@@ -237,7 +249,7 @@ class WindowLifecycle:
                 self.tray.update_status()
             return
 
-        if not self.engine.running:
+        if not self.controller.is_running:
             return
 
         self.controller.stop_inference()

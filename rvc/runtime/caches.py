@@ -16,12 +16,17 @@ class LRUCache:
         self._d = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, key):
+    def get(self, key, default=None):
+        """按键取值并刷新 LRU 位置；未命中返回 default。
+
+        用**成员判定**而非 `self._d.get(key) is None`：后者会把「值本身是 None」
+        与「未命中」混为一谈，并且不会为 None 值刷新 LRU 位置。
+        """
         with self._lock:
-            value = self._d.get(key)
-            if value is not None:
+            if key in self._d:
                 self._d.move_to_end(key)
-            return value
+                return self._d[key]
+            return default
 
     def set(self, key, value):
         with self._lock:

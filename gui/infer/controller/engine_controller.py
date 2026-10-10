@@ -69,6 +69,22 @@ class InferController:
         from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
         return ICON_IDLE_PATH, ICON_ACTIVE_PATH
 
+    def list_gpus(self) -> list[str]:
+        """可用的 CUDA 显卡名称列表（索引 = 显卡编号）。
+
+        惰性 import torch：本方法只在引擎预热线程完成（torch 已加载）后调用，
+        不参与窗口构建，故不会拖慢启动。
+        """
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return []
+            return [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+        except Exception:
+            logger.warning("枚举 CUDA 显卡失败", exc_info=True)
+            return []
+
     def snapshot(self) -> RuntimeTelemetry:
         """运行状态只读快照（D5：View 订阅快照，不穿透引擎内部）。"""
         eng = self._engine

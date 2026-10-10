@@ -55,4 +55,17 @@ def build_audio_driver_tab(win):
     g.addWidget(win.sr_device_radio, r, 2)
     r += 1
 
+    # ── 推理显卡（多卡机器选卡）──
+    # 列表在引擎预热线程里探测后回填（torch 晚加载，见 window._populate_gpu_combo）；
+    # 此处的占位项保证控件无条件存在，避免契约里出现「有时有有时无」的属性。
+    win.gpu_combo = QComboBox()
+    win.gpu_combo.addItem("GPU 0")
+    win.gpu_combo.setToolTip(
+        "推理使用的 NVIDIA GPU（多卡机器）。\n"
+        "切换后需重启程序生效：模型权重与 CUDA Graph 已按当前显卡驻留。"
+    )
+    g.addWidget(QLabel("显卡"), r, 0)
+    g.addWidget(win.gpu_combo, r, 1, 1, 2)
+    r += 1
+
     return w, refresh_btn

@@ -9,7 +9,16 @@
 """
 from dataclasses import dataclass, field
 
+from rvc.core.constants import (
+    FCPE_CONFIDENCE_THRESHOLD_INFER,
+    RMVPE_THRESHOLD_INFER,
+)
+
 HUBERT_DEFAULT = "chinese"
+
+# 输出音量增益范围（唯一事实源：GUI 滑动条量程与热路径钳位都取这里）
+VOLUME_MIN = 0.0
+VOLUME_MAX = 5.0
 
 
 @dataclass
@@ -25,10 +34,13 @@ class VoiceParams:
 
 @dataclass
 class F0Params:
-    """基频提取参数 — 方法 + 清浊判定阈值。"""
+    """基频提取参数 — 方法 + 清浊判定阈值。
+
+    阈值默认值单源取自 rvc.core.constants（推理侧常量），不再在本文件写字面量。
+    """
     method: str = "rmvpe"  # rmvpe / fcpe
-    rmvpe_threshold: float = 0.05
-    fcpe_confidence_threshold: float = 0.05
+    rmvpe_threshold: float = RMVPE_THRESHOLD_INFER
+    fcpe_confidence_threshold: float = FCPE_CONFIDENCE_THRESHOLD_INFER
 
 
 @dataclass
@@ -48,6 +60,9 @@ class AudioParams:
     output_device: str = ""
     output2_device: str = ""
     enable_out2: bool = False
+    # 推理所用 CUDA 设备编号（多卡机器选卡）。进程启动时经 RuntimeDeviceConfig
+    # 生效一次；改动后需重启程序（模型与 CUDA Graph 已按旧设备捕获/驻留）。
+    device_index: int = 0
 
 
 @dataclass

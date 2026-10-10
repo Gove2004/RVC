@@ -22,6 +22,7 @@ import torch
 import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
+from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from rvc.streaming.output import route_secondary_output, write_main_output
 from rvc.streaming.effects import AudioProcessor
@@ -185,35 +186,29 @@ class InferenceRunner:
             state.t_input_ms = (time.perf_counter() - t_in) * 1000
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
+            # self.pipeline 由 VoiceEngine._create_runner 构造时注入，恒非 None
+            # （离线/实时都必经 load_model → pipeline 已就绪）；若为 None 会在这里
+            # 立刻 AttributeError 暴露，不做「静默直通」降级——那会把配置错误
+            # 伪装成「能出声但没变声」，掩盖真正的故障。
             t_feat = time.perf_counter()
-            if self.pipeline:
-                ctx.reset(self.runtime_params)
-                feats = self.pipeline.extract_features(
-                    state.input_wav_16k, self.runtime_params,
-                    state.block_samples_16k, state.skip_head, state.return_length,
-                )
-            else:
-                feats = None
+            ctx.reset(self.runtime_params)
+            # 输入音频固定取自 state.input_wav_16k，本方法不需要块长参数
+            feats = self.pipeline.extract_features(
+                self.runtime_params, state.skip_head, state.return_length,
+            )
             state.t_hubert_ms = (time.perf_counter() - t_feat) * 1000
 
             # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
             t_f0 = time.perf_counter()
-            if feats is not None:
-                pitch, pitchf, feats = self.pipeline.postprocess_features(feats)
-            else:
-                pitch, pitchf = None, None
+            pitch, pitchf, feats = self.pipeline.postprocess_features(feats)
             state.t_f0_ms = (time.perf_counter() - t_f0) * 1000
 
             # ── stage_synthesis：合成器推理 + 模型→工作采样率重采样 ──
             t_synth = time.perf_counter()
-            if feats is not None:
-                infer = self.pipeline.synthesize_audio(feats, pitch, pitchf)
-                # 模型采样率 → 工作采样率 重采样（如果需要）
-                if state.resampler_model_to_48k:
-                    infer = state.resampler_model_to_48k(infer)
-            else:
-                # 直通模式（非 vc）：直接用原始输入
-                infer = state.input_wav_48k[state.extra_samples:].clone()
+            infer = self.pipeline.synthesize_audio(feats, pitch, pitchf)
+            # 模型采样率 → 工作采样率 重采样（如果需要）
+            if state.resampler_model_to_48k:
+                infer = state.resampler_model_to_48k(infer)
             state.t_synth_ms = (time.perf_counter() - t_synth) * 1000
 
             # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
@@ -226,13 +221,16 @@ class InferenceRunner:
                 infer, ref, p_rms_mix, p_airflow,
             )
 
-            # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）
-            vol = self.runtime_params.volume
+            # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
+            # 范围钳制放在消费点：配置文件可被外部改写，滑块量程不构成保证。
+            vol = min(max(self.runtime_params.volume, VOLUME_MIN), VOLUME_MAX)
             if vol != 1.0:
                 chunk.mul_(vol)
-            # 硬钳位到 [-1, 1]：高增益时防止削波溢出（sounddevice 写设备前的最后一道保护）
-            if vol > 1.0:
-                chunk.clamp_(min=-1.0, max=1.0)
+            # 硬钳位到 [-1, 1]：写设备前的最后一道保护，**必须无条件执行**。
+            # RMS 混合（rvc/dsp/rms.py）会乘上 (r1/r2)^(1-rms_mix) 这一独立于
+            # volume 的增益源，参考音量更大时该增益 > 1；此时即使 vol <= 1，
+            # chunk 仍可能越界。钳位是一次逐元素比较，相对块预算可忽略。
+            chunk.clamp_(min=-1.0, max=1.0)
 
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)

@@ -47,6 +47,7 @@ class InferWindowHost(Protocol):
     pitch_map_dst_range: "RangeSlider"
     formant_slider: "DoubleSlider"
     rms_mix_slider: "DoubleSlider"
+    airflow_slider: "DoubleSlider"
 
     # ── 性能调节控件（experimental_tab）──
     block_time_slider: "DoubleSlider"
@@ -54,6 +55,7 @@ class InferWindowHost(Protocol):
     crossfade_slider: "DoubleSlider"
     f0_threshold_slider: "DoubleSlider"
     f0_threshold_name: "QLabel"
+    volume_slider: "DoubleSlider"
     f0_rmvp_btn: "QRadioButton"
     f0_fcpe_btn: "QRadioButton"
 
@@ -62,6 +64,7 @@ class InferWindowHost(Protocol):
     input_combo: "QComboBox"
     output_combo: "QComboBox"
     output2_combo: "QComboBox"
+    gpu_combo: "QComboBox"
     sr_model_radio: "QRadioButton"
     sr_device_radio: "QRadioButton"
 

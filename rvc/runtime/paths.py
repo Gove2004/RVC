@@ -4,6 +4,7 @@
 路径一律基于项目根（PROJECT_ROOT）解析为绝对路径，与启动时 cwd 无关；
 云训练（autodl_train.py）clone 后结构一致，同样可用。
 """
+import os
 from pathlib import Path
 
 # 项目根：rvc/runtime/paths.py → 向上两级
@@ -34,7 +35,7 @@ MODELS_DIR = ASSETS_ROOT / "models"
 TRAIN_LOGS_ROOT = PROJECT_ROOT / "logs"
 
 # ── ffmpeg（Windows 专用二进制，git 忽略）──
-FFMPEG_EXE = ASSETS_ROOT / "ffmpeg" / "ffmpeg.exe"
+FFMPEG_EXE = ASSETS_ROOT / "ffmpeg" / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
 
 # ── 程序资源（png 随仓库跟踪）──
 RESOURCES_DIR = ASSETS_ROOT / "resources"

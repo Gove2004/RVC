@@ -16,7 +16,6 @@ from types import SimpleNamespace
 
 import torch
 
-from rvc.core.constants import HUBERT_FRAME_SIZE
 from rvc.core.config import InferenceParams
 from rvc.pipeline.state import EngineState
 from rvc.pipeline.context import InferenceContext
@@ -38,7 +37,7 @@ class InferencePipeline:
     用法:
         pipeline = InferencePipeline(device_config, pth_path, hubert="chinese")
         pipeline.load()
-        feats = pipeline.extract_features(input_wav, config, block_16k, skip_head, ret_len)
+        feats = pipeline.extract_features(config, skip_head, ret_len)
         pitch, pitchf, feats = pipeline.postprocess_features(feats)
         output = pipeline.synthesize_audio(feats, pitch, pitchf)
     """
@@ -106,8 +105,8 @@ class InferencePipeline:
 
     # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
 
-    def extract_features(self, input_wav: torch.Tensor, config: InferenceParams,
-                         block_frame_16k: int, skip_head: int, return_length: int) -> torch.Tensor:
+    def extract_features(self, config: InferenceParams,
+                         skip_head: int, return_length: int) -> torch.Tensor:
         """stage_features：formant 因子 + HuBERT 特征提取 + F0 原始提取。
 
         注意：ctx.reset() 由 inference_runner 在调用本方法前执行（runner 管理 ctx 生命周期），
@@ -116,10 +115,11 @@ class InferencePipeline:
         formant 因子计算后存到 ctx.formant_factor，供输出侧 formant 重采样复用，
         避免 inference_runner 重复计算 pow(2, formant/12)。
 
+        输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区）——它是本阶段
+        唯一的数据来源，不再经形参转手（旧版形参 input_wav/block_frame_16k 均未被使用）。
+
         Args:
-            input_wav: 滚动缓冲区 (16kHz, GPU)
             config: 推理参数
-            block_frame_16k: 本块新增的 16kHz 采样数
             skip_head: 跳过的 10ms 帧数（上下文）
             return_length: 需要返回的 10ms 帧数
 
@@ -210,13 +210,6 @@ class InferencePipeline:
             self.state.is_half,
         )
 
-    def _stage_extract_f0_raw(self, ctx: InferenceContext) -> None:
-        """F0 原始提取 — 已由 _start_f0_parallel / _sync_f0_parallel 替代。
-
-        保留为空方法以兼容可能的外部调用；实际提取在 side stream 上并行完成。
-        """
-        pass
-
     def _start_f0_parallel(self, ctx: InferenceContext) -> None:
         """在 side stream 上并行启动 F0 原始提取（不截断，不后处理）。
 
@@ -228,7 +221,6 @@ class InferencePipeline:
         state = self.state
         if state.use_f0 == 0:
             ctx.f0_raw = None
-            ctx.confidence_raw = None
             return
 
         # 确保 F0 提取器存在（懒加载，与原逻辑一致）
@@ -250,16 +242,17 @@ class InferencePipeline:
 
         # 在 side stream 上启动 F0 提取（原始值，未截断）
         # extract_raw 内部使用 run_cuda_graph，会在当前 stream（f0_stream）上 capture/replay
+        # 第二个返回值（confidence）在本链路不参与任何计算，故不接收：
+        # 见 _stage_postprocess_f0 的说明。
         with torch.cuda.stream(state.f0_stream):
-            f0_raw, confidence_raw = state.f0_extractor.extract_raw(
+            f0_raw, _ = state.f0_extractor.extract_raw(
                 state.input_wav_16k, HUBERT_SAMPLE_RATE,
             )
         # 存储原始（未截断）结果引用；实际 GPU 计算在 f0_stream 上异步执行
         ctx._f0_raw_untruncated = f0_raw
-        ctx._conf_raw_untruncated = confidence_raw
 
     def _sync_f0_parallel(self, ctx: InferenceContext) -> None:
-        """同步 F0 side stream，截断到 p_len，存入 ctx.f0_raw / ctx.confidence_raw。
+        """同步 F0 side stream，截断到 p_len，存入 ctx.f0_raw。
 
         use_f0=0 时直接返回。
         """
@@ -272,21 +265,16 @@ class InferencePipeline:
             torch.cuda.current_stream(state.device).wait_stream(state.f0_stream)
 
         f0_raw = ctx._f0_raw_untruncated
-        confidence_raw = ctx._conf_raw_untruncated
         p_len = ctx.p_len
 
-        # 对齐到 p_len 帧（与 extract_f0_for_block 的截断逻辑一致）
+        # 对齐到 p_len 帧
         n = f0_raw.shape[0]
         if n >= p_len:
             f0 = f0_raw[:p_len]
-            conf = confidence_raw[:p_len]
         else:
-            pad_len = p_len - n
-            f0 = torch.nn.functional.pad(f0_raw, (0, pad_len))
-            conf = torch.nn.functional.pad(confidence_raw, (0, pad_len))
+            f0 = torch.nn.functional.pad(f0_raw, (0, p_len - n))
 
         ctx.f0_raw = f0[None, :]
-        ctx.confidence_raw = conf[None, :]
 
     def _stage_postprocess_f0(self, ctx: InferenceContext):
         """F0 后处理（音域映射 + 中值滤波 + 离散化）。
@@ -310,10 +298,13 @@ class InferencePipeline:
         mask = f0_raw_flat > 0
         state.last_input_pitch_gpu = ((f0_raw_flat * mask).sum(), mask.sum())
 
-        pitch, pitchf, confidence = postprocess_f0(
+        # confidence 刻意不传入：postprocess_f0 只用它做一次中值滤波后原样返回，
+        # 完全不参与 pitch/pitchf 的计算（pitchf 路径只有音域映射 + 中值滤波 +
+        # 离散化）。旧链路把它一路透传进 ctx 再丢弃，既无收益，又在 FCPE 非
+        # CUDA Graph 路径（confidence=None）触发过 None 下标崩溃。
+        pitch, pitchf, _ = postprocess_f0(
             f0_raw_flat,
             state.device,
-            confidence=ctx.confidence_raw.squeeze(0),
             config=ctx.config,
         )
         # formant 缩放（pitchf 需要乘以 return_length2 / return_length）

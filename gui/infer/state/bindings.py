@@ -70,6 +70,16 @@ def _set_nested(obj, path: str, value):
     setattr(obj, parts[-1], value)
 
 
+# ── 派生字段（唯一事实源）──
+# 副输出「不使用」是 output2_combo 的首项占位文本（见 DeviceCatalog._populate_device_combos）
+OUTPUT2_NONE_TEXT = "不使用"
+
+
+def output2_enabled(output2_device: str) -> bool:
+    """副输出是否启用 = output2_device 的派生（下拉框选到真实设备才算启用）。"""
+    return bool(output2_device) and output2_device != OUTPUT2_NONE_TEXT
+
+
 def params_from_dict(state: dict) -> InferenceParams:
     """从分组 dict 构造 InferenceParams。
 
@@ -103,7 +113,8 @@ def params_from_dict(state: dict) -> InferenceParams:
     params.audio.input_device = aud.get("input_device", _DEFAULTS.audio.input_device)
     params.audio.output_device = aud.get("output_device", _DEFAULTS.audio.output_device)
     params.audio.output2_device = aud.get("output2_device", _DEFAULTS.audio.output2_device)
-    params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
+    params.audio.enable_out2 = output2_enabled(params.audio.output2_device)
+    params.audio.device_index = int(aud.get("device_index", _DEFAULTS.audio.device_index))
 
     params.texture.airflow = tex.get("airflow", _DEFAULTS.texture.airflow)
 
@@ -141,6 +152,7 @@ def params_to_dict(params: InferenceParams) -> dict:
             "output_device": params.audio.output_device,
             "output2_device": params.audio.output2_device,
             "enable_out2": params.audio.enable_out2,
+            "device_index": params.audio.device_index,
         },
         "texture": {
             "airflow": params.texture.airflow,
@@ -237,6 +249,10 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
     params.voice.pitch_map_dst_max = float(win.pitch_map_dst_range.high())
 
     # enable_out2 是 output2_device 的派生属性，根据当前选择动态计算
-    params.audio.enable_out2 = bool(params.audio.output2_device) and params.audio.output2_device != "不使用"
+    params.audio.enable_out2 = output2_enabled(params.audio.output2_device)
+
+    # GPU 编号：没有走 BINDINGS（下拉项来自运行时探测的显卡列表），
+    # 其变化由 gpu_combo 的信号直接写入 runtime_params，故这里取实时值。
+    params.audio.device_index = int(getattr(win, "runtime_params").audio.device_index)
 
     return params

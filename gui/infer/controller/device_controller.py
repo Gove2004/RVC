@@ -1,6 +1,9 @@
 """设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。"""
+import logging
 from typing import List
 from rvc.io.devices import get_audio_devices, rescan_audio_devices
+
+logger = logging.getLogger(__name__)
 
 class DeviceCatalog:
     """枚举音频设备并维护「下拉框位置 → PortAudio 索引」映射。"""
@@ -20,7 +23,9 @@ class DeviceCatalog:
         try:
             rescan_audio_devices()
         except Exception:
-            pass
+            # 重扫失败不应打断刷新流程，但必须留痕——否则「设备热插拔后刷新没反应」
+            # 会完全无线索（PortAudio 内部错误信息只在异常里）
+            logger.warning("PortAudio 设备重扫失败，继续按现有缓存刷新列表", exc_info=True)
         self._refresh_devices()
 
     def on_hostapi_changed(self, name: str) -> None:

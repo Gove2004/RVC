@@ -190,13 +190,11 @@ class SourceModuleHnNSF(torch.nn.Module):
         sine_amp=0.1,
         add_noise_std=0.003,
         voiced_threshod=0,
-        is_half=True,
     ):
         super(SourceModuleHnNSF, self).__init__()
 
         self.sine_amp = sine_amp
         self.noise_std = add_noise_std
-        self.is_half = is_half
         # to produce sine waveforms
         self.l_sin_gen = SineGen(
             sampling_rate, harmonic_num, sine_amp, add_noise_std, voiced_threshod
@@ -225,15 +223,13 @@ class GeneratorNSF(torch.nn.Module):
         upsample_kernel_sizes,
         gin_channels,
         sr,
-        is_half=False,
     ):
         super(GeneratorNSF, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
 
-        self.f0_upsamp = torch.nn.Upsample(scale_factor=math.prod(upsample_rates))
         self.m_source = SourceModuleHnNSF(
-            sampling_rate=sr, harmonic_num=0, is_half=is_half
+            sampling_rate=sr, harmonic_num=0
         )
         self.noise_convs = nn.ModuleList()
         self.conv_pre = Conv1d(
@@ -306,21 +302,23 @@ class GeneratorNSF(torch.nn.Module):
         if g is not None:
             x = x + self.cond(g)
         for i, (ups, noise_convs) in enumerate(zip(self.ups, self.noise_convs)):
-            if i < self.num_upsamples:
-                x = F.leaky_relu(x, self.lrelu_slope)
-                x = ups(x)
-                x_source = noise_convs(har_source)
-                x = x + x_source
-                xs: Optional[torch.Tensor] = None
-                l = [i * self.num_kernels + j for j in range(self.num_kernels)]
-                for j, resblock in enumerate(self.resblocks):
-                    if j in l:
-                        if xs is None:
-                            xs = resblock(x)
-                        else:
-                            xs += resblock(x)
-                assert isinstance(xs, torch.Tensor)
-                x = xs / self.num_kernels
+            x = F.leaky_relu(x, self.lrelu_slope)
+            x = ups(x)
+            x = x + noise_convs(har_source)
+            # 直接索引本层的 num_kernels 个 resblock（base + j）。
+            # 旧实现每层都遍历全部 num_upsamples × num_kernels 个 resblock 再逐个
+            # 做 `j in l` 成员判断，是 O(n²) 的纯 Python 开销；Generator.forward
+            # 一直用的就是这里的直接索引写法。
+            xs: Optional[torch.Tensor] = None
+            base = i * self.num_kernels
+            for j in range(self.num_kernels):
+                resblock = self.resblocks[base + j]
+                if xs is None:
+                    xs = resblock(x)
+                else:
+                    xs += resblock(x)
+            assert isinstance(xs, torch.Tensor)
+            x = xs / self.num_kernels
         x = F.leaky_relu(x)
         x = self.conv_post(x)
         x = torch.tanh(x)

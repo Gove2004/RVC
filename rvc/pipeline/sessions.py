@@ -10,6 +10,7 @@ realtime_engine 和 offline_converter 都通过本会话层获取模型，
 F0 提取器（RMVPE/FCPE）不在此层管理：提取器带阈值等运行时参数，
 由 pipeline 在推理时经 create_f0_extractor 工厂直接创建/复用。
 """
+import gc
 import logging
 import os
 from dataclasses import dataclass
@@ -87,6 +88,11 @@ class ModelSessions:
 
         # 清除旧模型的 CUDA Graph 缓存（避免形状/设备不匹配）
         purge_cuda_graphs(synthesizer, hubert)
+
+        # 模型全部加载到 GPU 后，强制回收 CPU 侧残留的 checkpoint 副本
+        # （torch.load(map_location="cpu") 的 ckpt 已 del，但 Python 分配器可能
+        # 未立即归还 OS；gc.collect() 触发引用计数清理，省 ~500-700MB 系统内存）
+        gc.collect()
 
         session = ModelSession(
             hubert=hubert,

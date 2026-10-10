@@ -127,6 +127,23 @@ class OfflineConversion:
             self.window.offline_cancel_btn.setEnabled(False)
             self.window.offline_status.setText("正在取消...")
 
+    def shutdown(self, timeout_ms: int = 5000) -> None:
+        """退出程序时的清理：请求取消并等待 worker 结束。
+
+        OfflineWorker 是 QThread（非 daemon），run() 里可能正卡在 CUDA 推理或
+        模型加载中；不等待就退出会让进程挂起（「点了退出没反应」）。
+        取消标志在下一个块边界被检查，故正常情况零点几秒即返回；
+        仍在加载模型等长阻塞阶段时可能等到 timeout_ms，超时后照常退出，
+        不让退出流程无限期卡住。
+        """
+        worker = self.worker
+        if worker is not None and worker.isRunning():
+            worker.request_cancel()
+            if not worker.wait(timeout_ms):
+                logger.warning("离线转换线程 %dms 内未结束（可能卡在模型加载/CUDA 调用中），继续退出", timeout_ms)
+        self.worker = None
+        self._converting = False
+
     def _on_progress(self, current: int, total: int) -> None:
         """更新进度。"""
         self.window.offline_status.setText(f"进度: {current}/{total}")

@@ -59,18 +59,28 @@ def apply_sola(
 
     infer = infer[offset:]
 
-    # NaN 防护：sola_buffer 被污染时跳过交叉淡化，避免 NaN 恶性循环
-    # （两次独立 isnan 扫描合并为一次：.any() 各触发一次 GPU→CPU 同步）
-    if torch.isnan(torch.cat((sola_buffer, infer[:sola_buffer_samples]))).any():
+    # NaN 防护：sola_buffer 被污染时跳过交叉淡化，避免 NaN 恶性循环。
+    # 三个待检区域（旧缓冲 / 交叉淡化头段 / 写入缓冲的尾段）一次性打包成
+    # 一个 bool 向量取回，全程只有**一次** GPU→CPU 同步（旧实现两次
+    # `.any()` 各触发一次同步，而本函数运行在 PortAudio 回调线程里，
+    # 每次同步都会打断 GPU 流水线）。
+    head = infer[:sola_buffer_samples]
+    tail = infer[block_samples:block_samples + sola_buffer_samples]
+    buf_nan, head_nan, tail_nan = torch.stack((
+        torch.isnan(sola_buffer).any(),
+        torch.isnan(head).any(),
+        torch.isnan(tail).any(),
+    )).tolist()
+
+    if buf_nan or head_nan:
         sola_buffer.zero_()
         return infer[:block_samples].clone()
 
     infer[:sola_buffer_samples] *= fade_in
     infer[:sola_buffer_samples] += sola_buffer * fade_out
 
-    new_tail = infer[block_samples:block_samples + sola_buffer_samples]
-    if torch.isnan(new_tail).any():
+    if tail_nan:
         sola_buffer.zero_()
     else:
-        sola_buffer[:] = new_tail
+        sola_buffer[:] = tail
     return infer[:block_samples]

@@ -1,5 +1,9 @@
 """RMVPE 模型 — F0 提取推理接口"""
-from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import (
+    HUBERT_FRAME_SIZE,
+    HUBERT_SAMPLE_RATE,
+    RMVPE_THRESHOLD_INFER,
+)
 import logging
 
 import numpy as np
@@ -36,6 +40,7 @@ class RMVPE:
         # 安全前提：RMVPE 权重为随仓库分发的官方资产（assets/rmvpe/rmvpe.pt），来源可信，故 weights_only=False。
         ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt)
+        del ckpt  # 释放 CPU 侧 checkpoint 副本（~120MB）
         model.eval()
         model = model.half() if is_half else model.float()
         return model.to(self.device)
@@ -52,14 +57,14 @@ class RMVPE:
             )
             return hidden[:, :n_frames, :]
 
-    def decode(self, hidden, thred=0.03):
+    def decode(self, hidden, thred=RMVPE_THRESHOLD_INFER):
         """设备端解码 → f0 (T,) tensor。全程无 CPU 同步。"""
         cents_pred = self.to_local_average_cents(hidden, thred=thred)
         f0 = 10 * torch.pow(2.0, cents_pred / 1200.0)
         # cents==0 即被判为清音的帧（旧版靠 f0==10 反查置零）
         return torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
 
-    def decode_with_confidence(self, hidden, thred=0.03):
+    def decode_with_confidence(self, hidden, thred=RMVPE_THRESHOLD_INFER):
         """设备端解码 → (f0 (T,), confidence (T,))。全程无 CPU 同步。
 
         confidence = salience 峰值（0~1），阈值前的原始置信度，
@@ -72,7 +77,7 @@ class RMVPE:
         f0 = torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
         return f0, confidence
 
-    def infer_from_audio(self, audio, thred=0.03):
+    def infer_from_audio(self, audio, thred=RMVPE_THRESHOLD_INFER):
         """返回设备端 f0 tensor (T,) float32。
 
         调用方若需要 numpy（训练侧落盘）自行 .cpu().numpy()；推理侧全程留在 GPU。
@@ -92,7 +97,7 @@ class RMVPE:
             lambda h: self.decode(h, thred=thred), hidden,
         )
 
-    def infer_from_audio_with_confidence(self, audio, thred=0.03):
+    def infer_from_audio_with_confidence(self, audio, thred=RMVPE_THRESHOLD_INFER):
         """返回设备端 (f0 (T,), confidence (T,)) float32。
 
         与 infer_from_audio 共用 mel/hidden，仅解码阶段多返回一个 confidence。
@@ -110,7 +115,7 @@ class RMVPE:
             lambda h: self.decode_with_confidence(h, thred=thred), hidden,
         )
 
-    def to_local_average_cents(self, salience, thred=0.05, return_confidence=False):
+    def to_local_average_cents(self, salience, thred=RMVPE_THRESHOLD_INFER, return_confidence=False):
         """局部加权平均解码（设备端，与旧 numpy 逐帧实现等价）。
 
         Args:

@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 _WARMUP_ITERATIONS = 30
 
 # 异步 CUDA 缓存回收间隔（块数）。每 N 块触发一次后台 empty_cache，
-# 不阻塞音频回调。实际时间间隔 = N × block_time（默认 0.1s → 约 3s）。
+# 不阻塞音频回调。实际时间间隔 = N × block_time（默认 block_time=0.25s → 约 7.5s）。
 # 参考 Nvidia 优化补丁的核心内存创新。
 _CUDA_CLEANUP_EVERY_N = 30
 
@@ -59,7 +59,8 @@ class VoiceEngine:
         self.measure_ms = 0.0  # 端到端延迟（块时长+推理耗时口径，瞬时值）
 
         # 错误状态由 InferenceRunner 管理（通过属性代理访问）
-        self._cfg = RuntimeDeviceConfig()  # 单例缓存，避免多处重复获取
+        # 单例缓存，避免多处重复获取；设备编号只在首次构造时生效（见 RuntimeDeviceConfig）
+        self._cfg = RuntimeDeviceConfig(self.runtime_params.audio.device_index)
         self.pth_path = ""
         self.sr_model = 0  # 模型目标采样率（setup 时赋值）
         self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
@@ -85,8 +86,9 @@ class VoiceEngine:
         """当前输入音高（Hz，音域映射之前的原始值；无声/未运行为 0）。
 
         只读遥测——GUI 延迟/音高显示经此门面取数，禁止穿透 pipeline 内部状态。
-        热路径（pipeline）只留 GPU 定形统计，本属性被 GUI 低频读取时
-        才在这里做唯一一次 GPU→CPU 同步取值。
+        热路径（pipeline）只留 GPU 定形统计，本属性被 GUI 读取时才在这里做
+        唯一一次 GPU→CPU 同步取值；GUI 侧刷新周期为 200ms（约 5 次/秒，
+        见 window._update_timer），该频率下 `.item()` 的同步开销可忽略。
         """
         if self._runner is None:
             return 0.0
@@ -197,6 +199,10 @@ class VoiceEngine:
         self._runner.warmup(_WARMUP_ITERATIONS)
         if reset_buffers:
             self._runner.reset_buffers()
+        # 预热完成后推理用固定张量尺寸，归还 PyTorch GPU 内存池中未用的缓存。
+        # 混合显卡模式下 GPU 内存计入进程系统内存，这一步可省 ~300-500MB。
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def setup_out2(self, dev_idx):
         """启动副输出流。"""
@@ -212,7 +218,7 @@ class VoiceEngine:
         empty_cache() 会阻塞 GPU，放在后台线程执行不影响音频回调。
         用 lock + pending 标志防重叠：上一次回收未完成时跳过本次。
         """
-        if not torch.cuda.is_available():
+        if not self.running or not torch.cuda.is_available():
             return
         self._cleanup_counter += 1
         if self._cleanup_counter < _CUDA_CLEANUP_EVERY_N:
@@ -248,6 +254,11 @@ class VoiceEngine:
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
         if torch.cuda.is_available():
             torch.cuda.synchronize()
+        # 释放 F0 并行 stream（已同步，无在途 kernel）。下次推理惰性重建，
+        # 避免每次 stop 后仍驻留一条不再使用的 CUDA stream。
+        state = self._runner.state if self._runner is not None else None
+        if state is not None:
+            state.f0_stream = None
         # 显式回收：gc 释放 Python 侧引用（如临时张量/效果器缓存），
         # empty_cache 把 PyTorch 缓存池中的空闲块还给 CUDA 驱动。
         gc.collect()

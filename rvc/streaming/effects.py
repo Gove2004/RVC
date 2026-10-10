@@ -16,6 +16,9 @@ from rvc.dsp.sola import apply_sola
 
 logger = logging.getLogger(__name__)
 
+# 气流感噪声的固定种子：离线渲染逐样本可复现（实时链路对噪声序列无要求）
+AIRFLOW_NOISE_SEED = 0x5EED_A17
+
 
 class RmsMixEffect:
     """RMS 响度包络混合 — 让转换后音量参考原始音量。"""
@@ -90,6 +93,12 @@ class MicAirflowEffect:
     INTENSITY_SCALE = 0.35      # GUI 100% 对应实际 35% 效果
     WIND_MASK_DEPTH = 0.06    # 风掩蔽语音深度
 
+    # 语音门控 sigmoid（单源定义：阈值/陡度/EMA 系数不再散落为字面量）
+    GATE_MID = 0.08           # sigmoid 中点（与 envelope 同量纲，RMS 包络）
+    GATE_STEEP = 30.0         # sigmoid 陡度
+    GATE_EMA_FIRST = 0.08     # 门控 EMA 平滑权重 w[n] = FIRST * DECAY^n
+    GATE_EMA_DECAY = 0.92
+
     # @48k 参考核大小（setup中按sr比例缩放）
     _REF_SR = 48000
     _REF_SLOW_K = 2400    # 50ms box低通
@@ -123,6 +132,10 @@ class MicAirflowEffect:
         self._prev_mod = None
         self._prev_noise = None
         self._prev_gate = None
+        # 复用缓冲（热路径零分配）
+        self._batch_in = None    # (2, 1, ctx_n)：通道0=调制噪声，通道1=包络
+        self._rng = None         # 私有随机数生成器（固定种子，见 AIRFLOW_NOISE_SEED）
+        self._rng_device = None
 
     def setup(self, sr: int, device: str = None):
         """根据采样率动态计算所有核大小（时间常量/截止频率与sr无关）。
@@ -150,7 +163,7 @@ class MicAirflowEffect:
         combo[2, 0, :kf.shape[2]] = kf[0, 0]
         self._combo_kernel = combo
         # gate平滑核：指数EMA，反转使最大权重对应最新样本（conv1d是互相关）
-        gate_kernel = 0.08 * 0.92 ** torch.arange(gate_len, dtype=torch.float32)
+        gate_kernel = self.GATE_EMA_FIRST * self.GATE_EMA_DECAY ** torch.arange(gate_len, dtype=torch.float32)
         self._gate_kernel = gate_kernel.flip(0).view(1, 1, -1)
 
         # 预计算常量（避免热路径GPU同步）
@@ -158,7 +171,10 @@ class MicAirflowEffect:
         self._combo_ctx = combo_size - 1
         self._gate_ctx = gate_len - 1
         self._mod_norm = (1.0 / slow_k) ** 0.5  # box低通后白噪声理论σ
-        self._gate_offset = float(torch.sigmoid(torch.tensor(-0.08 * 30)).item())
+        # sigmoid(0)=0.5 的偏移量：减去它使静音（envelope=0）处门控严格为 0
+        self._gate_offset = float(
+            torch.sigmoid(torch.tensor(-self.GATE_MID * self.GATE_STEEP)).item()
+        )
 
         # 预迁移核到设备（避免首块热路径H2D同步）
         if device is not None:
@@ -175,6 +191,18 @@ class MicAirflowEffect:
         self._prev_mod = None
         self._prev_noise = None
         self._prev_gate = None
+        # 丢弃 RNG 状态：下次使用时按固定种子重建 → 离线渲染从确定的状态开始，
+        # 与 warmup 是否吞掉若干次采样无关（逐样本可复现）。
+        self._rng = None
+        self._rng_device = None
+
+    def _noise(self, n: int, device: torch.device) -> torch.Tensor:
+        """取 n 个标准正态噪声（私有 Generator，固定种子）。"""
+        if self._rng is None or self._rng_device != device:
+            self._rng = torch.Generator(device=device)
+            self._rng.manual_seed(AIRFLOW_NOISE_SEED)
+            self._rng_device = device
+        return torch.randn(n, device=device, generator=self._rng)
 
     @staticmethod
     def _causal_conv1d(x: torch.Tensor, kernel: torch.Tensor, groups: int = 1) -> torch.Tensor:
@@ -184,6 +212,11 @@ class MicAirflowEffect:
         return F.conv1d(x_padded, kernel, groups=groups)
 
     def process(self, audio: torch.Tensor, intensity: float) -> torch.Tensor:
+        # 旁路：强度 0 时不做任何处理，也不推进块间缓存。
+        # 已知取舍（用户裁定保留）：从 0 调回 >0 时首块会有一小段瞬态——
+        # 因果滤波的历史停留在本次关闭之前。若改为「恒走全链路推进缓存」，
+        # 虽然数学上输出恰好等于输入，但默认（airflow=0）状态下每块都要多跑
+        # 一次链路，得不偿失。INTENSITY_SCALE=0.35 下该瞬态幅度有限。
         if intensity <= 0:
             return audio
         intensity = intensity * self.INTENSITY_SCALE
@@ -197,7 +230,7 @@ class MicAirflowEffect:
             self._gate_kernel_gpu = self._gate_kernel.to(device)
 
         # 1. 振幅调制 + 包络：因果卷积 + 跨块累积上下文（自动满长度，不依赖块长≥ctx）
-        mod_raw = torch.randn(n, device=device)
+        mod_raw = self._noise(n, device)
         if self._prev_audio is not None:
             audio_ctx = torch.cat([self._prev_audio, audio])
             mod_ctx = torch.cat([self._prev_mod, mod_raw])
@@ -208,9 +241,15 @@ class MicAirflowEffect:
         self._prev_audio = audio_ctx[-self._slow_ctx:].clone()
         self._prev_mod = mod_ctx[-self._slow_ctx:].clone()
 
-        batch_in = torch.stack([mod_ctx, audio_ctx.abs()], dim=0).unsqueeze(1)
-        batch_out = self._causal_conv1d(batch_in, self._slow_kernel_gpu)
+        # 复用缓冲：按需重建（尺寸只随块长变化），避免每块分配 [2,1,ctx_n] 张量
         ctx_n = mod_ctx.shape[0]
+        batch_in = self._batch_in
+        if batch_in is None or batch_in.shape[2] != ctx_n:
+            batch_in = torch.empty(2, 1, ctx_n, device=device)
+            self._batch_in = batch_in
+        batch_in[0, 0].copy_(mod_ctx)
+        torch.abs(audio_ctx, out=batch_in[1, 0])
+        batch_out = self._causal_conv1d(batch_in, self._slow_kernel_gpu)
         mod_low = batch_out[0, 0, ctx_n - n:ctx_n]
         envelope = batch_out[1, 0, ctx_n - n:ctx_n]
 
@@ -221,7 +260,7 @@ class MicAirflowEffect:
         audio_mod = audio * mod_scaled
 
         # 2. 分组卷积：风噪声（因果卷积 + 跨块累积上下文）
-        noise = torch.randn(n, device=device)
+        noise = self._noise(n, device)
         if self._prev_noise is not None:
             noise_ctx = torch.cat([self._prev_noise, noise])
         else:
@@ -236,7 +275,7 @@ class MicAirflowEffect:
         floor_low = combo_out[0, 2, noise_n - n:noise_n]
 
         # 3. 呼呼声门控：sigmoid（减去env=0偏移，静音严格=0）+ 因果EMA平滑
-        gate_raw = torch.sigmoid((envelope - 0.08) * 30)
+        gate_raw = torch.sigmoid((envelope - self.GATE_MID) * self.GATE_STEEP)
         gate_in = ((gate_raw - self._gate_offset) / (1.0 - self._gate_offset)).clamp(min=0.0)
 
         # 缓存平滑前的gate（而非平滑后），避免下一块二次滤波

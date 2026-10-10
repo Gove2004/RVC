@@ -25,13 +25,13 @@ class InferenceContext:
     # ── 特征上采样后由 postprocess_features 设置 ──
     p_len: int = 0
 
-    # ── F0 原始提取（tracker 写入，后处理读取）──
+    # ── F0（_start/_sync_f0_parallel 写入，后处理读取）──
+    # 只保留连续 F0：提取器的 confidence 输出不参与 pitch/pitchf 的任何计算
+    # （postprocess_f0 仅对其做一次中值滤波后原样返回），故不在上下文里传递。
     f0_raw: torch.Tensor | None = None
-    confidence_raw: torch.Tensor | None = None
 
     # ── F0 并行提取临时字段（_start_f0_parallel 写入，_sync_f0_parallel 读取）──
     _f0_raw_untruncated: torch.Tensor | None = None
-    _conf_raw_untruncated: torch.Tensor | None = None
 
     # ── formant（extract_features 写入，formant 重采样/F0 缩放读取）──
     formant_factor: float = 1.0
