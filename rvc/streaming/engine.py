@@ -368,15 +368,8 @@ class VoiceEngine:
         return np.concatenate(out_chunks)[pad: pad + len(wav)]
 
     def _write_output_wav(self, result, output_path, tgt_sr):
-        """峰值归一化（防削波）后写出 wav。"""
+        """直接写出 wav（与实时推理完全一致：process_block 内已做硬钳位，不做峰值归一化）。"""
         from rvc.io.wav_file import write_wav
 
-        if len(result) == 0:
-            write_wav(output_path, result, tgt_sr, subtype="FLOAT")
-            return
-
-        audio_max = np.abs(result).max() / 0.99
-        if audio_max > 1:
-            result = result / audio_max
         write_wav(output_path, result, tgt_sr, subtype="FLOAT")
 

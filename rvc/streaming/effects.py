@@ -330,14 +330,8 @@ class AudioProcessor:
         self.airflow.reset()
 
     def process_output(self, infer, ref, rms_mix, airflow=0.0):
-        """输出侧处理：RMS 混合 → SOLA → 麦克风气流声。
-
-        Args:
-            infer: 合成器输出音频
-            ref: 原始输入参考（RMS 混合用）
-            rms_mix: RMS 混合比例 (0-1)
-            airflow: 麦克风气流声强度 (0-1)
-        """
+        """输出侧处理：RMS 混合 → SOLA → 麦克风气流声。"""
         infer = self.rms_mix.process(infer, ref, rms_mix)
         infer = self.sola.process(infer)
-        return self.airflow.process(infer, airflow)
+        infer = self.airflow.process(infer, airflow)
+        return infer

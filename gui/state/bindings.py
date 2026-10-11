@@ -27,6 +27,7 @@ COMBO = "combo"
 PATH = "path"
 RADIO_F0 = "radio_f0"
 RADIO_SR = "radio_sr"
+CHECK = "check"
 
 # 状态字段 schema：(分组路径, window 控件属性名, 读写方式)
 # 分组路径用点号分隔，如 "voice.formant"、"buffer.block_time"
@@ -84,85 +85,55 @@ def output2_enabled(output2_device: str) -> bool:
 def params_from_dict(state: dict) -> InferenceParams:
     """从分组 dict 构造 InferenceParams。
 
-    格式：{"voice": {...}, "f0": {...}, "buffer": {...}, "audio": {...},
-           "rms_mix": ..., "model_path": ..., "hubert": ...}
+    动态遍历各分组的 __dataclass_fields__，新字段自动包含，无需手动更新。
     缺省值取 InferenceParams 默认（D6 单源）。
+    特殊字段：enable_out2 是 output2_device 的派生属性，device_index 转 int。
     """
     params = InferenceParams()
-    voice = state.get("voice", {})
-    f0 = state.get("f0", {})
-    buf = state.get("buffer", {})
-    aud = state.get("audio", {})
-    tex = state.get("texture", {})
+    _GROUP_NAMES = ("voice", "f0", "buffer", "audio", "texture")
+    _DERIVED_FIELDS = {"enable_out2"}  # 派生属性，不从 dict 读取
 
-    params.voice.formant = voice.get("formant", _DEFAULTS.voice.formant)
-    params.voice.pitch_map_src_min = voice.get("pitch_map_src_min", _DEFAULTS.voice.pitch_map_src_min)
-    params.voice.pitch_map_src_max = voice.get("pitch_map_src_max", _DEFAULTS.voice.pitch_map_src_max)
-    params.voice.pitch_map_dst_min = voice.get("pitch_map_dst_min", _DEFAULTS.voice.pitch_map_dst_min)
-    params.voice.pitch_map_dst_max = voice.get("pitch_map_dst_max", _DEFAULTS.voice.pitch_map_dst_max)
+    for group_name in _GROUP_NAMES:
+        group_data = state.get(group_name, {})
+        group = getattr(params, group_name)
+        defaults = getattr(_DEFAULTS, group_name)
+        for field_name in group.__dataclass_fields__:
+            if field_name in _DERIVED_FIELDS:
+                continue
+            value = group_data.get(field_name, getattr(defaults, field_name))
+            setattr(group, field_name, value)
 
-    params.f0.method = f0.get("method", _DEFAULTS.f0.method)
-    params.f0.rmvpe_threshold = f0.get("rmvpe_threshold", _DEFAULTS.f0.rmvpe_threshold)
-    params.f0.fcpe_confidence_threshold = f0.get("fcpe_confidence_threshold", _DEFAULTS.f0.fcpe_confidence_threshold)
-
-    params.buffer.block_time = buf.get("block_time", _DEFAULTS.buffer.block_time)
-    params.buffer.crossfade_time = buf.get("crossfade_time", _DEFAULTS.buffer.crossfade_time)
-    params.buffer.extra_time = buf.get("extra_time", _DEFAULTS.buffer.extra_time)
-
-    params.audio.sr_mode = aud.get("sr_mode", _DEFAULTS.audio.sr_mode)
-    params.audio.hostapi = aud.get("hostapi", _DEFAULTS.audio.hostapi)
-    params.audio.input_device = aud.get("input_device", _DEFAULTS.audio.input_device)
-    params.audio.output_device = aud.get("output_device", _DEFAULTS.audio.output_device)
-    params.audio.output2_device = aud.get("output2_device", _DEFAULTS.audio.output2_device)
+    # 派生属性：enable_out2 从 output2_device 计算
     params.audio.enable_out2 = output2_enabled(params.audio.output2_device)
-    params.audio.device_index = int(aud.get("device_index", _DEFAULTS.audio.device_index))
+    # device_index 强制 int（JSON 读出来可能是 float）
+    params.audio.device_index = int(params.audio.device_index)
 
-    params.texture.airflow = tex.get("airflow", _DEFAULTS.texture.airflow)
-
-    params.rms_mix = state.get("rms_mix", _DEFAULTS.rms_mix)
-    params.volume = state.get("volume", _DEFAULTS.volume)
-    params.model_path = state.get("model_path", _DEFAULTS.model_path)
-    params.hubert = state.get("hubert", _DEFAULTS.hubert)
+    # 顶层字段（rms_mix/volume/model_path/hubert）
+    for field_name in ("rms_mix", "volume", "model_path", "hubert"):
+        setattr(params, field_name, state.get(field_name, getattr(_DEFAULTS, field_name)))
     return params
 
 
 def params_to_dict(params: InferenceParams) -> dict:
-    """把 InferenceParams 序列化为分组 dict（用于持久化保存）。"""
-    return {
-        "voice": {
-            "formant": params.voice.formant,
-            "pitch_map_src_min": params.voice.pitch_map_src_min,
-            "pitch_map_src_max": params.voice.pitch_map_src_max,
-            "pitch_map_dst_min": params.voice.pitch_map_dst_min,
-            "pitch_map_dst_max": params.voice.pitch_map_dst_max,
-        },
-        "f0": {
-            "method": params.f0.method,
-            "rmvpe_threshold": params.f0.rmvpe_threshold,
-            "fcpe_confidence_threshold": params.f0.fcpe_confidence_threshold,
-        },
-        "buffer": {
-            "block_time": params.buffer.block_time,
-            "crossfade_time": params.buffer.crossfade_time,
-            "extra_time": params.buffer.extra_time,
-        },
-        "audio": {
-            "sr_mode": params.audio.sr_mode,
-            "hostapi": params.audio.hostapi,
-            "input_device": params.audio.input_device,
-            "output_device": params.audio.output_device,
-            "output2_device": params.audio.output2_device,
-            "enable_out2": params.audio.enable_out2,
-            "device_index": params.audio.device_index,
-        },
-        "texture": {
-            "airflow": params.texture.airflow,
-        },
-        "rms_mix": params.rms_mix,
-        "volume": params.volume,
-        "model_path": params.model_path,
-        "hubert": params.hubert,
-    }
+    """把 InferenceParams 序列化为分组 dict（动态遍历，新字段自动包含）。
+
+    派生字段 enable_out2 不持久化（从 output2_device 计算）。
+    """
+    result = {}
+    _GROUP_NAMES = ("voice", "f0", "buffer", "audio", "texture")
+    _DERIVED_FIELDS = {"enable_out2"}
+
+    for group_name in _GROUP_NAMES:
+        group = getattr(params, group_name)
+        result[group_name] = {
+            field_name: getattr(group, field_name)
+            for field_name in group.__dataclass_fields__
+            if field_name not in _DERIVED_FIELDS
+        }
+
+    for field_name in ("rms_mix", "volume", "model_path", "hubert"):
+        result[field_name] = getattr(params, field_name)
+    return result
 
 
 def _set(win: "InferWindowHost", widget, kind, value):
@@ -173,9 +144,13 @@ def _set(win: "InferWindowHost", widget, kind, value):
         # 手动刷新标签：控件未显示时 setValue 可能不触发 valueChanged
         slider._update_label()
     elif kind == COMBO:
-        idx = getattr(win, widget).findText(str(value))
+        combo = getattr(win, widget)
+        # 优先按 userData 匹配（如 env_combo），无 userData 时回退到文本匹配
+        idx = combo.findData(value)
+        if idx < 0:
+            idx = combo.findText(str(value))
         if idx >= 0:
-            getattr(win, widget).setCurrentIndex(idx)
+            combo.setCurrentIndex(idx)
     elif kind == PATH:
         # 程序化回填（配置加载）：只改显示与内部路径，不反向触发 pathChanged
         getattr(win, widget).set_path(str(value) if value else "", emit=False)
@@ -185,6 +160,8 @@ def _set(win: "InferWindowHost", widget, kind, value):
     elif kind == RADIO_SR:
         win.sr_model_radio.setChecked(value == "model")
         win.sr_device_radio.setChecked(value != "model")
+    elif kind == CHECK:
+        getattr(win, widget).setChecked(bool(value))
     else:
         raise ValueError(f"未知读写方式: {kind}")
 
@@ -224,13 +201,17 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
         if kind == FLOAT:
             value = w.value()
         elif kind == COMBO:
-            value = w.currentText()
+            # 优先取 userData（如 env_combo），无则取文本
+            data = w.currentData()
+            value = data if data is not None else w.currentText()
         elif kind == PATH:
             value = w.path()
         elif kind == RADIO_F0:
             value = "rmvpe" if win.f0_rmvp_btn.isChecked() else "fcpe"
         elif kind == RADIO_SR:
             value = "model" if win.sr_model_radio.isChecked() else "device"
+        elif kind == CHECK:
+            value = w.isChecked()
         else:
             continue
         _set_nested(params, path, value)

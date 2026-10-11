@@ -67,8 +67,8 @@ class AudioParams:
 
 @dataclass
 class TextureParams:
-    """输出质感参数 — 麦克风气流声（近讲效应低频提升，完全合成，不混入原始信号）。"""
-    airflow: float = 0.0   # 麦克风气流声强度 0-1（近讲效应低频搁架提升，说话时自然有呼呼声）
+    """输出质感参数 — 麦克风气流声。"""
+    airflow: float = 0.0   # 麦克风气流声强度 0-1
 
 
 @dataclass
