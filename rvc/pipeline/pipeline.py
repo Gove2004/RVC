@@ -142,12 +142,22 @@ class InferencePipeline:
         ctx.formant_factor = factor
         ctx.return_length2 = int(math.ceil(return_length * factor))
 
-        # 只提取 HuBERT 特征，F0 提取移到 postprocess_features
-        # 等 upsample 得到实际长度后，再让 F0 对齐到这个实际长度
+        # 只提取 HuBERT 特征（50fps）。
+        #
+        # **不要改成「F0 先启动、再跑 HuBERT」**：那样会让 F0 与 HuBERT 真正并发
+        # （实测整块只省 0.61ms/2.7%——GPU 已饱和，并行不减少总工作量），代价是
+        # **F0 side stream 的 CUDA Graph 回放与主流的 HuBERT / 合成器图回放并发**。
+        # 每个 CUDA Graph 各持私有显存池，PyTorch 明确要求同一张图必须「同流、同序」
+        # 回放；跨流并发回放属未定义行为。
+        # 实测后果（真实实时链路，RTX 5060 Laptop）：数秒~数十秒后音频回调卡死在
+        # `apply_pitch_map` 的 GPU→CPU 同步上，设备再也排不空 → 回调不再被调用、
+        # GUI 冻结、GPU 被占满。**与 mel 前端是否图化无关**——mel 已改回 eager 后
+        # 仅恢复 F0 先启动，~6s 即复现（fcpe-core replay=56 后挂死）。
+        # 旧顺序（HuBERT 先入队、F0 等它算完）虽然名义上没并行，但它保证了侧流图
+        # 回放不与主流图回放重叠——这个"免费"的串行约束必须保留。
         feats = self._stage_extract_hubert(ctx)
 
-        # 并行启动 F0 提取（side stream），与后续 upsample 重叠
-        # F0 提取不需要 p_len，只在最后截断时需要，所以可以提前启动
+        # F0 提取（side stream）必须等主流上的 HuBERT 入队之后再启动（见上）。
         self._start_f0_parallel(ctx)
 
         return feats
@@ -211,9 +221,11 @@ class InferencePipeline:
         )
 
     def _start_f0_parallel(self, ctx: InferenceContext) -> None:
-        """在 side stream 上并行启动 F0 原始提取（不截断，不后处理）。
+        """在 side stream 上启动 F0 原始提取（不截断，不后处理）。
 
-        与 HuBERT 在默认 stream 上并行执行。F0 提取不需要 p_len，
+        名字里的 "parallel" 指「F0 计算与后续的 upsample/后处理/合成错开在另一条流上」，
+        **不是**「与 HuBERT 并发」——与本方法的调用时机契约一起看，它实际是串行于 HuBERT 的
+        （原因见 extract_features 与下方 wait_stream 处的注释）。F0 提取不需要 p_len，
         只在 _sync_f0_parallel 中截断到 p_len。
 
         use_f0=0 时直接返回。
@@ -238,6 +250,12 @@ class InferencePipeline:
         # 关键：side stream 必须等待主 stream 完成 input_wav_16k 的写入，
         # 否则 F0 可能读到半写入的缓冲区（数据竞争 → 偶发 NaN）。
         # 反向同步在 _sync_f0_parallel 中通过 wait_stream(f0_stream) 完成。
+        #
+        # **调用时机契约**：本方法必须在 _stage_extract_hubert **之后**调用。
+        # 这看着"浪费"——wait_stream 会连带等上 HuBERT 的图回放，F0 名义并行、实际串行——
+        # 但这正是必要的约束：一旦 F0 真的与 HuBERT 并发，side stream 上的 CUDA Graph
+        # 回放就会与主流的图回放重叠，跨流并发回放未定义（见 extract_features 注释），
+        # 实测会卡死音频回调。代价只有 0.61ms/2.7%（GPU 已饱和）。
         state.f0_stream.wait_stream(torch.cuda.current_stream(state.device))
 
         # 在 side stream 上启动 F0 提取（原始值，未截断）
@@ -267,12 +285,17 @@ class InferencePipeline:
         f0_raw = ctx._f0_raw_untruncated
         p_len = ctx.p_len
 
-        # 对齐到 p_len 帧
+        # 对齐到 p_len 帧，分两种情形（由 F0 提取器是否用尾部窗口决定）：
+        # - 整段窗口（f0 帧数 >= p_len）：取**前** p_len 帧——F0 与特征缓冲左对齐，
+        #   这是原有的对齐口径，不能改成取尾部，否则整体平移若干帧。
+        # - 尾窗（f0 帧数 < p_len，见 FCPE_TAIL_WINDOW_SEC）：F0 只覆盖缓冲末端，
+        #   必须**右对齐**——左补零到 p_len，使 F0 的末帧落在下标 p_len-1。
+        #   中值滤波是因果的，前段补零不会影响合成器实际取用的尾部帧。
         n = f0_raw.shape[0]
         if n >= p_len:
             f0 = f0_raw[:p_len]
         else:
-            f0 = torch.nn.functional.pad(f0_raw, (0, p_len - n))
+            f0 = torch.nn.functional.pad(f0_raw, (p_len - n, 0))
 
         ctx.f0_raw = f0[None, :]
 

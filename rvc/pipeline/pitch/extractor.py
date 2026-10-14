@@ -13,7 +13,9 @@ from pathlib import Path
 
 import torch
 
+from rvc.core.constants import FCPE_TAIL_WINDOW_SEC, HUBERT_FRAME_SIZE
 from rvc.core.errors import F0ExtractionError
+from rvc.pipeline.pitch.fcpe_mel import FCPEMelExtractor
 from rvc.pipeline.pitch.postprocess import apply_pitch_map, median_filter_f0, normalize_f0_to_coarse
 from rvc.runtime.graph import clear_cuda_graph_cache, cuda_graph_enabled, run_cuda_graph
 from rvc.runtime.paths import RMVPE_PATH
@@ -235,6 +237,17 @@ class FCPEExtractor(F0Extractor):
         # 手动解码（含 confidence 计算）依赖 torchfcpe 的模型核心 `infer_model.model`；
         # 缺失时降级到官方 self.model.infer（不需要 local_offsets，也没有 confidence）。
         self._has_model_core = hasattr(self.model, "model")
+        # 仓库内复刻的 mel 前端（见 rvc/pipeline/pitch/fcpe_mel.py）：去掉 torchfcpe
+        # MelModule 每块两次设备同步，且可被 CUDA Graph 捕获。torchfcpe 布局变化
+        # 导致取不到 mel_extractor 时置 None，由 _mel() 退回原实现并告警。
+        self._has_mel_frontend = (
+            hasattr(self.model, "wav2mel") and hasattr(self.model.wav2mel, "mel_extractor")
+        )
+        self.mel = (
+            FCPEMelExtractor(self.model.wav2mel).to(device).eval()
+            if self._has_mel_frontend else None
+        )
+        self._mel_fallback_warned = False
         # 局部窗口偏移表：图捕获与非图手动解码都要求它常驻设备，故不再与
         # 「CUDA Graph 是否可用」绑定（旧逻辑只在图可用时创建，导致非图路径
         # 一旦需要它就直接 AttributeError）。
@@ -244,15 +257,63 @@ class FCPEExtractor(F0Extractor):
         )
         self.device = device
 
+    def _mel(self, wav_t: torch.Tensor, sr: int) -> torch.Tensor:
+        """wav → mel 前端。
+
+        采样率与模型一致且复刻可用时，走仓库内复刻（**无设备同步**）；
+        其余情形退回 torchfcpe 原实现（含其内部重采样），并告警一次——那里每块
+        含两次 GPU→CPU 同步，属于降级而非等价路径。
+
+        ⚠️ **刻意不做 CUDA Graph 捕获**（尽管复刻实现本身是可捕获的）：
+        本调用发生在 F0 的 side stream 上，捕获后它会在侧流回放，与主流上的
+        HuBERT / 合成器图回放处于不同私有显存池。实测（真实实时链路，RTX 5060
+        Laptop）这样跑约 30s 后音频回调会卡死在 `apply_pitch_map` 的 GPU→CPU
+        同步上（设备再也排不空 → 回调不再被调用 → GUI 冻结、GPU 占满）。
+        图化相对 eager 只省约 1.66ms（0.53 vs 2.19ms），而代价是整条实时链路
+        不稳定——真正值钱的收益是「去掉 torchfcpe MelModule 每块两次设备同步」
+        （3.31 → 2.19ms），这一项无副作用地保留了。
+        """
+        if self.mel is not None and sr == self.mel.sample_rate:
+            return self.mel(wav_t)
+        if not self._mel_fallback_warned:
+            logger.warning(
+                "FCPE mel 前端退回 torchfcpe 原实现（sr=%s，复刻 sample_rate=%s）："
+                "该路径每块含两次设备同步", sr, self.mel.sample_rate if self.mel else None,
+            )
+            self._mel_fallback_warned = True
+        return self.model.wav2mel(wav_t, sr)
+
     def extract_raw(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """只提取原始 F0 和 confidence，不做后处理。"""
+        """只提取原始 F0 和 confidence，不做后处理。
+
+        返回值的**帧坐标契约**：下标 j 对应输入音频第 j 个 10ms 帧（即样本 j*160），
+        与传入的整段 audio 一致。用尾部窗口时靠前导零补回原坐标（见下），
+        调用方（_sync_f0_parallel）因此不需要知道窗口的存在。
+        """
         from rvc.core.config import InferenceParams
         params = self.config or InferenceParams()
+
+        # F0 参考窗与 HuBERT 的上下文窗无关：F0 网络是局部感受野、后处理是因果中值
+        # 滤波，而最终只有 p_len 末尾的 return_length 帧进合成器——前段 F0 永远用不上，
+        # 算它纯属浪费。窗口足够长时结果逐帧等效（见 FCPE_TAIL_WINDOW_SEC 的实测表）。
+        #
+        # 窗口长度对齐到 10ms 帧网格，保证截断后的 mel 帧栅格与原输入完全重合
+        # （否则会引入亚帧偏移）。随后把结果左补 skip_frames 个零**补回原始帧坐标**：
+        # 这一步不能省——_sync_f0_parallel 按 `[:p_len]` 左对齐取样，若只补到 p_len，
+        # F0 会整体错位 (跳过帧数 - (p_len - n)) 帧（实测 3 帧 = 30ms，在快颤音上
+        # 表现为 ~0.18 半音的偏差）。
+        total = audio.shape[-1]
+        n_tail = (int(sr * FCPE_TAIL_WINDOW_SEC) // HUBERT_FRAME_SIZE) * HUBERT_FRAME_SIZE
+        skip_frames = 0
+        if n_tail > 0 and total > n_tail:
+            skip_frames = (total - n_tail) // HUBERT_FRAME_SIZE
+            audio = audio[-n_tail:]
+
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
         with _suppress_torchfcpe_output():
             if cuda_graph_enabled(self.device) and self._has_model_core:
-                mel = self.model.wav2mel(wav_t, sr)
+                mel = self._mel(wav_t, sr)
 
                 def graphable_infer(mel_input):
                     model = self.model.model
@@ -284,6 +345,12 @@ class FCPEExtractor(F0Extractor):
                 conf = None
         f0_out = f0.squeeze() if f0.dim() > 1 else f0
         conf_out = conf.squeeze() if conf is not None and conf.dim() > 1 else conf
+        if skip_frames:
+            # 前导零补回原始输入帧坐标——调用方按 `[:p_len]` 左对齐取样，
+            # 少了这一步 F0 会整体前移 skip_frames 帧（见 docstring 的帧坐标契约）。
+            f0_out = torch.nn.functional.pad(f0_out, (skip_frames, 0))
+            if conf_out is not None:
+                conf_out = torch.nn.functional.pad(conf_out, (skip_frames, 0))
         return f0_out, conf_out
 
     def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -293,9 +360,12 @@ class FCPEExtractor(F0Extractor):
     def clear_cuda_graph(self) -> None:
         if self._has_model_core:
             clear_cuda_graph_cache(self.model.model)
+        if self.mel is not None:
+            clear_cuda_graph_cache(self.mel)
 
     def _release_model(self) -> None:
         self.model = None
+        self.mel = None
         self.local_offsets = None
 
 

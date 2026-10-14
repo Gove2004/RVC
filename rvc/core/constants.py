@@ -17,6 +17,18 @@ RMVPE_THRESHOLD_TRAIN = 0.03
 RMVPE_THRESHOLD_INFER = 0.05
 FCPE_CONFIDENCE_THRESHOLD_INFER = 0.05
 
+# F0 提取的尾部窗口（秒）。F0 的参考窗与 HuBERT 的上下文窗（extra_time）无关：
+# 最终只有 p_len 末尾的 return_length 帧进合成器，且 F0 网络是局部感受野 + 因果
+# 中值滤波，不需要整段上下文。
+# 实测口径（真实 5.16s 缓冲、0.1s 块）——尾窗 vs 整段逐帧比较：
+#   1.0s  半音Δ中位 -0.0030 / 最大 0.019 / 清浊 0 不一致
+#   0.6s  半音Δ中位 -0.0035 / 最大 0.032 / 清浊 0 不一致   ← 取值
+#   0.5s  半音Δ中位 -0.0036 / 最大 0.034 / 清浊 0 不一致
+#   0.4s                                         最大 0.052（开始劣化）
+# 0.6s 相对 5.16s 省约 2.2ms/块。**改动前必须确认 `_sync_f0_parallel` 的
+# 右对齐分支生效**：F0 帧数少于 p_len 时要左补零，否则 F0 与特征错位。
+FCPE_TAIL_WINDOW_SEC = 0.6
+
 # ── 训练预处理默认值（PreProcessor / Slicer 的签名默认值同时引用这里）──
 # 切片时长（秒）：单条训练切片的目标长度
 SLICE_PERIOD_DEFAULT = 3.7
