@@ -5,45 +5,43 @@
 
 设计原则：
 - 复用同一实例，避免每块分配 dataclass 的开销
-- reset() 重置所有字段为默认值
+- reset() 直接赋值字段，避免 dataclasses.fields 反射开销（热路径每块调用）
 - 字段按数据流顺序排列
 """
-from dataclasses import dataclass, fields, MISSING
-
 import torch
 
 from rvc.core.config import InferenceParams
 
 
-@dataclass
 class InferenceContext:
-    """单块推理上下文 — 每块 reset() 后复用。"""
+    """单块推理上下文 — 每块 reset() 后复用。
 
-    # ── 配置（每块传入）──
-    config: InferenceParams | None = None
+    不用 @dataclass：热路径每块调用 reset()，dataclasses.fields 反射比直接赋值慢一个数量级。
+    字段少，直接手写 reset 既快又清晰。
+    """
 
-    # ── 特征上采样后由 postprocess_features 设置 ──
-    p_len: int = 0
+    __slots__ = (
+        "config",
+        "p_len",
+        "f0_raw",
+        "_f0_raw_untruncated",
+        "formant_factor",
+        "return_length2",
+    )
 
-    # ── F0（_start/_sync_f0_parallel 写入，后处理读取）──
-    # 只保留连续 F0：提取器的 confidence 输出不参与 pitch/pitchf 的任何计算
-    # （postprocess_f0 仅对其做一次中值滤波后原样返回），故不在上下文里传递。
-    f0_raw: torch.Tensor | None = None
-
-    # ── F0 并行提取临时字段（_start_f0_parallel 写入，_sync_f0_parallel 读取）──
-    _f0_raw_untruncated: torch.Tensor | None = None
-
-    # ── formant（extract_features 写入，formant 重采样/F0 缩放读取）──
-    formant_factor: float = 1.0
-    return_length2: int = 0
+    def __init__(self):
+        self.config: InferenceParams | None = None
+        self.p_len: int = 0
+        self.f0_raw: torch.Tensor | None = None
+        self._f0_raw_untruncated: torch.Tensor | None = None
+        self.formant_factor: float = 1.0
+        self.return_length2: int = 0
 
     def reset(self, config: InferenceParams) -> None:
         """每块开始时重置所有字段，复用实例避免分配开销。"""
         self.config = config
-        for f in fields(self):
-            if f.name == "config":
-                continue
-            if f.default is not MISSING:
-                setattr(self, f.name, f.default)
-            elif f.default_factory is not MISSING:
-                setattr(self, f.name, f.default_factory())
+        self.p_len = 0
+        self.f0_raw = None
+        self._f0_raw_untruncated = None
+        self.formant_factor = 1.0
+        self.return_length2 = 0

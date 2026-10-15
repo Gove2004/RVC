@@ -1,6 +1,4 @@
-"""RMVPE 模型常量 — F0 范围等参数
-
-从 rvc.inference.f0_extractor 拆出，供推理侧和训练侧共同使用。
+"""RMVPE 模型常量 — F0 范围等参数（推理侧与训练侧共用）。
 """
 import math
 

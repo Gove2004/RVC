@@ -8,6 +8,8 @@ from rvc.nn import modules
 
 
 class ResidualCouplingBlock(nn.Module):
+    """可逆耦合流：训练正向编 z→z_p，推理 reverse=True 解 z_p→z。"""
+
     def __init__(
         self,
         channels,

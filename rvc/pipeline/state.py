@@ -61,8 +61,9 @@ class EngineState:
     resampler_48k_to_16k: Any = None
     resampler_model_to_48k: Any = None
 
-    # ── 输入传输（pinned memory，CPU→GPU 快速传输）──
-    in_pin: torch.Tensor | None = None
+    # ── 输入传输（pinned memory 双缓冲，CPU→GPU 异步 DMA）──
+    in_pin: list | None = None  # [pin_a, pin_b] 交替使用
+    in_pin_idx: int = 0         # 当前块使用的缓冲索引
     input_gpu: torch.Tensor | None = None  # GPU 侧单声道输入暂存
 
     # ── 输出传输（pinned memory，GPU→CPU 快速传输，与 in_pin 对称）──
@@ -75,7 +76,8 @@ class EngineState:
     # ── 模型缓存（ModelCache 实例）──
     inference_cache: Any = None
 
-    # ── F0 并行 stream（HuBERT 在默认 stream，F0 在此 stream 上并行执行）──
+    # ── F0 side stream（F0 计算错开在此流上执行，串行于主流的 HuBERT，
+    #    调用时机契约见 pipeline._start_f0_parallel）──
     f0_stream: Any = None
 
     # ── 性能统计 ──

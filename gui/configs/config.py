@@ -1,4 +1,9 @@
-"""GUI 状态持久化配置。"""
+"""GUI 状态持久化配置。
+
+真实配置的唯一权威 = assets/configs/save_state.json（经 rvc.runtime.config_path()
+定位）。读取出的 dict 由 gui.state.bindings.params_from_dict 逐字段填入
+InferenceParams（InferenceParams 没有 load() 方法，不接受整对象反序列化）。
+"""
 import json
 import logging
 import os

@@ -96,7 +96,12 @@ class MicAirflowEffect:
     - 4kHz hiss（辅音高频嘶嘶声，喷麦感）
 
     所有低通均为因果卷积（只左侧pad），避免块末尾输出伸进右pad零区导致能量塌陷。
-    块间上下文缓存保证块开头输出有完整历史，无V型凹陷。
+    块间上下文教训（硬规则）：
+    - 跨块历史必须显式缓存，拼满核长后取尾部：cat([prev, new])[-ctx:]
+    - 缓存滤波**输入**而非输出（如 _prev_mod 存原始噪声、_prev_audio 存原始音频），
+      否则下一块会二次滤波
+    - 因果卷积只左侧 pad(k-1)；F.conv1d 实为互相关，非对称核必须先 flip
+    （gate 核的反转见 setup() 中 gate_kernel.flip(0)）。
     核大小随采样率动态缩放，时间常量/截止频率与sr无关。
     """
 
@@ -135,12 +140,12 @@ class MicAirflowEffect:
     LFO_AMP = 0.15             # LFO 幅度（±15%，减弱周期性让随机感更突出）
 
     # ── OU 随机游走（Ornstein-Uhlenbeck 过程）──
-    OU_THETA = 0.02            # 均值回复速率（时间常数≈50s，比之前活跃4倍）
-    OU_SIGMA = 0.08            # 噪声强度（翻倍，更大波动）
+    OU_THETA = 0.02            # 均值回复速率（时间常数≈50s）
+    OU_SIGMA = 0.08            # 噪声强度
     OU_CLAMP = 0.4             # 钳位范围（±40%）
 
     # ── 随机突发（泊松过程）──
-    BURST_PROB = 0.03          # 每块触发概率（@100ms块 = 平均每 3.3 秒一次，翻倍）
+    BURST_PROB = 0.03          # 每块触发概率（@100ms块 = 平均每 3.3 秒一次）
     BURST_DECAY = 0.05         # 突发衰减时间常数（秒）
     BURST_GAIN_MIN = 1.3       # 突发最小增益
     BURST_GAIN_MAX = 2.0       # 突发最大增益
@@ -192,12 +197,16 @@ class MicAirflowEffect:
         self._prev_noise = None
         self._prev_gate = None
         self._prev_audio_prox = None
-        # 慢变状态（每块更新）
-        self._lfo_phase1 = 0.0
+        # 慢变状态
+        self._lfo_phase1 = 0.0       # LFO 相位（纯 Python 算术，无同步）
         self._lfo_phase2 = 0.0
-        self._ou_state = 0.0
-        self._burst_env = 0.0
-        self._burst_gain = 0.0
+        # GPU 标量张量状态（避免每块 .item() 强制同步）。教训：0-dim CUDA 张量
+        # 做切片索引或被 Python if 取真值都会隐蔽触发 GPU→CPU 同步——
+        # 这些状态只经 torch.where / 张量算术原地更新，绝不转成 Python 值。
+        self._ou_state_t = None       # OU 随机游走状态
+        self._burst_env_t = None      # 突发包络
+        self._burst_gain_t = None     # 突发增益
+        self._one_t = None            # 常量 1.0（torch.where 复用）
         # 复用缓冲（热路径零分配）
         self._batch_in = None       # (2,1,ctx_n)：调制噪声/包络
         self._rng = None
@@ -275,9 +284,9 @@ class MicAirflowEffect:
         self._prev_audio_prox = None
         self._lfo_phase1 = 0.0
         self._lfo_phase2 = 0.0
-        self._ou_state = 0.0
-        self._burst_env = 0.0
-        self._burst_gain = 0.0
+        self._ou_state_t = None
+        self._burst_env_t = None
+        self._burst_gain_t = None
         self._rng = None
         self._rng_device = None
 
@@ -338,7 +347,7 @@ class MicAirflowEffect:
         envelope = batch_out[1, 0, ctx_n - n:ctx_n]
 
         # 振幅调制归一化（理论σ，避免每块std估计跳变）
-        mod_low = mod_low / self._mod_norm * 0.15 + 1.0  # MOD_DEPTH=0.15 用于 wind_mod
+        mod_low = mod_low / self._mod_norm * 0.15 + 1.0  # 0.15 为 wind_mod 的调制深度
         mod_low = mod_low.clamp(0.7, 1.3)
 
         # ═══════════════════════════════════════════════════════════
@@ -391,26 +400,32 @@ class MicAirflowEffect:
         self._lfo_phase2 = (self._lfo_phase2 + self._lfo_step2 * n) % (2.0 * np.pi)
 
         # ═══════════════════════════════════════════════════════════
-        # 5. OU 随机游走（均值回复，每块更新一次，线性插值）
+        # 5. OU 随机游走（均值回复，GPU 标量状态，零 .item() 同步）
         # ═══════════════════════════════════════════════════════════
-        ou_rand = float(torch.randn(1, device=device, generator=self._rng).item())
-        ou_new = self._ou_state + self.OU_THETA * (0.0 - self._ou_state) + self.OU_SIGMA * ou_rand
-        ou_new = max(-self.OU_CLAMP, min(self.OU_CLAMP, ou_new))
-        ou_val = self._ou_state + (ou_new - self._ou_state) * (t / n)
-        self._ou_state = ou_new
+        if self._ou_state_t is None or self._ou_state_t.device != device:
+            self._ou_state_t = torch.tensor(0.0, device=device)
+        ou_rand = torch.randn(1, device=device, generator=self._rng).squeeze()
+        ou_new = self._ou_state_t + self.OU_THETA * (0.0 - self._ou_state_t) + self.OU_SIGMA * ou_rand
+        ou_new = ou_new.clamp(-self.OU_CLAMP, self.OU_CLAMP)
+        ou_val = self._ou_state_t + (ou_new - self._ou_state_t) * (t / n)
+        self._ou_state_t = ou_new.detach()
 
         # ═══════════════════════════════════════════════════════════
-        # 6. 随机突发（泊松过程 + 指数衰减包络）
+        # 6. 随机突发（泊松过程 + 指数衰减包络，GPU 标量状态，零 .item()）
         # ═══════════════════════════════════════════════════════════
-        burst_rand = float(torch.rand(1, device=device, generator=self._rng).item())
-        if burst_rand < self.BURST_PROB:
-            self._burst_env = 1.0
-            self._burst_gain = (self.BURST_GAIN_MIN +
-                                 (self.BURST_GAIN_MAX - self.BURST_GAIN_MIN) *
-                                 float(torch.rand(1, device=device, generator=self._rng).item()))
-        burst_env = self._burst_env * (self._burst_decay_coef ** t)
-        self._burst_env = float(burst_env[-1].item())
-        burst_gain = 1.0 + (self._burst_gain - 1.0) * burst_env
+        if self._burst_env_t is None or self._burst_env_t.device != device:
+            self._burst_env_t = torch.tensor(0.0, device=device)
+            self._burst_gain_t = torch.tensor(1.0, device=device)
+            self._one_t = torch.tensor(1.0, device=device)
+        burst_rand = torch.rand(1, device=device, generator=self._rng).squeeze()
+        trigger = burst_rand < self.BURST_PROB
+        burst_gain_new = torch.rand(1, device=device, generator=self._rng).squeeze()
+        burst_gain_new = self.BURST_GAIN_MIN + (self.BURST_GAIN_MAX - self.BURST_GAIN_MIN) * burst_gain_new
+        self._burst_gain_t = torch.where(trigger, burst_gain_new, self._burst_gain_t)
+        self._burst_env_t = torch.where(trigger, self._one_t, self._burst_env_t)
+        burst_env = self._burst_env_t * (self._burst_decay_coef ** t)
+        self._burst_env_t = burst_env[-1].detach()
+        burst_gain = 1.0 + (self._burst_gain_t - 1.0) * burst_env
 
         # 综合门控：envelope_gate × LFO × OU × 突发
         final_gate = envelope_gate * lfo_val * (1.0 + ou_val) * burst_gain
@@ -469,10 +484,10 @@ class MicAirflowEffect:
         audio_prox = audio_am + audio_low * self.PROXIMITY_GAIN * intensity
 
         # ═══════════════════════════════════════════════════════════
-        # 10. 气流控制软饱和（x / (1 + |x| * drive)）
+        # 10. 气流控制软饱和（x / (1 + |x| * drive)，GPU 标量 drive，零 .item()）
         # ═══════════════════════════════════════════════════════════
-        gate_mean = float(final_gate.mean().item())
-        drive = self.SATURATION_BASE + gate_mean * self.SATURATION_AIR * intensity
+        gate_mean_t = final_gate.mean()
+        drive = self.SATURATION_BASE + gate_mean_t * self.SATURATION_AIR * intensity
         audio_sat = audio_prox / (1.0 + torch.abs(audio_prox) * drive)
 
         # ═══════════════════════════════════════════════════════════

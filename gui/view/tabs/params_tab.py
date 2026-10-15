@@ -1,4 +1,4 @@
-"""参数 Tab — 缓冲区参数 / 音高算法 / 音高阈值 / 输出音量"""
+"""参数 Tab — 采样长度 / 上下文长度 / 淡入长度 / 音高算法 / 音高阈值 / 输出音量"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (

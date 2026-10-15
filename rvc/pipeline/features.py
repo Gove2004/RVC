@@ -1,6 +1,6 @@
 """HuBERT 特征处理 — 特征提取 + 上采样。
 
-在特征侧不再做保护。
+特征侧不做任何保护性 padding：末帧 padding 统一在 upsample_features 中做。
 """
 import torch
 import torch.nn.functional as F

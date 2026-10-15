@@ -46,6 +46,10 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     [dst_min, dst_max] 的帧钳制到最近边界，避免破音的同时保持有声。
     原声音域 [src_min, src_max] 仅用于校准映射比例，不做安全边界。
 
+    ⚠️ out_m = dst_min + ratio * (dst_max - dst_min) 无斜率约束，
+    k = 两区间半音宽度之比。用户当前存档 60–720 → 160–720（k=0.6053）
+    是他要的效果（已明确裁定），不要以修 bug 名义改动该行为。
+
     安全保护：
     - 参数下限保护（最小 1Hz）：避免 hz_to_midi(0) = -inf 导致 NaN
     - 参数有效性检查：src_min < src_max 且 dst_min < dst_max，否则原样返回

@@ -1,7 +1,7 @@
 """View 宿主契约 — 推理主窗口对生命周期混入与跨对象消费方暴露的结构化协议。
 
-§④ C-14 / D-10：以 Protocol 显式声明 `WindowLifecycle` 混入通过 `self` 访问的
-全部宿主属性与方法，替代「mixin 隐式宿主属性」。结构化契约：`MainWindow` 满足之；
+以 Protocol 显式声明 `WindowLifecycle` 混入通过 `self` 访问的全部宿主
+属性与方法，替代「mixin 隐式宿主属性」。结构化契约：`MainWindow` 满足之；
 `WindowLifecycle`/`bindings`/`timbre_tab`/`params_tab` 以此为宿主类型。
 运行期零使用（仅类型层）——本模块不承载任何行为。
 """
@@ -38,7 +38,7 @@ class InferWindowHost(Protocol):
     device_catalog: "DeviceCatalog"
     tray: "SystemTray | None"
 
-    # ── 模型工具（「工具」Tab + 生命周期退出等待）──
+    # ── 模型工具（融合/详情页签 + 生命周期退出等待）──
     model_tools: "ModelToolController"
     tool_runner: "ToolRunner | None"
 

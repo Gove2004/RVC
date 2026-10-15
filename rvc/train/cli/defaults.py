@@ -1,11 +1,15 @@
 """训练向导存档 —— 把上次用过的参数作为下次运行的默认值。
 
+存档文件 = assets/configs/train_cli_defaults.json，路径单源在
+`rvc.runtime.paths.TRAIN_CLI_DEFAULTS_FILE`；不进版本库（gitignore）。
 首次运行（无存档）时各默认值来自内置 `DEFAULTS` 与平台自适应的产物根目录；
-向导问完全部问题后把本次答案原子写入 `TRAIN_CLI_DEFAULTS_FILE`，
-下次运行直接以它们作为提问默认值。
+向导问完全部问题后把本次答案原子写入存档，下次运行直接以它们作为提问默认值。
 
-存档是纯个人偏好，不进版本库；坏 JSON 会备份为 `.bak` 后回退内置默认值，
-不静默吞掉用户数据（与 `gui/configs/config.py` 同一处理口径）。
+存档是纯个人偏好；坏 JSON 会备份为 `.bak` 后回退内置默认值，不静默吞掉用户数据
+（与 `gui/configs/config.py` 同一处理口径）。
+
+优先级：命令行路径 > 存档 > 内置。续训时存档 epochs ≤ 已训到的 ckpt_epoch 会导致
+反复重问（非交互管道喂 stdin 死循环），故该场景默认取 ckpt_epoch*2（见 wizard.py）。
 """
 import json
 import logging

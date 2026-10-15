@@ -14,11 +14,13 @@ from rvc.core.constants import (
     RMVPE_THRESHOLD_INFER,
 )
 
+# HuBERT 特征器默认变体。训练与推理必须用同一个（assets/hubert/{base,chinese}）：
+# 不一致时音色发闷、咬字怪。改这里即全链路默认切换。
 HUBERT_DEFAULT = "chinese"
 
 # 输出音量增益范围（唯一事实源：GUI 滑动条量程与热路径钳位都取这里）
 VOLUME_MIN = 0.0
-VOLUME_MAX = 5.0
+VOLUME_MAX = 2.5
 
 
 @dataclass
@@ -84,7 +86,7 @@ class InferenceParams:
     audio: AudioParams = field(default_factory=AudioParams)
     texture: TextureParams = field(default_factory=TextureParams)
     rms_mix: float = 0.0
-    volume: float = 1.0  # 输出音量增益（0.0-5.0，1.0=原始音量，纯标量乘法）
+    volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
     model_path: str = ""
     hubert: str = HUBERT_DEFAULT
 
@@ -116,7 +118,12 @@ class OfflineParams(InferenceParams):
 
 @dataclass
 class TrainConfig:
-    """训练运行时配置——传给 Trainer 的超参数（epochs/batch_size/lr 等）。"""
+    """训练运行时配置——传给 Trainer 的超参数（epochs/batch_size/lr 等）。
+
+    仅本 dataclass 覆盖的字段可在此调整；训练底参（c_mel/c_kl/lr_decay/
+    seed/segment_size/betas/eps）不在 Python 里定义，唯一来源是
+    assets/configs/<40k|48k>train_config.json（按采样率二选一）。
+    """
     exp_dir: str
     sr: int = 48000
     epochs: int = 2000

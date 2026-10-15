@@ -1,4 +1,9 @@
-"""HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT"""
+"""HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT。
+
+注意力实现走 transformers 的 sdpa（config._attn_implementation），本项目
+未安装 flash_attention_2，不要假设其存在。HuBERT 特征 8ms/帧（hop 160 @ 16k）
+是链路的硬成本：extra 上下文时长折算出的帧数直接决定推理耗时下限。
+"""
 import logging
 from rvc.core.errors import FeatureExtractionError
 import os

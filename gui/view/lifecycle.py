@@ -1,4 +1,4 @@
-"""推理 GUI 生命周期 — MainWindow 的生命周期职责单元（D5 拆分）。
+"""推理 GUI 生命周期 — MainWindow 的生命周期职责单元。
 
 职责：配置持久化、引擎预热、启动/停止（加载线程管理）、
 运行时错误处理、托盘退出、关闭行为。UI 装配与信号绑定在 window.py。
@@ -115,6 +115,16 @@ class WindowLifecycle:
 
         if snap.running and snap.measure_ms > 0:
             self.delay_lbl.setText(f"延迟: {snap.measure_ms:.0f}ms")
+            # 动态 tooltip：显示延迟分解
+            self.delay_lbl.setToolTip(
+                f"算法延迟 = 2×采样长度 + 推理\n"
+                f"  输入块收集: {snap.driver_in_ms:.0f}ms\n"
+                f"  推理耗时: {snap.infer_ms:.0f}ms（GPU 端到端）\n"
+                f"  输出块缓冲: {snap.driver_out_ms:.0f}ms\n"
+                f"  合计: {snap.measure_ms:.0f}ms\n"
+                f"注：WASAPI共享模式驱动层缓冲（系统混音器+VB-Cable）未计入，\n"
+                f"实际听感通常比显示值大 100-150ms。换 WASAPI独占/ASIO 可降低。"
+            )
 
             # 显示当前输入音高（音域映射之前的原始值）
             if snap.input_pitch > 0:

@@ -6,6 +6,9 @@ float32 numpy 数组。这是"数据加载"，不是"文件读写"。
 与 wav_file 的分工：
 - audio_file.py: 解码任意格式 → numpy 数组（需要 ffmpeg）
 - wav_file.py:   WAV 文件结构化读写（写 FLOAT32/PCM16，读元信息）
+
+ffmpeg 定位顺序（训练 CLI 在 envcheck 探测，运行时默认直接取
+runtime.paths.FFMPEG_EXE）：RVC_FFMPEG → 系统 PATH → assets/ffmpeg/ffmpeg.exe。
 """
 import logging
 import subprocess

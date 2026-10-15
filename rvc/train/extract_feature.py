@@ -1,6 +1,6 @@
 """训练侧 HuBERT 特征提取 — 批量把 16k wav 转为 768 维内容特征 .npy。
 
-HuBERTExtractor 带进程级缓存（同配置模型只加载一次），供训练 GUI 调用。
+HuBERTExtractor 带进程级缓存（同配置模型只加载一次），供训练向导复用。
 """
 
 from pathlib import Path

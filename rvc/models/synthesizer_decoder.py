@@ -290,6 +290,8 @@ class GeneratorNSF(torch.nn.Module):
         g: Optional[torch.Tensor] = None,
         n_res: int | torch.Tensor | None = None,
     ):
+        """f0 必须是 2D (B, L)：SineGen 内部 unsqueeze(-1) 成 3D (B, L, 1)，
+        传 3D 输入会在 _f02sine 报 a(40) vs b(39)。"""
         har_source, noi_source, uv = self.m_source(f0, self.upp)
         har_source = har_source.transpose(1, 2)
         if n_res is not None:

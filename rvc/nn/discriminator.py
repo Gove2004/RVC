@@ -1,3 +1,4 @@
+"""训练判别器 — MPD v2（多周期）+ MSD（多尺度），上游 RVC 拷贝层。"""
 import torch
 from torch import nn
 from torch.nn import Conv1d, Conv2d

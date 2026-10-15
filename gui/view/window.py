@@ -1,4 +1,4 @@
-"""推理 GUI 主窗口 — View 层：窗口装配 + 信号绑定（D5 拆分三职责之一/之二）。
+"""推理 GUI 主窗口 — View 层：窗口装配 + 信号绑定。
 
 GUI 分层后职责划分：
 - 本文件：UI 构建（tabs/控制栏）、参数控件信号绑定、UI 状态更新（按钮文案/标签）、
@@ -50,7 +50,7 @@ from gui.styles import ButtonStyles, Layout
 from gui.styles.colors import Colors
 
 if TYPE_CHECKING:
-    # D5 例外：类型注解可以引用 rvc 类型（运行时不 import）
+    # 类型注解可引用 rvc 类型（仅 TYPE_CHECKING，运行时不 import）
     from rvc.core.config import InferenceParams
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         self.device_catalog.load_hostapis()
         self._load_gui_config()
-        # Connect refresh button after device catalog is ready
+        # device_catalog 就绪后再连接刷新按钮信号
         self.refresh_btn.clicked.connect(self._reload_dev)
         # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
         QTimer.singleShot(300, self._warmup_engine)
@@ -166,7 +166,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         self.delay_lbl = QLabel("延迟: -")
         self.delay_lbl.setMinimumWidth(120)
-        self.delay_lbl.setToolTip("端到端延迟 = 采样长度 + 推理耗时 + 端点缓冲（约 10-30ms）：想降延迟调小「采样长度」，或让输出设备与流采样率一致")
+        self.delay_lbl.setToolTip("端到端延迟（含输入/输出驱动缓冲）。鼠标悬停查看分解。想降延迟调小「采样长度」，或换用低延迟音频驱动")
         btn_group.addWidget(self.delay_lbl)
 
         # 错误计数：实时链路吞错（清零输出继续跑）的唯一可见信号，>0 才显示

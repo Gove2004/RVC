@@ -30,7 +30,7 @@ def _draw_icon(base_color: QColor) -> QIcon:
     pen = QPen(QColor(255, 255, 255), 6)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     p.setPen(pen)
-    bars = [(21, 8), (32, 22), (43, 14)]  # 三条杠以圆中心 x=32 对称（原 18/29/40 偏左 3px）
+    bars = [(21, 8), (32, 22), (43, 14)]  # 三条杠以圆中心 x=32 对称
     for x, h in bars:
         p.drawLine(x, 32 - h // 2, x, 32 + h // 2)
     p.end()
@@ -54,7 +54,7 @@ class SystemTray:
     """托盘图标（双色状态）+ 右键菜单（开始/停止、显示、退出）。
 
     icon_idle/icon_active：状态图标文件路径，由调用方经 controller 下发
-    （D5：View 层不直接 import rvc 路径常量）。
+    （View 层不直接 import rvc 路径常量）。
     """
 
     def __init__(self, window: "MainWindow", on_quit=None, icon_idle: Path | None = None, icon_active: Path | None = None):

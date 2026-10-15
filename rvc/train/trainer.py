@@ -1,6 +1,6 @@
 """RVC 训练器 — 封装数据加载、模型训练、检查点保存与导出。
 
-支持进度回调、日志回调、loss 回调，可被 GUI 或命令行调用。
+支持进度/日志/loss 回调，供训练命令行向导（rvc.train.cli）调用。
 """
 import random
 from pathlib import Path
@@ -60,6 +60,7 @@ class Trainer:
         self.log_file = Path(self.cfg.exp_dir) / "train.log"
 
     def stop(self):
+        """请求软停止：当前 epoch 跑完并保存后退出（再按一次 Ctrl+C 由 CLI 强退）。"""
         self.stop_requested = True
 
     def cleanup(self):
@@ -212,7 +213,7 @@ class Trainer:
             self.scaler.update()
 
             if self.loss_callback:
-                # 每 batch 都上报（GUI 侧自会节流刷新）——小数据集一个 epoch 可能
+                # 每 batch 都上报（消费方自行汇总/节流）——小数据集一个 epoch 可能
                 # 只有几个 batch，任何门槛都会让整个 epoch 看不到 loss
                 self.loss_callback({
                     "epoch": epoch,
@@ -257,7 +258,7 @@ class Trainer:
         if removed:
             self.log(f"清理旧 checkpoint: {len(removed)} 个（每组保留最新 {keep_ckpts} 个）")
 
-        # 同时导出可用模型到 export_dir（默认 assets/models/，云训练传数据盘目录）
+        # 同时导出可用模型到 export_dir（向导传产物模型目录，默认 assets/models/）
         exp_name = Path(self.cfg.exp_dir).name
         output = self.export_dir / f"{exp_name}_e{epoch}.pth"
         export_model(self.synthesizer.state_dict(), self.cfg.sr, self.json_config, epoch, str(output))

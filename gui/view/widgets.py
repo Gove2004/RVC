@@ -108,8 +108,7 @@ class DoubleSlider(QSlider):
         整数值 = round(物理值 / step)
         物理值 = 整数值 × step
 
-    这样拖动时的最小变化量就是 step，而不是固定的 0.01（旧编码的问题）。
-    存档直接存物理值，不需要编码转换。
+    拖动时的最小变化量即 step；存档直接存物理值，不需要编码转换。
     """
 
     def __init__(self, min_val, max_val, step, parent=None,
@@ -121,7 +120,7 @@ class DoubleSlider(QSlider):
         super().setMinimum(self._int_min)
         super().setMaximum(self._int_max)
         super().setSingleStep(1)
-        # 值标签与格式化参数（C-5：标签刷新是本类正式方法，不再是实例猴补）
+        # 值标签与格式化参数
         self._value_label = value_label
         self._label_fmt = label_fmt
         self._label_unit = label_unit
@@ -152,10 +151,9 @@ class DoubleSlider(QSlider):
 def _create_slider_row(mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     """创建「滑杆 + 自动格式化值标签」，返回 (slider, label)。
 
-    使用 DoubleSlider，基于步长动态编码，对外直接暴露物理值（float）。
-    存档直接存物理值，不需要编码转换。拖动时的最小变化量 = step。
-    fmt/unit 控制标签显示，label_w 控制标签宽度。
-    挂载由调用点具名完成（C-5/P2-10：helper 不再 setattr 动态挂 win）。
+    基于 DoubleSlider，对外直接暴露物理值（float），拖动最小变化量 = step。
+    fmt/unit 控制标签显示，label_w 控制标签宽度（默认 80px 定宽）。
+    控件由调用点具名挂载，helper 不做 setattr 动态挂窗口。
     """
     lbl = QLabel()
     lbl.setFixedWidth(label_w)

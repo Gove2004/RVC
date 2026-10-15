@@ -86,6 +86,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             wav_path, feat_path, pitch_path, pitchf_path, sid = item
             if not all(Path(p).exists() for p in [wav_path, feat_path, pitch_path, pitchf_path]):
                 continue
+            # 长度 = 特征帧数 ×2（phone 会 repeat_interleave 两倍），仅保留 100~900 帧
             length = np.load(feat_path, mmap_mode="r").shape[0] * 2
             if 100 <= length <= 900:
                 filtered.append(item)

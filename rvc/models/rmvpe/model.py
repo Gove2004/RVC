@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class RMVPE:
+    """RMVPE F0 提取器：mel → E2E 网络 → 设备端解码，全程留 GPU。"""
+
     def __init__(self, model_path: str, is_half, device=None):
         self.is_half = is_half
         if device is None:

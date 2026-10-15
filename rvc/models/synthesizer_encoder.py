@@ -9,6 +9,8 @@ from rvc.nn import attentions, modules, vits_blocks
 
 
 class TextEncoder(nn.Module):
+    """HuBERT 特征（+可选 pitch 嵌入）→ 逐帧分布参数 (m_p, logs_p)。"""
+
     def __init__(
         self,
         in_channels,
@@ -71,6 +73,8 @@ class TextEncoder(nn.Module):
 
 
 class PosteriorEncoder(nn.Module):
+    """训练专用：从线性谱后验采样隐变量 z（推理时不加载）。"""
+
     def __init__(
         self,
         in_channels,

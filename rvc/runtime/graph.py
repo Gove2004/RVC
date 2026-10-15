@@ -121,7 +121,15 @@ def _tensor_signature(tensor):
 
 
 class _CapturedCall:
-    """单次 CUDA Graph capture + replay。"""
+    """单次 CUDA Graph capture + replay。
+
+    硬规则（教训）：
+    - 捕获期间遇到任何设备同步（.item()、被 Python if 取真值的张量比较、
+      数据依赖 shape 分支等）都会失败——被捕获的 function 必须满足此前提。
+    - 张量走静态输入参数（capture 前 copy_ 拷入，replay 时更新）；
+      Python 标量被闭包固化进图，replay 无法改写——标量有变化时调用方
+      必须把它编进 cache key（run_cuda_graph 的 namespace）触发重新捕获。
+    """
 
     def __init__(self, function, inputs):
         started = time.perf_counter()

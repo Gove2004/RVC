@@ -36,8 +36,13 @@ _WARMUP_ITERATIONS = 30
 
 # 异步 CUDA 缓存回收间隔（块数）。每 N 块触发一次后台 empty_cache，
 # 不阻塞音频回调。实际时间间隔 = N × block_time（默认 block_time=0.25s → 约 7.5s）。
-# 参考 Nvidia 优化补丁的核心内存创新。
 _CUDA_CLEANUP_EVERY_N = 30
+
+# 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
+# 驱动缓冲」的真实深度（硬件时间戳偏小、stream.latency 偏大），只能靠校准值补。
+# 默认 0.0 = 只显示算法延迟（2×块时长 + 推理），不猜驱动层；要用实测校准过的值
+# 覆盖时经 VoiceEngine.driver_latency_compensation 写入。
+_DRIVER_LATENCY_COMPENSATION_MS = 0.0
 
 
 class VoiceEngine:
@@ -56,7 +61,12 @@ class VoiceEngine:
 
         # 性能统计（GUI 读取）
         self.infer_ms = 0.0
-        self.measure_ms = 0.0  # 端到端延迟（块时长+推理耗时口径，瞬时值）
+        self.measure_ms = 0.0  # 端到端延迟（算法延迟 + 驱动补偿，瞬时值）
+        self.driver_in_ms = 0.0  # 输入延迟（块收集 + 驱动补偿）
+        self.driver_out_ms = 0.0  # 输出延迟（块缓冲 + 驱动补偿）
+        # 驱动层延迟补偿（毫秒）。默认 0.0 → measure_ms 只反映算法延迟
+        # （2×块时长 + 推理）。取值依据见 _DRIVER_LATENCY_COMPENSATION_MS。
+        self._driver_latency_compensation_ms = _DRIVER_LATENCY_COMPENSATION_MS
 
         # 错误状态由 InferenceRunner 管理（通过属性代理访问）
         # 单例缓存，避免多处重复获取；设备编号只在首次构造时生效（见 RuntimeDeviceConfig）
@@ -96,10 +106,22 @@ class VoiceEngine:
         if stat is None:
             return 0.0
         pitch_sum, count = stat
-        # count==0（本块全清音）→ 0，与本文档「无声为 0」的契约一致
-        # （旧实现此时保留上一块旧值，与文档矛盾，P1 重构时一并修正）。
+        # count==0（本块全清音）→ 0，与「无声为 0」的契约一致。
         # clamp(min=1) 防除零，全程单次 .item() 同步。
         return float((pitch_sum / count.clamp(min=1)).item())
+
+    @property
+    def driver_latency_compensation(self) -> float:
+        """驱动层延迟补偿（毫秒），默认见 _DRIVER_LATENCY_COMPENSATION_MS。
+
+        仅在拿到实测校准值后才应写入（WASAPI 共享 + 虚拟声卡组合下该值可达百毫秒
+        量级）；未校准时保持 0，宁可少报也不虚报。
+        """
+        return self._driver_latency_compensation_ms
+
+    @driver_latency_compensation.setter
+    def driver_latency_compensation(self, value: float):
+        self._driver_latency_compensation_ms = max(0.0, float(value))
 
     @property
     def runtime_error_pending(self):
@@ -113,7 +135,7 @@ class VoiceEngine:
     # ── 模型加载 ──
 
     def _clear_f0_cuda_graph_caches(self) -> None:
-        """无条件清空 F0 提取器的 CUDA Graph 缓存（§11.2：显式步骤，非顺手前置）。
+        """无条件清空 F0 提取器的 CUDA Graph 缓存（显式清理步骤，非顺手前置）。
 
         load_model 入口必经——包括命中缓存快路径与首次加载，
         不依赖任何条件；离线场景 inference_cache=None，但 pipeline 内部
@@ -270,16 +292,22 @@ class VoiceEngine:
     def _cb(self, indata, outdata, frames, times, status):
         """sounddevice 回调函数 — 委托给 InferenceRunner.process_block。"""
         try:
-            # 端到端延迟 = 块时长 + 本块推理耗时（块对齐后相位抵消，恒定项）。
-            # 不用 PortAudio 硬件时间戳（outputBufferDacTime - inputBufferAdcTime）：
-            # WASAPI 共享模式下它不含真实缓冲深度（输入捕获环 + 输出渲染环各约
-            # 一个块），实测比麦克风对拍小 ~180ms。
-            # 残差：两端端点 APO/驱动缓冲约 10-30ms，恒定、不在此显示。
             self._runner.process_block(indata, outdata, frames)
             self.infer_ms = self._runner.state.infer_ms
             state = self._runner.state
-            if state.work_sr:
-                self.measure_ms = state.block_samples / state.work_sr * 1000 + self.infer_ms
+
+            # 端到端延迟 = 算法延迟 + 驱动延迟补偿
+            #   算法延迟 = 2×块时长 + 推理（输入块收集 + 输出块缓冲 + GPU推理）
+            #   驱动延迟 = WASAPI系统混音器 + 麦克风/声卡驱动缓冲，PortAudio 无法准确获取：
+            #     - times 硬件时间戳偏小（不含系统混音器完整缓冲）
+            #     - stream.latency 偏大（WASAPI共享模式下重复计算缓冲，可达500ms+）
+            #   故驱动延迟只用校准值补偿（默认 0 = 不补，见 _DRIVER_LATENCY_COMPENSATION_MS）。
+            #   0.4 / 0.6 是「输入侧 / 输出侧」的分配比例，仅在补偿值非 0 时有意义。
+            block_ms = state.block_samples / state.work_sr * 1000.0 if state.work_sr else 0.0
+            drv_ms = self._driver_latency_compensation_ms
+            self.driver_in_ms = block_ms + drv_ms * 0.4
+            self.driver_out_ms = block_ms + drv_ms * 0.6
+            self.measure_ms = self.driver_in_ms + self.infer_ms + self.driver_out_ms
 
             # 副输出路由
             if self._streams.enable_out2:

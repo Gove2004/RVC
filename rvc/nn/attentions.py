@@ -1,3 +1,4 @@
+"""VITS Encoder 注意力/FFN 组件（上游 RVC 拷贝层）。"""
 import math
 from typing import Optional
 

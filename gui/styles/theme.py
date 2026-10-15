@@ -1,7 +1,6 @@
-"""全局主题 — QPalette + 全局 QSS 样式表
+"""全局主题 — QPalette + 全局 QSS 样式表。
 
-把 app.py 里的 _set_dark 函数移到这里，所有颜色从 Colors 类获取，
-避免颜色硬编码分散在多处。
+所有颜色取自 Colors 类，布局尺寸取自 Layout 类，避免硬编码分散在多处。
 
 用法:
     from gui.styles import apply_theme

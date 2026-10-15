@@ -50,7 +50,7 @@ class InferenceRunner:
         self.ctx = pipeline.ctx
 
         # 输出效果器（RMS 混合 + SOLA）由 runner 直接持有：
-        # 它们是输出侧效果，不属于推理状态（D2：pipeline 产物止于合成音频块）
+        # 它们是输出侧效果，不属于推理状态（pipeline 产物止于合成音频块）
         self.effects = AudioProcessor()
 
     def init_processing(self, sr: int, block_t: float, cf_t: float, extra_t: float,
@@ -81,6 +81,9 @@ class InferenceRunner:
 
         state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
         state.skip_head = state.extra_samples // zc
+        # 传给合成器的帧数 = 当前块 + SOLA 缓冲 + SOLA 搜索（10ms 帧对齐）。
+        # 尾窗只有 return_length 帧进合成器；SOLA 拼接期望固定块长，输出侧
+        # 按 block_samples + sola_buffer + sola_search 截齐（见 _stage_formant）。
         state.return_length = (state.block_samples + state.sola_buffer_samples + state.sola_search_samples) // zc
 
         # 48k 滚动缓冲区
@@ -92,8 +95,12 @@ class InferenceRunner:
         state.input_wav_16k = torch.zeros(HUBERT_FRAME_SIZE * n // zc, device=state.device)
         state.input_wav_16k_work = torch.empty_like(state.input_wav_16k)
 
-        # pinned memory 用于快速 CPU→GPU 传输
-        state.in_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
+        # pinned memory 双缓冲（异步 DMA 交替使用，避免下一块覆写时上一块 DMA 未完成）
+        state.in_pin = [
+            torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True),
+            torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True),
+        ]
+        state.in_pin_idx = 0
 
         # pinned memory 用于快速 GPU→CPU 传输（输出侧，与 in_pin 对称）。
         # SOLA 输出恒为 block_samples（SOLA 期望固定长度的对齐契约），
@@ -245,24 +252,26 @@ class InferenceRunner:
     # ── stage_input：硬件输入 ──
 
     def _upload_input(self, indata: np.ndarray) -> torch.Tensor:
-        """单声道化 + pinned 中转 + CPU→GPU 上传（P0-11 修复）。
+        """单声道化 + pinned 双缓冲 + CPU→GPU 异步上传。
 
         返回 GPU 上的单声道张量。
 
-        并发安全说明：GPU 侧拷贝必须是同步的（non_blocking=False）。
-        旧实现用异步 DMA，下一块立即在 CPU 上覆写 in_pin 时，上一块的
-        DMA 可能尚未执行——GPU 读到被污染的输入，HuBERT(fp16) 输出整块
-        NaN（S0 实证，时好时坏取决于流排队深度）。同步拷贝的代价是
-        约 n*4 字节的一次 DMA 等待（微秒级），相对块预算可忽略。
+        双缓冲：块 N 用 pin_a 做异步 DMA，块 N+1 用 pin_b，互不干扰。
+        异步 DMA（non_blocking=True）：CPU 不等待传输完成，立即提交后续
+        GPU 算子（HuBERT 等），传输与计算在 GPU 侧自动重叠。
+        后续 GPU 算子在同一 stream 上，会自动等待 DMA 完成，无需显式同步。
         """
         state = self.state
         mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
         mono = np.ascontiguousarray(mono)
         n = mono.shape[0]
-        state.in_pin[:n].copy_(torch.from_numpy(mono))
+        # 交替使用双缓冲
+        pin = state.in_pin[state.in_pin_idx]
+        state.in_pin_idx ^= 1
+        pin[:n].copy_(torch.from_numpy(mono))  # CPU→pinned 内存拷贝（同步但快，内存带宽级）
         if state.input_gpu is None or state.input_gpu.shape[0] < n:
             state.input_gpu = torch.empty(n, device=state.device, dtype=torch.float32)
-        state.input_gpu[:n].copy_(state.in_pin[:n])  # 同步：DMA 完成后才返回
+        state.input_gpu[:n].copy_(pin[:n], non_blocking=True)  # 异步 DMA，CPU 不等
         return state.input_gpu[:n]
 
     def _stage_input(self, indata: np.ndarray) -> torch.Tensor:
@@ -278,14 +287,12 @@ class InferenceRunner:
         """
         state = self.state
 
-        # 16k 缓冲区左移（双缓冲交换）— 与 48k 滚动互不依赖，顺序可交换
+        # 16k 缓冲区左移（双缓冲交换）— 末尾块随后被重采样输出覆盖，无需 zero_
         state.input_wav_16k_work[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
-        state.input_wav_16k_work[-state.block_samples_16k:].zero_()
         state.input_wav_16k, state.input_wav_16k_work = state.input_wav_16k_work, state.input_wav_16k
 
-        # 48k 缓冲区左移（双缓冲交换）
+        # 48k 缓冲区左移（双缓冲交换）— 末尾块随后被 mono 覆盖，无需 zero_
         state.input_wav_48k_work[:-state.block_samples].copy_(state.input_wav_48k[state.block_samples:])
-        state.input_wav_48k_work[-state.block_samples:].zero_()
         state.input_wav_48k, state.input_wav_48k_work = state.input_wav_48k_work, state.input_wav_48k
         state.input_wav_48k[-mono.shape[0]:] = mono
 

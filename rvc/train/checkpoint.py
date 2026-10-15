@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
+    """保存训练 checkpoint（{model, iteration, optimizer, learning_rate}），先写 .tmp 再原子替换。"""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path + ".tmp"
     torch.save(
@@ -85,6 +86,7 @@ def latest_checkpoint_path(dir_path: str, prefix: str):
 
 
 def prune_keep_latest(dir_path, pattern: str, keep: int, epoch_of=checkpoint_epoch, on_delete=None) -> list:
+    """按 epoch 序号淘汰旧文件，只保留最新 keep 组；返回被删除的路径列表。"""
     if keep < 1:
         return []
     directory = Path(dir_path)
@@ -108,6 +110,7 @@ def load_train_json(sr: int):
 
 
 def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str):
+    """导出推理可用模型：剥离 enc_q、权重转 fp16，附带 config/sr/version 元数据。"""
     weights = OrderedDict()
     for key, value in state_dict.items():
         if key.startswith("enc_q"):
@@ -130,6 +133,7 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
 
 
 def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
+    """按 ratio 加权合并两个同架构模型（config 不同则拒绝）；独有权重原样保留。"""
     # 安全前提：两个待合并模型均由用户提供或本流程导出，来源可信，故 weights_only=False。
     ckpt_a = torch.load(path_a, map_location="cpu", weights_only=False)
     ckpt_b = torch.load(path_b, map_location="cpu", weights_only=False)
@@ -168,15 +172,16 @@ def _zip_archive_name(path: str):
 
 
 def inspect_model(path: str) -> str:
+    """检视模型：返回多行摘要（模型信息 / zip 原名 / 大小 / 采样率 / 版本 / F0）。"""
     # 安全前提：仅检视用户提供的模型文件，来源可信，故 weights_only=False。
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     lines = []
     archive = _zip_archive_name(path)
-    # §12/D-3：首行优先展示 info；info 为空时回退 zip 原名 / 文件 stem（原兜底链）
+    # 首行优先展示 info；info 为空时回退 zip 原名 / 文件 stem
     model_info = str(ckpt.get("info", "")).strip()
     name = model_info if model_info else (archive if archive else Path(path).stem)
     lines.append(f"模型信息: {name}")
-    # §12.2：zip 归档原名独立成行——info 为空时与首行可能重复，属可接受冗余，不得省略。
+    # zip 归档原名独立成行——info 为空时与首行可能重复，属可接受冗余，不得省略。
     # archive=None（非 zip 打包）时该行如实显示 None；据此改名会被
     # change_archive_name 响亮拒绝（「该文件不是 zip 打包的模型」）。
     lines.append(f"zip 原名: {archive}")

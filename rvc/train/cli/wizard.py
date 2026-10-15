@@ -1,6 +1,10 @@
 """训练参数向导：交互式收集所有训练参数并输出配置字典。
 
-提问一律「平铺」，每项都在问题旁用括号标出可选项与默认值，直接回车即取默认值
+提问面固定 11 项：数据集路径、产物根目录、实验名、采样率、特征器、
+batch size、学习率、训练轮次、保存间隔、保留 checkpoint 组数、是否用底模。
+切片时长/keep_models 是固定默认值，不提问——不要再把内部常量变成新提问项。
+
+提问一律「平铺」，每项都在问题旁用括号标出说明、可选项与默认值，直接回车即取默认值
 （默认值 = 上次的答案，见 `rvc.train.cli.defaults`）。
 """
 from pathlib import Path
@@ -96,7 +100,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     log.log(f"模型目录    : {model_dir}")
     log.log(f"日志文件    : {log.log_file}")
 
-    # 4) 续训检测（不提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
+    # 4) 续训检测（自动检测，不属 11 项提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
     ckpt_epoch = _detect_ckpt_epoch(exp_dir)
     if ckpt_epoch:
         log.log(f"检测到已有 checkpoint（已训练到 epoch {ckpt_epoch}）→ 自动续训")
@@ -116,7 +120,8 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    # 6) HuBERT 特征器
+    # 6) HuBERT 特征器（训练/推理必须一致，权重在 assets/hubert/{base,chinese}；
+    #    不一致 → 音色发闷、咬字怪异）
     def _hubert_ok(value):
         if value not in HUBERT_OPTIONS:
             return False, "只能填 base 或 chinese"

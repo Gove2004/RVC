@@ -115,4 +115,5 @@ class InferenceCache:
         return tuple(self._synthesizer.values())
 
 
+# 全局单例是有意设计：pipeline 未显式传入 inference_cache 时共享同一份缓存
 default_inference_cache = InferenceCache()

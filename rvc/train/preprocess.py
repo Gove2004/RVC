@@ -1,3 +1,7 @@
+"""预处理 — 音频切片、滤波重采样与实验目录指纹核对。
+
+切片/滤波/运行时默认值单源在 rvc/core/constants.py，本文件不写字面量。
+"""
 import hashlib
 import json
 import shutil
@@ -29,7 +33,7 @@ _RUNTIME_DIRS = [
     "2a_f0",
     "2b-f0nsf",
     "3_feature768",
-    "spec_cache",  # A6：STFT 缓存独立目录，素材变更时随切片产物一起清除
+    "spec_cache",  # STFT 缓存独立目录，素材变更时随切片产物一起清除
     "filelist.txt",
 ]
 _CHECKPOINT_GLOBS = ["G_*.pth", "D_*.pth"]
@@ -99,6 +103,13 @@ class Slicer:
 
 
 class PreProcessor:
+    """切片 + 重采样预处理器。
+
+    参数面只剩 per（切片时长秒数）；overlap 等固定回常量 SLICE_OVERLAP_DEFAULT。
+    注意 overlap >= per 时滑动窗口推进为零、会死循环——重开该参数必须在
+    构造时 raise 拒绝，不能只告警。
+    """
+
     def __init__(self, input_dir: str, exp_dir: str, sr: int, per: float = SLICE_PERIOD_DEFAULT,
                  ffmpeg_exe: str | Path | None = None):
         self.input_dir = Path(input_dir)
@@ -123,6 +134,8 @@ class PreProcessor:
         return len(files)
 
     def _prepare_exp_dir(self):
+        # 预处理指纹 = (input_dir, input_hash, sr, per)：与上次不一致则清空
+        # 切片产物与 checkpoint（旧 checkpoint 对应旧素材，留着会从错误数据续训）
         self.exp_dir.mkdir(parents=True, exist_ok=True)
         current = build_exp_manifest(self.input_dir, self.sr, self.per)
         manifest_path = self.exp_dir / _MANIFEST_NAME
@@ -161,6 +174,7 @@ class PreProcessor:
 
 
 def normalize_audio(wav: np.ndarray):
+    """峰值归一化到 0.9 并混回 25% 原始动态；峰值 > 2.5 视为坏样本直接丢弃。"""
     wav = wav.astype(np.float32)
     peak = np.abs(wav).max()
     if peak > 2.5:

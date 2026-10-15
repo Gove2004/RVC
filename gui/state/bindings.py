@@ -8,7 +8,7 @@ valueChanged 时自动更新参数对象，不再需要 collect/apply 双向搬�
 2. BINDINGS 加一行（分组路径 + 控件 + 读写方式）
 3. Tab 里建控件，创建时传入 params 初始值
 
-默认值单源（D6）：所有缺省值只活在 InferenceParams dataclass 上，
+默认值单源：所有缺省值只活在 InferenceParams dataclass 上，
 本模块的 dict↔params 转换从 dataclass 实例取 fallback，不再写第二份字面量。
 """
 from typing import TYPE_CHECKING
@@ -86,7 +86,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     """从分组 dict 构造 InferenceParams。
 
     动态遍历各分组的 __dataclass_fields__，新字段自动包含，无需手动更新。
-    缺省值取 InferenceParams 默认（D6 单源）。
+    缺省值取 InferenceParams 默认（单源）。
     特殊字段：enable_out2 是 output2_device 的派生属性，device_index 转 int。
     """
     params = InferenceParams()
@@ -145,7 +145,7 @@ def _set(win: "InferWindowHost", widget, kind, value):
         slider._update_label()
     elif kind == COMBO:
         combo = getattr(win, widget)
-        # 优先按 userData 匹配（如 env_combo），无 userData 时回退到文本匹配
+        # 优先按 userData 匹配，无 userData 时回退到文本匹配
         idx = combo.findData(value)
         if idx < 0:
             idx = combo.findText(str(value))
@@ -201,7 +201,7 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
         if kind == FLOAT:
             value = w.value()
         elif kind == COMBO:
-            # 优先取 userData（如 env_combo），无则取文本
+            # 优先取 userData，无则取文本
             data = w.currentData()
             value = data if data is not None else w.currentText()
         elif kind == PATH:

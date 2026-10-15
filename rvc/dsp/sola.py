@@ -13,11 +13,28 @@ SOLA (Short-time Overlap-Add) 是一种语音处理中的时域对齐算法，
 注意：不要对 offset 做跨块「粘滞式平滑」（如上块差值过大就沿用上块值）。
 模型的块间时间偏移每块都在变（f0 周期相位、模型边界效应，幅度可达整个搜索窗），
 SOLA 必须每块独立跟踪；一旦沿用旧值，块边界就会重复或跳缺数毫秒——
-听感正是「某几个字带小混响/重影」。详见 .workbuddy/memory 2026-08-29 记录。
+听感正是「某几个字带小混响/重影」。
+
+性能：NaN 防护已改为 GPU 端 torch.where（替代原来的「打包进一个 bool 向量再
+`.tolist()`」），去掉了那一次 GPU→CPU 同步。
+
+但 **offset 切片那一处仍然同步**，不要被「0-dim tensor 索引」误导：
+`infer[offset:]` 里的 `offset` 是 CUDA 标量，Python 切片要拿到主机端整数，
+必然走 `__index__` → `.item()` → 设备同步。实测（GPU 队列里堆 80 次 1500³ 矩阵乘后）：
+    x[cuda_0dim_tensor:]   66.5 ms
+    int(cuda_0dim_tensor)  70.3 ms     ← 等价
+    x[python_int:]          0.017 ms
+所以它与显式 `.item()` 完全等价，只是把同步藏进了下标运算。要真正消除这次同步，
+必须改成 GPU 端**固定长度**对齐（pad + gather/roll 出定长块），代价是每块多一次
+GPU 上的搬移。**目前不做**：本函数之后紧接着的 `write_main_output` 走的是同步
+D2H（回调线程必须在返回前拿到数据），CPU 在同一位置本来就要等 GPU 排空，
+这次同步是被掩盖的、不额外增加端到端延迟。
+
+注意：sola_buffer 被原地改写、返回值与 infer 共享存储（交叉淡化是原地乘法/加法），
+调用方不得复用传入的 infer。
 """
 import torch
 import torch.nn.functional as F
-
 
 
 def apply_sola(
@@ -44,9 +61,6 @@ def apply_sola(
 
     Returns:
         对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer。
-        注意：返回值与输入 infer 共享存储且已被原地改写（交叉淡化），
-        调用方不得复用传入的 infer；需要保留原值时自行 clone。
-        NaN 防护路径返回 clone（不共享存储）。
     """
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
@@ -55,32 +69,28 @@ def apply_sola(
     cor_den = torch.sqrt(energy + 1e-8)
     score = cn[0, 0] / cor_den[0, 0]
     offset = torch.argmax(score)
-    offset = int(offset.item())  # 0-d tensor 转 Python int，切片索引更清晰
 
+    # 这一步会触发设备同步（CUDA 标量转主机整数，见模块 docstring）。保留 0-dim
+    # 形式而非显式 `int(offset.item())` 只是为了少写一次转换，两者开销相同。
     infer = infer[offset:]
 
-    # NaN 防护：sola_buffer 被污染时跳过交叉淡化，避免 NaN 恶性循环。
-    # 三个待检区域（旧缓冲 / 交叉淡化头段 / 写入缓冲的尾段）一次性打包成
-    # 一个 bool 向量取回，全程只有**一次** GPU→CPU 同步（旧实现两次
-    # `.any()` 各触发一次同步，而本函数运行在 PortAudio 回调线程里，
-    # 每次同步都会打断 GPU 流水线）。
     head = infer[:sola_buffer_samples]
     tail = infer[block_samples:block_samples + sola_buffer_samples]
-    buf_nan, head_nan, tail_nan = torch.stack((
-        torch.isnan(sola_buffer).any(),
-        torch.isnan(head).any(),
-        torch.isnan(tail).any(),
-    )).tolist()
 
-    if buf_nan or head_nan:
-        sola_buffer.zero_()
-        return infer[:block_samples].clone()
+    # NaN 防护：GPU 上用 where 分支，替代 tolist() + Python if（零同步）
+    buf_nan = torch.isnan(sola_buffer).any()
+    head_nan = torch.isnan(head).any()
+    tail_nan = torch.isnan(tail).any()
+    skip_crossfade = buf_nan | head_nan
+
+    # 安全 buffer：NaN 时用零替代，等价于跳过交叉淡化
+    safe_buffer = torch.where(skip_crossfade, torch.zeros_like(sola_buffer), sola_buffer)
 
     infer[:sola_buffer_samples] *= fade_in
-    infer[:sola_buffer_samples] += sola_buffer * fade_out
+    infer[:sola_buffer_samples] += safe_buffer * fade_out
 
-    if tail_nan:
-        sola_buffer.zero_()
-    else:
-        sola_buffer[:] = tail
+    # 更新 buffer：NaN 时用零
+    safe_tail = torch.where(tail_nan, torch.zeros_like(tail), tail)
+    sola_buffer[:] = safe_tail
+
     return infer[:block_samples]

@@ -115,8 +115,8 @@ class InferencePipeline:
         formant 因子计算后存到 ctx.formant_factor，供输出侧 formant 重采样复用，
         避免 inference_runner 重复计算 pow(2, formant/12)。
 
-        输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区）——它是本阶段
-        唯一的数据来源，不再经形参转手（旧版形参 input_wav/block_frame_16k 均未被使用）。
+        输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区），它是本阶段
+        唯一的数据来源。
 
         Args:
             config: 推理参数
@@ -129,14 +129,11 @@ class InferencePipeline:
         state = self.state
         ctx = self.ctx
 
-        # ctx 已由 inference_runner 在调用前重置（ctx.reset）
-        # p_len 不再预计算，而是等 HuBERT upsample 后用实际长度
-
         # skip_head / return_length 由 runner 传入，同步到 state 供后续阶段使用
         state.skip_head = skip_head
         state.return_length = return_length
 
-        # formant 因子计算（存到 ctx，输出侧复用，避免重复计算）
+        # formant 因子存到 ctx，输出侧复用，避免重复计算
         formant_factor = config.voice.formant
         factor = pow(2, formant_factor / 12)
         ctx.formant_factor = factor
@@ -197,7 +194,7 @@ class InferencePipeline:
     def synthesize_audio(self, feats: torch.Tensor, pitch, pitchf) -> torch.Tensor:
         """stage_synthesis：合成器推理。
 
-        formant 重采样已移到引擎层 stage_synthesis，这里只返回合成器原始输出。
+        formant 重采样由引擎层负责，这里只返回合成器原始输出。
 
         Args:
             feats: 上采样后的特征 (1, p_len, C)，100fps
@@ -348,7 +345,7 @@ class InferencePipeline:
     ) -> torch.Tensor:
         """合成器推理。
 
-        formant 重采样已移到引擎层阶段4，这里只返回合成器原始输出。
+        formant 重采样由引擎层负责，这里只返回合成器原始输出。
 
         Args:
             feats: 上采样后的特征 (1, p_len, C)，100fps

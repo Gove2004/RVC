@@ -1,8 +1,7 @@
 """推理控制器 — 管理运行时参数、引擎启动和设备绑定。
 
-配置统一使用 rvc.config.InferenceParams 的子配置：
-- runtime_params: InferenceParams（推理参数）
-- engine setup: 由调用方传入设备索引（设备名称→索引的转换在 window/device_catalog 层完成）
+- runtime_params: rvc.core.config.InferenceParams（推理参数）
+- 引擎 setup 所需设备索引由调用方传入（设备名称→索引的转换在 window/device_catalog 层完成）
 
 GUI 分层后，本类承担业务逻辑（参数应用、引擎控制、错误处理），
 window.py 承担 UI 构建和信号连接，通过调用本类方法执行业务操作。
@@ -65,7 +64,7 @@ class InferController:
 
     @property
     def tray_icon_paths(self):
-        """托盘状态图标路径 (idle, active)，View 层经此取数（D5）。"""
+        """托盘状态图标路径 (idle, active)，View 层经此取数（不直接 import rvc 路径常量）。"""
         from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
         return ICON_IDLE_PATH, ICON_ACTIVE_PATH
 
@@ -86,7 +85,7 @@ class InferController:
             return []
 
     def snapshot(self) -> RuntimeTelemetry:
-        """运行状态只读快照（D5：View 订阅快照，不穿透引擎内部）。"""
+        """运行状态只读快照（View 订阅快照，不穿透引擎内部）。"""
         eng = self._engine
         if eng is None or not eng.running:
             return RuntimeTelemetry(running=False, measure_ms=0.0, input_pitch=0.0)
@@ -95,6 +94,9 @@ class InferController:
             measure_ms=eng.measure_ms,
             input_pitch=eng.input_pitch,
             error_count=eng.error_count,
+            driver_in_ms=eng.driver_in_ms,
+            driver_out_ms=eng.driver_out_ms,
+            infer_ms=eng.infer_ms,
         )
 
     # ── 引擎控制 ──

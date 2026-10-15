@@ -182,7 +182,13 @@ class _SynthesizerTrnMsBase(nn.Module):
         return_length: int = 0,
         return_length2: int | torch.Tensor | None = None,
     ):
-        """推理 — 统一接口，根据 use_f0 自动处理 pitch/nsff0 参数。"""
+        """推理 — 统一接口，根据 use_f0 自动处理 pitch/nsff0 参数。
+
+        f0 契约：nsff0 必须是 2D (B, L)——SineGen.forward 内部会 unsqueeze(-1)
+        升成 3D；传 3D 会在 _f02sine 里报 a(40) vs b(39) 形状错。
+        随机性：z_p 用 randn_like 采样、SineGen 的 rand_ini 初相随机，
+        因此每次调用（含逐块调用）输出都不同，属刻意行为非 bug。
+        """
         g = self.emb_g(sid).unsqueeze(-1)
 
         if skip_head > 0 or return_length > 0:

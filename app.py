@@ -3,6 +3,9 @@
 用法:
     python app.py --infer    启动推理 GUI
     python app.py --train    启动训练命令行向导（Windows / Linux 通用）
+
+惰性导入契约：torch / rvc.train / PySide6 只允许在 main() 内按需导入，
+顶层不得新增 import —— 保证 `import app` 后它们不出现在 sys.modules。
 """
 import argparse
 import io

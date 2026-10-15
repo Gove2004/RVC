@@ -1,7 +1,6 @@
 """训练命令行向导 — 共享常量、异常与产物根目录解析。
 
-Windows 与 Linux 共用同一套流程：原先分居 `gui/train`（Windows GUI）与 `autodl/`
-（Linux 云向导）的两套训练编排已合并到此。本包只依赖 `rvc.*`，不依赖 GUI。
+Windows 与 Linux 共用同一套纯命令行流程。本包只依赖 `rvc.*`，不依赖 GUI。
 
 入口：`python app.py --train` 或 `python -m rvc.train.cli`。
 """
@@ -63,7 +62,7 @@ def default_output_root() -> Path:
 
     优先级：环境变量 RVC_OUT_ROOT > /root/autodl-tmp（存在即视为云实例）> 项目根。
     云上系统盘通常只有 30G，训练产物一律落数据盘；本地则落在项目根下
-    （Windows 得到 <项目根>/logs/<实验名>，与合并前的 GUI 行为一致）。
+    （Windows 得到 <项目根>/logs/<实验名>）。
     """
     env = os.environ.get("RVC_OUT_ROOT", "").strip()
     if env:

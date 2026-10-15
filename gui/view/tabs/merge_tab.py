@@ -22,10 +22,8 @@ def build_merge_tab(win) -> QWidget:
     g = QGridLayout(w)
     g.setSpacing(6)
     g.setContentsMargins(8, 8, 8, 8)
-    # 与「音色 / 参数」页签同一套列比例（滑块独占第 1 列、值标签 80px 占第 2 列），
-    # 三个页签的滑块因此逐像素对齐：实测页宽 525 时融合 x=112/宽 319，
-    # 参数 x=112/宽 319，音色 x=110/宽 312（音色第 1 列含 RangeSlider 最小宽 180，
-    # 分配略有 7px 残差，视觉不可见）。
+    # 与「音色 / 参数」页签同一套列比例（col0=4 / col1=13 / col2=3），
+    # 三个页签的滑块行因此逐像素对齐。
     g.setColumnStretch(0, 4)
     g.setColumnStretch(1, 13)
     g.setColumnStretch(2, 3)
@@ -52,9 +50,9 @@ def build_merge_tab(win) -> QWidget:
 
     # ── 融合比例（A 的占比；B = 100 - A）──
     # 版式与「音色 / 参数」页签的滑块行完全一致：标签 | 滑块(col1) | 值(col2)。
-    # 值列必须是**定宽标签**（同 _create_slider_row(label_w=80)）：定宽后列宽
-    # 才与其它页签相同，滑块也就拿到同样的宽度与左边界；换成长度随内容变化的
-    # 标签，col2 会被挤掉、多余宽度全归滑块（这正是之前「宽度不太对」的成因）。
+    # 值列必须是定宽标签（同 _create_slider_row 的 label_w=80）：定宽后三页签
+    # 列宽一致，滑块拿到相同宽度与左边界；长度随内容变化的裸 QLabel 会以整段
+    # 文本作为 minimumSizeHint，把 col2 挤掉、多余宽度全归滑块。
     win.merge_slider = QSlider(Qt.Orientation.Horizontal)
     win.merge_slider.setRange(0, 100)
     win.merge_slider.setValue(50)
