@@ -71,38 +71,35 @@ class SolaEffect:
 
 
 class MicAirflowEffect:
-    """麦克风气流声 — v0 质感 + 物理时序吸气包络（v8）。
+    """麦克风气流声 — v0 质感 + 物理时序吸气包络（v7）。
 
     【裁决史】v0（2026-10-10，质感被认可：「还不如一开始的声音像」，
     但节奏不对）→ v1 事件驱动 / v2 低频触发 / v3 频响 FIR / v4 真实采样
     （「不要录入真实的音效，就用虚拟生成呼呼声。不要参考我的本地音频
     文件」）/ v5 湍流模型（「像呲呲声，不像呼呼声；又变成随机响了」）/
     v6 停顿触发 swell（「还是不太像，和人声的配合还是怪」）全部被否。
-    v7（物理时序吸气）**被认可为新基线节点**。
+    v7（物理时序吸气）**被认可为新基线节点**；v8 吸气湍流带（250Hz–1kHz
+    带通噪声×吸气包络）被否——「说完话都有一个滋滋声，完全不可行」：
+    带通白噪声无论怎么门控都是「滋」，不是气声（与 v5 呲呲声同病）。
+    **吸气音色保持 rumble 层原样，勿再加中频带通。**
 
     【v6「配合怪」的根源】swell 在停顿开始 ~330ms 后触发、0.3s 衰减——
     吸气发生在停顿**中间**，说话恢复前就消失了。真实呼吸的时序相反：
     静音中缓缓吸气、**峰值落在开口瞬间**、一开口就切断。
 
-    【v8 = v7 基线不动，吸气加中频湍流层】
+    【v7 = v0 质感层不动，节奏层改为物理时序吸气包络】
     质感层（原样，用户认可）：
       - 100Hz rumble（呼呼声主体）+ 75Hz 共振 + 85Hz 稳态底噪
       - 4kHz 辅音嘶声（样本级 hf_ratio 门控，辅音时才有）
       - AM 幅度调制（气流包络调制人声，融合感核心）
       - 近讲低频搁架 + 气流控制软饱和
-    节奏层（v7 基线，零事件触发、零随机）：
+    节奏层（v7 重写，零事件触发、零随机）：
       - 静音持续 ≥0.12s 才开始吸气（词间闭止不误吸），τ=0.3s 升起，
         停顿越长吸得越足；静音 >1s 视为吸完，自然回落（τ=0.6s）；
         说话恢复 τ=0.05s 快速切断——「先吸气、后开口」的物理时序
       - 说话活跃度（τ=1s EMA）门控：长静音后不再呼吸，冷启动静音
         不凭空吸气（替代 v6 的 samples_seen 守卫）
       - 吸气包络是「静音时长」的连续函数，与语音天然同步
-    吸气湍流层（v8 新）：
-      - v7 的吸气只是 rumble 低频隆起；真实张嘴吸气带中频湍流「哈」。
-        加 250Hz–1kHz 带通噪声（box 差核），**仅由吸气包络门控**
-        （说话时无、静音回落时无）——与 v5 的常开亮带（呲呲声）本质
-        不同：v5 是 always-on 载波，这里是间歇呼吸事件的一部分
-      - ×wind_mod 慢调制：口气与口气之间有自然起伏
 
     块间一致性（硬规则，全部遵守）：
     - 缓存滤波**输入**而非输出（_prev_audio / _prev_mod / _prev_noise /
@@ -110,8 +107,7 @@ class MicAirflowEffect:
     - 因果卷积只左侧 pad(k-1)；F.conv1d 是互相关，gate EMA 核已 flip
     - 噪声**每消费者独立流**（调制噪声 / 风噪各一个生成器 + 固定 16384
       补给池顺序消费）——单池多消费者的「值→消费者」映射随块长变化
-      （v5 实测教训）；逐块 randn 值序也与调用长度相关；湍流层与
-      rumble 共用风噪流的不同滤波通道，不新增消费者
+      （v5 实测教训）；逐块 randn 值序也与调用长度相关
     - dur / act / env 三条递推均为仿射（e'=a·e+b），用并行前缀扫描
       精确实现（组合律 (a_r,b_r)∘(a_l,b_l)=(a_l·a_r, a_r·b_l+b_r)），
       跨块用 GPU 标量尾衔接——与分块无关
@@ -157,11 +153,6 @@ class MicAirflowEffect:
     ACT_THRESHOLD = 0.05       # 活跃度归一阈值（≈刚可闻语音的包络）
     INHALE_BOOST = 1.0         # 吸气相对语音门控的增益
 
-    # ── 吸气湍流层（v8 新：真实张嘴吸气带中频「哈」气声）──
-    INHALE_TURB_GAIN = 0.12    # 湍流增益（单元σ载波；≈rumble 的 25-30%）
-    _REF_TURB_HI_K = 24        # 带通上沿 ≈1kHz（sr/(2k) 粗映射）
-    _REF_TURB_LO_K = 96        # 带通下沿 ≈250Hz
-
     _MAX_BLOCK_SEC = 1.0       # 内部子块上限（整段离线调用时切分；流式块远小于此）
     _NOISE_CHUNK = 16384       # 噪声池补给单位（CUDA randn 值序与调用块长相关）
 
@@ -175,6 +166,7 @@ class MicAirflowEffect:
     _REF_HISS_K = 12           # 4kHz三角核（高频嘶嘶声低通）
     _REF_PROX_K = 51           # 150Hz box低通（近讲效应）
     _REF_GATE_LEN = 40         # 10ms EMA平滑
+
     @staticmethod
     def _triangular_kernel(k: int) -> torch.Tensor:
         """生成三角核（两次移动平均的卷积），频率响应sinc²，-26dB/octave。"""
@@ -198,7 +190,6 @@ class MicAirflowEffect:
         # 预计算常量
         self._mod_norm = 1.0       # box低通后白噪声理论σ=sqrt(1/k)
         self._gate_offset = 0.0    # sigmoid(-2.4)≈0.0832
-        self._turb_norm = 1.0      # 湍流带通载波理论 σ 归一
         # 吸气包络的仿射系数（setup 按 sr 计算）
         self._alpha_rise = 0.0     # 升起步进 α = 1-exp(-1/(τ·sr))
         self._rise_a = 1.0
@@ -244,28 +235,19 @@ class MicAirflowEffect:
         floor_k, breath_k = k(self._REF_FLOOR_K), k(self._REF_BREATH_K)
         resonance_k, hiss_k = k(self._REF_RESONANCE_K), k(self._REF_HISS_K)
         prox_k, gate_len = k(self._REF_PROX_K), max(2, k(self._REF_GATE_LEN))
-        turb_hi_k, turb_lo_k = k(self._REF_TURB_HI_K), k(self._REF_TURB_LO_K)
 
         # slow：box 低通（包络 + 调制噪声）
         self._slow_kernel = self._box(slow_k)
         self._hf_kernel = self._box(hf_k)
         self._prox_kernel = self._box(prox_k)
-        # combo：分组卷积组合核（5 通道：breath/resonance/floor/hiss/turb）
-        combo_size = 2 * max(floor_k, breath_k, resonance_k, hiss_k,
-                             turb_lo_k) - 1
-        combo = torch.zeros(5, 1, combo_size)
+        # combo：分组卷积组合核（4 通道：breath/resonance/floor/hiss）
+        combo_size = 2 * max(floor_k, breath_k, resonance_k, hiss_k) - 1
+        combo = torch.zeros(4, 1, combo_size)
         for i, kern in enumerate((self._triangular_kernel(breath_k),
                                   self._triangular_kernel(resonance_k),
                                   self._triangular_kernel(floor_k),
                                   self._triangular_kernel(hiss_k))):
             combo[i, 0, :kern.shape[2]] = kern[0, 0]
-        # 通道4：吸气湍流带通 = box(高截止) - box(低截止)（两因果 box 都从
-        # tap0 起，短者右侧补零后相减即带通 [低截止, 高截止]；长度取宽者）
-        h_turb = self._box(turb_lo_k)[0, 0]
-        h_turb[:turb_hi_k] -= self._box(turb_hi_k)[0, 0]
-        combo[4, 0, :h_turb.shape[0]] = h_turb
-        # 湍流载波理论 σ 归一（白噪声过核后 σ=sqrt(Σh²)）
-        self._turb_norm = 1.0 / float(h_turb.pow(2).sum().sqrt())
         self._combo_kernel = combo
         # gate：指数 EMA（反转使最大权重对应最新样本）
         gate_kernel = self.GATE_EMA_FIRST * self.GATE_EMA_DECAY ** torch.arange(
@@ -482,7 +464,7 @@ class MicAirflowEffect:
         envelope_gate = gate_smooth[gate_ctx.shape[0] - n:]
 
         # ═══════════════════════════════════════════════════════════
-        # 5. 风噪声（combo 分组卷积，5 通道）
+        # 5. 风噪声（combo 分组卷积，4 通道）
         # ═══════════════════════════════════════════════════════════
         noise = self._noise(1, n, device)
         if self._prev_noise is not None:
@@ -491,14 +473,13 @@ class MicAirflowEffect:
             noise_ctx = noise
         self._prev_noise = noise_ctx[-self._combo_ctx:].clone()
 
-        noise_5ch = noise_ctx.view(1, 1, -1).expand(1, 5, -1)
-        combo_out = self._causal_conv1d(noise_5ch, k_combo, groups=5)
+        noise_4ch = noise_ctx.view(1, 1, -1).expand(1, 4, -1)
+        combo_out = self._causal_conv1d(noise_4ch, k_combo, groups=4)
         noise_n = noise_ctx.shape[0]
         breath_low = combo_out[0, 0, noise_n - n:noise_n]
         res_low = combo_out[0, 1, noise_n - n:noise_n]
         floor_low = combo_out[0, 2, noise_n - n:noise_n]
         hiss_low = combo_out[0, 3, noise_n - n:noise_n]
-        turb_band = combo_out[0, 4, noise_n - n:noise_n]
 
         # wind 缓慢起伏（调制噪声自调制）
         wind_mod = 1.0 + 0.4 * (mod_low - 1.0) / 0.15
@@ -545,18 +526,9 @@ class MicAirflowEffect:
         audio_sat = audio_prox / (1.0 + torch.abs(audio_prox) * drive)
 
         # ═══════════════════════════════════════════════════════════
-        # 8.5 吸气湍流层（v8）：250Hz–1kHz 带通风噪 × 吸气包络。
-        #     仅呼吸事件期间存在（说话时无、静音回落时无）——与 v5 的
-        #     常开亮带（呲呲声）本质不同；×wind_mod 给口气间自然起伏
-        # ═══════════════════════════════════════════════════════════
-        turb = (turb_band * self._turb_norm) * inhale * wind_mod \
-            * self.INHALE_TURB_GAIN * intensity
-
-        # ═══════════════════════════════════════════════════════════
         # 9. 混合输出：人声（AM+近讲+饱和）+ 呼呼声 + 底噪 + 嘶嘶声
-        #    + 吸气湍流
         # ═══════════════════════════════════════════════════════════
-        return audio_sat + breath + floor + hiss + turb
+        return audio_sat + breath + floor + hiss
 
 
 class AudioProcessor:
