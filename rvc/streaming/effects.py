@@ -71,95 +71,77 @@ class SolaEffect:
 
 
 class MicAirflowEffect:
-    """麦克风气流声 — 自然化气流 + 人声融合。
+    """麦克风气流声 — 纯合成湍流「呼呼」（v5）。
 
-    自然化（解决"太规律"）：
-    - 辅音增强：高频能量比门控（p/b/t/s 时气流强，元音时弱），而非总能量
-    - 非线性门控：pow(0.5)，中等音量也有明显气流，静音底噪不被压死
-    - 呼吸 LFO：0.15Hz + 0.07Hz 双正弦，模拟呼吸周期的缓慢起伏
-    - OU 随机游走：均值回复随机过程，模拟自然波动（0.5-2Hz 中速变化）
-    - 随机突发：泊松过程平均每 6-7 秒一次意外喷麦（50-150ms，1.3-2x）
+    【裁决史】v1 事件驱动合成（「和人声独立，假」）→ v2 低频带触发
+    （「莫名其妙响起来 + 声音不像」）→ v3 实测频响 FIR（「跟频率没关系，
+    完全不像」）→ v4 真实呼吸采样回放（「不要录入真实的音效，就用虚拟
+    生成呼呼声。不要参考我的本地音频文件」）→ v5 纯合成。
 
-    人声融合（解决"太干净"）：
-    - AM 幅度调制：气流超低频分量（15Hz 低通）对人声做 1.5% 深度调制，
-      模拟气流冲击振膜导致人声输出被调制——融合感的核心
-    - 近讲效应低频搁架：150Hz 以下提升，模拟指向性麦克风近距离物理特性
-    - 气流控制软饱和：气流量控制软削波阈值（x/(1+|x|*drive)），
-      气流大时人声微妙饱和（THD<1%），模拟振膜大位移非线性失真
-    - 气流频谱跟随：高频嘶嘶声（2-4kHz 带通）量由人声高频能量比控制，
-      辅音时气流也有高频成分，频谱特征与人声一致
+    【物理机制】对麦说话的「呼呼」= 口鼻气流在振膜附近的湍流噪声。
+    三要素全在时间域（不做频响雕塑——v3 教训）：
 
-    气流层：
-    - 100Hz rumble（呼呼声主体，wind noise 能量集中在 <100Hz）
-    - 75Hz resonance（vortex shedding 共振峰，WongWong 低沉共鸣）
-    - 85Hz floor（静音稳态底噪）
-    - 4kHz hiss（辅音高频嘶嘶声，喷麦感）
+      1. 载波 carrier：宽带噪声经声学路径级联低通（暗色 rumble），RMS 归一
+      2. 阵性起伏 gust：湍流强度本身在 ~20Hz 与 ~2Hz 两个尺度上混沌波动。
+         用「慢速低通噪声的 |·|」（均值归一）当起伏函数——与载波同源、
+         自相似的混沌信号。v1-v3 的人工包络 / box(|white|) 数学缺陷：
+         大窗平均方差 ∝ 1/k，几乎恒定 → 恒定嘶声，这就是「假」的根源
+      3. 气流驱动 drive：说话越响气流越大——**连续耦合**语音慢包络
+         （200ms box 幂压缩）+ 恒定基流。无离散触发、无事件检测，
+         电平永远连续（v1「独立」、v2「莫名响起」的解）
+      4. 气流越大频谱越宽（湍流噪声 U^6 律）：带通层（box − 载波）
+         随 drive² 增亮
 
-    所有低通均为因果卷积（只左侧pad），避免块末尾输出伸进右pad零区导致能量塌陷。
-    块间上下文教训（硬规则）：
-    - 跨块历史必须显式缓存，拼满核长后取尾部：cat([prev, new])[-ctx:]
-    - 缓存滤波**输入**而非输出（如 _prev_mod 存原始噪声、_prev_audio 存原始音频），
-      否则下一块会二次滤波
-    - 因果卷积只左侧 pad(k-1)；F.conv1d 实为互相关，非对称核必须先 flip
-    （gate 核的反转见 setup() 中 gate_kernel.flip(0)）。
-    核大小随采样率动态缩放，时间常量/截止频率与sr无关。
+    结构（v4 的采样库/停顿检测/状态机全部删除）：
+      breath = gust · drive · G · (carrier + band · drive · BAND_GAIN)
+      voice  = audio · (1 + 近讲搁架)
+      output = voice + breath + 稳态底噪
+
+    块间一致性（硬规则，全部遵守）：
+    - 全链路无反馈状态机，只有「上下文缓存 + 顺序噪声池」，任意分块 ==
+      整段（FP 卷积累加序差异在 1.5e-3 内）
+    - 缓存滤波**输入**而非输出（_prev_audio / _prev_car / _prev_flick /
+      _prev_noise 存各自滤波的原始输入）
+    - 因果卷积只左侧 pad(k-1)
+    - 噪声按**每消费者独立流**供给（载波/gust/底噪各一个生成器+池）。
+      ⚠️ 不能多消费者共享一条顺序流：单池顺序消费下「哪段值分给哪条
+      消费者」取决于块长（整段 1s 切 vs 随机分块映射不同），逐块 randn
+      则值序本身与调用长度相关——两种都会破坏块间一致性。独立流各自
+      按固定块长补给，消费只做顺序切片，与块长完全无关
+    - 零 .item() / Python 真值 / 0-dim 张量索引
     """
 
-    # ── 增益（不依赖sr）──
-    BREATH_GAIN = 5.4          # 呼呼声 rumble 增益（拉满时相对语音≈0dB）
-    RESONANCE_GAIN = 0.5       # 共振层增益
-    FLOOR_GAIN = 0.35          # 底噪增益（静音可闻，降低避免嘶滋）
-    HISS_GAIN = 0.3            # 高频嘶嘶声增益（辅音时，受envelope_gate样本级门控）
+    # ── 增益（不依赖 sr）──
     INTENSITY_SCALE = 0.35     # GUI 100% 对应实际 35% 效果
+    BREATH_GAIN = 0.10         # 呼吸层总增益（载波/gust/带通均已 RMS 归一）
+    BAND_GAIN = 0.30           # 带通层亮度（×drive²，气流大→频谱宽）
+    FLOOR_GAIN = 0.35          # 稳态底噪增益
+    PROXIMITY_GAIN = 0.4       # 近讲低频提升量
 
-    # ── AM 幅度调制（人声融合核心）──
-    AM_DEPTH = 0.04            # 4% 深度（气流包络样本级调制人声，气流大时调制更深）
+    # ── 气流驱动 drive（连续耦合语音包络）──
+    DRIVE_BASE = 0.35          # 静默基流（房间空气连续感，不归零）
+    DRIVE_SPEECH = 0.5         # 语音耦合分量
+    DRIVE_REF = 0.08           # 语音包络参考（|x| 均值≈0.8·RMS，典型语音 RMS~0.1）
+    DRIVE_MAX = 1.4            # 压缩上限
+    DRIVE_EXP = 0.7            # 幂压缩（响度感知近似）
 
-    # ── 近讲效应（proximity effect）──
-    PROXIMITY_GAIN = 0.4       # 低频提升量（约 +3dB @ 拉满）
-    PROXIMITY_CUTOFF = 150     # Hz，低频搁架截止
+    # ── 阵性起伏 gust ──
+    GUST_CEIL = 4.0            # 软上限：gust = ceil·tanh(f1·f2/ceil)
 
-    # ── 软饱和（气流控制）──
-    SATURATION_BASE = 0.8      # 基础 drive（无时也有轻微饱和，模拟麦克风电路）
-    SATURATION_AIR = 1.5       # 气流带来的额外 drive
-
-    # ── 语音门控（单源定义）──
-    GATE_MID = 0.08            # sigmoid 中点（RMS 包络量纲）
-    GATE_STEEP = 30.0          # sigmoid 陡度
-    GATE_EXP = 0.5             # 非线性门控指数（pow 0.5 = 平方根，中等音量更明显）
-    GATE_EMA_FIRST = 0.08      # 门控 EMA 平滑权重
-    GATE_EMA_DECAY = 0.92
-
-    # ── 辅音增强 ──
-    CONSONANT_BOOST = 1.8      # 辅音时气流增强倍数
-    CONSONANT_HF_CUTOFF = 2000 # Hz，高频能量比计算的分界
-
-    # ── 呼吸 LFO ──
-    LFO1_FREQ = 0.15           # Hz，主呼吸周期
-    LFO2_FREQ = 0.07           # Hz，次呼吸周期（非谐波叠加）
-    LFO_AMP = 0.15             # LFO 幅度（±15%，减弱周期性让随机感更突出）
-
-    # ── OU 随机游走（Ornstein-Uhlenbeck 过程）──
-    OU_THETA = 0.02            # 均值回复速率（时间常数≈50s）
-    OU_SIGMA = 0.08            # 噪声强度
-    OU_CLAMP = 0.4             # 钳位范围（±40%）
-
-    # ── 随机突发（泊松过程）──
-    BURST_PROB = 0.03          # 每块触发概率（@100ms块 = 平均每 3.3 秒一次）
-    BURST_DECAY = 0.05         # 突发衰减时间常数（秒）
-    BURST_GAIN_MIN = 1.3       # 突发最小增益
-    BURST_GAIN_MAX = 2.0       # 突发最大增益
-
-    # @48k 参考核大小（setup中按sr比例缩放）
+    # @48k 参考核大小（setup 中按 sr 比例缩放）
     _REF_SR = 48000
-    _REF_SLOW_K = 2400         # 50ms box低通（包络/调制）
-    _REF_HF_K = 480            # 10ms box低通（高频包络，快速响应辅音瞬态）
-    _REF_FLOOR_K = 180         # 85Hz三角核
-    _REF_BREATH_K = 150        # 100Hz三角核
-    _REF_RESONANCE_K = 200     # 75Hz三角核
-    _REF_HISS_K = 12           # 4kHz三角核（高频嘶嘶声低通）
-    _REF_PROX_K = 51           # 150Hz box低通（近讲效应）
-    _REF_GATE_LEN = 40         # 10ms EMA平滑
+    _REF_DRIVE_K = 9600        # 200ms 语音慢包络 box
+    _REF_PROX_K = 51           # 近讲低频 box
+    _REF_FLOOR_K = 180         # 85Hz 三角核（稳态底噪）
+    _REF_CAR_K1 = 64           # 载波级联 box 内层（null 750Hz）
+    _REF_CAR_K2 = 160          # 载波级联 box 外层（null 300Hz）
+    _REF_BAND_K = 48           # 带通 = box48 − 载波（300~750Hz 气息亮层）
+    _REF_LP1_K = 800           # gust 快尺度级联 box（~20Hz 带宽）
+    _REF_LP2_K = 7200          # gust 慢尺度级联 box（~2Hz 带宽，呼吸起伏）
+    _INV_SQRT2PI = 0.7978845608  # E|N(0,1)| = sqrt(2/π)，gust 均值归一用
+
+    _MAX_BLOCK_SEC = 1.0       # 内部子块上限（整段离线调用时切分；流式块远小于此）
+    _NOISE_CHUNK = 16384       # 噪声池补给单位（CUDA randn 值序与调用块长相关）
 
     @staticmethod
     def _triangular_kernel(k: int) -> torch.Tensor:
@@ -169,331 +151,216 @@ class MicAirflowEffect:
         w = torch.min(idx + 1, size - idx) / (k * k)
         return w.view(1, 1, size)
 
+    @staticmethod
+    def _box(k: int) -> torch.Tensor:
+        return torch.ones(1, 1, k) / k
+
     def __init__(self):
-        # 卷积核（CPU 模板 + GPU 缓存）
-        self._slow_kernel = None
-        self._combo_kernel = None
-        self._gate_kernel = None
-        self._prox_kernel = None
-        self._slow_kernel_gpu = None
-        self._combo_kernel_gpu = None
-        self._gate_kernel_gpu = None
-        self._prox_kernel_gpu = None
+        # FIR 核（CPU 模板）+ 归一常数（||h||₂，setup 时一次算好）
+        self._k_drive = self._k_prox = self._k_floor = None
+        self._k_car = self._k_band = self._k_lp1 = self._k_lp2 = None
+        self._norm_car = self._norm_band = self._norm_lp1 = self._norm_lp2 = 1.0
+        self._gpu = None  # (核元组, device) 缓存
+        # 各滤波的输入尾缓存（存输入而非输出，防下一块二次滤波）
+        self._prev_audio = None    # 原始音频（drive 包络 + 近讲共用）
+        self._prev_car = None      # 载波/带通噪声输入
+        self._prev_flick = None    # gust 噪声输入
+        self._prev_noise = None    # 底噪输入
         # 上下文缓存长度
-        self._slow_ctx = 0
-        self._combo_ctx = 0
-        self._gate_ctx = 0
-        self._prox_ctx = 0
-        # 预计算常量
-        self._mod_norm = 1.0       # box低通后白噪声理论σ=sqrt(1/k)
-        self._gate_offset = 0.0    # sigmoid(-2.4)≈0.0832
-        self._lfo_step1 = 0.0      # LFO1 每样本相位增量
-        self._lfo_step2 = 0.0      # LFO2 每样本相位增量
-        self._am_alpha = 0.0       # AM 低通系数
-        self._burst_decay_coef = 1.0  # 突发每样本衰减系数
-        # 块间上下文缓存
-        self._prev_audio = None
-        self._prev_mod = None
-        self._prev_noise = None
-        self._prev_gate = None
-        self._prev_audio_prox = None
-        # 慢变状态
-        self._lfo_phase1 = 0.0       # LFO 相位（纯 Python 算术，无同步）
-        self._lfo_phase2 = 0.0
-        # GPU 标量张量状态（避免每块 .item() 强制同步）。教训：0-dim CUDA 张量
-        # 做切片索引或被 Python if 取真值都会隐蔽触发 GPU→CPU 同步——
-        # 这些状态只经 torch.where / 张量算术原地更新，绝不转成 Python 值。
-        self._ou_state_t = None       # OU 随机游走状态
-        self._burst_env_t = None      # 突发包络
-        self._burst_gain_t = None     # 突发增益
-        self._one_t = None            # 常量 1.0（torch.where 复用）
-        # 复用缓冲（热路径零分配）
-        self._batch_in = None       # (2,1,ctx_n)：调制噪声/包络
-        self._rng = None
+        self._a_ctx = 0
+        self._car_ctx = 0
+        self._flick_ctx = 0
+        self._noise_ctx = 0
+        self._max_block = 0
+        # 噪声流：每消费者独立（0=载波/带通, 1=gust, 2=底噪）
+        self._rngs = [None, None, None]
         self._rng_device = None
+        self._pools = [None, None, None]
+        self._pool_pos = [0, 0, 0]
 
     def setup(self, sr: int, device: str = None):
-        """根据采样率动态计算所有核大小（时间常量/截止频率与sr无关）。"""
+        """根据采样率动态计算所有 FIR（时间常量/截止频率与 sr 无关）。"""
         scale = sr / self._REF_SR
-        slow_k = max(1, int(self._REF_SLOW_K * scale))
-        floor_k = max(1, int(self._REF_FLOOR_K * scale))
-        breath_k = max(1, int(self._REF_BREATH_K * scale))
-        resonance_k = max(1, int(self._REF_RESONANCE_K * scale))
-        hiss_k = max(1, int(self._REF_HISS_K * scale))
-        prox_k = max(1, int(self._REF_PROX_K * scale))
-        hf_k = max(1, int(self._REF_HF_K * scale))
-        gate_len = max(2, int(self._REF_GATE_LEN * scale))
-        combo_size = 2 * max(floor_k, breath_k, resonance_k, hiss_k) - 1
+        ref = self._REF_SR
 
-        # slow：box 低通（包络 + 调制噪声）
-        self._slow_kernel = torch.ones(1, 1, slow_k) / slow_k
-        # hf：box 低通（高频包络，10ms快速响应）
-        self._hf_kernel = torch.ones(1, 1, hf_k) / hf_k
-        # prox：box 低通（近讲效应低频，短核）
-        self._prox_kernel = torch.ones(1, 1, prox_k) / prox_k
-        # combo：分组卷积组合核（4 通道：breath/resonance/floor/hiss）
-        combo = torch.zeros(4, 1, combo_size)
-        kb = self._triangular_kernel(breath_k)
-        kr = self._triangular_kernel(resonance_k)
-        kf = self._triangular_kernel(floor_k)
-        kh = self._triangular_kernel(hiss_k)
-        combo[0, 0, :kb.shape[2]] = kb[0, 0]
-        combo[1, 0, :kr.shape[2]] = kr[0, 0]
-        combo[2, 0, :kf.shape[2]] = kf[0, 0]
-        combo[3, 0, :kh.shape[2]] = kh[0, 0]
-        self._combo_kernel = combo
-        # gate：指数 EMA（反转使最大权重对应最新样本）
-        gate_kernel = self.GATE_EMA_FIRST * self.GATE_EMA_DECAY ** torch.arange(gate_len, dtype=torch.float32)
-        self._gate_kernel = gate_kernel.flip(0).view(1, 1, -1)
+        def k(ref_k: int) -> int:
+            return max(1, int(ref_k * scale))
 
-        # 预计算常量
-        self._slow_ctx = slow_k - 1
-        self._combo_ctx = combo_size - 1
-        self._gate_ctx = gate_len - 1
-        self._prox_ctx = prox_k - 1
-        self._mod_norm = (1.0 / slow_k) ** 0.5
-        self._gate_offset = float(
-            torch.sigmoid(torch.tensor(-self.GATE_MID * self.GATE_STEEP)).item()
-        )
-        # LFO 每样本相位增量
-        self._lfo_step1 = 2.0 * np.pi * self.LFO1_FREQ / sr
-        self._lfo_step2 = 2.0 * np.pi * self.LFO2_FREQ / sr
-        # 突发衰减系数（每样本）
-        self._burst_decay_coef = np.exp(-1.0 / (self.BURST_DECAY * sr))
+        drive_k, prox_k, floor_k = k(self._REF_DRIVE_K), k(self._REF_PROX_K), k(self._REF_FLOOR_K)
+        car1, car2, band_k = k(self._REF_CAR_K1), k(self._REF_CAR_K2), k(self._REF_BAND_K)
+        lp1, lp2 = k(self._REF_LP1_K), k(self._REF_LP2_K)
 
-        # 预迁移核到设备
-        if device is not None:
-            self._slow_kernel_gpu = self._slow_kernel.to(device)
-            self._combo_kernel_gpu = self._combo_kernel.to(device)
-            self._gate_kernel_gpu = self._gate_kernel.to(device)
-            self._prox_kernel_gpu = self._prox_kernel.to(device)
-            self._hf_kernel_gpu = self._hf_kernel.to(device)
-        else:
-            self._slow_kernel_gpu = None
-            self._combo_kernel_gpu = None
-            self._gate_kernel_gpu = None
-            self._prox_kernel_gpu = None
-            self._hf_kernel_gpu = None
+        # 载波：box(car1) → box(car2) 级联（合并成单 FIR）。
+        # ⚠️ F.conv1d 默认 valid 模式输出 k2−k1+1，级联 FIR 必须全 padding：
+        # 输出长度 = k1+k2−1
+        h_car = F.conv1d(self._box(car2), self._box(car1), padding=car1 - 1)
+        # 带通：box(band_k) − 载波。合并成单 FIR 需右对齐（因果卷积核尾对齐当前样本）
+        L = h_car.shape[2]
+        h_band = F.pad(self._box(band_k), (L - band_k, 0)) - h_car
+        # gust 两个尺度的低通（级联合并，全 padding 同上）
+        h_lp1 = F.conv1d(self._box(lp1), self._box(lp1), padding=lp1 - 1)
+        h_lp2 = F.conv1d(self._box(lp2), self._box(lp2), padding=lp2 - 1)
+
+        self._k_drive = self._box(drive_k)
+        self._k_prox = self._box(prox_k)
+        self._k_floor = self._triangular_kernel(floor_k)
+        self._k_car, self._k_band = h_car, h_band
+        self._k_lp1, self._k_lp2 = h_lp1, h_lp2
+
+        # RMS 归一常数：白噪声经 FIR h 后标准差 = ||h||₂（h 系数和为 1 的
+        # box 族不例外）；gust 的 E|lp| = 0.798·||h||₂
+        self._norm_car = float(h_car.norm()) or 1.0
+        self._norm_band = float(h_band.norm()) or 1.0
+        self._norm_lp1 = float(h_lp1.norm()) or 1.0
+        self._norm_lp2 = float(h_lp2.norm()) or 1.0
+        self._inv_lp1 = self._INV_SQRT2PI * self._norm_lp1  # f = |lp| / (0.798·σ)
+        self._inv_lp2 = self._INV_SQRT2PI * self._norm_lp2
+
+        # 上下文缓存长度（各域取最长核）
+        self._a_ctx = drive_k - 1                    # audio 域：drive(最长)+prox
+        self._car_ctx = h_car.shape[2] - 1           # 载波/带通共用同一噪声输入
+        self._flick_ctx = h_lp2.shape[2] - 1         # gust 两尺度共用同一噪声输入
+        self._noise_ctx = self._k_floor.shape[2] - 1  # 三角核长 2k-1
+        self._max_block = int(self._MAX_BLOCK_SEC * sr)
+        self._gpu = None
+        self.reset()
 
     def reset(self):
         """重置所有有状态的缓存（warmup 后调用，确保离线从干净状态开始）。"""
         self._prev_audio = None
-        self._prev_mod = None
+        self._prev_car = None
+        self._prev_flick = None
         self._prev_noise = None
-        self._prev_gate = None
-        self._prev_audio_prox = None
-        self._lfo_phase1 = 0.0
-        self._lfo_phase2 = 0.0
-        self._ou_state_t = None
-        self._burst_env_t = None
-        self._burst_gain_t = None
-        self._rng = None
+        self._rngs = [None, None, None]
         self._rng_device = None
+        self._pools = [None, None, None]
+        self._pool_pos = [0, 0, 0]
 
-    def _noise(self, n: int, device: torch.device) -> torch.Tensor:
-        """取 n 个标准正态噪声（私有 Generator，固定种子）。"""
-        if self._rng is None or self._rng_device != device:
-            self._rng = torch.Generator(device=device)
-            self._rng.manual_seed(AIRFLOW_NOISE_SEED)
+    def _noise(self, stream: int, n: int, device: torch.device) -> torch.Tensor:
+        """取第 stream 条噪声流的下 n 个标准正态值（独立生成器+固定补给池）。
+
+        每条流独立种子、按固定 _NOISE_CHUNK 补给、顺序消费——单条流的值序
+        与分块无关（CUDA randn 值序与单次调用长度相关，不能逐块 randn；
+        多流共享单池则「值→消费者」映射与块长相关，也不能用）。
+        """
+        if self._rngs[stream] is None or self._rng_device != device:
+            self._rngs[stream] = torch.Generator(device=device)
+            self._rngs[stream].manual_seed(AIRFLOW_NOISE_SEED + stream)
+            self._pools[stream] = torch.empty(0, device=device)
+            self._pool_pos[stream] = 0
             self._rng_device = device
-        return torch.randn(n, device=device, generator=self._rng)
+        pool, pos = self._pools[stream], self._pool_pos[stream]
+        while pos + n > pool.numel():
+            fresh = torch.randn(self._NOISE_CHUNK, device=device,
+                                generator=self._rngs[stream])
+            pool = torch.cat([pool[pos:], fresh])
+            pos = 0
+        out = pool[pos:pos + n]
+        self._pools[stream] = pool
+        self._pool_pos[stream] = pos + n
+        return out
 
     @staticmethod
-    def _causal_conv1d(x: torch.Tensor, kernel: torch.Tensor, groups: int = 1) -> torch.Tensor:
+    def _causal_conv1d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
         """因果1D卷积：只左侧pad(k-1)，输出长度=输入长度。"""
         k = kernel.shape[2]
         x_padded = F.pad(x, (k - 1, 0))
-        return F.conv1d(x_padded, kernel, groups=groups)
+        return F.conv1d(x_padded, kernel)
+
+    def _tail(self, x_full: torch.Tensor, n: int) -> torch.Tensor:
+        """上下文卷积输出取当前块的尾部。"""
+        return x_full[0, 0, x_full.shape[2] - n:]
 
     def process(self, audio: torch.Tensor, intensity: float) -> torch.Tensor:
         # 旁路：强度 0 时不做任何处理，也不推进块间缓存。
         if intensity <= 0:
             return audio
-        intensity = intensity * self.INTENSITY_SCALE
+        n_total = audio.shape[0]
+        if n_total > self._max_block:
+            # 整段离线调用：内部按 ≤1s 子块处理（上下文每子块独立衔接），
+            # 保证与流式分块逐样本一致
+            outs = [self._process_block(audio[i:i + self._max_block], intensity)
+                    for i in range(0, n_total, self._max_block)]
+            return torch.cat(outs)
+        return self._process_block(audio, intensity)
 
+    def _kernels_on(self, device: torch.device):
+        """核的 GPU 缓存（首次/换设备时迁移）。"""
+        if self._gpu is None or self._gpu[1] != device:
+            self._gpu = (tuple(t.to(device) for t in (
+                self._k_drive, self._k_prox, self._k_floor,
+                self._k_car, self._k_band, self._k_lp1, self._k_lp2,
+            )), device)
+        return self._gpu[0]
+
+    def _process_block(self, audio: torch.Tensor, intensity: float) -> torch.Tensor:
+        intensity = intensity * self.INTENSITY_SCALE
         n = audio.shape[0]
         device = audio.device
-
-        # 确保核在当前 device 上
-        if self._slow_kernel_gpu is None or self._slow_kernel_gpu.device != device:
-            self._slow_kernel_gpu = self._slow_kernel.to(device)
-            self._combo_kernel_gpu = self._combo_kernel.to(device)
-            self._gate_kernel_gpu = self._gate_kernel.to(device)
-            self._prox_kernel_gpu = self._prox_kernel.to(device)
+        k_drive, k_prox, k_floor, k_car, k_band, k_lp1, k_lp2 = self._kernels_on(device)
 
         # ═══════════════════════════════════════════════════════════
-        # 1. 包络 + 调制噪声（slow 卷积，2 通道）
-        #    通道0=调制噪声, 通道1=|audio|(总包络)
+        # 1. audio 域：语音慢包络（气流驱动）+ 近讲低通（共用上下文）
         # ═══════════════════════════════════════════════════════════
-        mod_raw = self._noise(n, device)
         if self._prev_audio is not None:
             audio_ctx = torch.cat([self._prev_audio, audio])
-            mod_ctx = torch.cat([self._prev_mod, mod_raw])
         else:
             audio_ctx = audio
-            mod_ctx = mod_raw
-        self._prev_audio = audio_ctx[-self._slow_ctx:].clone()
-        self._prev_mod = mod_ctx[-self._slow_ctx:].clone()
-
-        ctx_n = mod_ctx.shape[0]
-        batch_in = self._batch_in
-        if batch_in is None or batch_in.shape[2] != ctx_n or batch_in.shape[0] != 2:
-            batch_in = torch.empty(2, 1, ctx_n, device=device)
-            self._batch_in = batch_in
-        batch_in[0, 0].copy_(mod_ctx)
-        torch.abs(audio_ctx, out=batch_in[1, 0])
-        batch_out = self._causal_conv1d(batch_in, self._slow_kernel_gpu)
-        mod_low = batch_out[0, 0, ctx_n - n:ctx_n]
-        envelope = batch_out[1, 0, ctx_n - n:ctx_n]
-
-        # 振幅调制归一化（理论σ，避免每块std估计跳变）
-        mod_low = mod_low / self._mod_norm * 0.15 + 1.0  # 0.15 为 wind_mod 的调制深度
-        mod_low = mod_low.clamp(0.7, 1.3)
+        self._prev_audio = audio_ctx[-self._a_ctx:].clone()
+        a3 = audio_ctx.view(1, 1, -1).abs()
+        env = self._tail(self._causal_conv1d(a3, k_drive), n)
+        prox = self._tail(self._causal_conv1d(audio_ctx.view(1, 1, -1), k_prox), n)
 
         # ═══════════════════════════════════════════════════════════
-        # 2. 样本级高频能量比（辅音检测）
-        #    |diff| 经 10ms 快速 box 低通得到 hf_envelope（响应快，辅音→元音切换时10ms内降下来）
-        #    hf_ratio = hf_envelope / envelope，样本级，辅音部分高、元音部分低
-        #    彻底解决：①块级标量导致"块内有辅音则整块元音部分也出hiss"
-        #             ②50ms慢低通导致"元音开头50ms仍有hiss残留"
+        # 2. 载波 + 带通（噪声 A，级联 box 合并 FIR，RMS 归一）
         # ═══════════════════════════════════════════════════════════
-        # 从拼接后的 audio_ctx 计算 |diff|（有完整跨块历史），前面补0对齐长度
-        diff_ctx = torch.empty_like(audio_ctx)
-        diff_ctx[0] = 0.0
-        diff_ctx[1:] = torch.abs(audio_ctx[1:] - audio_ctx[:-1])
-        hf_ctx_n = diff_ctx.shape[0]
-        hf_envelope_full = self._causal_conv1d(
-            diff_ctx.view(1, 1, -1), self._hf_kernel_gpu
-        )[0, 0]
-        hf_envelope = hf_envelope_full[hf_ctx_n - n:hf_ctx_n]
-        hf_ratio = (hf_envelope / (envelope + 1e-8)).clamp(0.0, 1.0)
-
-        # ═══════════════════════════════════════════════════════════
-        # 3. 门控：sigmoid → 非线性 → 辅音增强 → EMA平滑
-        # ═══════════════════════════════════════════════════════════
-        gate_raw = torch.sigmoid((envelope - self.GATE_MID) * self.GATE_STEEP)
-        gate_in = ((gate_raw - self._gate_offset) / (1.0 - self._gate_offset)).clamp(min=0.0)
-        # 非线性门控：pow(0.5)，中等音量更明显，静音底噪不被压死
-        gate_in = gate_in.pow(self.GATE_EXP)
-        # 辅音增强：高频比高时气流增强（p/b/t/s 产生强气流）
-        consonant_gain = 1.0 + (self.CONSONANT_BOOST - 1.0) * hf_ratio
-        gate_in = gate_in * consonant_gain
-
-        # 缓存平滑前的 gate（避免下一块二次滤波）
-        if self._prev_gate is not None:
-            gate_ctx = torch.cat([self._prev_gate, gate_in])
+        noise_a = self._noise(0, n, device)
+        if self._prev_car is not None:
+            car_ctx = torch.cat([self._prev_car, noise_a])
         else:
-            gate_ctx = gate_in
-        self._prev_gate = gate_ctx[-self._gate_ctx:].clone()
-        gate_smooth = self._causal_conv1d(gate_ctx.view(1, 1, -1), self._gate_kernel_gpu)[0, 0]
-        envelope_gate = gate_smooth[gate_ctx.shape[0] - n:]
+            car_ctx = noise_a
+        self._prev_car = car_ctx[-self._car_ctx:].clone()
+        c3 = car_ctx.view(1, 1, -1)
+        car = self._tail(self._causal_conv1d(c3, k_car), n) / self._norm_car
+        band = self._tail(self._causal_conv1d(c3, k_band), n) / self._norm_band
 
         # ═══════════════════════════════════════════════════════════
-        # 4. 呼吸 LFO（双正弦非谐波叠加，每块更新相位）
+        # 3. 阵性 gust（噪声 B，两尺度低通噪声的 |·| 均值归一后相乘，
+        #    软上限防偶发爆点）
         # ═══════════════════════════════════════════════════════════
-        t = torch.arange(n, device=device, dtype=torch.float32)
-        lfo_val = 1.0 + self.LFO_AMP * 0.5 * (
-            torch.sin(self._lfo_phase1 + t * self._lfo_step1) +
-            0.6 * torch.sin(self._lfo_phase2 + t * self._lfo_step2 + 1.3)
-        )
-        self._lfo_phase1 = (self._lfo_phase1 + self._lfo_step1 * n) % (2.0 * np.pi)
-        self._lfo_phase2 = (self._lfo_phase2 + self._lfo_step2 * n) % (2.0 * np.pi)
+        noise_b = self._noise(1, n, device)
+        if self._prev_flick is not None:
+            flick_ctx = torch.cat([self._prev_flick, noise_b])
+        else:
+            flick_ctx = noise_b
+        self._prev_flick = flick_ctx[-self._flick_ctx:].clone()
+        f3 = flick_ctx.view(1, 1, -1)
+        l1 = self._tail(self._causal_conv1d(f3, k_lp1), n) / self._inv_lp1
+        l2 = self._tail(self._causal_conv1d(f3, k_lp2), n) / self._inv_lp2
+        gust = self.GUST_CEIL * torch.tanh(l1 * l2 / self.GUST_CEIL)
 
         # ═══════════════════════════════════════════════════════════
-        # 5. OU 随机游走（均值回复，GPU 标量状态，零 .item() 同步）
+        # 4. 气流驱动：连续耦合语音包络（无离散触发，电平永远连续）
         # ═══════════════════════════════════════════════════════════
-        if self._ou_state_t is None or self._ou_state_t.device != device:
-            self._ou_state_t = torch.tensor(0.0, device=device)
-        ou_rand = torch.randn(1, device=device, generator=self._rng).squeeze()
-        ou_new = self._ou_state_t + self.OU_THETA * (0.0 - self._ou_state_t) + self.OU_SIGMA * ou_rand
-        ou_new = ou_new.clamp(-self.OU_CLAMP, self.OU_CLAMP)
-        ou_val = self._ou_state_t + (ou_new - self._ou_state_t) * (t / n)
-        self._ou_state_t = ou_new.detach()
+        sp = (env / self.DRIVE_REF).clamp(0.0, self.DRIVE_MAX).pow(self.DRIVE_EXP)
+        drive = self.DRIVE_BASE + self.DRIVE_SPEECH * sp
+        breath = gust * drive * (car + band * (drive * self.BAND_GAIN)) \
+            * (self.BREATH_GAIN * intensity)
 
         # ═══════════════════════════════════════════════════════════
-        # 6. 随机突发（泊松过程 + 指数衰减包络，GPU 标量状态，零 .item()）
+        # 5. 稳态底噪（噪声 C）
         # ═══════════════════════════════════════════════════════════
-        if self._burst_env_t is None or self._burst_env_t.device != device:
-            self._burst_env_t = torch.tensor(0.0, device=device)
-            self._burst_gain_t = torch.tensor(1.0, device=device)
-            self._one_t = torch.tensor(1.0, device=device)
-        burst_rand = torch.rand(1, device=device, generator=self._rng).squeeze()
-        trigger = burst_rand < self.BURST_PROB
-        burst_gain_new = torch.rand(1, device=device, generator=self._rng).squeeze()
-        burst_gain_new = self.BURST_GAIN_MIN + (self.BURST_GAIN_MAX - self.BURST_GAIN_MIN) * burst_gain_new
-        self._burst_gain_t = torch.where(trigger, burst_gain_new, self._burst_gain_t)
-        self._burst_env_t = torch.where(trigger, self._one_t, self._burst_env_t)
-        burst_env = self._burst_env_t * (self._burst_decay_coef ** t)
-        self._burst_env_t = burst_env[-1].detach()
-        burst_gain = 1.0 + (self._burst_gain_t - 1.0) * burst_env
-
-        # 综合门控：envelope_gate × LFO × OU × 突发
-        final_gate = envelope_gate * lfo_val * (1.0 + ou_val) * burst_gain
-
-        # ═══════════════════════════════════════════════════════════
-        # 7. 风噪声（combo 分组卷积，4 通道）
-        # ═══════════════════════════════════════════════════════════
-        noise = self._noise(n, device)
+        noise_c = self._noise(2, n, device)
         if self._prev_noise is not None:
-            noise_ctx = torch.cat([self._prev_noise, noise])
+            noise_ctx = torch.cat([self._prev_noise, noise_c])
         else:
-            noise_ctx = noise
-        self._prev_noise = noise_ctx[-self._combo_ctx:].clone()
+            noise_ctx = noise_c
+        self._prev_noise = noise_ctx[-self._noise_ctx:].clone()
+        floor = self._tail(self._causal_conv1d(noise_ctx.view(1, 1, -1), k_floor), n) \
+            * self.FLOOR_GAIN * intensity
 
-        noise_4ch = noise_ctx.view(1, 1, -1).expand(1, 4, -1)
-        combo_out = self._causal_conv1d(noise_4ch, self._combo_kernel_gpu, groups=4)
-        noise_n = noise_ctx.shape[0]
-        breath_low = combo_out[0, 0, noise_n - n:noise_n]
-        res_low = combo_out[0, 1, noise_n - n:noise_n]
-        floor_low = combo_out[0, 2, noise_n - n:noise_n]
-        hiss_low = combo_out[0, 3, noise_n - n:noise_n]
-
-        # wind 缓慢起伏
-        wind_mod = 1.0 + 0.4 * (mod_low - 1.0) / 0.15
-
-        # 呼呼声 = rumble + resonance（综合门控）
-        rumble = breath_low * final_gate * wind_mod * self.BREATH_GAIN
-        resonance = res_low * final_gate * self.RESONANCE_GAIN
-        breath = (rumble + resonance) * intensity
-
-        # 底噪：稳态（不受门控影响）
-        floor = floor_low * intensity * self.FLOOR_GAIN
-
-        # 高频嘶嘶声：量由高频比控制（辅音时增强）+ envelope_gate 样本级门控（静音部分无嘶嘶）
-        hiss = hiss_low * hf_ratio * envelope_gate * self.HISS_GAIN * intensity
-
-        # ═══════════════════════════════════════════════════════════
-        # 8. AM 幅度调制（气流包络样本级调制人声）—— 融合感核心
-        #    直接用 envelope_gate（已10ms EMA平滑，截止约100Hz）作为样本级AM信号，
-        #    气流大时调制更深，辅音起始瞬态也能触发调制
-        # ═══════════════════════════════════════════════════════════
-        am_factor = 1.0 + self.AM_DEPTH * envelope_gate * intensity
-        audio_am = audio * am_factor
-
-        # ═══════════════════════════════════════════════════════════
-        # 9. 近讲效应低频搁架（150Hz 以下提升）
-        # ═══════════════════════════════════════════════════════════
-        if self._prev_audio_prox is not None:
-            audio_prox_ctx = torch.cat([self._prev_audio_prox, audio_am])
-        else:
-            audio_prox_ctx = audio_am
-        self._prev_audio_prox = audio_prox_ctx[-self._prox_ctx:].clone()
-        audio_low = self._causal_conv1d(
-            audio_prox_ctx.view(1, 1, -1), self._prox_kernel_gpu
-        )[0, 0, audio_prox_ctx.shape[0] - n:]
-        audio_prox = audio_am + audio_low * self.PROXIMITY_GAIN * intensity
-
-        # ═══════════════════════════════════════════════════════════
-        # 10. 气流控制软饱和（x / (1 + |x| * drive)，GPU 标量 drive，零 .item()）
-        # ═══════════════════════════════════════════════════════════
-        gate_mean_t = final_gate.mean()
-        drive = self.SATURATION_BASE + gate_mean_t * self.SATURATION_AIR * intensity
-        audio_sat = audio_prox / (1.0 + torch.abs(audio_prox) * drive)
-
-        # ═══════════════════════════════════════════════════════════
-        # 11. 混合输出：人声（AM+近讲+饱和）+ 呼呼声 + 底噪 + 嘶嘶声
-        # ═══════════════════════════════════════════════════════════
-        return audio_sat + breath + floor + hiss
+        voice = audio + prox * self.PROXIMITY_GAIN * intensity
+        return voice + breath + floor
 
 
 class AudioProcessor:
