@@ -21,6 +21,15 @@ from rvc.runtime.caches import LRUCache
 _hubert_cache = LRUCache(2)
 
 
+def clear_hubert_cache():
+    """清空训练侧 HuBERT 缓存并归还显存（特征提取完成后调用，训练前释放 ~1GB）。"""
+    import torch as _torch
+
+    _hubert_cache.clear()
+    if _torch.cuda.is_available():
+        _torch.cuda.empty_cache()
+
+
 class HuBERTExtractor:
     def __init__(self, device: str = "cuda:0", is_half: bool = True, hubert: str = "base",
                  ffmpeg_exe: str | None = None):
@@ -34,10 +43,6 @@ class HuBERTExtractor:
             model = load_hubert(SimpleNamespace(device=device, is_half=is_half), variant=hubert)
             _hubert_cache.set(cache_key, model)
         self.model = model
-        self.stop_requested = False
-
-    def request_stop(self):
-        self.stop_requested = True
 
     def run(self, exp_dir: str, progress_callback=None, stop_check=None):
         exp = Path(exp_dir)

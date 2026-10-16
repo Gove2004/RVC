@@ -72,10 +72,3 @@ def mel_filter_bank(sr, n_fft, n_mels=128, fmin=0.0, fmax=None, htk=False, norm=
 
     return weights
 
-
-def pad_center(data, size):
-    """居中填充数组到指定长度（兼容 librosa.util.pad_center）。"""
-    n = data.shape[-1]
-    lpad = int((size - n) / 2)
-    rpad = size - n - lpad
-    return np.pad(data, (lpad, rpad), mode="constant")

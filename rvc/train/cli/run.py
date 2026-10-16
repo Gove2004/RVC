@@ -105,9 +105,20 @@ def main(argv: list[str] | None = None) -> int:
             log.log(f"切片与素材一致，跳过预处理（要重建请删 {exp_dir / 'manifest.json'}）")
 
         if not STOP.requested:
-            if _features_ready(exp_dir):
+            hubert = cfg.get("hubert", "chinese")
+            if _features_ready(exp_dir, hubert):
                 log.log("F0 与 HuBERT 特征已完整，跳过提取")
             else:
+                # 特征目录存在但变体不符（或无记录）→ 整目录删除重提。
+                # 不删的话 extract 会跳过已存在文件，新旧特征静默混用。
+                feat_dir = exp_dir / "3_feature768"
+                variant_file = feat_dir / ".variant"
+                if feat_dir.is_dir() and (not variant_file.exists()
+                        or variant_file.read_text(encoding="utf-8").strip() != hubert):
+                    import shutil
+
+                    shutil.rmtree(feat_dir)
+                    log.log(f"3_feature768 由其他特征器提取（或无记录），与本次选择的 {hubert} 不符 → 已删除，将重新提取", "WARN")
                 step_f0(log, cfg)
                 if not STOP.requested:
                     step_feature(log, cfg)

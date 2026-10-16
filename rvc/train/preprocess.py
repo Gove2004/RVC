@@ -4,6 +4,7 @@
 """
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from rvc.train.checkpoint import CHECKPOINT_DIR_NAME
 
 _AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"
+_MANIFEST_PENDING = "manifest.json.pending"
 _RUNTIME_DIRS = [
     "0_gt_wavs",
     "1_16k_wavs",
@@ -126,11 +128,19 @@ class PreProcessor:
         self._prepare_exp_dir()
         self.gt_dir.mkdir(parents=True, exist_ok=True)
         self.wav16k_dir.mkdir(parents=True, exist_ok=True)
-        files = [p for p in self.input_dir.rglob("*") if p.suffix.lower() in _AUDIO_EXTS]
+        # sorted 保证文件序号（切片文件名 {index}_{idx}.wav）确定性——中断后重跑
+        # 才能得到同样的命名，不会留下新旧混排的半套产物
+        files = sorted(p for p in self.input_dir.rglob("*") if p.suffix.lower() in _AUDIO_EXTS)
         for i, path in enumerate(files, 1):
             self._process_file(path, i)
             if progress_callback:
                 progress_callback(i, len(files))
+        # 全部切片完成后才把 pending 转正。manifest.json 的语义 =「预处理完整完成」：
+        # 中途崩溃/强退时 manifest.json 保持旧值（或缺失），下次指纹核对必然判定
+        # 需要重跑——不会静默用残缺的切片产物训练。
+        pending = self.exp_dir / _MANIFEST_PENDING
+        if pending.exists():
+            os.replace(pending, self.exp_dir / _MANIFEST_NAME)
         return len(files)
 
     def _prepare_exp_dir(self):
@@ -145,7 +155,10 @@ class PreProcessor:
             current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
             if previous_key != current_key:
                 clear_exp_runtime(self.exp_dir)
-        manifest_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 先写 pending，run() 完成后才转正（见 run 里的说明）
+        (self.exp_dir / _MANIFEST_PENDING).write_text(
+            json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     def _process_file(self, path: Path, file_index: int):
         wav, _ = _load_audio_lib(path, self.sr, ffmpeg_exe=self.ffmpeg_exe)

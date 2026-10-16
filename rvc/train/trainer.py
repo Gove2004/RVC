@@ -22,7 +22,7 @@ from rvc.train.checkpoint import (
     load_checkpoint,
     load_train_json,
     prune_keep_latest,
-    save_checkpoint,
+    save_checkpoint_pair,
 )
 from rvc.runtime.paths import MODELS_DIR
 from rvc.train.dataset import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
@@ -246,8 +246,11 @@ class Trainer:
         ckpt_dir = self.checkpoints_dir()
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        save_checkpoint(self.synthesizer, self.optim_g, self.cfg.learning_rate, epoch, str(ckpt_dir / f"G_{epoch}.pth"))
-        save_checkpoint(self.net_d, self.optim_d, self.cfg.learning_rate, epoch, str(ckpt_dir / f"D_{epoch}.pth"))
+        save_checkpoint_pair(
+            self.synthesizer, self.optim_g, self.net_d, self.optim_d,
+            self.cfg.learning_rate, epoch,
+            str(ckpt_dir / f"G_{epoch}.pth"), str(ckpt_dir / f"D_{epoch}.pth"),
+        )
         self.log(f"保存 checkpoint: epoch {epoch}")
 
         # 只留最新 N 组（checkpoint 带 optimizer 状态，体积最大）

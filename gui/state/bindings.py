@@ -221,8 +221,12 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
     val = float(win.f0_threshold_slider.value())
     if is_rmvpe:
         params.f0.rmvpe_threshold = val
+        params.f0.fcpe_confidence_threshold = win.runtime_params.f0.fcpe_confidence_threshold
     else:
         params.f0.fcpe_confidence_threshold = val
+        params.f0.rmvpe_threshold = win.runtime_params.f0.rmvpe_threshold
+    # 非活动方法的阈值从 runtime_params 回填：滑条只展示当前方法的阈值，
+    # 若另一方法落回 dataclass 默认值，任何一次保存都会重置用户调好的值
 
     params.voice.pitch_map_src_min = float(win.pitch_map_src_range.low())
     params.voice.pitch_map_src_max = float(win.pitch_map_src_range.high())

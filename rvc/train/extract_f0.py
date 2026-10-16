@@ -23,10 +23,6 @@ class TrainF0Extractor:
         self.is_half = is_half
         self.ffmpeg_exe = ffmpeg_exe
         self.model = RMVPE(str(RMVPE_PATH), is_half=is_half, device=device)
-        self.stop_requested = False
-
-    def request_stop(self):
-        self.stop_requested = True
 
     def run(self, exp_dir: str, progress_callback=None, stop_check=None):
         exp = Path(exp_dir)
@@ -37,7 +33,7 @@ class TrainF0Extractor:
         continuous_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
         for i, path in enumerate(files, 1):
-            if self.stop_requested or (stop_check is not None and stop_check()):
+            if stop_check is not None and stop_check():
                 break
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"

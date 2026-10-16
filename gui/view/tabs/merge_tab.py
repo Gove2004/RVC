@@ -3,6 +3,7 @@
 原「工具」Tab 的模型合并部分；训练 GUI 退场后随其余模型工具一起迁入推理端。
 业务逻辑经 `ModelToolController`，耗时操作在 `ToolRunner` 后台线程执行。
 """
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -116,6 +117,10 @@ def _run_merge(win):
     name = win.merge_name.text().strip()
     if not a or not b or not name:
         _set_merge_status(win, "请填写所有字段", Colors.ERROR)
+        return
+    # 输出名会拼进 MODELS_DIR 路径：只允许安全字符，防路径逃逸/覆盖目录外文件
+    if not re.fullmatch(r"[\w\-]+", name):
+        _set_merge_status(win, "名称只能包含中文、字母、数字、下划线和连字符", Colors.ERROR)
         return
     if not Path(a).exists():
         _set_merge_status(win, "模型 A 不存在", Colors.ERROR)

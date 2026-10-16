@@ -67,7 +67,8 @@ def step_preprocess(log: TrainLogger, cfg: dict):
     gt = sorted((exp_dir / "0_gt_wavs").glob("*.wav"))
     if gt:
         bytes_total = sum(p.stat().st_size for p in gt)
-        log.log(f"生成切片：{len(gt)} 条，约 {_human_dur(bytes_total / 2 / cfg['sr_hz'])} 音频，{_human_size(bytes_total)}")
+        # 切片以 FLOAT32（4 字节/样本）落盘；此前按 16bit 估算导致时长虚高一倍
+        log.log(f"生成切片：{len(gt)} 条，约 {_human_dur(bytes_total / 4 / cfg['sr_hz'])} 音频，{_human_size(bytes_total)}")
     if len(gt) < 50:
         log.log("切片数偏少（<50），训练容易过拟合，建议补充素材", "WARN")
 
@@ -104,15 +105,31 @@ def step_feature(log: TrainLogger, cfg: dict):
         title=f"步骤 3/4 提取 HuBERT 特征（{hubert}）",
         label="特征",
         make_extractor=lambda c: HuBERTExtractor(c["device"], c["fp16"], hubert=hubert, ffmpeg_exe=c["ffmpeg"]),
-        warn="若实验目录之前用另一种特征器提取过特征，请先删除 3_feature768 再重跑（已存在的特征文件会被跳过）",
     )
+    # 记录特征器变体：_features_ready 凭它识别「特征由哪个特征器提取」，
+    # 切换 base/chinese 后不会静默复用旧特征（两者同为 768 维，训练零报错但音色发闷）
+    variant_file = cfg["exp_dir"] / "3_feature768" / ".variant"
+    if not STOP.requested:
+        variant_file.write_text(hubert, encoding="utf-8")
+    # HuBERT 权重 ~1GB 驻留显存到进程结束；特征已提完，训练前释放
+    from rvc.train import extract_feature
+    extract_feature.clear_hubert_cache()
+    log.log("已释放 HuBERT 提取模型显存")
 
 
-def _features_ready(exp_dir: Path) -> bool:
-    """检查 F0 与 HuBERT 特征是否完整：每个音频文件都有对应特征。"""
+def _features_ready(exp_dir: Path, hubert: str | None = None) -> bool:
+    """检查 F0 与 HuBERT 特征是否完整：每个音频文件都有对应特征。
+
+    hubert 给定时还校验 3_feature768/.variant——变体不符（或无记录的旧目录）
+    视为不完整，由调用方删除后重新提取。
+    """
     gt_wavs = sorted(exp_dir.glob("0_gt_wavs/*.wav"))
     if not gt_wavs:
         return False
+    if hubert is not None:
+        variant_file = exp_dir / "3_feature768" / ".variant"
+        if not variant_file.exists() or variant_file.read_text(encoding="utf-8").strip() != hubert:
+            return False
     stems = {p.stem for p in gt_wavs}
     f0_stems = {p.stem for p in exp_dir.glob("2a_f0/*.npy")}
     f0nsf_stems = {p.stem for p in exp_dir.glob("2b-f0nsf/*.npy")}
@@ -130,6 +147,7 @@ def _gpu_mem() -> tuple[float, float]:
 
 
 def step_train(log: TrainLogger, cfg: dict):
+    from rvc.train.checkpoint import prune_orphan_checkpoints
     from rvc.train.preprocess import generate_filelist
     from rvc.train.trainer import TrainConfig, Trainer
 
@@ -139,6 +157,9 @@ def step_train(log: TrainLogger, cfg: dict):
     model_dir.mkdir(parents=True, exist_ok=True)
     # 导出目录经显式参数传入 Trainer（不靠改模块全局）
     log.log(f"导出模型目录: {model_dir}")
+
+    # 中断可能留下 G/D 单边孤儿文件（污染淘汰逻辑与续训起点），检测前先清理
+    prune_orphan_checkpoints(exp_dir)
 
     # 从头训练时清掉同名旧模型
     if _detect_ckpt_epoch(exp_dir) == 0:

@@ -67,6 +67,9 @@ class MainWindow(WindowLifecycle, QMainWindow):
     runtime_error = Signal(str)
     # 引擎预热线程探测到的显卡列表 → 主线程回填「显卡」下拉框
     gpu_list_ready = Signal(list)
+    # 预热线程的初始化失败 → 主线程弹错误框（后台线程不能直接操作 Qt，
+    # 也不能用无 context 的 QTimer.singleShot——非 Qt 线程上定时器回调永不执行）
+    warmup_error = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -75,6 +78,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.runtime_error.connect(self._handle_runtime_error)
+        self.warmup_error.connect(self._show_error)
         self.gpu_list_ready.connect(self._populate_gpu_combo)
         self._loading = False
         self._lt = None

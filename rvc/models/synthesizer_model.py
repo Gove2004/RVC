@@ -197,7 +197,8 @@ class _SynthesizerTrnMsBase(nn.Module):
             dec_head = head - flow_head
             length = int(return_length)
             if self.use_f0:
-                assert pitch is not None
+                if pitch is None:
+                    raise ValueError("use_f0 模型要求 pitch，实际为 None")
                 m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
             else:
                 m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths, flow_head)
@@ -209,7 +210,8 @@ class _SynthesizerTrnMsBase(nn.Module):
                 nsff0 = nsff0[:, head : head + length]
         else:
             if self.use_f0:
-                assert pitch is not None
+                if pitch is None:
+                    raise ValueError("use_f0 模型要求 pitch，实际为 None")
                 m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
             else:
                 m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
@@ -218,7 +220,8 @@ class _SynthesizerTrnMsBase(nn.Module):
 
         # Decoder — 根据 use_f0 传递参数
         if self.use_f0:
-            assert nsff0 is not None
+            if nsff0 is None:
+                raise ValueError("use_f0 模型要求 nsff0，实际为 None")
             o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2)
         else:
             o = self.dec(z * x_mask, g=g, n_res=return_length2)

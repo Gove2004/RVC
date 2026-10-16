@@ -7,6 +7,7 @@
 - wav_file.py:  WAV 文件读写（结构化，不需要解码）
 - audio_file.py: 任意格式解码到 numpy 数组（需要 ffmpeg）
 """
+import os
 import re
 import struct
 import subprocess
@@ -15,6 +16,9 @@ from pathlib import Path
 import numpy as np
 
 from rvc.io.audio_file import resolve_ffmpeg
+
+# pythonw（GUI）下启动子进程会闪控制台窗口，仅 Windows 需要抑制
+_SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 
 def write_wav(path: str | Path, samples: np.ndarray, samplerate: int, subtype: str = "FLOAT"):
@@ -98,14 +102,19 @@ def read_wav_metadata(path: str | Path) -> dict:
             if len(chunk_header) < 8:
                 break
             chunk_id, chunk_size = struct.unpack("<4sI", chunk_header)
+            chunk_start = f.tell()
             if chunk_id == b"fmt ":
                 (audio_format, channels, samplerate,
                  byte_rate, block_align, bits_per_sample) = struct.unpack("<HHIIHH", f.read(16))
+                # fmt 块可能长于 16 字节（cbSize 扩展 / WAVE_FORMAT_EXTENSIBLE 的
+                # 40 字节变体），解析后必须 seek 到块尾，否则后续块全部错位
+                if audio_format == 0xFFFE:  # WAVE_FORMAT_EXTENSIBLE
+                    audio_format = 1  # SubFormat 实际是 PCM（本项目只读元信息，按 PCM 处理）
             elif chunk_id == b"data":
                 pcm_size = chunk_size
                 break
-            else:
-                f.seek(chunk_size, 1)
+            # 跳到下一块（RIFF 规定 chunk 按 2 字节对齐，奇数长度有一个 pad 字节）
+            f.seek(chunk_start + chunk_size + (chunk_size & 1))
 
         if samplerate is None or pcm_size == 0:
             raise ValueError(f"无法解析 WAV 元信息: {path}")
@@ -148,6 +157,7 @@ def read_audio_metadata(path: str | Path, ffmpeg_path: str | None = None) -> dic
     result = subprocess.run(
         [ffmpeg_path, "-hide_banner", "-i", str(path), "-f", "null", "-"],
         capture_output=True, text=True, timeout=15,
+        creationflags=_SUBPROCESS_NO_WINDOW, stdin=subprocess.DEVNULL,
     )
     stderr = result.stderr
 
@@ -159,7 +169,7 @@ def read_audio_metadata(path: str | Path, ffmpeg_path: str | None = None) -> dic
     duration = int(h) * 3600 + int(m) * 60 + float(s)
 
     stream_match = re.search(
-        r"Stream #\d+:\d+.*Audio:\s*\S+,\s*(\d+)\s*Hz,\s*(\w+)",
+        r"Stream #\d+:\d+.*Audio:\s*\S+,\s*(\d+)\s*Hz,\s*([a-z0-9.()]+)",
         stderr,
     )
     if stream_match:

@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
 )
 
 from gui.view.widgets import _create_slider_row
-from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -77,9 +76,10 @@ def build_params_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 输出音量（volume；纯标量增益，0=静音，1=原始，2=两倍）──
-    # 量程单源取自 rvc.core.config（与热路径钳位同一常量）
+    # 量程经 controller 下发（单源仍是 rvc.core.config，与热路径钳位同一常量）
+    vol_min, vol_max = win.controller.volume_range
     win.volume_slider, volume_label = _create_slider_row(
-        VOLUME_MIN, VOLUME_MAX, 0.1, params.volume, fmt=".2f",
+        vol_min, vol_max, 0.1, params.volume, fmt=".2f",
     )
     g.addWidget(QLabel("输出音量"), r, 0)
     g.addWidget(win.volume_slider, r, 1)

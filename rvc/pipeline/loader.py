@@ -62,7 +62,16 @@ class SynthesizerLoader:
         # 省 ~30MB 显存。不要改回 strict=True——那会因 enc_q 权重缺失直接报错。
         del synthesizer.enc_q
 
-        synthesizer.load_state_dict(ckpt["weight"], strict=False)
+        result = synthesizer.load_state_dict(ckpt["weight"], strict=False)
+        # strict=False 会静默吞掉一切键不匹配：拿错架构/错版本的 pth 加载后
+        # 不报错、输出乱音极难排查。enc_q.* 是预期缺失，其余 missing/unexpected
+        # 都值得告警。
+        unexpected = [k for k in result.unexpected_keys if not k.startswith("enc_q.")]
+        missing = [k for k in result.missing_keys if not k.startswith("enc_q.")]
+        if unexpected:
+            logger.warning("模型权重包含推理用不到的键（已忽略）: %s", unexpected[:8])
+        if missing:
+            logger.warning("模型权重缺失以下键（保持随机初始化，输出可能异常）: %s", missing[:8])
         del ckpt  # 释放 CPU 侧 checkpoint 副本（~200MB，fp32 权重字典）
         synthesizer.eval().to(self.device)
         if self.is_half:

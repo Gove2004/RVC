@@ -68,6 +68,12 @@ class InferController:
         from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
         return ICON_IDLE_PATH, ICON_ACTIVE_PATH
 
+    @property
+    def volume_range(self) -> tuple[float, float]:
+        """输出音量滑条量程 (min, max)，View 层经此取数（不直接 import rvc 常量）。"""
+        from rvc.core.config import VOLUME_MAX, VOLUME_MIN
+        return VOLUME_MIN, VOLUME_MAX
+
     def list_gpus(self) -> list[str]:
         """可用的 CUDA 显卡名称列表（索引 = 显卡编号）。
 

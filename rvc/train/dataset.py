@@ -65,7 +65,6 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         self.spec_cache_dir = Path(spec_cache_dir)
         self.ffmpeg_exe = ffmpeg_exe
         self.audiopaths_and_text = self._load_filelist(filelist_path)
-        self.max_wav_value = mel_config["max_wav_value"]
         self.sampling_rate = mel_config["sampling_rate"]
         self.filter_length = mel_config["filter_length"]
         self.hop_length = mel_config["hop_length"]

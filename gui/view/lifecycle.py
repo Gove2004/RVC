@@ -7,7 +7,6 @@ Mixin 形式：方法挂在 MainWindow 上，通过 self 访问窗口的控件�
 """
 import logging
 
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from gui.view.widgets import LoadThread
@@ -102,9 +101,11 @@ class WindowLifecycle:
                 self.gpu_list_ready.emit(self.controller.list_gpus())
             except Exception as e:
                 logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
-                # 无 GPU 等致命错误：主线程弹友好提示（后台线程不能直接操作 Qt）
-                msg = str(e)
-                QTimer.singleShot(0, lambda: self._show_error(f"引擎初始化失败: {msg}\n\n请确认已安装 NVIDIA 显卡驱动并支持 CUDA。"))
+                # 无 GPU 等致命错误：经信号投递到主线程弹提示（后台线程不能
+                # 直接操作 Qt；singleShot 在非 Qt 线程上回调永不执行）
+                self.warmup_error.emit(
+                    f"引擎初始化失败: {e}\n\n请确认已安装 NVIDIA 显卡驱动并支持 CUDA。"
+                )
 
         threading.Thread(target=_do, daemon=True, name="engine-warmup").start()
 
@@ -157,6 +158,12 @@ class WindowLifecycle:
 
         if not pth:
             self._show_warning("请先在「音色」中选择模型文件")
+            return
+
+        # 离线/实时共用同一 engine/runner（process_file 会替换 _runner），
+        # 离线转换进行中启动实时会并发 load_model 竞态——双向互斥
+        if self.offline_conversion.is_converting:
+            self._show_warning("离线转换进行中，请等待完成或取消后再启动实时")
             return
 
         hubert = self.hubert_combo.currentText()

@@ -36,6 +36,11 @@ class OfflineConversion:
         self.worker = None
         self._converting = False
 
+    @property
+    def is_converting(self) -> bool:
+        """是否有离线转换在跑（供实时侧做互斥守卫）。"""
+        return self._converting
+
     def start_conversion(self) -> None:
         """开始离线转换。"""
         if self._converting:

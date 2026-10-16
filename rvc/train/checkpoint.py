@@ -30,6 +30,20 @@ def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: st
     os.replace(tmp_path, path)
 
 
+def save_checkpoint_pair(g_model, g_opt, d_model, d_opt, learning_rate: float,
+                         epoch: int, g_path: str, d_path: str):
+    """成对保存 G/D checkpoint。
+
+    先写完两个 .tmp 再连续 os.replace——把「G 已落、D 未落」的中断窗口从
+    一次 torch.save（数十秒）压缩到两次 replace（微秒）。若中断仍恰好落在
+    替换之间，会留下单边孤儿文件，由 prune_orphan_checkpoints 在下次训练前清理。
+    """
+    save_checkpoint(g_model, g_opt, learning_rate, epoch, g_path + ".pairtmp")
+    save_checkpoint(d_model, d_opt, learning_rate, epoch, d_path + ".pairtmp")
+    os.replace(g_path + ".pairtmp", g_path)
+    os.replace(d_path + ".pairtmp", d_path)
+
+
 def load_checkpoint(path: str, model, optimizer=None):
     """加载训练 checkpoint（{model, iteration, optimizer, learning_rate}）。
 
@@ -85,7 +99,7 @@ def latest_checkpoint_path(dir_path: str, prefix: str):
     return max(paths, key=checkpoint_epoch)
 
 
-def prune_keep_latest(dir_path, pattern: str, keep: int, epoch_of=checkpoint_epoch, on_delete=None) -> list:
+def prune_keep_latest(dir_path, pattern: str, keep: int, epoch_of=checkpoint_epoch) -> list:
     """按 epoch 序号淘汰旧文件，只保留最新 keep 组；返回被删除的路径列表。"""
     if keep < 1:
         return []
@@ -97,11 +111,43 @@ def prune_keep_latest(dir_path, pattern: str, keep: int, epoch_of=checkpoint_epo
     removed = files[:-keep]
     deleted = []
     for path in removed:
-        path.unlink()
+        try:
+            path.unlink()
+        except OSError:
+            # Windows 下文件可能被杀毒/索引器短暂占用；淘汰失败只降级不崩训练
+            logger.warning("checkpoint 淘汰失败（跳过）: %s", path)
+            continue
         deleted.append(path)
-        if on_delete:
-            on_delete(path)
     return deleted
+
+
+def prune_orphan_checkpoints(exp_dir: str | Path) -> int:
+    """删除只有 G 或只有 D 的孤儿 checkpoint（保存中断残留），返回删除数。
+
+    孤儿会同时污染淘汰逻辑（新训低 epoch 被删、陈旧孤儿永存）与续训起点
+    （_detect_ckpt_epoch 按 min(G, D) 取 epoch），必须在检测前清理。
+    """
+    directory = checkpoints_dir(Path(exp_dir))
+    if not directory.is_dir():
+        return 0
+
+    def _by_epoch(prefix: str) -> dict:
+        return {
+            checkpoint_epoch(p): p
+            for p in directory.glob(f"{prefix}_*.pth") if checkpoint_epoch(p) >= 0
+        }
+
+    g, d = _by_epoch("G"), _by_epoch("D")
+    removed = 0
+    for e in set(g) - set(d):
+        g[e].unlink(missing_ok=True)
+        removed += 1
+    for e in set(d) - set(g):
+        d[e].unlink(missing_ok=True)
+        removed += 1
+    if removed:
+        logger.warning("清理孤儿 checkpoint（G/D 只剩单边的中断残留）: %d 个", removed)
+    return removed
 
 
 def load_train_json(sr: int):

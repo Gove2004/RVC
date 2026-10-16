@@ -16,7 +16,6 @@ VoiceEngine 作为门面（Facade），内部委托给子组件：
 
 import gc
 import logging
-import threading
 
 import numpy as np
 import sounddevice as sd
@@ -33,10 +32,6 @@ logger = logging.getLogger(__name__)
 
 # 实时启动预热迭代次数（取值与依据见 _create_runner）
 _WARMUP_ITERATIONS = 30
-
-# 异步 CUDA 缓存回收间隔（块数）。每 N 块触发一次后台 empty_cache，
-# 不阻塞音频回调。实际时间间隔 = N × block_time（默认 block_time=0.25s → 约 7.5s）。
-_CUDA_CLEANUP_EVERY_N = 30
 
 # 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
 # 驱动缓冲」的真实深度（硬件时间戳偏小、stream.latency 偏大），只能靠校准值补。
@@ -75,11 +70,9 @@ class VoiceEngine:
         self.sr_model = 0  # 模型目标采样率（setup 时赋值）
         self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
 
-        # 异步 CUDA 缓存回收（后台线程，不阻塞音频回调）
-        self._cleanup_counter = 0
-        self._cleanup_pending = False
-        self._cleanup_lock = threading.Lock()
-        self._cleanup_thread = None
+        # 周期性 empty_cache 已移除：稳态下分配模式固定、缓存池不再增长，回收没有
+        # 收益，反而可能经分配器锁与音频回调竞争造成周期性抖动。setup/stop 各有
+        # 一次 empty_cache，已覆盖真实需要回收的时机。
 
     # ── 错误状态属性代理（委托给 InferenceRunner） ──
 
@@ -234,42 +227,9 @@ class VoiceEngine:
             dev_idx, self._runner.state.work_sr, self._runner.state.channels, self._runner.state.block_samples
         )
 
-    def _maybe_async_cleanup(self) -> None:
-        """每 _CUDA_CLEANUP_EVERY_N 块触发一次后台线程 empty_cache。
-
-        empty_cache() 会阻塞 GPU，放在后台线程执行不影响音频回调。
-        用 lock + pending 标志防重叠：上一次回收未完成时跳过本次。
-        """
-        if not self.running or not torch.cuda.is_available():
-            return
-        self._cleanup_counter += 1
-        if self._cleanup_counter < _CUDA_CLEANUP_EVERY_N:
-            return
-        self._cleanup_counter = 0
-        with self._cleanup_lock:
-            if self._cleanup_pending:
-                return
-            self._cleanup_pending = True
-
-        def _cleanup():
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                logger.warning("异步 CUDA 缓存回收失败", exc_info=True)
-            finally:
-                self._cleanup_pending = False
-
-        self._cleanup_thread = threading.Thread(target=_cleanup, daemon=True)
-        self._cleanup_thread.start()
-
     def stop(self):
         """停止引擎，关闭所有流。"""
         self.running = False
-        self._cleanup_counter = 0
-        # 等待后台回收线程结束（最多 1s），避免与下方同步 empty_cache 并发
-        if self._cleanup_thread is not None and self._cleanup_thread.is_alive():
-            self._cleanup_thread.join(timeout=1.0)
-        self._cleanup_thread = None
         if self._runner:
             self._runner.reset_error_state()
         self._streams.stop_all()
@@ -316,7 +276,6 @@ class VoiceEngine:
                 )
 
             self._runner.acknowledge_success()
-            self._maybe_async_cleanup()
         except Exception as e:
             should_stop = self._runner.handle_error(e)
             logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
@@ -378,7 +337,11 @@ class VoiceEngine:
         Args:
             cancel_cb: 可选回调，返回 True 时抛出 CancelledError 中止推理。
         """
-        padded = np.pad(wav, (pad, pad), mode="reflect")
+        padded = np.pad(
+            wav, (pad, pad),
+            # reflect 要求 pad < len；超短音频（<3s pad）退回常数 pad
+            mode="reflect" if len(wav) > pad else "constant",
+        )
         if len(padded) % block:
             padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
 

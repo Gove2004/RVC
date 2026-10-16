@@ -53,7 +53,12 @@ def infer_synth_audio(
 
     # return_length2 必须加入 graph_key：它通过闭包捕获编译进 CUDA Graph，
     # 不同 formant 因子对应不同 return_length2，若共用 key 会错误命中旧图导致输出长度错误、爆音卡顿。
+    # skip_head/return_length 同理入 key——虽然它们当前的变化必然连带改变
+    # feats 形状（经形状签名触发重捕获），但那是隐式不变量；显式入 key 后
+    # 未来引入「不改变缓冲长度的 head 调整」也不会静默错误复用旧图。
     rl2_suffix = f"-rl2-{return_length2}" if realtime else ""
+    if realtime:
+        rl2_suffix += f"-head-{skip_head}-len-{return_length}"
     if use_f0 == 1:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
         graph_key = f"synth-{mode}-f0{rl2_suffix}"

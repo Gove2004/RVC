@@ -11,6 +11,7 @@ ffmpeg 定位顺序（训练 CLI 在 envcheck 探测，运行时默认直接取
 runtime.paths.FFMPEG_EXE）：RVC_FFMPEG → 系统 PATH → assets/ffmpeg/ffmpeg.exe。
 """
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from rvc.core.errors import AudioLoadError
 from rvc.runtime.paths import FFMPEG_EXE
 
 logger = logging.getLogger(__name__)
+
+# pythonw（GUI）下启动子进程会闪控制台窗口，仅 Windows 需要抑制
+_SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 
 def resolve_ffmpeg(ffmpeg_exe: str | Path | None = None) -> Path:
@@ -64,7 +68,10 @@ def load_audio(
         "-acodec", "pcm_f32le", "-f", "f32le",
         "-ac", "1" if mono else "2", "-ar", str(target_sr), "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    proc = subprocess.run(
+        cmd, capture_output=True, timeout=timeout,
+        creationflags=_SUBPROCESS_NO_WINDOW, stdin=subprocess.DEVNULL,
+    )
     if proc.returncode:
         err = proc.stderr.decode("utf-8", errors="replace")[-500:]
         raise AudioLoadError(f"ffmpeg 解码失败: {path}\n{err}")
