@@ -90,12 +90,16 @@ class MicAirflowEffect:
     **教训：呼吸声必须是离散事件，持续性增强方向（拖尾/保持）一律否决；
     说话中的合成嘶声/沙沙一律否决。**
 
-    【v10 = v7 时序原样 + 两个结构性修正】
+    【v10 = v7 时序原样 + 两个结构性修正 + 分支精简（2026-10-16 审计）】
     质感层：
-      - 100Hz rumble（呼呼声主体）+ 75Hz 共振 + 85Hz 稳态底噪
-      - AM 幅度调制（气流包络调制人声，融合感核心）——不动
-      - 近讲低频搁架 + 气流控制软饱和——不动
+      - 100Hz rumble（呼呼声主体）+ 85Hz 稳态底噪
+      - 近讲低频搁架 + 气流控制软饱和——不动（实测可闻：人声 RMS
+        改变 9.1% / 7.7%）
       - （v10 删）4kHz 辅音嘶声层：语音自带辅音，合成沙沙画蛇添足
+      - （分支审计删）75Hz resonance 层：与 100Hz rumble 主瓣严重重叠，
+        仅占效果总差 5.1%，单听不可辨
+      - （分支审计删）AM 幅度调制：实测人声幅度改变仅 0.39%，低于
+        听阈——「融合感核心」名不副实，纯复杂度
     节奏层（v7 原样：物理时序、零事件触发、零随机）：
       - 静音持续 ≥0.12s 才开始吸气（词间闭止不误吸），τ=0.3s 升起，
         停顿越长吸得越足；静音 >1s 视为吸完，自然回落（τ=0.6s）；
@@ -107,7 +111,7 @@ class MicAirflowEffect:
         语音掩蔽，呼吸声最突出的时刻是停顿吸气）——呼吸从「连续垫底」
         变「离散事件」；辅音 1.8× 突跳一并删除（起伏感来源）
       - 软饱和 drive 跟随语音门控原值（与 v7 说话中行为一致，人声
-        质感不动）；AM 不受退让影响
+        质感不动）；不受退让影响
 
     块间一致性（硬规则，全部遵守）：
     - 缓存滤波**输入**而非输出（_prev_audio / _prev_mod / _prev_noise /
@@ -125,17 +129,13 @@ class MicAirflowEffect:
 
     # ── 增益（不依赖sr）──
     BREATH_GAIN = 5.4          # 呼呼声 rumble 增益（拉满时相对语音≈0dB）
-    RESONANCE_GAIN = 0.5       # 共振层增益
     FLOOR_GAIN = 0.35          # 底噪增益（静音可闻，降低避免嘶滋）
     INTENSITY_SCALE = 0.35     # GUI 100% 对应实际 35% 效果
 
     # ── 说话中呼吸退让（v10）：说话中 rumble 门控缩放——真实近讲里
     #    说话中的低频隆隆被语音掩蔽，呼吸声最突出的是停顿吸气。
-    #    呼吸从「连续垫底」变「离散事件」；软饱和/AM 不受影响。──
+    #    呼吸从「连续垫底」变「离散事件」；软饱和不受影响。──
     VOICED_GATE_GAIN = 0.4
-
-    # ── AM 幅度调制（人声融合核心）──
-    AM_DEPTH = 0.04            # 4% 深度（气流包络样本级调制人声）
 
     # ── 近讲效应（proximity effect）──
     PROXIMITY_GAIN = 0.4       # 低频提升量（约 +3dB @ 拉满）
@@ -172,7 +172,6 @@ class MicAirflowEffect:
     _REF_SLOW_K = 2400         # 50ms box低通（包络/调制）
     _REF_FLOOR_K = 180         # 85Hz三角核
     _REF_BREATH_K = 150        # 100Hz三角核
-    _REF_RESONANCE_K = 200     # 75Hz三角核
     _REF_PROX_K = 51           # 150Hz box低通（近讲效应）
     _REF_GATE_LEN = 40         # 10ms EMA平滑
 
@@ -214,7 +213,7 @@ class MicAirflowEffect:
         # 块间上下文缓存（存滤波输入而非输出）
         self._prev_audio = None       # 音频（slow 包络 2ch 批量卷积共用）
         self._prev_mod = None         # 调制噪声输入
-        self._prev_noise = None       # 风噪输入（combo 3ch 共用）
+        self._prev_noise = None       # 风噪输入（combo 2ch 共用）
         self._prev_gate = None        # 门控 EMA 的输入
         self._prev_audio_prox = None  # 近讲低通的输入
         # GPU 标量状态（跨块衔接；只经张量算术更新，绝不 .item()）
@@ -240,17 +239,16 @@ class MicAirflowEffect:
 
         slow_k = k(self._REF_SLOW_K)
         floor_k, breath_k = k(self._REF_FLOOR_K), k(self._REF_BREATH_K)
-        resonance_k = k(self._REF_RESONANCE_K)
         prox_k, gate_len = k(self._REF_PROX_K), max(2, k(self._REF_GATE_LEN))
 
         # slow：box 低通（包络 + 调制噪声）
         self._slow_kernel = self._box(slow_k)
         self._prox_kernel = self._box(prox_k)
-        # combo：分组卷积组合核（3 通道：breath/resonance/floor）
-        combo_size = 2 * max(floor_k, breath_k, resonance_k) - 1
-        combo = torch.zeros(3, 1, combo_size)
+        # combo：分组卷积组合核（2 通道：breath/floor；resonance 已删——
+        # 75Hz 与 100Hz 主瓣重叠，仅占效果 5.1%）
+        combo_size = 2 * max(floor_k, breath_k) - 1
+        combo = torch.zeros(2, 1, combo_size)
         for i, kern in enumerate((self._triangular_kernel(breath_k),
-                                  self._triangular_kernel(resonance_k),
                                   self._triangular_kernel(floor_k))):
             combo[i, 0, :kern.shape[2]] = kern[0, 0]
         self._combo_kernel = combo
@@ -458,7 +456,7 @@ class MicAirflowEffect:
         inhale = env_in * act_n
 
         # ═══════════════════════════════════════════════════════════
-        # 5. 风噪声（combo 分组卷积，3 通道）
+        # 5. 风噪声（combo 分组卷积，2 通道）
         # ═══════════════════════════════════════════════════════════
         noise = self._noise(1, n, device)
         if self._prev_noise is not None:
@@ -467,46 +465,38 @@ class MicAirflowEffect:
             noise_ctx = noise
         self._prev_noise = noise_ctx[-self._combo_ctx:].clone()
 
-        noise_3ch = noise_ctx.view(1, 1, -1).expand(1, 3, -1)
-        combo_out = self._causal_conv1d(noise_3ch, k_combo, groups=3)
+        noise_2ch = noise_ctx.view(1, 1, -1).expand(1, 2, -1)
+        combo_out = self._causal_conv1d(noise_2ch, k_combo, groups=2)
         noise_n = noise_ctx.shape[0]
         breath_low = combo_out[0, 0, noise_n - n:noise_n]
-        res_low = combo_out[0, 1, noise_n - n:noise_n]
-        floor_low = combo_out[0, 2, noise_n - n:noise_n]
+        floor_low = combo_out[0, 1, noise_n - n:noise_n]
 
         # wind 缓慢起伏（调制噪声自调制）
         wind_mod = 1.0 + 0.4 * (mod_low - 1.0) / 0.15
 
-        # 呼呼声 = rumble + resonance；门控 = 语音门控 × 退让（v10：
+        # 呼呼声 = rumble；门控 = 语音门控 × 退让（v10：
         #          说话中被语音掩蔽，呼吸退成离散事件）
         #          + 物理时序吸气包络（停顿中升起、开口瞬间切断）
         gate_total = (self.VOICED_GATE_GAIN * envelope_gate
                       + self.INHALE_BOOST * inhale).clamp(max=1.8)
         rumble = breath_low * gate_total * wind_mod * self.BREATH_GAIN
-        resonance = res_low * gate_total * self.RESONANCE_GAIN
-        breath = (rumble + resonance) * intensity
+        breath = rumble * intensity
 
         # 底噪：稳态（不受门控影响）
         floor = floor_low * intensity * self.FLOOR_GAIN
 
         # ═══════════════════════════════════════════════════════════
-        # 6. AM 幅度调制（气流包络样本级调制人声）—— 融合感核心
-        # ═══════════════════════════════════════════════════════════
-        am_factor = 1.0 + self.AM_DEPTH * envelope_gate * intensity
-        audio_am = audio * am_factor
-
-        # ═══════════════════════════════════════════════════════════
         # 7. 近讲效应低频搁架（150Hz 以下提升）
         # ═══════════════════════════════════════════════════════════
         if self._prev_audio_prox is not None:
-            audio_prox_ctx = torch.cat([self._prev_audio_prox, audio_am])
+            audio_prox_ctx = torch.cat([self._prev_audio_prox, audio])
         else:
-            audio_prox_ctx = audio_am
+            audio_prox_ctx = audio
         self._prev_audio_prox = audio_prox_ctx[-self._prox_ctx:].clone()
         audio_low = self._causal_conv1d(
             audio_prox_ctx.view(1, 1, -1), k_prox
         )[0, 0, audio_prox_ctx.shape[0] - n:]
-        audio_prox = audio_am + audio_low * self.PROXIMITY_GAIN * intensity
+        audio_prox = audio + audio_low * self.PROXIMITY_GAIN * intensity
 
         # ═══════════════════════════════════════════════════════════
         # 8. 气流控制软饱和（x / (1 + |x| · drive)，drive 逐样本跟随语音
