@@ -71,40 +71,43 @@ class SolaEffect:
 
 
 class MicAirflowEffect:
-    """麦克风气流声 — v0 质感 + 物理时序吸气包络（v9）。
+    """麦克风气流声 — v7 物理时序吸气 + 说话中呼吸退让（v10）。
 
     【裁决史】v0（2026-10-10，质感被认可：「还不如一开始的声音像」，
     但节奏不对）→ v1 事件驱动 / v2 低频触发 / v3 频响 FIR / v4 真实采样
     （「不要录入真实的音效，就用虚拟生成呼呼声。不要参考我的本地音频
     文件」）/ v5 湍流模型（「像呲呲声，不像呼呼声；又变成随机响了」）/
     v6 停顿触发 swell（「还是不太像，和人声的配合还是怪」）全部被否。
-    v7（物理时序吸气）**被认可为新基线节点**；v8 吸气湍流带（250Hz–1kHz
-    带通噪声×吸气包络）被否——「说完话都有一个滋滋声，完全不可行」：
-    带通白噪声无论怎么门控都是「滋」，不是气声（与 v5 呲呲声同病）。
-    **频谱实验三连否（v3/v5/v8）：呼吸音色保持 rumble 层原样，
-    优化只做时间域。**
+    v7（物理时序吸气）**被认可为新基线节点**；
+    v8 吸气湍流带（250Hz–1kHz 带通噪声×吸气包络）被否——「说完话都有
+    一个滋滋声，完全不可行」：带通白噪声无论怎么门控都是「滋」，不是
+    气声（与 v5 呲呲声同病）；
+    v9 尾呼气拖尾 + 门控保持 + 存气量深度被否——「基本上都是连续的呼呼
+    隆隆声，偶尔说话有沙沙声」：①门控保持（τ=2.5s max-hold）让 rumble
+    在停顿中不衰减、说话中又全速跟语音门控（含辅音 1.8× 突跳）→ 几乎
+    整条时间线都在隆隆；②4kHz hiss 层（白噪声过宽带低通×样本级
+    hf_ratio）本质就是宽带沙沙——转换语音自带辅音声，该层画蛇添足。
+    **教训：呼吸声必须是离散事件，持续性增强方向（拖尾/保持）一律否决；
+    说话中的合成嘶声/沙沙一律否决。**
 
-    【v6「配合怪」的根源】swell 在停顿开始 ~330ms 后触发、0.3s 衰减——
-    吸气发生在停顿**中间**，说话恢复前就消失了。真实呼吸的时序相反：
-    静音中缓缓吸气、**峰值落在开口瞬间**、一开口就切断。
-
-    【v9 = v7 基线不动，补两处呼吸动态（仍全时间域、零随机）】
-    质感层（原样，用户认可）：
+    【v10 = v7 时序原样 + 两个结构性修正】
+    质感层：
       - 100Hz rumble（呼呼声主体）+ 75Hz 共振 + 85Hz 稳态底噪
-      - 4kHz 辅音嘶声（样本级 hf_ratio 门控，辅音时才有）
-      - AM 幅度调制（气流包络调制人声，融合感核心）
-      - 近讲低频搁架 + 气流控制软饱和
-    节奏层（v7 基线 + v9 两项）：
-      - 物理时序吸气：静音 ≥0.12s 才吸、τ=0.3s 升起、>1s 吸完回落
-        （τ=0.6s）、开口 τ=0.05s 快速切断
-      - v9a 语句尾呼气：噪声门控 = max(语音门控, 其 τ=0.18s 拖尾)
-        ——每句话说完噪声多拖 ~0.3s 柔和尾巴（真实尾呼气），说话中
-        不变（max 取门控本身）
-      - v9b 门控保持 + 存气量深度：呼吸门控 = 语音门控的 τ=2.5s
-        max-hold（停顿中不衰减——旧 τ=1s EMA 会在停顿中把吸气峰压平；
-        久静 ~5s 后归零，长静音/冷启动不呼吸）；吸气深度由 τ=5s 存气
-        量 EMA 缩放 0.35–1.0——说得越久耗气越多，下一口气越深。
-        生理因果，确定性变化，非随机
+      - AM 幅度调制（气流包络调制人声，融合感核心）——不动
+      - 近讲低频搁架 + 气流控制软饱和——不动
+      - （v10 删）4kHz 辅音嘶声层：语音自带辅音，合成沙沙画蛇添足
+    节奏层（v7 原样：物理时序、零事件触发、零随机）：
+      - 静音持续 ≥0.12s 才开始吸气（词间闭止不误吸），τ=0.3s 升起，
+        停顿越长吸得越足；静音 >1s 视为吸完，自然回落（τ=0.6s）；
+        说话恢复 τ=0.05s 快速切断——「先吸气、后开口」的物理时序
+      - 说话活跃度（τ=1s EMA）门控：长静音后不再呼吸，冷启动静音
+        不凭空吸气
+    呼吸退让（v10 新，VOICED_GATE_GAIN）：
+      - 说话中 rumble 门控 ×0.4 退让（真实近讲：说话中的低频隆隆被
+        语音掩蔽，呼吸声最突出的时刻是停顿吸气）——呼吸从「连续垫底」
+        变「离散事件」；辅音 1.8× 突跳一并删除（起伏感来源）
+      - 软饱和 drive 跟随语音门控原值（与 v7 说话中行为一致，人声
+        质感不动）；AM 不受退让影响
 
     块间一致性（硬规则，全部遵守）：
     - 缓存滤波**输入**而非输出（_prev_audio / _prev_mod / _prev_noise /
@@ -113,9 +116,9 @@ class MicAirflowEffect:
     - 噪声**每消费者独立流**（调制噪声 / 风噪各一个生成器 + 固定 16384
       补给池顺序消费）——单池多消费者的「值→消费者」映射随块长变化
       （v5 实测教训）；逐块 randn 值序也与调用长度相关
-    - dur / act / env / air 四条仿射递推（e'=a·e+b）与尾呼气 max-hold
-      （log 域 max-plus 扫描）均精确实现、跨块 GPU 标量尾衔接——
-      与分块无关
+    - dur / act / env 三条仿射递推（e'=a·e+b）用并行前缀扫描精确实现
+      （组合律 (a_r,b_r)∘(a_l,b_l)=(a_l·a_r, a_r·b_l+b_r)），跨块用
+      GPU 标量尾衔接——与分块无关
     - 软饱和 drive 逐样本跟随门控（v6 教训：块内均值随块长变）
     - 零 .item() / Python 真值 / 0-dim 张量索引（GPU 标量只经张量算术）
     """
@@ -124,8 +127,12 @@ class MicAirflowEffect:
     BREATH_GAIN = 5.4          # 呼呼声 rumble 增益（拉满时相对语音≈0dB）
     RESONANCE_GAIN = 0.5       # 共振层增益
     FLOOR_GAIN = 0.35          # 底噪增益（静音可闻，降低避免嘶滋）
-    HISS_GAIN = 0.3            # 高频嘶嘶声增益（辅音时，受envelope_gate样本级门控）
     INTENSITY_SCALE = 0.35     # GUI 100% 对应实际 35% 效果
+
+    # ── 说话中呼吸退让（v10）：说话中 rumble 门控缩放——真实近讲里
+    #    说话中的低频隆隆被语音掩蔽，呼吸声最突出的是停顿吸气。
+    #    呼吸从「连续垫底」变「离散事件」；软饱和/AM 不受影响。──
+    VOICED_GATE_GAIN = 0.4
 
     # ── AM 幅度调制（人声融合核心）──
     AM_DEPTH = 0.04            # 4% 深度（气流包络样本级调制人声）
@@ -144,9 +151,6 @@ class MicAirflowEffect:
     GATE_EMA_FIRST = 0.08      # 门控 EMA 平滑权重
     GATE_EMA_DECAY = 0.92
 
-    # ── 辅音增强 ──
-    CONSONANT_BOOST = 1.8      # 辅音时气流增强倍数
-
     # ── 吸气包络（节奏层，v7）：物理时序，无事件触发 ──
     SILENCE_FLOOR = 0.015      # 包络低于此 = 静音
     INHALE_MIN_PAUSE = 0.12    # 静音不足此时长不吸气（词间闭止不误吸）
@@ -156,12 +160,9 @@ class MicAirflowEffect:
     INHALE_RELEASE_TAU = 0.05  # 说话恢复时吸气快速切断（先吸气、后开口）
     INHALE_BOOST = 1.0         # 吸气相对语音门控的增益
 
-    # ── 呼吸动态（v9：全时间域，零随机）──
-    EXHALE_TAIL_TAU = 0.18     # 语句尾呼气：语音门控消失后的噪声拖尾
-    ACT_TAU = 2.5              # 说话门控保持（max-hold 衰减；久静~5s后停止呼吸）
-    ACT_THRESHOLD = 0.05       # 门控保持归一阈值
-    AIR_TAU = 5.0              # 存气量 EMA（「最近说了多少话」）
-    INHALE_DEPTH_MIN = 0.35    # 存气量不足时的最浅吸气比例
+    # ── 说话活跃度门控（v7）：长静音后不再呼吸、冷启动不凭空吸气 ──
+    ACT_TAU = 1.0              # 活跃度 EMA 时间常数
+    ACT_THRESHOLD = 0.05       # 活跃度归一阈值（≈刚可闻语音的包络）
 
     _MAX_BLOCK_SEC = 1.0       # 内部子块上限（整段离线调用时切分；流式块远小于此）
     _NOISE_CHUNK = 16384       # 噪声池补给单位（CUDA randn 值序与调用块长相关）
@@ -169,11 +170,9 @@ class MicAirflowEffect:
     # @48k 参考核大小（setup中按sr比例缩放）
     _REF_SR = 48000
     _REF_SLOW_K = 2400         # 50ms box低通（包络/调制）
-    _REF_HF_K = 480            # 10ms box低通（高频包络，快速响应辅音瞬态）
     _REF_FLOOR_K = 180         # 85Hz三角核
     _REF_BREATH_K = 150        # 100Hz三角核
     _REF_RESONANCE_K = 200     # 75Hz三角核
-    _REF_HISS_K = 12           # 4kHz三角核（高频嘶嘶声低通）
     _REF_PROX_K = 51           # 150Hz box低通（近讲效应）
     _REF_GATE_LEN = 40         # 10ms EMA平滑
 
@@ -192,7 +191,6 @@ class MicAirflowEffect:
     def __init__(self):
         # 卷积核（CPU 模板）+ GPU 缓存
         self._slow_kernel = None
-        self._hf_kernel = None
         self._combo_kernel = None
         self._gate_kernel = None
         self._prox_kernel = None
@@ -205,29 +203,24 @@ class MicAirflowEffect:
         self._rise_a = 1.0
         self._fall_a = 1.0
         self._rel_a = 1.0
-        self._alpha_air = 0.0
-        self._air_a = 1.0
-        self._act_log_decay = 0.0
-        self._exhale_log_decay = 0.0
+        self._alpha_act = 0.0      # 活跃度 EMA 步进
+        self._act_a = 1.0
         # 上下文缓存长度
         self._slow_ctx = 0
         self._combo_ctx = 0
         self._gate_ctx = 0
         self._prox_ctx = 0
-        self._hf_ctx = 0
         self._max_block = 0
         # 块间上下文缓存（存滤波输入而非输出）
         self._prev_audio = None       # 音频（slow 包络 2ch 批量卷积共用）
         self._prev_mod = None         # 调制噪声输入
-        self._prev_noise = None       # 风噪输入（combo 4ch 共用）
+        self._prev_noise = None       # 风噪输入（combo 3ch 共用）
         self._prev_gate = None        # 门控 EMA 的输入
         self._prev_audio_prox = None  # 近讲低通的输入
         # GPU 标量状态（跨块衔接；只经张量算术更新，绝不 .item()）
         self._dur_tail = None         # 静音持续时长块尾（样本）
         self._act_tail = None         # 说话活跃度块尾
         self._env_tail = None         # 吸气包络块尾
-        self._air_tail = None         # 存气量块尾
-        self._exhale_tail = None      # 尾呼气 max-hold 块尾
         # 复用缓冲（热路径零分配）
         self._batch_in = None       # (2,1,ctx_n)：调制噪声/包络
         # 噪声流：每消费者独立（0=调制噪声, 1=风噪）
@@ -245,22 +238,20 @@ class MicAirflowEffect:
         def k(ref_k: int) -> int:
             return max(1, int(ref_k * scale))
 
-        slow_k, hf_k = k(self._REF_SLOW_K), k(self._REF_HF_K)
+        slow_k = k(self._REF_SLOW_K)
         floor_k, breath_k = k(self._REF_FLOOR_K), k(self._REF_BREATH_K)
-        resonance_k, hiss_k = k(self._REF_RESONANCE_K), k(self._REF_HISS_K)
+        resonance_k = k(self._REF_RESONANCE_K)
         prox_k, gate_len = k(self._REF_PROX_K), max(2, k(self._REF_GATE_LEN))
 
         # slow：box 低通（包络 + 调制噪声）
         self._slow_kernel = self._box(slow_k)
-        self._hf_kernel = self._box(hf_k)
         self._prox_kernel = self._box(prox_k)
-        # combo：分组卷积组合核（4 通道：breath/resonance/floor/hiss）
-        combo_size = 2 * max(floor_k, breath_k, resonance_k, hiss_k) - 1
-        combo = torch.zeros(4, 1, combo_size)
+        # combo：分组卷积组合核（3 通道：breath/resonance/floor）
+        combo_size = 2 * max(floor_k, breath_k, resonance_k) - 1
+        combo = torch.zeros(3, 1, combo_size)
         for i, kern in enumerate((self._triangular_kernel(breath_k),
                                   self._triangular_kernel(resonance_k),
-                                  self._triangular_kernel(floor_k),
-                                  self._triangular_kernel(hiss_k))):
+                                  self._triangular_kernel(floor_k))):
             combo[i, 0, :kern.shape[2]] = kern[0, 0]
         self._combo_kernel = combo
         # gate：指数 EMA（反转使最大权重对应最新样本）
@@ -273,7 +264,6 @@ class MicAirflowEffect:
         self._combo_ctx = combo_size - 1
         self._gate_ctx = gate_len - 1
         self._prox_ctx = prox_k - 1
-        self._hf_ctx = hf_k - 1
         self._max_block = int(self._MAX_BLOCK_SEC * sr)
         self._mod_norm = (1.0 / slow_k) ** 0.5
         self._gate_offset = float(
@@ -284,10 +274,8 @@ class MicAirflowEffect:
         self._rise_a = 1.0 - self._alpha_rise
         self._fall_a = float(np.exp(-1.0 / (self.INHALE_FALL_TAU * sr)))
         self._rel_a = float(np.exp(-1.0 / (self.INHALE_RELEASE_TAU * sr)))
-        self._alpha_air = 1.0 - float(np.exp(-1.0 / (self.AIR_TAU * sr)))
-        self._air_a = 1.0 - self._alpha_air
-        self._act_log_decay = -1.0 / (self.ACT_TAU * sr)
-        self._exhale_log_decay = -1.0 / (self.EXHALE_TAIL_TAU * sr)
+        self._alpha_act = 1.0 - float(np.exp(-1.0 / (self.ACT_TAU * sr)))
+        self._act_a = 1.0 - self._alpha_act
         self._gpu = None
         self.reset()
 
@@ -301,8 +289,6 @@ class MicAirflowEffect:
         self._dur_tail = None
         self._act_tail = None
         self._env_tail = None
-        self._air_tail = None
-        self._exhale_tail = None
         self._rngs = [None, None]
         self._rng_device = None
         self._pools = [None, None]
@@ -361,27 +347,11 @@ class MicAirflowEffect:
             return A * tail + B
         return B
 
-    @staticmethod
-    def _scan_hold(x: torch.Tensor, tail, log_decay: float,
-                   device, t: torch.Tensor) -> torch.Tensor:
-        """精确递推 h[t] = max(x[t], h[t-1]·decay) 的 log 域 max-plus 并行前缀扫描。"""
-        n = x.shape[0]
-        ls = torch.log(x.clamp(min=1e-12))
-        step = 1
-        while step < n:
-            add = step * log_decay
-            ls = torch.cat([ls[:step], torch.maximum(ls[step:], ls[:-step] + add)])
-            step <<= 1
-        h = torch.exp(ls)
-        if tail is not None and tail.device == device:
-            h = torch.maximum(h, tail * torch.exp(t * log_decay))
-        return h
-
     def _kernels_on(self, device: torch.device):
         """核的 GPU 缓存（首次/换设备时迁移）。"""
         if self._gpu is None or self._gpu[1] != device:
             self._gpu = (tuple(t.to(device) for t in (
-                self._slow_kernel, self._hf_kernel, self._combo_kernel,
+                self._slow_kernel, self._combo_kernel,
                 self._gate_kernel, self._prox_kernel,
             )), device)
         return self._gpu[0]
@@ -403,7 +373,7 @@ class MicAirflowEffect:
         intensity = intensity * self.INTENSITY_SCALE
         n = audio.shape[0]
         device = audio.device
-        k_slow, k_hf, k_combo, k_gate, k_prox = self._kernels_on(device)
+        k_slow, k_combo, k_gate, k_prox = self._kernels_on(device)
 
         # ═══════════════════════════════════════════════════════════
         # 1. 包络 + 调制噪声（slow 卷积，2 样本批）
@@ -435,23 +405,11 @@ class MicAirflowEffect:
         mod_low = mod_low.clamp(0.7, 1.3)
 
         # ═══════════════════════════════════════════════════════════
-        # 2. 样本级高频能量比（辅音检测）
-        #    hf_ratio = hf_envelope / envelope，样本级，辅音高、元音低
-        # ═══════════════════════════════════════════════════════════
-        diff_ctx = torch.empty_like(audio_ctx)
-        diff_ctx[0] = 0.0
-        diff_ctx[1:] = torch.abs(audio_ctx[1:] - audio_ctx[:-1])
-        hf_ctx_n = diff_ctx.shape[0]
-        hf_envelope_full = self._causal_conv1d(diff_ctx.view(1, 1, -1), k_hf)[0, 0]
-        hf_envelope = hf_envelope_full[hf_ctx_n - n:hf_ctx_n]
-        hf_ratio = (hf_envelope / (envelope + 1e-8)).clamp(0.0, 1.0)
-
-        # ═══════════════════════════════════════════════════════════
-        # 3. 吸气包络（节奏层，v7/v9）：物理时序而非事件触发——
+        # 3. 吸气包络（节奏层，v7）：物理时序而非事件触发——
         #    静音中缓缓升起（≥0.12s 才起、τ=0.3s），峰值落在说话恢复的
         #    瞬间，语音一来快速切断（τ=0.05s）→「先吸气、后开口」；
-        #    静音 >1s 视为吸完自然回落。呼吸门控与深度在 4b（需语音门控）。
-        #    dur / env / air 三条仿射递推并行前缀扫描精确实现，
+        #    静音 >1s 视为吸完自然回落。活跃度门控在 4b（需语音包络）。
+        #    dur / env / act 三条仿射递推并行前缀扫描精确实现，
         #    跨块 GPU 标量尾衔接——与分块无关。
         # ═══════════════════════════════════════════════════════════
         sil_ind = (envelope < self.SILENCE_FLOOR).float()
@@ -473,19 +431,13 @@ class MicAirflowEffect:
         env_in = self._scan_affine(a_env, b_env, self._env_tail)
         self._env_tail = env_in[-1].detach()
 
-        # 3c. 存气量（τ=5s EMA of 包络）：说得越久越多 → 吸气越深
-        a_air = torch.full((n,), self._air_a, device=device)
-        air = self._scan_affine(a_air, envelope * self._alpha_air, self._air_tail)
-        self._air_tail = air[-1].detach()
-
         # ═══════════════════════════════════════════════════════════
-        # 4. 门控：sigmoid → 非线性 → 辅音增强 → EMA平滑
+        # 4. 门控：sigmoid → 非线性 → EMA平滑（无辅音增强——说话中
+        #    rumble 随辅音 1.8× 突跳是「隆隆起伏感」来源，v10 删）
         # ═══════════════════════════════════════════════════════════
         gate_raw = torch.sigmoid((envelope - self.GATE_MID) * self.GATE_STEEP)
         gate_in = ((gate_raw - self._gate_offset) / (1.0 - self._gate_offset)).clamp(min=0.0)
         gate_in = gate_in.pow(self.GATE_EXP)
-        consonant_gain = 1.0 + (self.CONSONANT_BOOST - 1.0) * hf_ratio
-        gate_in = gate_in * consonant_gain
 
         if self._prev_gate is not None:
             gate_ctx = torch.cat([self._prev_gate, gate_in])
@@ -496,23 +448,17 @@ class MicAirflowEffect:
         envelope_gate = gate_smooth[gate_ctx.shape[0] - n:]
 
         # ═══════════════════════════════════════════════════════════
-        # 4b. 呼吸门控与深度（v9）：
-        #     - 门控保持：语音门控的 τ=2.5s max-hold 拖尾——停顿中不衰减
-        #       （吸气不被削弱），久静 ~5s 后自然归零（长静音/冷启动不呼吸）
-        #     - 存气量深度：air（τ=5s EMA）缩放吸气 0.35–1.0——说得越久
-        #       耗气越多，下一口气越深
+        # 4b. 活跃度门控（v7）：τ=1s EMA of 包络——长静音后不再呼吸、
+        #     冷启动不凭空吸气（act_n 平滑归零，无状态跳变）
         # ═══════════════════════════════════════════════════════════
-        t = torch.arange(n, device=device, dtype=torch.float32)
-        act_hold = self._scan_hold(envelope_gate, self._act_tail,
-                                   self._act_log_decay, device, t)
-        self._act_tail = act_hold[-1].detach()
-        act_n = (act_hold / self.ACT_THRESHOLD).clamp(0.0, 1.0)
-        depth = self.INHALE_DEPTH_MIN + (1.0 - self.INHALE_DEPTH_MIN) * \
-            (air / self.ACT_THRESHOLD).clamp(0.0, 1.0)
-        inhale = env_in * act_n * depth
+        a_act = torch.full((n,), self._act_a, device=device)
+        act = self._scan_affine(a_act, envelope * self._alpha_act, self._act_tail)
+        self._act_tail = act[-1].detach()
+        act_n = (act / self.ACT_THRESHOLD).clamp(0.0, 1.0)
+        inhale = env_in * act_n
 
         # ═══════════════════════════════════════════════════════════
-        # 5. 风噪声（combo 分组卷积，4 通道）
+        # 5. 风噪声（combo 分组卷积，3 通道）
         # ═══════════════════════════════════════════════════════════
         noise = self._noise(1, n, device)
         if self._prev_noise is not None:
@@ -521,27 +467,20 @@ class MicAirflowEffect:
             noise_ctx = noise
         self._prev_noise = noise_ctx[-self._combo_ctx:].clone()
 
-        noise_4ch = noise_ctx.view(1, 1, -1).expand(1, 4, -1)
-        combo_out = self._causal_conv1d(noise_4ch, k_combo, groups=4)
+        noise_3ch = noise_ctx.view(1, 1, -1).expand(1, 3, -1)
+        combo_out = self._causal_conv1d(noise_3ch, k_combo, groups=3)
         noise_n = noise_ctx.shape[0]
         breath_low = combo_out[0, 0, noise_n - n:noise_n]
         res_low = combo_out[0, 1, noise_n - n:noise_n]
         floor_low = combo_out[0, 2, noise_n - n:noise_n]
-        hiss_low = combo_out[0, 3, noise_n - n:noise_n]
 
         # wind 缓慢起伏（调制噪声自调制）
         wind_mod = 1.0 + 0.4 * (mod_low - 1.0) / 0.15
 
-        # 5a. 语句尾呼气（v9a）：噪声门控 = max(语音门控, 其 τ=0.18s 拖尾)
-        #     ——每句话说完噪声多拖 ~0.3s 柔和尾巴；说话中 max 取门控
-        #     本身，行为不变。hiss 层不受影响（辅音嘶声不拖尾）。
-        exhale_tail = self._scan_hold(envelope_gate, self._exhale_tail,
-                                      self._exhale_log_decay, device, t)
-        self._exhale_tail = exhale_tail[-1].detach()
-
-        # 呼呼声 = rumble + resonance；门控 = max(语音门控, 尾呼气拖尾)
-        #          + 物理时序吸气包络（静音中升起、开口瞬间切断）
-        gate_total = (torch.maximum(envelope_gate, exhale_tail)
+        # 呼呼声 = rumble + resonance；门控 = 语音门控 × 退让（v10：
+        #          说话中被语音掩蔽，呼吸退成离散事件）
+        #          + 物理时序吸气包络（停顿中升起、开口瞬间切断）
+        gate_total = (self.VOICED_GATE_GAIN * envelope_gate
                       + self.INHALE_BOOST * inhale).clamp(max=1.8)
         rumble = breath_low * gate_total * wind_mod * self.BREATH_GAIN
         resonance = res_low * gate_total * self.RESONANCE_GAIN
@@ -549,9 +488,6 @@ class MicAirflowEffect:
 
         # 底噪：稳态（不受门控影响）
         floor = floor_low * intensity * self.FLOOR_GAIN
-
-        # 高频嘶嘶声：量由高频比控制（辅音时增强）+ 样本级门控
-        hiss = hiss_low * hf_ratio * envelope_gate * self.HISS_GAIN * intensity
 
         # ═══════════════════════════════════════════════════════════
         # 6. AM 幅度调制（气流包络样本级调制人声）—— 融合感核心
@@ -573,18 +509,18 @@ class MicAirflowEffect:
         audio_prox = audio_am + audio_low * self.PROXIMITY_GAIN * intensity
 
         # ═══════════════════════════════════════════════════════════
-        # 8. 气流控制软饱和（x / (1 + |x| · drive)，drive 逐样本跟随门控）
+        # 8. 气流控制软饱和（x / (1 + |x| · drive)，drive 逐样本跟随语音
+        #    门控——与 v7 说话中行为一致（人声质感不动），不受退让影响。
         #    ⚠️ 不能用块内均值（v0 旧法）：块长不同均值不同 → 整段与分块
-        #    渲染不一致（实测 max|Δ| 2.7e-2）；样本级同时消除每块一次的
-        #    drive 台阶
+        #    渲染不一致（实测 max|Δ| 2.7e-2）
         # ═══════════════════════════════════════════════════════════
-        drive = self.SATURATION_BASE + gate_total * (self.SATURATION_AIR * intensity)
+        drive = self.SATURATION_BASE + envelope_gate * (self.SATURATION_AIR * intensity)
         audio_sat = audio_prox / (1.0 + torch.abs(audio_prox) * drive)
 
         # ═══════════════════════════════════════════════════════════
-        # 9. 混合输出：人声（AM+近讲+饱和）+ 呼呼声 + 底噪 + 嘶嘶声
+        # 9. 混合输出：人声（AM+近讲+饱和）+ 呼呼声 + 底噪
         # ═══════════════════════════════════════════════════════════
-        return audio_sat + breath + floor + hiss
+        return audio_sat + breath + floor
 
 
 class AudioProcessor:
