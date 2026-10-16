@@ -90,6 +90,16 @@ class MicAirflowEffect:
     **教训：呼吸声必须是离散事件，持续性增强方向（拖尾/保持）一律否决；
     说话中的合成嘶声/沙沙一律否决。**
 
+    【v11 = v10 原样 + 存气量深度（v9 的深度项单独回融）】
+    v10 被认可（「现在这个可以」）。真实转换统计：8/8 停顿有呼吸、
+    吸气率 14.6 次/分（生理区间 14-20）——时序与密度已达标，短板是
+    口气间深浅变化只由 wind_mod 随机起伏，没有因果。v11 只回融 v9
+    三项中的存气量深度（持续项门控保持/尾呼气仍封死）：
+      - air：说话中积累（τ=6s，语音门控驱动）、静音中缓慢消退（τ=12s）
+      - depth = 0.35 + 0.65·clamp(air/0.35)——说得越久下一口气越深，
+        短句后浅吸；一状态仿射（依赖语音门控而非吸气包络，无递归），
+        前缀扫描精确、跨块标量尾衔接
+
     【v10 = v7 时序原样 + 两个结构性修正】
     质感层：
       - 100Hz rumble（呼呼声主体）+ 75Hz 共振 + 85Hz 稳态底噪
@@ -116,8 +126,8 @@ class MicAirflowEffect:
     - 噪声**每消费者独立流**（调制噪声 / 风噪各一个生成器 + 固定 16384
       补给池顺序消费）——单池多消费者的「值→消费者」映射随块长变化
       （v5 实测教训）；逐块 randn 值序也与调用长度相关
-    - dur / act / env 三条仿射递推（e'=a·e+b）用并行前缀扫描精确实现
-      （组合律 (a_r,b_r)∘(a_l,b_l)=(a_l·a_r, a_r·b_l+b_r)），跨块用
+    - dur / act / env / air 四条仿射递推（e'=a·e+b）用并行前缀扫描精确
+      实现（组合律 (a_r,b_r)∘(a_l,b_l)=(a_l·a_r, a_r·b_l+b_r)），跨块用
       GPU 标量尾衔接——与分块无关
     - 软饱和 drive 逐样本跟随门控（v6 教训：块内均值随块长变）
     - 零 .item() / Python 真值 / 0-dim 张量索引（GPU 标量只经张量算术）
@@ -164,6 +174,14 @@ class MicAirflowEffect:
     ACT_TAU = 1.0              # 活跃度 EMA 时间常数
     ACT_THRESHOLD = 0.05       # 活跃度归一阈值（≈刚可闻语音的包络）
 
+    # ── 存气量深度（v11）：呼吸深浅由「最近说了多少话」决定——说得越
+    #    久耗气越多，下一口气越深；短句后浅吸。生理因果的确定性变化
+    #    （呼吸率 14.6 次/分已达标，缺的是口气间的深浅因果变化）──
+    AIR_TAU_BUILD = 6.0        # 说话中存气量积累时间常数（消耗气体→需要吸气）
+    AIR_TAU_DECAY = 12.0       # 静音中缓慢消退（呼吸本身会补一部分气）
+    AIR_REF = 0.35             # air 归一参考（≈连续说话 3s 的积累量）
+    INHALE_DEPTH_MIN = 0.35    # 存气量不足时的最浅吸气比例
+
     _MAX_BLOCK_SEC = 1.0       # 内部子块上限（整段离线调用时切分；流式块远小于此）
     _NOISE_CHUNK = 16384       # 噪声池补给单位（CUDA randn 值序与调用块长相关）
 
@@ -205,6 +223,8 @@ class MicAirflowEffect:
         self._rel_a = 1.0
         self._alpha_act = 0.0      # 活跃度 EMA 步进
         self._act_a = 1.0
+        self._air_build_a = 1.0    # 存气量积累/消退系数
+        self._air_decay_a = 1.0
         # 上下文缓存长度
         self._slow_ctx = 0
         self._combo_ctx = 0
@@ -221,6 +241,7 @@ class MicAirflowEffect:
         self._dur_tail = None         # 静音持续时长块尾（样本）
         self._act_tail = None         # 说话活跃度块尾
         self._env_tail = None         # 吸气包络块尾
+        self._air_tail = None         # 存气量块尾
         # 复用缓冲（热路径零分配）
         self._batch_in = None       # (2,1,ctx_n)：调制噪声/包络
         # 噪声流：每消费者独立（0=调制噪声, 1=风噪）
@@ -276,6 +297,8 @@ class MicAirflowEffect:
         self._rel_a = float(np.exp(-1.0 / (self.INHALE_RELEASE_TAU * sr)))
         self._alpha_act = 1.0 - float(np.exp(-1.0 / (self.ACT_TAU * sr)))
         self._act_a = 1.0 - self._alpha_act
+        self._air_build_a = float(np.exp(-1.0 / (self.AIR_TAU_BUILD * sr)))
+        self._air_decay_a = float(np.exp(-1.0 / (self.AIR_TAU_DECAY * sr)))
         self._gpu = None
         self.reset()
 
@@ -289,6 +312,7 @@ class MicAirflowEffect:
         self._dur_tail = None
         self._act_tail = None
         self._env_tail = None
+        self._air_tail = None
         self._rngs = [None, None]
         self._rng_device = None
         self._pools = [None, None]
@@ -455,7 +479,19 @@ class MicAirflowEffect:
         act = self._scan_affine(a_act, envelope * self._alpha_act, self._act_tail)
         self._act_tail = act[-1].detach()
         act_n = (act / self.ACT_THRESHOLD).clamp(0.0, 1.0)
-        inhale = env_in * act_n
+
+        # 4c. 存气量深度（v11）：说话中积累（τ=6s，耗气→需要吸气）、
+        #     静音中缓慢消退（τ=12s）。一状态仿射（依赖语音门控而非吸气
+        #     包络，无递归），前缀扫描精确、跨块标量尾衔接。
+        #     depth ∈ [0.35, 1.0]：说得越久下一口气越深，短句后浅吸——
+        #     口气间深浅差异有因果，而非 wind_mod 的随机起伏。
+        a_air = sil_ind * self._air_decay_a + (1.0 - sil_ind) * self._air_build_a
+        b_air = (1.0 - sil_ind) * (1.0 - self._air_build_a) * envelope_gate
+        air = self._scan_affine(a_air, b_air, self._air_tail)
+        self._air_tail = air[-1].detach()
+        depth = self.INHALE_DEPTH_MIN + (1.0 - self.INHALE_DEPTH_MIN) * \
+            (air / self.AIR_REF).clamp(0.0, 1.0)
+        inhale = env_in * act_n * depth
 
         # ═══════════════════════════════════════════════════════════
         # 5. 风噪声（combo 分组卷积，3 通道）
