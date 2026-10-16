@@ -71,37 +71,43 @@ class SolaEffect:
 
 
 class MicAirflowEffect:
-    """麦克风气流声 — v0 质感 + 停顿同步呼吸节奏（v6）。
+    """麦克风气流声 — v0 质感 + 物理时序吸气包络（v7）。
 
     【裁决史】v0（2026-10-10，质感被认可：「还不如一开始的声音像」，
     但节奏不对）→ v1 事件驱动 / v2 低频触发 / v3 频响 FIR / v4 真实采样
     （「不要录入真实的音效，就用虚拟生成呼呼声。不要参考我的本地音频
-    文件」）/ v5 湍流模型（「像呲呲声，不像呼呼声；又变成随机响了」）
-    全部被否。
+    文件」）/ v5 湍流模型（「像呲呲声，不像呼呼声；又变成随机响了」）/
+    v6 停顿触发 swell（「还是不太像，和人声的配合还是怪」）全部被否。
 
-    【v6 = 恢复 v0 的全部质感层，只换节奏层】
-    质感层（原样恢复，用户认可的「像」）：
+    【v6「配合怪」的根源】swell 在停顿开始 ~330ms 后触发、0.3s 衰减——
+    吸气发生在停顿**中间**，说话恢复前就消失了。真实呼吸的时序相反：
+    静音中缓缓吸气、**峰值落在开口瞬间**、一开口就切断。
+
+    【v7 = v0 质感层不动，节奏层改为物理时序吸气包络】
+    质感层（原样，用户认可）：
       - 100Hz rumble（呼呼声主体）+ 75Hz 共振 + 85Hz 稳态底噪
       - 4kHz 辅音嘶声（样本级 hf_ratio 门控，辅音时才有）
       - AM 幅度调制（气流包络调制人声，融合感核心）
       - 近讲低频搁架 + 气流控制软饱和
-    节奏层（唯一改动）：
-      - 删 LFO 双正弦 / OU 随机游走 / 泊松突发——三者都与语音无关，
-        「该响不响、不该响乱响」= 节奏不对的根源（v5 的「随机响」同理）
-      - 改为**停顿同步的合成吸气 swell**：语音停顿（200ms 静音占比
-        上升沿）触发一次纯合成隆起——指数 hold（τ=0.3s 衰减）经 150ms
-        box 平滑成「快攻慢衰」的吸气包络，打在 rumble 层上。说话时
-        沿用 v0 的语音门控（呼气耦合）。节奏跟语音走，零随机。
+    节奏层（v7 重写，零事件触发、零随机）：
+      - 静音持续 ≥0.12s 才开始吸气（词间闭止不误吸），τ=0.3s 升起，
+        停顿越长吸得越足；静音 >1s 视为吸完，自然回落（τ=0.6s）；
+        说话恢复 τ=0.05s 快速切断——「先吸气、后开口」的物理时序
+      - 说话活跃度（τ=1s EMA）门控：长静音后不再呼吸，冷启动静音
+        不凭空吸气（替代 v6 的 samples_seen 守卫）
+      - 吸气包络是「静音时长」的连续函数，与语音天然同步
 
     块间一致性（硬规则，全部遵守）：
     - 缓存滤波**输入**而非输出（_prev_audio / _prev_mod / _prev_noise /
-      _prev_gate / _prev_audio_prox / _prev_sil / _prev_swell）
+      _prev_gate / _prev_audio_prox）
     - 因果卷积只左侧 pad(k-1)；F.conv1d 是互相关，gate EMA 核已 flip
     - 噪声**每消费者独立流**（调制噪声 / 风噪各一个生成器 + 固定 16384
       补给池顺序消费）——单池多消费者的「值→消费者」映射随块长变化
       （v5 实测教训）；逐块 randn 值序也与调用长度相关
-    - swell 链路全速率（不做抽取对齐）；hold 递推用 log 域 max-plus
-      并行前缀扫描精确实现，跨块用 GPU 标量尾衔接
+    - dur / act / env 三条递推均为仿射（e'=a·e+b），用并行前缀扫描
+      精确实现（组合律 (a_r,b_r)∘(a_l,b_l)=(a_l·a_r, a_r·b_l+b_r)），
+      跨块用 GPU 标量尾衔接——与分块无关
+    - 软饱和 drive 逐样本跟随门控（v6 教训：块内均值随块长变）
     - 零 .item() / Python 真值 / 0-dim 张量索引（GPU 标量只经张量算术）
     """
 
@@ -132,15 +138,16 @@ class MicAirflowEffect:
     # ── 辅音增强 ──
     CONSONANT_BOOST = 1.8      # 辅音时气流增强倍数
 
-    # ── 停顿同步呼吸 swell（节奏层，v6 新）──
+    # ── 吸气包络（节奏层，v7）：物理时序，无事件触发 ──
     SILENCE_FLOOR = 0.015      # 包络低于此 = 静音
-    SILENCE_SEC = 0.2          # 静音占比统计窗（秒）
-    TRIG_LEVEL = 0.55          # 静音占比上升沿阈值（≈停顿 330ms 后触发）
-    HOLD_TAU = 0.35            # 不应期 hold 时间常数（秒）
-    HOLD_MIN = 0.15            # hold 低于此才允许新触发（防阈值附近抖动连发）
-    SWELL_DECAY_TAU = 0.30     # swell 衰减时间常数（秒）
-    SWELL_SMOOTH_SEC = 0.15    # swell 攻击平滑（box；快攻慢衰的「快攻」）
-    SWELL_BOOST = 1.0          # swell 相对语音门控的增益
+    INHALE_MIN_PAUSE = 0.12    # 静音不足此时长不吸气（词间闭止不误吸）
+    INHALE_RISE_TAU = 0.30     # 吸气上升时间常数（停顿越长吸得越足）
+    INHALE_RISE_END = 1.0      # 静音超过此时长 = 吸完了，转入回落
+    INHALE_FALL_TAU = 0.60     # 长静音中吸气后的回落
+    INHALE_RELEASE_TAU = 0.05  # 说话恢复时吸气快速切断（先吸气、后开口）
+    ACT_TAU = 1.0              # 说话活跃度 EMA（长静音后停止呼吸）
+    ACT_THRESHOLD = 0.05       # 活跃度归一阈值（≈刚可闻语音的包络）
+    INHALE_BOOST = 1.0         # 吸气相对语音门控的增益
 
     _MAX_BLOCK_SEC = 1.0       # 内部子块上限（整段离线调用时切分；流式块远小于此）
     _NOISE_CHUNK = 16384       # 噪声池补给单位（CUDA randn 值序与调用块长相关）
@@ -175,23 +182,23 @@ class MicAirflowEffect:
         self._combo_kernel = None
         self._gate_kernel = None
         self._prox_kernel = None
-        self._sil_kernel = None
-        self._swell_kernel = None
         self._gpu = None
         # 预计算常量
         self._mod_norm = 1.0       # box低通后白噪声理论σ=sqrt(1/k)
         self._gate_offset = 0.0    # sigmoid(-2.4)≈0.0832
-        self._sil_log_decay = 0.0  # 不应期 hold 每样本对数衰减系数
-        self._swell_log_decay = 0.0  # swell hold 每样本对数衰减系数
-        self._swell_norm = 1.0     # box 平滑对 hold 峰值的削低补偿
+        # 吸气包络的仿射系数（setup 按 sr 计算）
+        self._alpha_rise = 0.0     # 升起步进 α = 1-exp(-1/(τ·sr))
+        self._rise_a = 1.0
+        self._fall_a = 1.0
+        self._rel_a = 1.0
+        self._alpha_act = 0.0
+        self._act_a = 1.0
         # 上下文缓存长度
         self._slow_ctx = 0
         self._combo_ctx = 0
         self._gate_ctx = 0
         self._prox_ctx = 0
         self._hf_ctx = 0
-        self._sil_ctx = 0
-        self._swell_ctx = 0
         self._max_block = 0
         # 块间上下文缓存（存滤波输入而非输出）
         self._prev_audio = None       # 音频（slow 包络 2ch 批量卷积共用）
@@ -199,13 +206,10 @@ class MicAirflowEffect:
         self._prev_noise = None       # 风噪输入（combo 4ch 共用）
         self._prev_gate = None        # 门控 EMA 的输入
         self._prev_audio_prox = None  # 近讲低通的输入
-        self._prev_sil = None         # 静音指示流（全速率）
-        self._prev_swell = None       # swell hold 的平滑输入
         # GPU 标量状态（跨块衔接；只经张量算术更新，绝不 .item()）
-        self._ref_tail = None         # 不应期 hold 块尾
-        self._swell_tail = None       # swell hold 块尾
-        self._sil_tail = None         # 静音占比块尾（上升沿检测）
-        self._samples_seen = 0        # 流起始守卫（纯 Python 计数）
+        self._dur_tail = None         # 静音持续时长块尾（样本）
+        self._act_tail = None         # 说话活跃度块尾
+        self._env_tail = None         # 吸气包络块尾
         # 复用缓冲（热路径零分配）
         self._batch_in = None       # (2,1,ctx_n)：调制噪声/包络
         # 噪声流：每消费者独立（0=调制噪声, 1=风噪）
@@ -216,6 +220,7 @@ class MicAirflowEffect:
 
     def setup(self, sr: int, device: str = None):
         """根据采样率动态计算所有核大小（时间常量/截止频率与sr无关）。"""
+        self._sr = float(sr)
         scale = sr / self._REF_SR
         ref = self._REF_SR
 
@@ -226,15 +231,11 @@ class MicAirflowEffect:
         floor_k, breath_k = k(self._REF_FLOOR_K), k(self._REF_BREATH_K)
         resonance_k, hiss_k = k(self._REF_RESONANCE_K), k(self._REF_HISS_K)
         prox_k, gate_len = k(self._REF_PROX_K), max(2, k(self._REF_GATE_LEN))
-        sil_k = max(1, int(self.SILENCE_SEC * sr))
-        smooth_k = max(1, int(self.SWELL_SMOOTH_SEC * sr))
 
         # slow：box 低通（包络 + 调制噪声）
         self._slow_kernel = self._box(slow_k)
         self._hf_kernel = self._box(hf_k)
         self._prox_kernel = self._box(prox_k)
-        self._sil_kernel = self._box(sil_k)
-        self._swell_kernel = self._box(smooth_k)
         # combo：分组卷积组合核（4 通道：breath/resonance/floor/hiss）
         combo_size = 2 * max(floor_k, breath_k, resonance_k, hiss_k) - 1
         combo = torch.zeros(4, 1, combo_size)
@@ -255,20 +256,18 @@ class MicAirflowEffect:
         self._gate_ctx = gate_len - 1
         self._prox_ctx = prox_k - 1
         self._hf_ctx = hf_k - 1
-        self._sil_ctx = sil_k - 1
-        self._swell_ctx = smooth_k - 1
         self._max_block = int(self._MAX_BLOCK_SEC * sr)
         self._mod_norm = (1.0 / slow_k) ** 0.5
         self._gate_offset = float(
             torch.sigmoid(torch.tensor(-self.GATE_MID * self.GATE_STEEP)).item()
         )
-        # hold 每样本对数衰减（全速率，无抽取换算）
-        self._sil_log_decay = -1.0 / (self.HOLD_TAU * sr)
-        self._swell_log_decay = -1.0 / (self.SWELL_DECAY_TAU * sr)
-        # box 平滑对脉冲 hold 峰值的削低：峰值 = τc/(L)·(1-exp(-L/τc))，
-        # 补偿 = L / (τc·(1-exp(-L/τc)))（τc/L 为衰减长度量纲、样本）
-        tc = self.SWELL_DECAY_TAU * sr
-        self._swell_norm = smooth_k / (tc * (1.0 - float(np.exp(-smooth_k / tc))))
+        # 吸气包络仿射系数（e' = a·e + b 的逐步系数）
+        self._alpha_rise = 1.0 - float(np.exp(-1.0 / (self.INHALE_RISE_TAU * sr)))
+        self._rise_a = 1.0 - self._alpha_rise
+        self._fall_a = float(np.exp(-1.0 / (self.INHALE_FALL_TAU * sr)))
+        self._rel_a = float(np.exp(-1.0 / (self.INHALE_RELEASE_TAU * sr)))
+        self._alpha_act = 1.0 - float(np.exp(-1.0 / (self.ACT_TAU * sr)))
+        self._act_a = 1.0 - self._alpha_act
         self._gpu = None
         self.reset()
 
@@ -279,12 +278,9 @@ class MicAirflowEffect:
         self._prev_noise = None
         self._prev_gate = None
         self._prev_audio_prox = None
-        self._prev_sil = None
-        self._prev_swell = None
-        self._ref_tail = None
-        self._swell_tail = None
-        self._sil_tail = None
-        self._samples_seen = 0
+        self._dur_tail = None
+        self._act_tail = None
+        self._env_tail = None
         self._rngs = [None, None]
         self._rng_device = None
         self._pools = [None, None]
@@ -321,20 +317,27 @@ class MicAirflowEffect:
         x_padded = F.pad(x, (k - 1, 0))
         return F.conv1d(x_padded, kernel, groups=groups)
 
-    def _scan_hold(self, x: torch.Tensor, tail, log_decay: float,
-                   device, t: torch.Tensor) -> torch.Tensor:
-        """精确递推 h[t] = max(x[t], h[t-1]·decay) 的 log 域 max-plus 并行前缀扫描。"""
-        n = x.shape[0]
-        ls = torch.log(x.clamp(min=1e-12))
+    @staticmethod
+    def _scan_affine(a: torch.Tensor, b: torch.Tensor, tail):
+        """精确递推 e[i] = a[i]·e[i-1] + b[i] 的仿射并行前缀扫描。
+
+        组合律：(a_l,b_l) 先、(a_r,b_r) 后 ⇒ (a_l·a_r, a_r·b_l + b_r)。
+        返回完整序列 e[0..n-1]；tail 为上一块末状态 e[-1]（None=流起始）。
+        与逐样本循环逐比特一致（浮点结合序相同），且与分块无关。
+        """
+        n = a.shape[0]
+        A, B = a.clone(), b.clone()
         step = 1
         while step < n:
-            add = step * log_decay
-            ls = torch.cat([ls[:step], torch.maximum(ls[step:], ls[:-step] + add)])
+            a_r, b_r = A[step:], B[step:]
+            a_l, b_l = A[:-step], B[:-step]
+            # 先算 B（要用的旧 A），再更新 A
+            B = torch.cat([B[:step], a_r * b_l + b_r])
+            A = torch.cat([A[:step], a_l * a_r])
             step <<= 1
-        h = torch.exp(ls)
-        if tail is not None and tail.device == device:
-            h = torch.maximum(h, tail * torch.exp(t * log_decay))
-        return h
+        if tail is not None and tail.device == a.device:
+            return A * tail + B
+        return B
 
     def _kernels_on(self, device: torch.device):
         """核的 GPU 缓存（首次/换设备时迁移）。"""
@@ -342,7 +345,6 @@ class MicAirflowEffect:
             self._gpu = (tuple(t.to(device) for t in (
                 self._slow_kernel, self._hf_kernel, self._combo_kernel,
                 self._gate_kernel, self._prox_kernel,
-                self._sil_kernel, self._swell_kernel,
             )), device)
         return self._gpu[0]
 
@@ -363,7 +365,7 @@ class MicAirflowEffect:
         intensity = intensity * self.INTENSITY_SCALE
         n = audio.shape[0]
         device = audio.device
-        k_slow, k_hf, k_combo, k_gate, k_prox, k_sil, k_swell = self._kernels_on(device)
+        k_slow, k_hf, k_combo, k_gate, k_prox = self._kernels_on(device)
 
         # ═══════════════════════════════════════════════════════════
         # 1. 包络 + 调制噪声（slow 卷积，2 样本批）
@@ -407,59 +409,38 @@ class MicAirflowEffect:
         hf_ratio = (hf_envelope / (envelope + 1e-8)).clamp(0.0, 1.0)
 
         # ═══════════════════════════════════════════════════════════
-        # 3. 停顿同步呼吸 swell（节奏层）：
-        #    静音占比(200ms 窗)上升沿 → 不应期 hold（防抖）→ 指数 hold
-        #    (τ=0.3s) → 150ms box 平滑 = 快攻慢衰的合成吸气包络。
-        #    全速率链路（无抽取对齐问题）；跨块 GPU 标量尾衔接。
+        # 3. 吸气包络（节奏层，v7）：物理时序而非事件触发——
+        #    静音中缓缓升起（≥0.12s 才起、τ=0.3s），峰值落在说话恢复的
+        #    瞬间，语音一来快速切断（τ=0.05s）→「先吸气、后开口」；
+        #    静音 >1s 视为吸完自然回落；长静音经活跃度门控不再呼吸。
+        #    dur / act / env 三条仿射递推均用并行前缀扫描精确实现，
+        #    跨块 GPU 标量尾衔接——与分块无关。
         # ═══════════════════════════════════════════════════════════
         sil_ind = (envelope < self.SILENCE_FLOOR).float()
-        if self._prev_sil is not None:
-            sil_ctx = torch.cat([self._prev_sil, sil_ind])
-        else:
-            sil_ctx = sil_ind
-        self._prev_sil = sil_ctx[-self._sil_ctx:].clone()
-        sil_v = self._causal_conv1d(sil_ctx.view(1, 1, -1), k_sil)[0, 0]
-        sil_v = sil_v[sil_v.shape[0] - n:]
 
-        if self._sil_tail is not None and self._sil_tail.device == device:
-            head = self._sil_tail.view(1)
-        else:
-            head = torch.zeros(1, device=device)
-        prev_v = torch.cat([head, sil_v[:-1]])
-        self._sil_tail = sil_v[-1].detach()
-        edge = (sil_v > self.TRIG_LEVEL).float() * (prev_v <= self.TRIG_LEVEL).float()
+        # 3a. 静音持续时长（样本）：dur' = sil ? dur+1 : 0
+        #     ⇒ 逐步系数 a=sil, b=sil（sil=0 时归零，sil=1 时线性累加）
+        dur = self._scan_affine(sil_ind, sil_ind, self._dur_tail)
+        self._dur_tail = dur[-1].detach()
 
-        t = torch.arange(n, device=device, dtype=torch.float32)
-        # 不应期：hold(原始 edge) 衰减到 HOLD_MIN 以下才允许新触发
-        h_ref = self._scan_hold(edge, self._ref_tail, self._sil_log_decay, device, t)
-        if self._ref_tail is not None and self._ref_tail.device == device:
-            h_prev = torch.cat([self._ref_tail.view(1), h_ref[:-1]])
-        else:
-            h_prev = torch.zeros(n, device=device)
-        self._ref_tail = h_ref[-1].detach()
-        edge_eff = edge * (h_prev < self.HOLD_MIN).float()
+        # 3b. 说话活跃度（τ=1s EMA of 包络）：长静音后不再呼吸
+        a_act = torch.full((n,), self._act_a, device=device)
+        act = self._scan_affine(a_act, envelope * self._alpha_act, self._act_tail)
+        self._act_tail = act[-1].detach()
+        act_n = (act / self.ACT_THRESHOLD).clamp(0.0, 1.0)
 
-        # 流起始守卫：窗口未填满前不触发（冷启动静音不凭空吸气）
-        if self._samples_seen < self._sil_ctx:
-            n_invalid = min(n, self._sil_ctx - self._samples_seen)
-            if n_invalid >= n:
-                edge_eff = torch.zeros_like(edge_eff)
-            else:
-                edge_eff = edge_eff.clone()
-                edge_eff[:n_invalid] = 0.0
-        self._samples_seen += n
-
-        # swell hold：τ=0.3s 指数衰减 → box 平滑（快攻慢衰）→ 峰值补偿
-        swell_h = self._scan_hold(edge_eff, self._swell_tail,
-                                  self._swell_log_decay, device, t)
-        self._swell_tail = swell_h[-1].detach()
-        if self._prev_swell is not None:
-            swell_ctx = torch.cat([self._prev_swell, swell_h])
-        else:
-            swell_ctx = swell_h
-        self._prev_swell = swell_ctx[-self._swell_ctx:].clone()
-        swell = self._causal_conv1d(swell_ctx.view(1, 1, -1), k_swell)[0, 0]
-        swell = swell[swell.shape[0] - n:] * self._swell_norm
+        # 3c. 吸气包络：分段仿射系数（未满最短停顿持零 / 窗内升起 /
+        #     超窗回落 / 有声快速切断）
+        dur_s = dur * (1.0 / self._sr)
+        early = (dur_s < self.INHALE_MIN_PAUSE).float()
+        late = (dur_s > self.INHALE_RISE_END).float()
+        in_win = (1.0 - early - late).clamp(min=0.0)
+        a_env = (1.0 - sil_ind) * self._rel_a + sil_ind * (
+            early + in_win * self._rise_a + late * self._fall_a)
+        b_env = sil_ind * in_win * self._alpha_rise
+        env_in = self._scan_affine(a_env, b_env, self._env_tail)
+        self._env_tail = env_in[-1].detach()
+        inhale = env_in * act_n
 
         # ═══════════════════════════════════════════════════════════
         # 4. 门控：sigmoid → 非线性 → 辅音增强 → EMA平滑
@@ -500,8 +481,8 @@ class MicAirflowEffect:
         wind_mod = 1.0 + 0.4 * (mod_low - 1.0) / 0.15
 
         # 呼呼声 = rumble + resonance；门控 = 语音门控（呼气耦合）
-        #          + 停顿吸气 swell（快攻慢衰，节奏跟语音走）
-        gate_total = (envelope_gate + self.SWELL_BOOST * swell).clamp(max=1.8)
+        #          + 物理时序吸气包络（静音中升起、开口瞬间切断）
+        gate_total = (envelope_gate + self.INHALE_BOOST * inhale).clamp(max=1.8)
         rumble = breath_low * gate_total * wind_mod * self.BREATH_GAIN
         resonance = res_low * gate_total * self.RESONANCE_GAIN
         breath = (rumble + resonance) * intensity
