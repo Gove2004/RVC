@@ -3,6 +3,8 @@ import logging
 from typing import List
 from rvc.io.devices import get_audio_devices, rescan_audio_devices
 
+from gui.state.bindings import OUTPUT2_NONE_TEXT
+
 logger = logging.getLogger(__name__)
 
 class DeviceCatalog:
@@ -62,12 +64,19 @@ class DeviceCatalog:
             combo.setCurrentIndex(idx)
 
     def load_hostapis(self) -> None:
-        """加载可用的音频驱动"""
+        """加载可用的音频驱动。
+
+        调用时 window 已把 hostapi_combo.currentTextChanged 连到 _ha_changed：
+        重填必须屏蔽信号，否则启动时触发递归刷新——PortAudio 全量枚举跑两遍，
+        后一遍覆盖前一遍结果。
+        """
         ha_names, ins, outs, in_idx, out_idx = get_audio_devices()
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
+        self.window.hostapi_combo.blockSignals(True)
         self.window.hostapi_combo.clear()
         self.window.hostapi_combo.addItems(ha_names)
+        self.window.hostapi_combo.blockSignals(False)
         self._populate_device_combos(ins, outs)
 
     def _populate_device_combos(self, ins: List[str], outs: List[str]) -> None:
@@ -77,7 +86,7 @@ class DeviceCatalog:
         self.window.output_combo.clear()
         self.window.output_combo.addItems(outs)
         self.window.output2_combo.clear()
-        self.window.output2_combo.addItem("不使用")
+        self.window.output2_combo.addItem(OUTPUT2_NONE_TEXT)  # 占位首项，单源于 bindings
         self.window.output2_combo.addItems(outs)
 
     def get_input_device_index(self, combo_idx: int) -> int:

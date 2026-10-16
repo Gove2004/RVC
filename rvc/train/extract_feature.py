@@ -14,6 +14,7 @@ from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
 from rvc.pipeline.features import hubert_forward
 from rvc.runtime.caches import LRUCache
+from rvc.train.atomic_save import save_npy_atomic
 
 # 训练侧 HuBERT 进程级缓存（与推理侧 InferenceCache 的 hubert 槽位同配置 LRU=2）：
 # 同进程第二次训练任务直接复用，避免重新加载 ~1GB 权重。
@@ -23,11 +24,9 @@ _hubert_cache = LRUCache(2)
 
 def clear_hubert_cache():
     """清空训练侧 HuBERT 缓存并归还显存（特征提取完成后调用，训练前释放 ~1GB）。"""
-    import torch as _torch
-
     _hubert_cache.clear()
-    if _torch.cuda.is_available():
-        _torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 class HuBERTExtractor:
@@ -51,12 +50,13 @@ class HuBERTExtractor:
         feat_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
         for i, path in enumerate(files, 1):
-            if self.stop_requested or (stop_check is not None and stop_check()):
+            if stop_check is not None and stop_check():
                 break
             out_path = feat_dir / f"{path.stem}.npy"
             if not out_path.exists():
                 feats = self.extract(path)
-                np.save(out_path, feats, allow_pickle=False)
+                # 原子写：中途强杀不留截断 npy 被续跑逻辑静默复用
+                save_npy_atomic(out_path, feats)
             if progress_callback:
                 progress_callback(i, len(files))
         return len(files)

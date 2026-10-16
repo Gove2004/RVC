@@ -278,12 +278,17 @@ def change_archive_name(path: str, new_name: str) -> str:
     return new_name
 
 
+# 导出 config 的 segment_size（帧）：与上游 RVC 导出 config 的固定值一致。
+# 推理端不使用该值（实时按 block_time 动态计算），仅为保持 config 结构完整可加载。
+_MODEL_CONFIG_SEGMENT_SIZE = 32
+
+
 def build_model_config(sr: int, config: dict):
     mel_config = config["data"]
     model = config["model"]
     return [
         mel_config["filter_length"] // 2 + 1,
-        32,
+        _MODEL_CONFIG_SEGMENT_SIZE,
         model["inter_channels"],
         model["hidden_channels"],
         model["filter_channels"],

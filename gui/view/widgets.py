@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen
 
 from gui.styles import ButtonStyles, Layout
+from gui.styles.colors import Colors
 
 __all__ = [
     "LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider",
@@ -159,7 +160,7 @@ def _create_slider_row(mn, mx, st, dv, fmt=".2f", unit="", label_w=80):
     lbl.setFixedWidth(label_w)
     lbl.setAlignment(Qt.AlignCenter)
     s = DoubleSlider(mn, mx, st, value_label=lbl, label_fmt=fmt, label_unit=unit)
-    s.setFixedHeight(18)
+    s.setFixedHeight(Layout.SLIDER_HEIGHT)
     s.setValue(dv)
     s._update_label()
     s.valueChanged.connect(s._update_label)
@@ -204,7 +205,7 @@ class RangeSlider(QWidget):
         self._fmt = fmt
         self._unit = unit
         self._dragging = None  # 'low' or 'high'
-        self.setFixedHeight(18)
+        self.setFixedHeight(Layout.SLIDER_HEIGHT)
         self.setMinimumWidth(180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._update_tooltip()
@@ -242,20 +243,20 @@ class RangeSlider(QWidget):
 
         # 背景轨道
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#3a3a3a"))
+        painter.setBrush(QColor(Colors.BORDER))
         painter.drawRoundedRect(QRect(margin, track_y, track_w, track_h), 2, 2)
 
         # 选中范围
         low_x = self._value_to_x(self._low)
         high_x = self._value_to_x(self._high)
-        painter.setBrush(QColor("#0078D4"))
+        painter.setBrush(QColor(Colors.PRIMARY))
         painter.drawRoundedRect(QRect(low_x, track_y, high_x - low_x, track_h), 2, 2)
 
         # 滑块（方形，和 QSlider 样式一致）
         handle_size = 12
         for x in (low_x, high_x):
-            painter.setBrush(QColor("#0078D4"))
-            painter.setPen(QPen(QColor("#1a1a1a"), 1))
+            painter.setBrush(QColor(Colors.PRIMARY))
+            painter.setPen(QPen(QColor(Colors.INPUT_BG), 1))
             handle_rect = QRect(x - handle_size // 2,
                                 track_y + track_h // 2 - handle_size // 2,
                                 handle_size, handle_size)

@@ -7,76 +7,49 @@ class ButtonStyles:
     """统一的按钮样式"""
 
     @staticmethod
-    def primary(width=None, height=None):
+    def _button_qss(bg: str, hover: str, disabled: str, *,
+                    size: str = "", padding: str = "5px 12px",
+                    font_weight: str = "bold") -> str:
+        """主/次/危险按钮共用的 QSS 模板（仅色值与字重不同）。"""
+        return f"""
+            QPushButton {{
+                {size}
+                background: {bg};
+                color: {Colors.TEXT_WHITE};
+                font-weight: {font_weight};
+                padding: {padding};
+                border: none;
+                border-radius: {Layout.RADIUS_NORMAL}px;
+            }}
+            QPushButton:hover {{
+                background: {hover};
+            }}
+            QPushButton:disabled {{
+                background: {disabled};
+                color: {Colors.MUTED_TEXT};
+            }}
+        """
+
+    @classmethod
+    def primary(cls, width=None, height=None):
         """主要操作按钮（绿色）"""
         size = f"width:{width}px;" if width else ""
         size += f"height:{height}px;" if height else ""
-        return f"""
-            QPushButton {{
-                {size}
-                background: {Colors.PRIMARY};
-                color: {Colors.TEXT_WHITE};
-                font-weight: bold;
-                padding: 5px 12px;
-                border: none;
-                border-radius: {Layout.RADIUS_NORMAL}px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.PRIMARY_HOVER};
-            }}
-            QPushButton:disabled {{
-                background: {Colors.PRIMARY_DISABLED};
-                color: {Colors.MUTED_TEXT};
-            }}
-        """
+        return cls._button_qss(Colors.PRIMARY, Colors.PRIMARY_HOVER, Colors.PRIMARY_DISABLED, size=size)
 
-    @staticmethod
-    def secondary(width=None, height=None):
+    @classmethod
+    def secondary(cls, width=None, height=None):
         """次要操作按钮（蓝色）"""
         size = f"width:{width}px;" if width else ""
         size += f"height:{height}px;" if height else ""
-        return f"""
-            QPushButton {{
-                {size}
-                background: {Colors.SECONDARY};
-                color: {Colors.TEXT_WHITE};
-                font-weight: bold;
-                padding: 5px 12px;
-                border: none;
-                border-radius: {Layout.RADIUS_NORMAL}px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.SECONDARY_HOVER};
-            }}
-            QPushButton:disabled {{
-                background: {Colors.SECONDARY_DISABLED};
-                color: {Colors.MUTED_TEXT};
-            }}
-        """
+        return cls._button_qss(Colors.SECONDARY, Colors.SECONDARY_HOVER, Colors.SECONDARY_DISABLED, size=size)
 
-    @staticmethod
-    def danger(width=None, height=None):
+    @classmethod
+    def danger(cls, width=None, height=None):
         """危险操作按钮（红色）"""
         size = f"width:{width}px;" if width else ""
         size += f"height:{height}px;" if height else ""
-        return f"""
-            QPushButton {{
-                {size}
-                background: {Colors.DANGER};
-                color: {Colors.TEXT_WHITE};
-                font-weight: bold;
-                padding: 5px 12px;
-                border: none;
-                border-radius: {Layout.RADIUS_NORMAL}px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.DANGER_HOVER};
-            }}
-            QPushButton:disabled {{
-                background: {Colors.DANGER_DISABLED};
-                color: {Colors.MUTED_TEXT};
-            }}
-        """
+        return cls._button_qss(Colors.DANGER, Colors.DANGER_HOVER, Colors.DANGER_DISABLED, size=size)
 
     @staticmethod
     def small(color="secondary"):

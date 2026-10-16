@@ -1,8 +1,11 @@
 """训练日志：控制台 + 文件双写，支持实验名确定后 reattach。"""
+import logging
 import time
 from pathlib import Path
 
 from rvc.train.cli import BAR
+
+logger = logging.getLogger(__name__)
 
 
 class TrainLogger:
@@ -37,7 +40,9 @@ class TrainLogger:
                 carried = old_file.read_text(encoding="utf-8").splitlines()
                 old_file.unlink()
         except Exception:
-            pass
+            # 旧日志关闭/搬运/删除失败不能静默——否则表现为「新日志少了开头且旧
+            # 文件莫名残留」，排查无线索
+            logger.warning("reattach 处理旧日志失败（file=%s）", old_file, exc_info=True)
         self._buffer.clear()
         self.attach(log_file)
         if carried:

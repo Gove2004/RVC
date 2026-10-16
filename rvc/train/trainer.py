@@ -84,6 +84,8 @@ class Trainer:
         torch.manual_seed(self.train_cfg.get("seed", 1234))
         random.seed(self.train_cfg.get("seed", 1234))
         np.random.seed(self.train_cfg.get("seed", 1234))
+        # BucketSampler 让输入尺寸集中在少数几种 shape 上，benchmark 选核收益稳定
+        torch.backends.cudnn.benchmark = True
         spec_channels = self.mel_config["filter_length"] // 2 + 1
         self.synthesizer = SynthesizerTrnMsNSFsid(
             spec_channels,

@@ -18,7 +18,13 @@ def spectral_normalize_torch(magnitudes):
     return dynamic_range_compression_torch(magnitudes)
 
 
-def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False):
+def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size):
+    """STFT 线性谱（幅度）。
+
+    centering 在此手动完成：pad (n_fft-hop)/2 后以 center=False 调 torch.stft，
+    与 center=True 语义一致但避免双重 padding（本函数恒手动 pad，故不提供
+    center 参数——传 center=True 会 pad 两次，属潜在陷阱，已移除）。
+    """
     key = f"{win_size}_{y.dtype}_{y.device}"
     if key not in hann_window:
         hann_window[key] = torch.hann_window(win_size).to(dtype=y.dtype, device=y.device)
@@ -36,7 +42,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
         hop_length=hop_size,
         win_length=win_size,
         window=hann_window[key].float(),
-        center=center,
+        center=False,
         pad_mode="reflect",
         normalized=False,
         onesided=True,
@@ -54,6 +60,6 @@ def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
     return spectral_normalize_torch(melspec)
 
 
-def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=False):
-    spec = spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center)
+def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax):
+    spec = spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size)
     return spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax)

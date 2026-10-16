@@ -82,7 +82,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.gpu_list_ready.connect(self._populate_gpu_combo)
         self._loading = False
         self._lt = None
-        self._signals_connected = False
+        self._last_delay_tooltip = None
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
         self._build_ui()
@@ -189,13 +189,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
         """统一连接所有参数控件的变化信号 → 实时更新 runtime_params。
 
         覆盖 BINDINGS 表中的所有控件类型（FLOAT/COMBO/RADIO_F0/RADIO_SR），
-        以及特殊控件（RangeSlider、f0_threshold_slider）。
-        使用 _signals_connected 标志确保只连接一次，避免重复连接。
+        以及特殊控件（RangeSlider、f0_threshold_slider）。只在 __init__ 调用一次。
         """
-        if self._signals_connected:
-            return
-        self._signals_connected = True
-
         from gui.state.bindings import (
             BINDINGS, FLOAT, COMBO, PATH, RADIO_F0, RADIO_SR, _set_nested,
         )

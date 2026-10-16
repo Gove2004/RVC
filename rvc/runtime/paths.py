@@ -64,11 +64,20 @@ def parse_sr(sr) -> int:
 
 
 def train_config_path(sr=None) -> Path:
-    """按采样率返回训练配置路径；sr 缺省或不受支持时回退到默认 48k。"""
+    """按采样率返回训练配置路径。
+
+    显式给 sr 时**必须**命中对应配置：40k 请求落到 48k 文件会让 hop_length/betas
+    等底参整体错配（频谱与波形错位，收敛劣化且无告警），故缺失直接 raise 而非
+    静默回退。sr 缺省（未指定）时才回退默认 48k。
+    """
     if sr is not None:
-        path = TRAIN_CONFIG_FILES.get(parse_sr(sr))
-        if path is not None and path.exists():
-            return path
+        parsed = parse_sr(sr)
+        path = TRAIN_CONFIG_FILES.get(parsed)
+        if path is None:
+            raise FileNotFoundError(f"不支持的训练采样率: {parsed}（仅支持 40k/48k）")
+        if not path.exists():
+            raise FileNotFoundError(f"找不到训练配置: {path}")
+        return path
     path = TRAIN_CONFIG_FILES[DEFAULT_TRAIN_SR]
     if not path.exists():
         raise FileNotFoundError(f"找不到训练配置: {path}")

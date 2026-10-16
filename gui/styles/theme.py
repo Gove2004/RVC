@@ -63,9 +63,9 @@ def _build_global_stylesheet() -> str:
             padding: 0 3px;
         }}
 
-        /* Slider */
+        /* Slider（高度与 widgets 的 setFixedHeight 单源 Layout.SLIDER_HEIGHT）*/
         QSlider {{
-            height: 18px;
+            height: {Layout.SLIDER_HEIGHT}px;
         }}
         QSlider::groove:horizontal {{
             height: 4px;

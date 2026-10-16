@@ -116,8 +116,9 @@ class WindowLifecycle:
 
         if snap.running and snap.measure_ms > 0:
             self.delay_lbl.setText(f"延迟: {snap.measure_ms:.0f}ms")
-            # 动态 tooltip：显示延迟分解
-            self.delay_lbl.setToolTip(
+            # 动态 tooltip：显示延迟分解（内容未变不重写，避免每 200ms 触发
+            # 无效的 Qt 属性变更/重绘事件）
+            tooltip = (
                 f"算法延迟 = 2×采样长度 + 推理\n"
                 f"  输入块收集: {snap.driver_in_ms:.0f}ms\n"
                 f"  推理耗时: {snap.infer_ms:.0f}ms（GPU 端到端）\n"
@@ -126,6 +127,9 @@ class WindowLifecycle:
                 f"注：WASAPI共享模式驱动层缓冲（系统混音器+VB-Cable）未计入，\n"
                 f"实际听感通常比显示值大 100-150ms。换 WASAPI独占/ASIO 可降低。"
             )
+            if tooltip != getattr(self, "_last_delay_tooltip", None):
+                self._last_delay_tooltip = tooltip
+                self.delay_lbl.setToolTip(tooltip)
 
             # 显示当前输入音高（音域映射之前的原始值）
             if snap.input_pitch > 0:
@@ -183,23 +187,31 @@ class WindowLifecycle:
         if self._loading:
             old = self._lt
 
-            if old and old.isRunning():
-                old.request_stop()
-                if not old.wait(3000):
-                    logger.warning("旧模型加载线程 3s 内未结束（load_model 阻塞中），断开信号后继续")
+            if old:
+                for sig in (old.ok, old.err, old.finished):
+                    try:
+                        sig.disconnect()
+                    except (RuntimeError, TypeError):
+                        pass
 
-            for sig in (old.ok, old.err, old.finished):
-                try:
-                    sig.disconnect()
-                except (RuntimeError, TypeError):
-                    pass
+                if old.isRunning():
+                    old.request_stop()
+                    if not old.wait(3000):
+                        # 超时线程仍在跑（load_model 卡在 CUDA/磁盘）：此刻
+                        # deleteLater() 会销毁运行中的 QThread，触发 Qt 致命错误
+                        # "Destroyed while thread is still running"。改为挂
+                        # finished→deleteLater，线程自然结束后由事件循环回收。
+                        logger.warning("旧模型加载线程 3s 内未结束（load_model 阻塞中），断开信号后挂起延后回收")
+                        old.finished.connect(old.deleteLater)
+                    else:
+                        old.deleteLater()
+                else:
+                    old.deleteLater()
 
-            old.deleteLater()
             self._loading = False
 
         self._loading = True
 
-        self.controller.begin_load()
         self._mark_loading()
         self._lt = LoadThread(self.engine, pth, hubert)
         self._lt.ok.connect(self._on_loaded)
@@ -209,7 +221,6 @@ class WindowLifecycle:
 
     def _on_load_done(self):
         self._loading = False
-        self.controller.end_load()
         if self._lt:
             self._lt.deleteLater()
             self._lt = None
@@ -258,7 +269,6 @@ class WindowLifecycle:
                 self._lt.request_stop()
                 self._lt.wait(3000)
             self._loading = False
-            self.controller.end_load()
             self._reset_runtime_ui()
             if self.tray is not None:
                 self.tray.update_status()

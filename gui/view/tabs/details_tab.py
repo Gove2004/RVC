@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QMessageBox,
 )
 
-from gui.controller.tool_controller import ToolRunner
+from gui.controller.tool_controller import run_tool_async
 from gui.styles import ButtonStyles, Layout
 from gui.view.widgets import PathPickerButton
 
@@ -63,15 +63,6 @@ def build_details_tab(win) -> QWidget:
     return w
 
 
-def _run_tool(win, fn, *args, on_done):
-    """统一工具执行入口：前一个未结束则等待，然后在后台线程执行。"""
-    if win.tool_runner and win.tool_runner.isRunning():
-        win.tool_runner.wait()
-    win.tool_runner = ToolRunner(fn, *args)
-    win.tool_runner.done.connect(on_done)
-    win.tool_runner.start()
-
-
 def _run_inspect(win):
     path = win.inspect_path.path().strip()
     if not path:
@@ -81,7 +72,7 @@ def _run_inspect(win):
         QMessageBox.warning(win, "提示", "文件不存在")
         return
     win.inspect_result.setText("加载中...")
-    _run_tool(win, win.model_tools.inspect_model, path,
+    run_tool_async(win, win.model_tools.inspect_model, path,
               on_done=lambda ok, msg: _on_inspect_done(win, ok, msg))
 
 
@@ -111,7 +102,7 @@ def _run_rename_archive(win):
     if not Path(path).exists():
         QMessageBox.warning(win, "提示", "文件不存在")
         return
-    _run_tool(win, win.model_tools.change_archive_name, path, new_name,
+    run_tool_async(win, win.model_tools.change_archive_name, path, new_name,
               on_done=lambda ok, msg: _on_rename_done(win, ok, msg, path))
 
 

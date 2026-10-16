@@ -7,11 +7,12 @@ float32 numpy 数组。这是"数据加载"，不是"文件读写"。
 - audio_file.py: 解码任意格式 → numpy 数组（需要 ffmpeg）
 - wav_file.py:   WAV 文件结构化读写（写 FLOAT32/PCM16，读元信息）
 
-ffmpeg 定位顺序（训练 CLI 在 envcheck 探测，运行时默认直接取
-runtime.paths.FFMPEG_EXE）：RVC_FFMPEG → 系统 PATH → assets/ffmpeg/ffmpeg.exe。
+ffmpeg 定位单源在本文件 locate_ffmpeg（RVC_FFMPEG → 系统 PATH → assets/ffmpeg）：
+训练 CLI 的 envcheck 探测与运行时默认路径共用同一查找链，不再各写一套。
 """
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -25,24 +26,51 @@ logger = logging.getLogger(__name__)
 # pythonw（GUI）下启动子进程会闪控制台窗口，仅 Windows 需要抑制
 _SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
+_FFMPEG_HINT = (
+    "安装方式：winget install ffmpeg，或把 ffmpeg.exe 放到 assets/ffmpeg/ 目录下。"
+    if os.name == "nt"
+    else "安装方式：apt install -y ffmpeg（或 conda install -c conda-forge ffmpeg）。"
+)
+
+
+def locate_ffmpeg() -> tuple[str, str]:
+    """按固定顺序定位 ffmpeg，返回 (路径, 来源)；未找到返回 ("", "")。
+
+    查找链（单源，训练 CLI envcheck 与运行时默认路径共用）：
+    环境变量 RVC_FFMPEG → 系统 PATH → 项目内 assets/ffmpeg。
+    项目内只随包提供 Windows 版 ffmpeg.exe，故第三级有意限定 Windows
+    （非 Windows 平台交给系统 PATH / RVC_FFMPEG 处理）。
+    """
+    env_ffmpeg = os.environ.get("RVC_FFMPEG", "").strip()
+    if env_ffmpeg and Path(env_ffmpeg).exists():
+        return env_ffmpeg, "环境变量 RVC_FFMPEG"
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg, "系统 PATH"
+    if os.name == "nt" and FFMPEG_EXE.exists():
+        return str(FFMPEG_EXE), "项目内 assets/ffmpeg/ffmpeg.exe"
+    return "", ""
+
 
 def resolve_ffmpeg(ffmpeg_exe: str | Path | None = None) -> Path:
     """解析 ffmpeg 可执行路径。
 
     异常契约：
-    - FileNotFoundError: 路径不存在。错误类型刻意与解码失败区分——
+    - FileNotFoundError: 路径不存在/未找到。错误类型刻意与解码失败区分——
       "环境没装好"（调用方/用户可自行修复）和"文件坏"（数据问题）是两类故障。
 
-    默认取 runtime.paths.FFMPEG_EXE（调用时解析）；显式传 ffmpeg_exe 是
+    默认（ffmpeg_exe=None）走 locate_ffmpeg 查找链；显式传 ffmpeg_exe 是
     唯一的路径覆盖方式——不存在进程内改写模块全局的通道。
     """
-    exe = Path(ffmpeg_exe) if ffmpeg_exe is not None else FFMPEG_EXE
-    if not exe.exists():
-        raise FileNotFoundError(
-            f"找不到 ffmpeg: {exe}\n"
-            f"请将 ffmpeg.exe 放到 assets/ffmpeg/ 目录下。"
-        )
-    return exe
+    if ffmpeg_exe is not None:
+        exe = Path(ffmpeg_exe)
+        if not exe.exists():
+            raise FileNotFoundError(f"找不到 ffmpeg: {exe}\n{_FFMPEG_HINT}")
+        return exe
+    found, _source = locate_ffmpeg()
+    if not found:
+        raise FileNotFoundError(f"找不到 ffmpeg（系统 PATH / assets/ffmpeg 都没有）\n{_FFMPEG_HINT}")
+    return Path(found)
 
 
 def load_audio(

@@ -9,6 +9,7 @@ from rvc.io.audio_file import load_audio
 from rvc.models.rmvpe import RMVPE
 from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
 from rvc.runtime.paths import RMVPE_PATH
+from rvc.train.atomic_save import save_npy_atomic
 
 
 class TrainF0Extractor:
@@ -44,8 +45,9 @@ class TrainF0Extractor:
                 f0, _ = self.model.infer_from_audio_with_confidence(wav, thred=RMVPE_THRESHOLD_TRAIN)
                 # 推理侧解码已搬上 GPU，训练侧要落盘 npy 才转回 CPU
                 f0 = f0.detach().float().cpu().numpy()
-                np.save(out_cont, f0.astype(np.float32), allow_pickle=False)
-                np.save(out_coarse, normalize_f0_to_coarse(f0), allow_pickle=False)
+                # 原子写：中途强杀不留截断 npy 被续跑逻辑静默复用
+                save_npy_atomic(out_cont, f0.astype(np.float32))
+                save_npy_atomic(out_coarse, normalize_f0_to_coarse(f0))
             if progress_callback:
                 progress_callback(i, len(files))
         return len(files)

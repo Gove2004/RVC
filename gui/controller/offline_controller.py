@@ -93,10 +93,10 @@ class OfflineConversion:
             self.window._show_error(f"离线转换初始化失败: {exc}")
             return
 
-        self.worker = OfflineWorker(config)
+        self.worker = OfflineWorker(config, parent=self.window)
         self._converting = True
         self.worker.progress.connect(self._on_progress)
-        self.worker.finished.connect(self._on_finished)
+        self.worker.result_ready.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
         self.worker.cancelled.connect(self._on_cancelled)
         self.worker.start()
@@ -137,46 +137,47 @@ class OfflineConversion:
         if total > 0:
             self.window.offline_progress.setValue(current)
 
-    def _on_finished(self, path: str) -> None:
-        """转换完成 — worker 会自动退出并由 Qt 事件循环回收，不阻塞等待。"""
+    def _reset_conversion_ui(self, status_text: str) -> None:
+        """转换结束（完成/取消/出错）共用的 UI 复位。"""
         self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始转换")
         self.window.offline_cancel_btn.setEnabled(False)
-        self.window.offline_status.setText("完成")
+        self.window.offline_status.setText(status_text)
+
+    def _on_finished(self, path: str) -> None:
+        """转换完成 — worker 会自动退出并由 Qt 事件循环回收，不阻塞等待。"""
+        self._reset_conversion_ui("完成")
         # QThread.run() 返回后线程自动结束，worker 对象稍后由 Qt 事件循环删除。
         # 不调用 deleteLater()/wait()，避免阻塞和 "Destroyed while thread still running" 警告。
 
     def _on_cancelled(self) -> None:
         """转换被用户取消。"""
-        self._converting = False
-        self.window.offline_button.setEnabled(True)
-        self.window.offline_button.setText("开始转换")
-        self.window.offline_cancel_btn.setEnabled(False)
-        self.window.offline_status.setText("已取消")
+        self._reset_conversion_ui("已取消")
 
     def _on_error(self, msg: str) -> None:
         """转换出错。"""
-        self._converting = False
-        self.window.offline_button.setEnabled(True)
-        self.window.offline_button.setText("开始转换")
-        self.window.offline_cancel_btn.setEnabled(False)
-        self.window.offline_status.setText("错误")
-        # 与 _on_finished 一致：finished/error 信号在 run() 内发出，此刻线程可能尚未
+        self._reset_conversion_ui("错误")
+        # 与 _on_finished 一致：error 信号在 run() 内发出，此刻线程可能尚未
         # 真正退出，提前析构有竞态。引用保留到下次 start_conversion 被新 worker 覆盖。
         self.window._show_error(f"离线推理错误: {msg}")
 
 
 class OfflineWorker(QThread):
-    """离线推理线程：模拟播放→转换→写录，复用实时引擎全链路。"""
+    """离线推理线程：模拟播放→转换→写录，复用实时引擎全链路。
+
+    信号名说明：完成信号叫 result_ready 而非 finished——finished 会遮蔽
+    QThread 的内建 C++ 信号，两种语义分叉后极易接错（内建 finished() 表示
+    线程结束、无参数；本信号携带输出路径且发出时线程可能尚未退出）。
+    """
 
     progress = Signal(int, int)
-    finished = Signal(str)
+    result_ready = Signal(str)
     error = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, params: OfflineParams):
-        super().__init__()
+    def __init__(self, params: OfflineParams, parent=None):
+        super().__init__(parent)
         self.params = params
         self._cancel_requested = False
 
@@ -219,4 +220,4 @@ class OfflineWorker(QThread):
 
         engine.process_file(self.params, progress_cb=_progress, cancel_cb=_cancel_check)
         self.progress.emit(100, 100)
-        self.finished.emit(self.params.output_path)
+        self.result_ready.emit(self.params.output_path)

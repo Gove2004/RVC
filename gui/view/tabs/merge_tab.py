@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QPushButton, QSlider,
 )
 
-from gui.controller.tool_controller import ToolRunner
-from gui.styles import ButtonStyles
+from gui.controller.tool_controller import run_tool_async
+from gui.styles import ButtonStyles, Layout
 from gui.styles.colors import Colors
 from gui.view.widgets import PathPickerButton
 
@@ -57,7 +57,7 @@ def build_merge_tab(win) -> QWidget:
     win.merge_slider = QSlider(Qt.Orientation.Horizontal)
     win.merge_slider.setRange(0, 100)
     win.merge_slider.setValue(50)
-    win.merge_slider.setFixedHeight(18)
+    win.merge_slider.setFixedHeight(Layout.SLIDER_HEIGHT)
     win.merge_slider.valueChanged.connect(lambda v: _update_merge_label(win, v))
 
     win.merge_label = QLabel()
@@ -133,8 +133,8 @@ def _run_merge(win):
     win.btn_merge.setEnabled(False)
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())
     _set_merge_status(win, "融合中...", Colors.TEXT_SECONDARY)
-    _run_tool(win, win.model_tools.merge_models, a, b, ratio, out,
-              on_done=lambda ok, msg: _on_merge_done(win, ok, msg, name))
+    run_tool_async(win, win.model_tools.merge_models, a, b, ratio, out,
+                   on_done=lambda ok, msg: _on_merge_done(win, ok, msg, name))
 
 
 def _on_merge_done(win, success, message, name):
@@ -144,12 +144,3 @@ def _on_merge_done(win, success, message, name):
         _set_merge_status(win, f"完成：已保存到 assets/models/{name}.pth", Colors.SUCCESS)
     else:
         _set_merge_status(win, f"失败：{message}", Colors.ERROR)
-
-
-def _run_tool(win, fn, *args, on_done):
-    """统一工具执行入口：前一个未结束则等待，然后在后台线程执行。"""
-    if win.tool_runner and win.tool_runner.isRunning():
-        win.tool_runner.wait()
-    win.tool_runner = ToolRunner(fn, *args)
-    win.tool_runner.done.connect(on_done)
-    win.tool_runner.start()

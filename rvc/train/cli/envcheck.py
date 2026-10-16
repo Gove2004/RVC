@@ -2,14 +2,15 @@
 import importlib.util
 import os
 import platform
+import random
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from rvc.io.audio_file import locate_ffmpeg
 from rvc.runtime.paths import (
     CONFIG_ROOT,
-    FFMPEG_EXE,
     HUBERT_ROOT,
     PRETRAINED_ROOT,
     PROJECT_ROOT,
@@ -27,15 +28,38 @@ from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import _human_dur, _human_size
 
 
-def _probe_platform(log: TrainLogger):
-    mem_gb = 0.0
+def _system_memory_gb() -> float:
+    """物理内存总量（GB）；探测失败返回 0.0（仅显示层信息，不阻断）。"""
     try:
-        import os as _os
+        if os.name == "nt":
+            import ctypes
 
-        if hasattr(_os, "sysconf") and "SC_PHYS_PAGES" in _os.sysconf_names:
-            mem_gb = _os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / 1024 ** 3
+            class _MemoryStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = _MemoryStatusEx()
+            stat.dwLength = ctypes.sizeof(_MemoryStatusEx)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return stat.ullTotalPhys / 1024 ** 3
+        elif hasattr(os, "sysconf") and "SC_PHYS_PAGES" in os.sysconf_names:
+            return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024 ** 3
     except Exception:
         pass
+    return 0.0
+
+
+def _probe_platform(log: TrainLogger):
+    mem_gb = _system_memory_gb()
     log.log(f"系统        : {platform.system()} {platform.release()}")
     log.log(f"Python      : {sys.version.split()[0]}  ({sys.executable})")
     log.log(f"CPU / 内存  : {os.cpu_count()} 核 / {mem_gb:.1f} GB" if mem_gb else f"CPU         : {os.cpu_count()} 核")
@@ -112,20 +136,8 @@ def _probe_gpu(log: TrainLogger) -> tuple[str, bool, float]:
 
 
 def _locate_ffmpeg() -> tuple[str, str]:
-    """返回 (路径, 来源)。非 Windows 平台跳过项目内的 Windows exe。"""
-    local_exe = FFMPEG_EXE
-    env_ffmpeg = os.environ.get("RVC_FFMPEG", "").strip()
-    if env_ffmpeg and Path(env_ffmpeg).exists():
-        return env_ffmpeg, "环境变量 RVC_FFMPEG"
-    system_ffmpeg = shutil.which("ffmpeg")
-    if system_ffmpeg:
-        return system_ffmpeg, "系统 PATH"
-    # 第三级：项目内只随包提供 Windows 版 ffmpeg.exe，故此处**有意**限定 Windows
-    # （os.name == "nt"），非 Windows 平台交给系统 PATH / RVC_FFMPEG 处理。
-    on_windows = os.name == "nt"
-    if on_windows and local_exe.exists():
-        return str(local_exe), "项目内 assets/ffmpeg/ffmpeg.exe"
-    return "", ""
+    """ffmpeg 定位（单源 rvc.io.audio_file.locate_ffmpeg，此处只透传供报告）。"""
+    return locate_ffmpeg()
 
 
 def _probe_ffmpeg(log: TrainLogger) -> str:
@@ -263,7 +275,8 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_
     from rvc.io.wav_file import read_audio_metadata
 
     limit = 300
-    sample = files[:limit]
+    # 随机抽样而非取字典序前 N 个：按集数命名的素材前几集时长可能系统性偏长/偏短
+    sample = files if len(files) <= limit else random.sample(files, limit)
     seconds, sr_dist, scanned = 0.0, {}, 0
 
     def _probe_one(path: Path):

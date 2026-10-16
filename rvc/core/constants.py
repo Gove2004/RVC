@@ -9,6 +9,16 @@
 HUBERT_SAMPLE_RATE = 16000
 HUBERT_FRAME_SIZE = 160
 
+# 训练样本有效帧数范围（phone 帧数 = 特征帧数 ×2）。
+# 单源定义防止双处漂移：_filter 用它过滤样本，BucketSampler 用它生成分桶边界——
+# 上限改了但边界表没跟上时，末段样本会进数据集却全部被 sampler 跳过并刷警告。
+TRAIN_FRAME_MIN = 100
+TRAIN_FRAME_MAX = 900
+
+# 训练/预处理扫描的音频扩展名单源：预处理指纹核对（preprocess.py）与向导素材
+# 扫描（train/cli）必须同一口径，新增格式只改这里。
+AUDIO_EXTS = frozenset({".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"})
+
 # F0 置信度阈值（低于此值判为静音/UV）。
 # 训练与推理数值不同是有意为之（历史口径），单源定义防止双处漂移：
 # - 训练侧 0.03：RMVPE 官方推荐值，批量切片底噪干净；
@@ -49,3 +59,11 @@ SLICE_MAX_SIL_KEPT_DEFAULT = 500
 
 # DataLoader 取数进程数（0 = 主进程单线程取数，排查卡死时可用）
 TRAIN_NUM_WORKERS_DEFAULT = 2
+
+# ── 切片归一化（preprocess.normalize_audio）──
+# 目标峰值（归一化到满幅的 90%，留 10% 余量防爆音）
+NORMALIZE_PEAK_DEFAULT = 0.9
+# 归一化分量占比（剩余 1-MIX 混回原始动态，避免过度压缩动态范围）
+NORMALIZE_DYNAMIC_MIX = 0.75
+# 峰值超过此值视为坏样本（削波失真），直接丢弃
+BAD_SAMPLE_PEAK = 2.5

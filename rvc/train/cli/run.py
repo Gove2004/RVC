@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     for arg in args:
         if not arg.startswith("-"):
             argv_dir = arg
+            break  # 只取第一个非选项参数（与 docstring 口径一致）
 
     log = TrainLogger()
     try:

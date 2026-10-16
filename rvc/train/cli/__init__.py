@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from rvc.core.config import HUBERT_DEFAULT, TrainConfig
-from rvc.core.constants import SLICE_PERIOD_DEFAULT
+from rvc.core.constants import AUDIO_EXTS, SLICE_PERIOD_DEFAULT
 from rvc.runtime.paths import PROJECT_ROOT
 
 # 环境检测用（纯元数据查询，不真正执行模块）
@@ -23,7 +23,8 @@ OPTIONAL_PACKAGES = [
     ("sounddevice", "sounddevice", "实时音频 IO（仅推理端需要）"),
 ]
 
-AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
+# 音频扩展名单源在 rvc.core.constants.AUDIO_EXTS，此处 re-export 供向导扫描使用
+# （与 preprocess 指纹核对同一口径，新增格式只改 constants）。
 NATIVE_EXTS = {".wav", ".flac", ".ogg"}
 
 EXIT_OK, EXIT_ENV, EXIT_RUNTIME = 0, 1, 2
@@ -80,7 +81,12 @@ def output_dirs(root: Path, exp_name: str) -> tuple[Path, Path]:
 
 
 class Cancelled(Exception):
-    """用户 Ctrl+C 取消。"""
+    """用户 Ctrl+C 取消（训练 CLI 专用）。
+
+    ⚠️ 与 rvc.core.errors.CancelledError（推理侧，继承 BaseException）是两类
+    不同的异常，勿混用/互捕：`except Exception` 能捕获本类但**漏掉**
+    CancelledError——跨训练/推理两侧写代码时先确认异常的继承体系。
+    """
 
 
 class EnvFatal(Exception):

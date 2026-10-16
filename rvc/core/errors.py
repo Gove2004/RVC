@@ -43,4 +43,7 @@ class CancelledError(BaseException):
     「except Exception」兜底（日志/弹窗/重试）都会把取消误判为故障，
     并吞掉取消信号让上层的取消分支永不触发。调用方必须显式
     「except CancelledError」捕获（见 gui/controller/offline_controller.py）。
+
+    ⚠️ 与训练 CLI 的 rvc.train.cli.Cancelled（Exception）是两类不同的异常，
+    勿混用/互捕：`except Exception` 能捕获后者但**漏掉**本类。
     """

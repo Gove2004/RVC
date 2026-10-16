@@ -12,7 +12,11 @@ import numpy as np
 from scipy import signal
 
 from rvc.core.constants import (
+    AUDIO_EXTS,
+    BAD_SAMPLE_PEAK,
     HUBERT_SAMPLE_RATE,
+    NORMALIZE_DYNAMIC_MIX,
+    NORMALIZE_PEAK_DEFAULT,
     PREPROCESS_HIGHPASS_DEFAULT,
     SLICE_HOP_SIZE_DEFAULT,
     SLICE_MAX_SIL_KEPT_DEFAULT,
@@ -26,7 +30,6 @@ from rvc.io.audio_file import load_audio as _load_audio_lib
 from rvc.io.wav_file import write_wav
 from rvc.train.checkpoint import CHECKPOINT_DIR_NAME
 
-_AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 _MANIFEST_NAME = "manifest.json"
 _MANIFEST_PENDING = "manifest.json.pending"
 _RUNTIME_DIRS = [
@@ -56,6 +59,17 @@ def _rms(y: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
         strides=(y_padded.strides[0] * hop_length, y_padded.strides[0]),
     )
     return np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1)).astype(np.float32)
+
+
+def _load_manifest(manifest_path: Path) -> dict | None:
+    """读 manifest.json；缺失或损坏（坏 JSON）返回 None——按「无 manifest」处理，
+    与全项目配置类文件的「备份/回退」口径一致，不让一次写坏直接 crash。"""
+    if not manifest_path.exists():
+        return None
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 class Slicer:
@@ -124,23 +138,26 @@ class PreProcessor:
         self.slicer = Slicer(sr)
         self.bh, self.ah = signal.butter(5, PREPROCESS_HIGHPASS_DEFAULT, btype="high", fs=sr)
 
-    def run(self, progress_callback=None):
+    def run(self, progress_callback=None, stop_check=None):
         self._prepare_exp_dir()
         self.gt_dir.mkdir(parents=True, exist_ok=True)
         self.wav16k_dir.mkdir(parents=True, exist_ok=True)
         # sorted 保证文件序号（切片文件名 {index}_{idx}.wav）确定性——中断后重跑
         # 才能得到同样的命名，不会留下新旧混排的半套产物
-        files = sorted(p for p in self.input_dir.rglob("*") if p.suffix.lower() in _AUDIO_EXTS)
+        files = sorted(p for p in self.input_dir.rglob("*") if p.suffix.lower() in AUDIO_EXTS)
         for i, path in enumerate(files, 1):
+            if stop_check is not None and stop_check():
+                break
             self._process_file(path, i)
             if progress_callback:
                 progress_callback(i, len(files))
-        # 全部切片完成后才把 pending 转正。manifest.json 的语义 =「预处理完整完成」：
-        # 中途崩溃/强退时 manifest.json 保持旧值（或缺失），下次指纹核对必然判定
-        # 需要重跑——不会静默用残缺的切片产物训练。
-        pending = self.exp_dir / _MANIFEST_PENDING
-        if pending.exists():
-            os.replace(pending, self.exp_dir / _MANIFEST_NAME)
+        # 全部切片完成（未被中止）才把 pending 转正。manifest.json 的语义 =
+        # 「预处理完整完成」：中途崩溃/强退/用户中止时 manifest.json 保持旧值
+        # （或缺失），下次指纹核对必然判定需要重跑——不会静默用残缺的切片产物训练。
+        if stop_check is None or not stop_check():
+            pending = self.exp_dir / _MANIFEST_PENDING
+            if pending.exists():
+                os.replace(pending, self.exp_dir / _MANIFEST_NAME)
         return len(files)
 
     def _prepare_exp_dir(self):
@@ -149,8 +166,8 @@ class PreProcessor:
         self.exp_dir.mkdir(parents=True, exist_ok=True)
         current = build_exp_manifest(self.input_dir, self.sr, self.per)
         manifest_path = self.exp_dir / _MANIFEST_NAME
-        if manifest_path.exists():
-            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        previous = _load_manifest(manifest_path)
+        if previous is not None:
             previous_key = {k: previous.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
             current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
             if previous_key != current_key:
@@ -187,13 +204,18 @@ class PreProcessor:
 
 
 def normalize_audio(wav: np.ndarray):
-    """峰值归一化到 0.9 并混回 25% 原始动态；峰值 > 2.5 视为坏样本直接丢弃。"""
+    """峰值归一化并混回部分原始动态；峰值过高视为坏样本直接丢弃。
+
+    参数单源 rvc/core/constants.py（NORMALIZE_PEAK_DEFAULT / NORMALIZE_DYNAMIC_MIX /
+    BAD_SAMPLE_PEAK），影响训练素材的字面量不散落。
+    """
     wav = wav.astype(np.float32)
     peak = np.abs(wav).max()
-    if peak > 2.5:
+    if peak > BAD_SAMPLE_PEAK:
         return np.zeros(0, dtype=np.float32)
     if peak > 0:
-        wav = wav / peak * 0.9 * 0.75 + wav * 0.25
+        wav = (wav / peak * NORMALIZE_PEAK_DEFAULT * NORMALIZE_DYNAMIC_MIX
+               + wav * (1.0 - NORMALIZE_DYNAMIC_MIX))
     return wav.astype(np.float32)
 
 
@@ -202,7 +224,7 @@ def build_exp_manifest(input_dir: str | Path, sr: int, per: float):
     files = sorted(
         f"{str(p.relative_to(root)).replace('\\', '/')}|{p.stat().st_size}|{int(p.stat().st_mtime)}"
         for p in root.rglob("*")
-        if p.is_file() and p.suffix.lower() in _AUDIO_EXTS
+        if p.is_file() and p.suffix.lower() in AUDIO_EXTS
     )
     digest = hashlib.sha1("\n".join(files).encode("utf-8")).hexdigest()
     return {
@@ -234,10 +256,9 @@ def clear_exp_runtime(exp_dir: str | Path):
 
 def manifest_diff_reason(exp_dir: str | Path, input_dir: str | Path, sr: int, per: float) -> str:
     """返回预处理指纹与当前素材不一致的原因；一致时返回空串。"""
-    manifest_path = Path(exp_dir) / _MANIFEST_NAME
-    if not manifest_path.exists():
-        return "该实验目录还没有预处理产物（manifest.json 缺失），需要先执行预处理"
-    saved = json.loads(manifest_path.read_text(encoding="utf-8"))
+    saved = _load_manifest(Path(exp_dir) / _MANIFEST_NAME)
+    if saved is None:
+        return "该实验目录还没有预处理产物（manifest.json 缺失或损坏），需要先执行预处理"
     current = build_exp_manifest(input_dir, sr, per)
     if str(saved.get("input_dir")) != str(current.get("input_dir")):
         return f"输入目录不一致（预处理: {saved.get('input_dir')}，当前: {current.get('input_dir')}）"

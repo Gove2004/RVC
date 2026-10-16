@@ -24,3 +24,6 @@ class Layout:
     # 圆角（Windows 11 风格）
     RADIUS_NORMAL = 4             # 标准圆角
     RADIUS_LARGE = 8              # 大圆角
+
+    # 滑块控件高度（QSS 与 setFixedHeight 单源——改一处即全局生效）
+    SLIDER_HEIGHT = 18
