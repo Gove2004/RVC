@@ -65,6 +65,9 @@ class AudioParams:
     # 推理所用 CUDA 设备编号（多卡机器选卡）。进程启动时经 RuntimeDeviceConfig
     # 生效一次；改动后需重启程序（模型与 CUDA Graph 已按旧设备捕获/驻留）。
     device_index: int = 0
+    # 停机直通：引擎未运行期间把麦克风原声转发到主输出（虚拟声卡 Input），
+    # 目标软件无需在真实麦克风与虚拟声卡之间反复切换输入设备
+    passthrough: bool = False
 
 
 @dataclass

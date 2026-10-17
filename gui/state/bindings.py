@@ -50,6 +50,7 @@ BINDINGS = [
     ("audio.input_device", "input_combo", COMBO),
     ("audio.output_device", "output_combo", COMBO),
     ("audio.output2_device", "output2_combo", COMBO),
+    ("audio.passthrough", "passthrough_check", CHECK),
     # ── 顶层 ──
     # 模型路径由 PathPickerButton 自身持有（path()），不另存平行字段
     ("model_path", "model_path_btn", PATH),

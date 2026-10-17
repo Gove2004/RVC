@@ -76,6 +76,7 @@ class WindowLifecycle:
             logger.error("保存配置失败：%s", e, exc_info=True)
 
         self.controller.stop()
+        self.controller.stop_passthrough()
 
         QApplication.instance().quit()
 
@@ -146,6 +147,34 @@ class WindowLifecycle:
 
         if self.tray is not None:
             self.tray.update_status()
+
+    # ── 停机直通 ──
+
+    def _update_passthrough(self):
+        """停机直通状态同步（幂等）：勾选且引擎未运行 → 确保直通流开启；否则确保关闭。
+
+        所有生命周期状态切换（停机/运行时错误/加载失败/勾选框变化）后调用，
+        由它统一收敛直通流状态，调用方不感知当前开没开。
+        设备取当前「麦克风」「主输出」下拉框选择。
+        """
+        want = (
+            self.runtime_params.audio.passthrough
+            and not self._loading
+            and not self.controller.is_running
+        )
+        try:
+            if want:
+                in_idx = self.device_catalog.get_input_device_index(
+                    self.input_combo.currentIndex()
+                )
+                out_idx = self.device_catalog.get_output_device_index(
+                    self.output_combo.currentIndex()
+                )
+                self.controller.start_passthrough(in_idx, out_idx)
+            else:
+                self.controller.stop_passthrough()
+        except Exception as e:
+            logger.warning("停机直通切换失败：%s", e, exc_info=True)
 
     # ── 启动/停止 ──
 
@@ -227,6 +256,8 @@ class WindowLifecycle:
 
     def _on_loaded(self, sr):
         try:
+            # 直通流先让位：它占着同一对设备，推理流起来前必须关（否则双重出声）
+            self.controller.stop_passthrough()
             state = self.collect_gui_state()
             stats = self.controller.setup_engine(
                 sr_mode=state.audio.sr_mode,
@@ -249,6 +280,7 @@ class WindowLifecycle:
 
     def _on_err(self, e):
         self._reset_runtime_ui()
+        self._update_passthrough()
         self._show_error(str(e))
 
     def _on_runtime_error(self, message):
@@ -259,6 +291,7 @@ class WindowLifecycle:
         # 主线程：流已在音频回调内通过 CallbackStop 安全停止；委托 controller 处理业务逻辑
         self.controller.handle_runtime_error(message)
         self._reset_runtime_ui()
+        self._update_passthrough()
         if self.tray is not None:
             self.tray.update_status()
         self._show_error(f"实时推理错误: {message}")
@@ -270,6 +303,7 @@ class WindowLifecycle:
                 self._lt.wait(3000)
             self._loading = False
             self._reset_runtime_ui()
+            self._update_passthrough()
             if self.tray is not None:
                 self.tray.update_status()
             return
@@ -279,6 +313,7 @@ class WindowLifecycle:
 
         self.controller.stop_inference()
         self._reset_runtime_ui()
+        self._update_passthrough()
         if self.tray is not None:
             self.tray.update_status()
         logger.info("停止")

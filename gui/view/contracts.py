@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer, Signal
     from PySide6.QtWidgets import (
-        QComboBox, QLabel, QLineEdit, QProgressBar, QPushButton,
+        QCheckBox, QComboBox, QLabel, QLineEdit, QProgressBar, QPushButton,
         QRadioButton, QSlider, QTextEdit,
     )
 
@@ -71,6 +71,7 @@ class InferWindowHost(Protocol):
     input_combo: "QComboBox"
     output_combo: "QComboBox"
     output2_combo: "QComboBox"
+    passthrough_check: "QCheckBox"
     gpu_combo: "QComboBox"
     sr_model_radio: "QRadioButton"
     sr_device_radio: "QRadioButton"
