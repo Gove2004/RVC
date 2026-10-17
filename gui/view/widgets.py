@@ -376,7 +376,7 @@ class ModeToggle(QWidget):
             raise ValueError(f"未知档位: {mode}")
         self._mode = mode
         loading = mode == "loading"
-        self._buttons["convert"].setText("加载中" if loading else "变声")
+        self._buttons["convert"].setText("载入" if loading else "变声")
         for m, b in self._buttons.items():
             checked = m == mode
             b.setChecked(checked)
