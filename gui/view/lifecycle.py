@@ -150,6 +150,12 @@ class WindowLifecycle:
 
     # ── 三档运行态（原声直通 / 停止 / 变声）──
 
+    def _on_mode_changed(self, mode: str):
+        """ModeToggle 档位分发：控件只报意图，档位执行与 UI 收敛在这里。"""
+        {"passthrough": self._on_mode_passthrough,
+         "stop": self._on_mode_stop,
+         "convert": self._on_mode_convert}[mode]()
+
     def _on_mode_passthrough(self):
         """原声档：麦克风原样转发到主输出（不经模型）。
 
@@ -210,12 +216,14 @@ class WindowLifecycle:
 
         if not pth:
             self._show_warning("请先在「音色」中选择模型文件")
+            self._refresh_mode()  # 拒绝启动：toggle 勾选态回弹到实际状态
             return
 
         # 离线/实时共用同一 engine/runner（process_file 会替换 _runner），
         # 离线转换进行中启动实时会并发 load_model 竞态——双向互斥
         if self.offline_conversion.is_converting:
             self._show_warning("离线转换进行中，请等待完成或取消后再启动实时")
+            self._refresh_mode()
             return
 
         hubert = self.hubert_combo.currentText()

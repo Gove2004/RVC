@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from gui.controller.tool_controller import ModelToolController, ToolRunner
     from gui.view.tray import SystemTray
     from gui.view.widgets import (
-        DoubleSlider, ElidedLabel, LoadThread, PathPickerButton, RangeSlider,
+        DoubleSlider, ElidedLabel, LoadThread, ModeToggle, PathPickerButton, RangeSlider,
     )
     from rvc.core.config import InferenceParams
     from rvc.streaming.engine import VoiceEngine
@@ -97,10 +97,8 @@ class InferWindowHost(Protocol):
     offline_status: "QLabel"
     offline_progress: "QProgressBar"
 
-    # ── 底部控制栏（三档运行态）──
-    btn_passthrough: "QPushButton"
-    btn_stop: "QPushButton"
-    btn_convert: "QPushButton"
+    # ── 底部控制栏 ──
+    mode_toggle: "ModeToggle"
 
     # ── 底部状态栏控件 ──
     delay_lbl: "QLabel"

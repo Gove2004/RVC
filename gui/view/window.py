@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QPushButton, QMessageBox,
+    QHBoxLayout, QLabel, QMessageBox,
     QTabWidget, QSpacerItem, QSizePolicy,
 )
 
@@ -46,8 +46,10 @@ from gui.controller.offline_controller import OfflineConversion
 
 from gui.controller.tool_controller import ModelToolController
 
-from gui.styles import ButtonStyles, Layout
+from gui.styles import Layout
 from gui.styles.colors import Colors
+
+from gui.view.widgets import ModeToggle
 
 if TYPE_CHECKING:
     # 类型注解可引用 rvc 类型（仅 TYPE_CHECKING，运行时不 import）
@@ -156,26 +158,13 @@ class MainWindow(WindowLifecycle, QMainWindow):
         ctrl = QHBoxLayout()
         ctrl.setSpacing(Layout.SPACING_NORMAL)
 
-        # 左侧：三档运行态（原声直通/停止/变声）——当前档实心高亮，
-        # 另两档描边暗色；点目标档即切档，点当前档无害（处理器内有守卫）
+        # 左侧：三档运行态 toggle（原声/停止/变声，分段互斥单选）——
+        # 控件只发 modeChanged，档位执行由 lifecycle 分发；UI 勾选态由
+        # _refresh_mode 按实际流状态回写
         btn_group = QHBoxLayout()
-        self.btn_passthrough = QPushButton("原声")
-        self.btn_stop = QPushButton("停止")
-        self.btn_convert = QPushButton("变声")
-        for b in (self.btn_passthrough, self.btn_stop, self.btn_convert):
-            b.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
-        self.btn_passthrough.setToolTip(
-            "原声直通：麦克风原样转发到主输出（不经模型），\n"
-            "目标软件固定录虚拟声卡时用它临时说原声"
-        )
-        self.btn_stop.setToolTip("停止：关闭所有输出")
-        self.btn_convert.setToolTip("变声：加载模型并实时转换输出")
-        self.btn_passthrough.clicked.connect(self._on_mode_passthrough)
-        self.btn_stop.clicked.connect(self._on_mode_stop)
-        self.btn_convert.clicked.connect(self._on_mode_convert)
-        btn_group.addWidget(self.btn_passthrough)
-        btn_group.addWidget(self.btn_stop)
-        btn_group.addWidget(self.btn_convert)
+        self.mode_toggle = ModeToggle()
+        self.mode_toggle.modeChanged.connect(self._on_mode_changed)
+        btn_group.addWidget(self.mode_toggle)
 
         spacer1 = QSpacerItem(40, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         btn_group.addSpacerItem(spacer1)
@@ -360,20 +349,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     # ── UI 状态管理 ──
 
-    # 三档运行态的身份色（与托盘三色一致：蓝=原声 / 绿=变声 / 红=停止）
-    _MODE_COLORS = None  # 延迟初始化（避免 import 期依赖 Qt 样式常量）
-
-    def _mode_colors(self):
-        if MainWindow._MODE_COLORS is None:
-            MainWindow._MODE_COLORS = {
-                "passthrough": Colors.INFO,
-                "convert": Colors.SUCCESS,
-                "stop": Colors.DANGER,
-            }
-        return MainWindow._MODE_COLORS
-
     def _refresh_mode(self):
-        """按实际运行状态收敛三档按钮 UI（唯一事实源 = 实际流状态）。"""
+        """按实际运行状态收敛三档 toggle UI（唯一事实源 = 实际流状态）。"""
         if self._loading:
             mode = "loading"
         elif self.controller.is_running:
@@ -382,28 +359,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
             mode = "passthrough"
         else:
             mode = "stop"
-        self._set_mode_ui(mode)
-
-    def _set_mode_ui(self, mode: str) -> None:
-        """三档按钮外观：当前档实心、目标档描边；加载中只留停止可点。"""
-        c = self._mode_colors()
-        loading = mode == "loading"
-        self.btn_convert.setText("加载中" if loading else "变声")
-        self.btn_passthrough.setEnabled(not loading)
-        self.btn_stop.setEnabled(True)
-        self.btn_convert.setEnabled(not loading)
-
-        self.btn_stop.setStyleSheet(ButtonStyles.mode_active(c["stop"]))
-        self.btn_passthrough.setStyleSheet(
-            ButtonStyles.mode_active(c["passthrough"])
-            if mode == "passthrough"
-            else ButtonStyles.mode_idle(c["passthrough"])
-        )
-        self.btn_convert.setStyleSheet(
-            ButtonStyles.mode_active(c["convert"])
-            if mode == "convert"
-            else ButtonStyles.mode_idle(c["convert"])
-        )
+        self.mode_toggle.set_mode(mode)
 
     def _reset_runtime_ui(self):
         self._timer.stop()
