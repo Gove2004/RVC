@@ -300,6 +300,10 @@ class WindowLifecycle:
             self._on_err(str(e))
 
     def _on_err(self, e):
+        # 不变量：出错一律收敛到停止档，严禁回落原声——目标软件固定录
+        # 虚拟声卡，错误后突然传出原声会露馅。直通在这里显式关掉
+        # （即使理论上没开），_refresh_mode 只读状态、绝不自动开直通。
+        self.controller.stop_passthrough()
         self._reset_runtime_ui()
         self._show_error(str(e))
 
@@ -310,6 +314,9 @@ class WindowLifecycle:
     def _handle_runtime_error(self, message):
         # 主线程：流已在音频回调内通过 CallbackStop 安全停止；委托 controller 处理业务逻辑
         self.controller.handle_runtime_error(message)
+        # 不变量：运行时错误 → 停止档，绝不回落原声（露馅风险）。
+        # 显式关直通做双保险，UI 由 _reset_runtime_ui 按流状态收敛为停止。
+        self.controller.stop_passthrough()
         self._reset_runtime_ui()
         if self.tray is not None:
             self.tray.update_status()
