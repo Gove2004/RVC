@@ -44,8 +44,9 @@ FFMPEG_EXE = ASSETS_ROOT / "ffmpeg" / ("ffmpeg.exe" if os.name == "nt" else "ffm
 
 # ── 程序资源（png 随仓库跟踪）──
 RESOURCES_DIR = ASSETS_ROOT / "resources"
-ICON_IDLE_PATH = RESOURCES_DIR / "icon_idle.png"      # 红：未运行
-ICON_ACTIVE_PATH = RESOURCES_DIR / "icon_active.png"  # 绿：推理中
+ICON_IDLE_PATH = RESOURCES_DIR / "icon_idle.png"           # 红：停止输出
+ICON_ACTIVE_PATH = RESOURCES_DIR / "icon_active.png"       # 绿：变声输出中
+ICON_PASS_THROUGH_PATH = RESOURCES_DIR / "icon_passthrough.png"  # 蓝：原声直通中
 
 
 def config_path() -> Path:

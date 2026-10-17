@@ -106,9 +106,12 @@ class MainWindow(WindowLifecycle, QMainWindow):
         try:
             from gui.view.tray import SystemTray
 
-            idle_icon, active_icon = self.controller.tray_icon_paths
+            idle_icon, active_icon, pass_icon = self.controller.tray_icon_paths
             self.tray = SystemTray(self, on_quit=self._tray_quit,
-                                    icon_idle=idle_icon, icon_active=active_icon)
+                                    icon_idle=idle_icon, icon_active=active_icon,
+                                    icon_passthrough=pass_icon)
+            # 配置加载可能已在托盘创建前开启了停机直通，按实际状态刷新一次三态图标
+            self.tray.update_status()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
             sys.exit(1)
@@ -192,7 +195,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         以及特殊控件（RangeSlider、f0_threshold_slider）。只在 __init__ 调用一次。
         """
         from gui.state.bindings import (
-            BINDINGS, CHECK, COMBO, FLOAT, PATH, RADIO_F0, RADIO_SR, _set_nested,
+            BINDINGS, FLOAT, COMBO, PATH, RADIO_F0, RADIO_SR, _set_nested,
         )
 
         # 1. BINDINGS 表中的所有控件
@@ -216,10 +219,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
                 w.toggled.connect(lambda _: self._on_f0_method_changed())
             elif kind == RADIO_SR:
                 w.toggled.connect(lambda _: self._on_sr_mode_changed())
-            elif kind == CHECK:
-                def _on_check(checked, p=path):
-                    _set_nested(self.runtime_params, p, bool(checked))
-                w.toggled.connect(_on_check)
 
         # 2. RangeSlider（音域映射）— rangeChanged 信号
         def _on_src_range(low, high):
@@ -266,10 +265,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # 6. 显卡下拉框 — 直接写 runtime_params.audio.device_index（无 BINDINGS 路径，
         #    下拉项来自运行时探测的显卡列表）。
         self.gpu_combo.currentIndexChanged.connect(self._on_gpu_changed)
-
-        # 7. 停机直通勾选框 — 字段已由 CHECK 通用分支写入 runtime_params，
-        #    这里补直通流的即时开/关（勾上立即生效，不必等下次停机）。
-        self.passthrough_check.toggled.connect(lambda _checked: self._update_passthrough())
 
     def _on_output2_changed(self, text: str) -> None:
         """副输出选择变化时同步派生字段 enable_out2。"""

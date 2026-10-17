@@ -1,7 +1,7 @@
-"""设备 Tab — 推理显卡 / 音频驱动与设备 / 采样率 / 停机直通"""
+"""设备 Tab — 推理显卡 / 音频驱动与设备 / 采样率"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QComboBox,
-    QPushButton, QRadioButton, QButtonGroup, QCheckBox,
+    QPushButton, QRadioButton, QButtonGroup,
 )
 
 from gui.styles import ButtonStyles
@@ -50,18 +50,6 @@ def build_device_tab(win):
     win.output2_combo = QComboBox()
     g.addWidget(QLabel("副输出"), r, 0)
     g.addWidget(win.output2_combo, r, 1, 1, 2)
-    r += 1
-
-    # ── 停机直通 ──
-    win.passthrough_check = QCheckBox("引擎停机期间麦克风原声直出主输出")
-    win.passthrough_check.setToolTip(
-        "勾选后：点「停止」（或运行出错停机）时自动开一条纯转发流，\n"
-        "把麦克风原声写进主输出（虚拟声卡 Input）——\n"
-        "Discord/OBS 等固定录虚拟声卡即可，不用再来回切换输入设备。\n"
-        "点「开始」变声时直通流自动让位给推理引擎。"
-    )
-    g.addWidget(QLabel("停机直通"), r, 0)
-    g.addWidget(win.passthrough_check, r, 1, 1, 2)
     r += 1
 
     # ── 采样率 ──

@@ -151,17 +151,14 @@ class WindowLifecycle:
     # ── 停机直通 ──
 
     def _update_passthrough(self):
-        """停机直通状态同步（幂等）：勾选且引擎未运行 → 确保直通流开启；否则确保关闭。
+        """停机直通状态同步（幂等，恒启用）：引擎未加载且未运行 → 开原声直通；否则关。
 
-        所有生命周期状态切换（停机/运行时错误/加载失败/勾选框变化）后调用，
+        所有生命周期状态切换（停机/运行时错误/加载失败/加载完成）后调用，
         由它统一收敛直通流状态，调用方不感知当前开没开。
-        设备取当前「麦克风」「主输出」下拉框选择。
+        设备取当前「麦克风」「主输出」下拉框选择；随后刷新托盘三态图标
+        （蓝=直通 / 绿=变声 / 红=停止）。
         """
-        want = (
-            self.runtime_params.audio.passthrough
-            and not self._loading
-            and not self.controller.is_running
-        )
+        want = not self._loading and not self.controller.is_running
         try:
             if want:
                 in_idx = self.device_catalog.get_input_device_index(
@@ -175,6 +172,8 @@ class WindowLifecycle:
                 self.controller.stop_passthrough()
         except Exception as e:
             logger.warning("停机直通切换失败：%s", e, exc_info=True)
+        if self.tray is not None:
+            self.tray.update_status()
 
     # ── 启动/停止 ──
 
@@ -253,6 +252,9 @@ class WindowLifecycle:
         if self._lt:
             self._lt.deleteLater()
             self._lt = None
+        # 加载结束（成功→引擎已运行；失败→引擎未运行）：无论哪种结局都收敛
+        # 直通状态（加载中直通被压住，此刻 loading 已解除）
+        self._update_passthrough()
 
     def _on_loaded(self, sr):
         try:

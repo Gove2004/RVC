@@ -61,9 +61,11 @@ class InferController:
 
     @property
     def tray_icon_paths(self):
-        """托盘状态图标路径 (idle, active)，View 层经此取数（不直接 import rvc 路径常量）。"""
-        from rvc.runtime.paths import ICON_ACTIVE_PATH, ICON_IDLE_PATH
-        return ICON_IDLE_PATH, ICON_ACTIVE_PATH
+        """托盘三态图标路径 (idle红/active绿/passthrough蓝)，View 层经此取数（不直接 import rvc 路径常量）。"""
+        from rvc.runtime.paths import (
+            ICON_ACTIVE_PATH, ICON_IDLE_PATH, ICON_PASS_THROUGH_PATH,
+        )
+        return ICON_IDLE_PATH, ICON_ACTIVE_PATH, ICON_PASS_THROUGH_PATH
 
     @property
     def volume_range(self) -> tuple[float, float]:

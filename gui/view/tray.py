@@ -1,7 +1,7 @@
 """系统托盘 — 最小化到任务栏右下角图标。
 
 托盘不可用时直接抛异常（不 fallback），由调用方提示并退出。
-运行状态用图标底色表达：绿色=推理中，红色=已停止。
+输出状态用图标底色表达：绿色=变声输出中，蓝色=原声直通中，红色=停止输出。
 图标首次运行程序生成并缓存到 assets/，之后直接加载，避免重复绘制。
 """
 import logging
@@ -51,21 +51,22 @@ def _load_or_make_icon(path: Path, base_color: QColor) -> QIcon:
 
 
 class SystemTray:
-    """托盘图标（双色状态）+ 右键菜单（开始/停止、显示、退出）。
+    """托盘图标（三色状态：绿=变声/蓝=直通/红=停止）+ 右键菜单（显示、退出）。
 
-    icon_idle/icon_active：状态图标文件路径，由调用方经 controller 下发
-    （View 层不直接 import rvc 路径常量）。
+    三态图标文件路径由调用方经 controller 下发（View 层不直接 import rvc 路径常量）。
     """
 
-    def __init__(self, window: "MainWindow", on_quit=None, icon_idle: Path | None = None, icon_active: Path | None = None):
+    def __init__(self, window: "MainWindow", on_quit=None, icon_idle: Path | None = None,
+                 icon_active: Path | None = None, icon_passthrough: Path | None = None):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             raise RuntimeError("系统托盘不可用，无法最小化到托盘")
         self.window = window
         self.on_quit = on_quit
         self._notified = False
 
-        self._icon_idle = _load_or_make_icon(icon_idle, QColor(211, 47, 47))      # 红
-        self._icon_active = _load_or_make_icon(icon_active, QColor(46, 125, 50))  # 绿
+        self._icon_idle = _load_or_make_icon(icon_idle, QColor(211, 47, 47))        # 红
+        self._icon_active = _load_or_make_icon(icon_active, QColor(46, 125, 50))    # 绿
+        self._icon_pass = _load_or_make_icon(icon_passthrough, QColor(21, 101, 192))  # 蓝
         self.tray = QSystemTrayIcon(self._icon_idle, window)
         self.tray.setToolTip("-")
 
@@ -101,11 +102,16 @@ class SystemTray:
             self.window._start()
 
     def update_status(self):
-        """从 controller 遥测快照刷新图标底色（绿=运行/红=停止）与 tooltip 延迟。"""
+        """刷新三态图标与 tooltip：绿=变声中 / 蓝=原声直通中 / 红=停止输出。"""
         snap = self.window.controller.snapshot()
-        latency = f"{snap.measure_ms:.0f}ms" if snap.running and snap.measure_ms > 0 else "-"
-        self.tray.setToolTip(latency)
-        self.tray.setIcon(self._icon_active if snap.running else self._icon_idle)
+        if snap.running:
+            icon, tip = self._icon_active, (f"{snap.measure_ms:.0f}ms" if snap.measure_ms > 0 else "-")
+        elif self.window.controller.passthrough_running:
+            icon, tip = self._icon_pass, "原声直通中"
+        else:
+            icon, tip = self._icon_idle, "-"
+        self.tray.setToolTip(tip)
+        self.tray.setIcon(icon)
 
     def notify_minimized(self):
         """首次隐藏到托盘时气泡提示一次。"""
