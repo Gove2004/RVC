@@ -96,6 +96,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         self.device_catalog.load_hostapis()
         self._load_gui_config()
+        # 初始三档按钮 UI（停止档）
+        self._refresh_mode()
         # device_catalog 就绪后再连接刷新按钮信号
         self.refresh_btn.clicked.connect(self._reload_dev)
         # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
@@ -110,7 +112,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
             self.tray = SystemTray(self, on_quit=self._tray_quit,
                                     icon_idle=idle_icon, icon_active=active_icon,
                                     icon_passthrough=pass_icon)
-            # 配置加载可能已在托盘创建前开启了停机直通，按实际状态刷新一次三态图标
+            # 按实际运行状态刷新一次三态图标（初始为停止档红色）
             self.tray.update_status()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
@@ -154,13 +156,26 @@ class MainWindow(WindowLifecycle, QMainWindow):
         ctrl = QHBoxLayout()
         ctrl.setSpacing(Layout.SPACING_NORMAL)
 
-        # 左侧：开始/停止（单按钮，按运行状态切换文案与颜色）
+        # 左侧：三档运行态（原声直通/停止/变声）——当前档实心高亮，
+        # 另两档描边暗色；点目标档即切档，点当前档无害（处理器内有守卫）
         btn_group = QHBoxLayout()
-        self.btn_toggle = QPushButton("开始")
-        self.btn_toggle.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
-        self.btn_toggle.setStyleSheet(ButtonStyles.primary())
-        self.btn_toggle.clicked.connect(self._on_toggle_clicked)
-        btn_group.addWidget(self.btn_toggle)
+        self.btn_passthrough = QPushButton("原声")
+        self.btn_stop = QPushButton("停止")
+        self.btn_convert = QPushButton("变声")
+        for b in (self.btn_passthrough, self.btn_stop, self.btn_convert):
+            b.setFixedSize(Layout.BTN_WIDTH_NORMAL, Layout.BTN_HEIGHT_NORMAL)
+        self.btn_passthrough.setToolTip(
+            "原声直通：麦克风原样转发到主输出（不经模型），\n"
+            "目标软件固定录虚拟声卡时用它临时说原声"
+        )
+        self.btn_stop.setToolTip("停止：关闭所有输出")
+        self.btn_convert.setToolTip("变声：加载模型并实时转换输出")
+        self.btn_passthrough.clicked.connect(self._on_mode_passthrough)
+        self.btn_stop.clicked.connect(self._on_mode_stop)
+        self.btn_convert.clicked.connect(self._on_mode_convert)
+        btn_group.addWidget(self.btn_passthrough)
+        btn_group.addWidget(self.btn_stop)
+        btn_group.addWidget(self.btn_convert)
 
         spacer1 = QSpacerItem(40, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         btn_group.addSpacerItem(spacer1)
@@ -310,7 +325,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def _reload_dev(self):
         """委托给 DeviceCatalog（运行中禁止刷新，防止杀活动流）"""
-        if self.controller.is_running:
+        if self.controller.is_running or self.controller.passthrough_running:
             self._show_warning("运行中不能刷新设备，请先停止")
             return
         self.device_catalog.reload_devices()
@@ -345,24 +360,64 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     # ── UI 状态管理 ──
 
-    def _set_toggle_button(self, text, enabled, style):
-        self.btn_toggle.setEnabled(enabled)
-        self.btn_toggle.setText(text)
-        self.btn_toggle.setStyleSheet(style)
+    # 三档运行态的身份色（与托盘三色一致：蓝=原声 / 绿=变声 / 红=停止）
+    _MODE_COLORS = None  # 延迟初始化（避免 import 期依赖 Qt 样式常量）
+
+    def _mode_colors(self):
+        if MainWindow._MODE_COLORS is None:
+            MainWindow._MODE_COLORS = {
+                "passthrough": Colors.INFO,
+                "convert": Colors.SUCCESS,
+                "stop": Colors.DANGER,
+            }
+        return MainWindow._MODE_COLORS
+
+    def _refresh_mode(self):
+        """按实际运行状态收敛三档按钮 UI（唯一事实源 = 实际流状态）。"""
+        if self._loading:
+            mode = "loading"
+        elif self.controller.is_running:
+            mode = "convert"
+        elif self.controller.passthrough_running:
+            mode = "passthrough"
+        else:
+            mode = "stop"
+        self._set_mode_ui(mode)
+
+    def _set_mode_ui(self, mode: str) -> None:
+        """三档按钮外观：当前档实心、目标档描边；加载中只留停止可点。"""
+        c = self._mode_colors()
+        loading = mode == "loading"
+        self.btn_convert.setText("加载中" if loading else "变声")
+        self.btn_passthrough.setEnabled(not loading)
+        self.btn_stop.setEnabled(True)
+        self.btn_convert.setEnabled(not loading)
+
+        self.btn_stop.setStyleSheet(ButtonStyles.mode_active(c["stop"]))
+        self.btn_passthrough.setStyleSheet(
+            ButtonStyles.mode_active(c["passthrough"])
+            if mode == "passthrough"
+            else ButtonStyles.mode_idle(c["passthrough"])
+        )
+        self.btn_convert.setStyleSheet(
+            ButtonStyles.mode_active(c["convert"])
+            if mode == "convert"
+            else ButtonStyles.mode_idle(c["convert"])
+        )
 
     def _reset_runtime_ui(self):
         self._timer.stop()
-        self._set_toggle_button("开始", True, ButtonStyles.primary())
         self.delay_lbl.setText("延迟: -")
         self.pitch_lbl.setText("音高: -")
         self.error_lbl.hide()
+        self._refresh_mode()
 
     def _mark_loading(self):
-        self._set_toggle_button("加载中", False, ButtonStyles.secondary())
+        self._refresh_mode()
 
     def _mark_running(self):
-        self._set_toggle_button("停止", True, ButtonStyles.danger())
         self._timer.start(200)
+        self._refresh_mode()
 
     def collect_gui_state(self) -> "InferenceParams":
         return collect_params(self)

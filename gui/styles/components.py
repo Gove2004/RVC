@@ -52,6 +52,45 @@ class ButtonStyles:
         return cls._button_qss(Colors.DANGER, Colors.DANGER_HOVER, Colors.DANGER_DISABLED, size=size)
 
     @staticmethod
+    def mode_active(bg: str) -> str:
+        """三档运行态按钮的当前档样式：实心亮色（状态色即身份色）。"""
+        return f"""
+            QPushButton {{
+                background: {bg};
+                color: {Colors.TEXT_WHITE};
+                font-weight: bold;
+                padding: 5px 10px;
+                border: none;
+                border-radius: {Layout.RADIUS_NORMAL}px;
+            }}
+            QPushButton:hover {{
+                background: {bg};
+            }}
+        """
+
+    @staticmethod
+    def mode_idle(color: str) -> str:
+        """三档运行态按钮的非当前档样式：暗底 + 状态色描边与文字。"""
+        return f"""
+            QPushButton {{
+                background: {Colors.SECONDARY};
+                color: {color};
+                font-weight: bold;
+                padding: 5px 10px;
+                border: 1px solid {color};
+                border-radius: {Layout.RADIUS_NORMAL}px;
+            }}
+            QPushButton:hover {{
+                background: {Colors.SECONDARY_HOVER};
+            }}
+            QPushButton:disabled {{
+                background: {Colors.SECONDARY_DISABLED};
+                color: {Colors.MUTED_TEXT};
+                border-color: {Colors.BORDER};
+            }}
+        """
+
+    @staticmethod
     def small(color="secondary"):
         """小按钮（查看、修改原名、刷新等）"""
         colors = {

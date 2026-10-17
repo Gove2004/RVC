@@ -95,11 +95,11 @@ class SystemTray:
         self.window.activateWindow()
 
     def _toggle_running(self):
-        """托盘开始/停止变声（不打开窗口）。"""
+        """托盘开始/停止变声（不打开窗口）。变声档↔停止档二态切换。"""
         if self.window.controller.is_running:
             self.window._stop()
         else:
-            self.window._start()
+            self.window._on_mode_convert()
 
     def update_status(self):
         """刷新三态图标与 tooltip：绿=变声中 / 蓝=原声直通中 / 红=停止输出。"""

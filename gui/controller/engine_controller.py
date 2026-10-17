@@ -32,7 +32,7 @@ class InferController:
         self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
         self._engine_lock = threading.Lock()  # 防预热线程与主线程并发构造双实例
         self.on_runtime_error = on_runtime_error
-        # 停机直通流（无 torch 依赖，窗口启动阶段即可用）
+        # 原声直通流（无 torch 依赖，窗口启动阶段即可用）
         self._passthrough = PassthroughStream()
         # 加载状态由 window 层持有（_loading + LoadThread），本类不再存第二份
 
@@ -135,14 +135,14 @@ class InferController:
         """停止推理（停止引擎）。"""
         self.stop()
 
-    # ── 停机直通 ──
+    # ── 原声直通 ──
 
     def start_passthrough(self, in_dev: int, out_dev: int) -> None:
-        """停机直通：把麦克风原声转发到主输出设备（引擎未运行期间）。"""
+        """原声直通：把麦克风原声转发到主输出设备（不经模型）。"""
         self._passthrough.start(in_dev, out_dev)
 
     def stop_passthrough(self) -> None:
-        """关闭停机直通流（幂等）。"""
+        """关闭原声直通流（幂等）。"""
         self._passthrough.stop()
 
     @property

@@ -97,6 +97,11 @@ class InferWindowHost(Protocol):
     offline_status: "QLabel"
     offline_progress: "QProgressBar"
 
+    # ── 底部控制栏（三档运行态）──
+    btn_passthrough: "QPushButton"
+    btn_stop: "QPushButton"
+    btn_convert: "QPushButton"
+
     # ── 底部状态栏控件 ──
     delay_lbl: "QLabel"
     pitch_lbl: "QLabel"

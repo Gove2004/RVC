@@ -148,42 +148,62 @@ class WindowLifecycle:
         if self.tray is not None:
             self.tray.update_status()
 
-    # ── 停机直通 ──
+    # ── 三档运行态（原声直通 / 停止 / 变声）──
 
-    def _update_passthrough(self):
-        """停机直通状态同步（幂等，恒启用）：引擎未加载且未运行 → 开原声直通；否则关。
+    def _on_mode_passthrough(self):
+        """原声档：麦克风原样转发到主输出（不经模型）。
 
-        所有生命周期状态切换（停机/运行时错误/加载失败/加载完成）后调用，
-        由它统一收敛直通流状态，调用方不感知当前开没开。
-        设备取当前「麦克风」「主输出」下拉框选择；随后刷新托盘三态图标
-        （蓝=直通 / 绿=变声 / 红=停止）。
+        从停止档进入；从变声档点击则先停引擎再开直通（同一路径逐级让位）。
         """
-        want = not self._loading and not self.controller.is_running
-        try:
-            if want:
-                in_idx = self.device_catalog.get_input_device_index(
-                    self.input_combo.currentIndex()
-                )
-                out_idx = self.device_catalog.get_output_device_index(
-                    self.output_combo.currentIndex()
-                )
-                self.controller.start_passthrough(in_idx, out_idx)
-            else:
-                self.controller.stop_passthrough()
-        except Exception as e:
-            logger.warning("停机直通切换失败：%s", e, exc_info=True)
-        if self.tray is not None:
-            self.tray.update_status()
-
-    # ── 启动/停止 ──
-
-    def _on_toggle_clicked(self):
-        # 用 controller.is_running 而非 self.engine.running：后者会触发引擎惰性
-        # 构造（加载 torch 约 1.6s，主线程阻塞），让「没选模型就点开始」白等。
+        if self._loading:
+            return
         if self.controller.is_running:
             self._stop()
+        if self.controller.passthrough_running:
+            return
+        try:
+            in_idx = self.device_catalog.get_input_device_index(
+                self.input_combo.currentIndex()
+            )
+            out_idx = self.device_catalog.get_output_device_index(
+                self.output_combo.currentIndex()
+            )
+            self.controller.start_passthrough(in_idx, out_idx)
+        except Exception as e:
+            self._refresh_mode()
+            self._show_error(f"原声直通启动失败：{e}")
+            return
+        self._refresh_mode()
+        if self.tray is not None:
+            self.tray.update_status()
+        logger.info("原声直通已开启")
+
+    def _on_mode_convert(self):
+        """变声档：停直通（若有）→ 校验模型 → 加载引擎并启动推理。"""
+        if self._loading or self.controller.is_running:
+            return
+        # 直通先让位：同一对输入/输出设备（_on_loaded setup 前还会再关一次，双保险）
+        self.controller.stop_passthrough()
+        self._start()
+
+    def _on_mode_stop(self):
+        """停止档：停掉当前运行态（加载中→取消加载；变声→停引擎；原声→停直通）。"""
+        if self._loading:
+            if self._lt and self._lt.isRunning():
+                self._lt.request_stop()
+                self._lt.wait(3000)
+            self._loading = False
+            self._reset_runtime_ui()
+        elif self.controller.is_running:
+            self._stop()
         else:
-            self._start()
+            self.controller.stop_passthrough()
+            self._reset_runtime_ui()
+        if self.tray is not None:
+            self.tray.update_status()
+        logger.info("停止")
+
+    # ── 启动/停止 ──
 
     def _start(self):
         pth = self.model_path_btn.path().strip()
@@ -252,9 +272,8 @@ class WindowLifecycle:
         if self._lt:
             self._lt.deleteLater()
             self._lt = None
-        # 加载结束（成功→引擎已运行；失败→引擎未运行）：无论哪种结局都收敛
-        # 直通状态（加载中直通被压住，此刻 loading 已解除）
-        self._update_passthrough()
+        # 加载结束（成功→引擎已运行；失败→引擎未运行）：按实际状态收敛三档 UI
+        self._refresh_mode()
 
     def _on_loaded(self, sr):
         try:
@@ -282,7 +301,6 @@ class WindowLifecycle:
 
     def _on_err(self, e):
         self._reset_runtime_ui()
-        self._update_passthrough()
         self._show_error(str(e))
 
     def _on_runtime_error(self, message):
@@ -293,19 +311,18 @@ class WindowLifecycle:
         # 主线程：流已在音频回调内通过 CallbackStop 安全停止；委托 controller 处理业务逻辑
         self.controller.handle_runtime_error(message)
         self._reset_runtime_ui()
-        self._update_passthrough()
         if self.tray is not None:
             self.tray.update_status()
         self._show_error(f"实时推理错误: {message}")
 
     def _stop(self):
+        """停引擎（变声档 → 停止档）。取消加载与停直通走 _on_mode_stop。"""
         if self._loading:
             if self._lt and self._lt.isRunning():
                 self._lt.request_stop()
                 self._lt.wait(3000)
             self._loading = False
             self._reset_runtime_ui()
-            self._update_passthrough()
             if self.tray is not None:
                 self.tray.update_status()
             return
@@ -315,7 +332,6 @@ class WindowLifecycle:
 
         self.controller.stop_inference()
         self._reset_runtime_ui()
-        self._update_passthrough()
         if self.tray is not None:
             self.tray.update_status()
         logger.info("停止")
