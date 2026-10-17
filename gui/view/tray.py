@@ -63,6 +63,11 @@ class SystemTray:
         self.window = window
         self.on_quit = on_quit
         self._notified = False
+        # 单击循环切档：停止→变声→停止→原声→停止……
+        # 唯一状态 = 下次从停止档启动的档位；由「离开的档位」推导
+        # （离开变声/加载 → 下次开原声；离开原声 → 下次开变声），
+        # 启动失败不消耗交替（下次单击重试同档）。
+        self._next_from_stop = "convert"
 
         self._icon_idle = _load_or_make_icon(icon_idle, QColor(211, 47, 47))        # 红
         self._icon_active = _load_or_make_icon(icon_active, QColor(46, 125, 50))    # 绿
@@ -86,7 +91,7 @@ class SystemTray:
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # 单击：快速开始/停止变声（双击不响应，避免弹窗）
+            # 单击：循环切档（停止→变声→停止→原声→停止），双击不响应避免弹窗
             self._toggle_running()
 
     def show_window(self):
@@ -95,11 +100,18 @@ class SystemTray:
         self.window.activateWindow()
 
     def _toggle_running(self):
-        """托盘开始/停止变声（不打开窗口）。变声档↔停止档二态切换。"""
-        if self.window.controller.is_running:
-            self.window._stop()
+        """托盘单击循环切档（不打开窗口）：
+        停止→变声→停止→原声→停止（从停止档启动的档位交替轮换）。
+        加载中/变声中/原声中单击一律回停止档。"""
+        win = self.window
+        if win._loading or win.controller.is_running or win.controller.passthrough_running:
+            left_convert = win._loading or win.controller.is_running
+            self._next_from_stop = "passthrough" if left_convert else "convert"
+            win._on_mode_stop()
+        elif self._next_from_stop == "passthrough":
+            win._on_mode_passthrough()
         else:
-            self.window._on_mode_convert()
+            win._on_mode_convert()
 
     def update_status(self):
         """刷新三态图标与 tooltip：绿=变声中 / 蓝=原声直通中 / 红=停止输出。"""
