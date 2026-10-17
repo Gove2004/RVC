@@ -72,6 +72,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
     # 预热线程的初始化失败 → 主线程弹错误框（后台线程不能直接操作 Qt，
     # 也不能用无 context 的 QTimer.singleShot——非 Qt 线程上定时器回调永不执行）
     warmup_error = Signal(str)
+    # 设备枚举线程的结果 → 主线程填充设备下拉框（PortAudio 加载移出主线程）
+    devices_ready = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -92,18 +94,21 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         # 初始化管理器
         self.device_catalog = DeviceCatalog(self)
+        # 设备后台枚举：结果经信号回主线程填充（窗口先出现，下拉框稍后就位）
+        self.devices_ready.connect(self.device_catalog.apply_hostapis)
+        self.device_catalog.load_hostapis_async()
         self.offline_conversion = OfflineConversion(self)
         self.model_tools = ModelToolController()
         self.tool_runner = None
 
-        self.device_catalog.load_hostapis()
         self._load_gui_config()
         # 初始三档按钮 UI（停止档）
         self._refresh_mode()
         # device_catalog 就绪后再连接刷新按钮信号
         self.refresh_btn.clicked.connect(self._reload_dev)
-        # 窗口稳定后后台预热引擎（torch 加载 ~1.6s），避免首次点「开始」卡顿
-        QTimer.singleShot(300, self._warmup_engine)
+        # 窗口事件循环启动后立即后台预热引擎（torch 加载 ~1.7s，后台线程不抢主线程；
+        # 预热越早完成，点「开始」越不容易撞上预热）
+        QTimer.singleShot(0, self._warmup_engine)
 
         # 系统托盘：关闭=最小化到托盘；托盘不可用时直接报错退出
         self.tray = None

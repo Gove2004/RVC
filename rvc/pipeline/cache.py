@@ -8,7 +8,6 @@ LRU 淘汰：synthesizer（几百 MB/个）只进不出会让显存/内存持续
 同名 pth 被外部覆盖后仍会返回旧权重，属已知且被接受的现状。
 """
 from rvc.runtime.caches import LRUCache
-from rvc.runtime.graph import purge_cuda_graphs
 
 
 class InferenceCache:
@@ -106,6 +105,10 @@ class InferenceCache:
 
     def clear_synthesizer_cuda_graphs(self) -> None:
         """清除所有缓存的 synthesizer 的 CUDA Graph（外部经此操作，不触碰私有槽位）。"""
+        # 惰性导入：graph.py 顶层 import torch（~1.7s），不能进主线程导入链
+        # （GUI 启动契约：torch 只允许在引擎预热线程加载）
+        from rvc.runtime.graph import purge_cuda_graphs
+
         purge_cuda_graphs(
             *(bundle.synthesizer for bundle in self.synthesizer_bundles())
         )

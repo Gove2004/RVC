@@ -1,7 +1,7 @@
 """设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。"""
 import logging
+import threading
 from typing import List
-from rvc.io.devices import get_audio_devices, rescan_audio_devices
 
 from gui.state.bindings import OUTPUT2_NONE_TEXT
 
@@ -22,6 +22,8 @@ class DeviceCatalog:
         """刷新按钮：强制 PortAudio 重新枚举（支持设备热插拔），再刷新列表。"""
         # PortAudio 会缓存设备列表；设备热插拔后必须强制重扫（唯一入口见 rvc/io/devices），
         # 否则 query_devices() 始终返回旧列表，刷新看起来「没反应」。
+        from rvc.io.devices import rescan_audio_devices
+
         try:
             rescan_audio_devices()
         except Exception:
@@ -37,8 +39,11 @@ class DeviceCatalog:
 
     def _refresh_devices(self) -> None:
         """内部：刷新所有设备相关下拉框，并尽量保留当前选择。"""
-        hostapi_name = self.window.hostapi_combo.currentText()
-        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(hostapi_name)
+        from rvc.io.devices import get_audio_devices
+
+        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(
+            self.window.hostapi_combo.currentText()
+        )
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
         prev_ha = self.window.hostapi_combo.currentText()
@@ -63,21 +68,49 @@ class DeviceCatalog:
         if idx >= 0:
             combo.setCurrentIndex(idx)
 
-    def load_hostapis(self) -> None:
-        """加载可用的音频驱动。
+    def load_hostapis_async(self) -> None:
+        """后台线程枚举音频驱动与设备，完成后经 window.devices_ready 信号回主线程填充。
 
-        调用时 window 已把 hostapi_combo.currentTextChanged 连到 _ha_changed：
-        重填必须屏蔽信号，否则启动时触发递归刷新——PortAudio 全量枚举跑两遍，
-        后一遍覆盖前一遍结果。
+        PortAudio DLL 加载 + 设备枚举 ~170ms（sounddevice import 占大头），
+        移出主线程让窗口更早出现（实测本机 43 设备）。rvc.io.devices 的
+        import 也一并留在工作线程内完成。
         """
-        ha_names, ins, outs, in_idx, out_idx = get_audio_devices()
+        def _work():
+            try:
+                from rvc.io.devices import get_audio_devices
+
+                result = get_audio_devices()
+            except Exception:
+                logger.warning("后台枚举音频设备失败", exc_info=True)
+                result = None
+            # Qt 信号跨线程自动队列投递，回调在主线程执行
+            self.window.devices_ready.emit(result)
+
+        threading.Thread(target=_work, daemon=True, name="device-enum").start()
+
+    def apply_hostapis(self, result) -> None:
+        """主线程：填充设备下拉框（devices_ready 信号回调），并恢复配置中的设备选择。
+
+        异步加载时 _load_gui_config 已先跑过，当时下拉框为空、COMBO 回填落空，
+        这里从 runtime_params 补一次设备选择恢复。
+        """
+        if result is None:
+            return
+        ha_names, ins, outs, in_idx, out_idx = result
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
+        # 重填 hostapi 列表前屏蔽信号，避免触发 _ha_changed 递归刷新
         self.window.hostapi_combo.blockSignals(True)
         self.window.hostapi_combo.clear()
         self.window.hostapi_combo.addItems(ha_names)
         self.window.hostapi_combo.blockSignals(False)
         self._populate_device_combos(ins, outs)
+        # 恢复上次保存的设备选择（下拉框刚填充，无保留当前选择可言）
+        audio = self.window.runtime_params.audio
+        self._select(self.window.hostapi_combo, audio.hostapi)
+        self._select(self.window.input_combo, audio.input_device)
+        self._select(self.window.output_combo, audio.output_device)
+        self._select(self.window.output2_combo, audio.output2_device)
 
     def _populate_device_combos(self, ins: List[str], outs: List[str]) -> None:
         """填充设备下拉框"""

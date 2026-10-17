@@ -14,8 +14,6 @@
 """
 import logging
 
-import sounddevice as sd
-
 from rvc.core.errors import AudioDeviceError
 
 logger = logging.getLogger(__name__)
@@ -35,6 +33,10 @@ class PassthroughStream:
         """打开直通流（幂等：已在跑则直接返回）。失败抛 AudioDeviceError。"""
         if self.running:
             return
+        # 惰性导入：sounddevice 的 PortAudio DLL 加载 ~170ms，必须留在
+        # 主线程导入链之外（见 device_controller.load_hostapis_async 同理）
+        import sounddevice as sd
+
         in_rec = sd.query_devices(in_dev)
         out_rec = sd.query_devices(out_dev)
         in_max = int(in_rec["max_input_channels"])
