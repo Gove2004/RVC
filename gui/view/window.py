@@ -156,7 +156,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         # ── 底部控制栏 ──
         ctrl = QHBoxLayout()
-        ctrl.setSpacing(Layout.SPACING_NORMAL)
+        ctrl.setSpacing(Layout.SPACING_SMALL)
 
         # 左侧：三档运行态 toggle（原声/停止/变声，分段互斥单选）——
         # 控件只发 modeChanged，档位执行由 lifecycle 分发；UI 勾选态由
@@ -171,18 +171,18 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         # 右侧：输入音高 + 延迟显示
         self.pitch_lbl = QLabel("音高: -")
-        self.pitch_lbl.setMinimumWidth(100)
+        self.pitch_lbl.setMinimumWidth(78)
         self.pitch_lbl.setToolTip("当前输入音高（Hz，实时检测）：辅助调节高级功能中的音域映射参数")
         btn_group.addWidget(self.pitch_lbl)
 
         self.delay_lbl = QLabel("延迟: -")
-        self.delay_lbl.setMinimumWidth(120)
+        self.delay_lbl.setMinimumWidth(88)
         self.delay_lbl.setToolTip("端到端延迟（含输入/输出驱动缓冲）。鼠标悬停查看分解。想降延迟调小「采样长度」，或换用低延迟音频驱动")
         btn_group.addWidget(self.delay_lbl)
 
         # 错误计数：实时链路吞错（清零输出继续跑）的唯一可见信号，>0 才显示
         self.error_lbl = QLabel("")
-        self.error_lbl.setMinimumWidth(70)
+        self.error_lbl.setMinimumWidth(56)
         self.error_lbl.setStyleSheet(f"color: {Colors.ERROR};")
         self.error_lbl.hide()
         btn_group.addWidget(self.error_lbl)

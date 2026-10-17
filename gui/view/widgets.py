@@ -403,7 +403,7 @@ class ModeToggle(QWidget):
                 background: {Colors.SECONDARY};
                 color: {Colors.TEXT_SECONDARY};
                 font-weight: bold;
-                padding: 5px 14px;
+                padding: 5px 8px;
                 border: 1px solid {Colors.BORDER};
                 {radii}
             }}
