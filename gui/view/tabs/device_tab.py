@@ -1,10 +1,22 @@
 """设备 Tab — 推理显卡 / 音频驱动与设备 / 采样率"""
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QComboBox,
-    QPushButton, QRadioButton, QButtonGroup,
+    QPushButton, QRadioButton, QButtonGroup, QSizePolicy,
 )
 
 from gui.styles import ButtonStyles
+
+
+def _label(text: str) -> QLabel:
+    """行标签 — 宽度钉死在文字宽度（Maximum 不参与拉伸）。
+
+    设备列表是后台异步填充的，窗口先出现后下拉框才就位；若标签列
+    允许拉伸，网格重排时文本列会被撑宽。Maximum 让文本列恒为最宽
+    标签的文字宽度，多余空间全部让给右侧控件列。
+    """
+    lbl = QLabel(text)
+    lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    return lbl
 
 
 def build_device_tab(win):
@@ -23,7 +35,7 @@ def build_device_tab(win):
         "推理使用的 NVIDIA GPU（多卡机器）。\n"
         "切换后需重启程序生效：模型权重与 CUDA Graph 已按当前显卡驻留。"
     )
-    g.addWidget(QLabel("显卡驱动"), r, 0)
+    g.addWidget(_label("显卡驱动"), r, 0)
     g.addWidget(win.gpu_combo, r, 1, 1, 2)
     r += 1
 
@@ -32,23 +44,23 @@ def build_device_tab(win):
     win.hostapi_combo.currentTextChanged.connect(win._ha_changed)
     refresh_btn = QPushButton("刷新")
     refresh_btn.setStyleSheet(ButtonStyles.secondary())
-    g.addWidget(QLabel("音频驱动"), r, 0)
+    g.addWidget(_label("音频驱动"), r, 0)
     g.addWidget(win.hostapi_combo, r, 1)
     g.addWidget(refresh_btn, r, 2)
     r += 1
 
     win.input_combo = QComboBox()
-    g.addWidget(QLabel("麦克风"), r, 0)
+    g.addWidget(_label("麦克风"), r, 0)
     g.addWidget(win.input_combo, r, 1, 1, 2)
     r += 1
 
     win.output_combo = QComboBox()
-    g.addWidget(QLabel("主输出"), r, 0)
+    g.addWidget(_label("主输出"), r, 0)
     g.addWidget(win.output_combo, r, 1, 1, 2)
     r += 1
 
     win.output2_combo = QComboBox()
-    g.addWidget(QLabel("副输出"), r, 0)
+    g.addWidget(_label("副输出"), r, 0)
     g.addWidget(win.output2_combo, r, 1, 1, 2)
     r += 1
 
@@ -63,7 +75,7 @@ def build_device_tab(win):
     sr_group.addButton(win.sr_model_radio)
     sr_group.addButton(win.sr_device_radio)
 
-    g.addWidget(QLabel("采样率"), r, 0)
+    g.addWidget(_label("采样率"), r, 0)
     g.addWidget(win.sr_model_radio, r, 1)
     g.addWidget(win.sr_device_radio, r, 2)
     r += 1
