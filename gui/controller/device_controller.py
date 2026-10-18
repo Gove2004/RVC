@@ -92,9 +92,11 @@ class DeviceCatalog:
         """主线程：填充设备下拉框（devices_ready 信号回调），并恢复配置中的设备选择。
 
         异步加载时 _load_gui_config 已先跑过，当时下拉框为空、COMBO 回填落空，
-        这里从 runtime_params 补一次设备选择恢复。注意设备列表是按驱动过滤的：
-        恢复保存的驱动必须触发按该驱动重列设备，否则保存的设备名不在列表里、
-        选择会静默回落首项（表现为「存档配置没有正确读取」）。
+        这里从 runtime_params 补一次设备选择恢复。
+        关键：填充前必须先把存档值快照到局部——填充空下拉框会触发
+        currentTextChanged → 绑定层把「首项」写回 runtime_params，存档值
+        会在恢复之前被冲掉（表现为存档配置读不回来，全部回落首项）。
+        恢复用 _select 走信号回写，绑定层最终与下拉框一致。
         """
         if result is None:
             return
@@ -102,25 +104,31 @@ class DeviceCatalog:
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
         audio = self.window.runtime_params.audio
+        # ── 存档值快照（绑定层会在填充时冲掉 runtime_params 里的这些值）──
+        saved_ha = audio.hostapi
+        saved_in = audio.input_device
+        saved_out = audio.output_device
+        saved_out2 = audio.output2_device
         combo = self.window.hostapi_combo
         # 重填 hostapi 列表前屏蔽信号，避免触发 _ha_changed 递归刷新
         combo.blockSignals(True)
         combo.clear()
         combo.addItems(ha_names)
         combo.blockSignals(False)
-        if audio.hostapi and combo.findText(audio.hostapi) >= 0 and combo.currentText() != audio.hostapi:
+        if saved_ha and combo.findText(saved_ha) >= 0 and combo.currentText() != saved_ha:
             # 保存的驱动有效且与默认首项不同：放信号恢复选中，触发 _ha_changed
             # 按该驱动重列设备
-            combo.setCurrentText(audio.hostapi)
+            combo.setCurrentText(saved_ha)
         else:
             # ① 无保存/已失效（首次启动或设备拔了）；② 保存的驱动就是默认首项
             # （setCurrentText 同值不发信号）。两种情况后台枚举结果本就是当前
-            # 驱动过滤的，直接填充设备列表即可。
+            # 驱动过滤的，直接填充设备列表即可；驱动回落事实值保持与下拉框一致
             self._populate_device_combos(ins, outs)
-        # 恢复上次保存的设备选择（下拉框刚填充，无保留当前选择可言）
-        self._select(self.window.input_combo, audio.input_device)
-        self._select(self.window.output_combo, audio.output_device)
-        self._select(self.window.output2_combo, audio.output2_device)
+            audio.hostapi = combo.currentText()
+        # 恢复快照的设备选择（_select 内 setCurrentIndex 触发绑定信号回写）
+        self._select(self.window.input_combo, saved_in)
+        self._select(self.window.output_combo, saved_out)
+        self._select(self.window.output2_combo, saved_out2)
 
     def _populate_device_combos(self, ins: List[str], outs: List[str]) -> None:
         """填充设备下拉框"""
