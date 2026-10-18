@@ -16,6 +16,7 @@ VoiceEngine 作为门面（Facade），内部委托给子组件：
 
 import gc
 import logging
+import threading
 
 import numpy as np
 import sounddevice as sd
@@ -69,6 +70,9 @@ class VoiceEngine:
         self.pth_path = ""
         self.sr_model = 0  # 模型目标采样率（setup 时赋值）
         self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
+        # load_model 互斥锁：后台预加载与点击变声（LoadThread）/离线转换并发
+        # 调用时串行化，避免双载竞态。后来者拿锁等待后命中同 pth 快路径。
+        self._load_lock = threading.Lock()
 
         # 周期性 empty_cache 已移除：稳态下分配模式固定、缓存池不再增长，回收没有
         # 收益，反而可能经分配器锁与音频回调竞争造成周期性抖动。setup/stop 各有
@@ -144,24 +148,26 @@ class VoiceEngine:
 
         入口先无条件清空 f0 提取器的旧 CUDA Graph 缓存
         （见 _clear_f0_cuda_graph_caches）。
+        全程持 _load_lock：串行化后台预加载与 GUI/离线的并发加载请求。
         """
-        self._clear_f0_cuda_graph_caches()
-        if not force and self.pipeline and self.pth_path == pth:
-            return self.pipeline.target_sr
-        from rvc.pipeline.pipeline import InferencePipeline
+        with self._load_lock:
+            self._clear_f0_cuda_graph_caches()
+            if not force and self.pipeline and self.pth_path == pth:
+                return self.pipeline.target_sr
+            from rvc.pipeline.pipeline import InferencePipeline
 
-        try:
-            self.pipeline = InferencePipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
-            self.pipeline.load()
-            # 模型权重已搬到 GPU，释放加载过程中 CPU 侧的临时张量缓存还给 OS
-            torch.cuda.empty_cache()
-            gc.collect()
-            self.pth_path = pth
-            return self.pipeline.target_sr
-        except Exception as e:
-            logger.error("模型加载失败：%s", e, exc_info=True)
-            self.pipeline = None
-            raise
+            try:
+                self.pipeline = InferencePipeline(self._cfg, pth, self.inference_cache, hubert=hubert)
+                self.pipeline.load()
+                # 模型权重已搬到 GPU，释放加载过程中 CPU 侧的临时张量缓存还给 OS
+                torch.cuda.empty_cache()
+                gc.collect()
+                self.pth_path = pth
+                return self.pipeline.target_sr
+            except Exception as e:
+                logger.error("模型加载失败：%s", e, exc_info=True)
+                self.pipeline = None
+                raise
 
     # ── 引擎启动/停止 ──
 

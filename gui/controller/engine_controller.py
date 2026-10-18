@@ -89,6 +89,22 @@ class InferController:
             logger.warning("枚举 CUDA 显卡失败", exc_info=True)
             return []
 
+    def preload_last_model(self) -> None:
+        """后台预加载上次使用的模型（引擎预热线程收尾时调用）。
+
+        配置里存有上次模型路径时提前完成 torch.load + 搬 GPU，用户点「变声」
+        时 load_model 命中同 pth 快路径直接返回，只剩 warmup + 开流。
+        失败静默（只留日志）——预加载是纯优化，真实加载的错误由点击路径正常上报。
+        """
+        pth = (getattr(self.runtime_params, "model_path", "") or "").strip()
+        if not pth:
+            return
+        try:
+            self.engine.load_model(pth, hubert=self.runtime_params.hubert)
+            logger.info("上次模型已后台预加载，点「变声」将直接就绪")
+        except Exception:
+            logger.warning("后台预加载模型失败（点击变声时将正常加载）：%s", pth, exc_info=True)
+
     def snapshot(self) -> RuntimeTelemetry:
         """运行状态只读快照（View 订阅快照，不穿透引擎内部）。"""
         eng = self._engine

@@ -100,6 +100,9 @@ class WindowLifecycle:
                 # torch 此刻已就绪，把显卡列表投递回主线程回填下拉框
                 # （信号跨线程，Qt 自动走队列投递，不违反「后台线程不碰 Qt」）
                 self.gpu_list_ready.emit(self.controller.list_gpus())
+                # 顺手预加载上次模型（同在后台线程）：点「变声」时跳过
+                # torch.load + 搬 GPU（~1-2s），只剩 warmup + 开流
+                self.controller.preload_last_model()
             except Exception as e:
                 logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
                 # 无 GPU 等致命错误：经信号投递到主线程弹提示（后台线程不能
