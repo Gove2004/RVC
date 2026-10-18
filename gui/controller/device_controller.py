@@ -92,22 +92,32 @@ class DeviceCatalog:
         """主线程：填充设备下拉框（devices_ready 信号回调），并恢复配置中的设备选择。
 
         异步加载时 _load_gui_config 已先跑过，当时下拉框为空、COMBO 回填落空，
-        这里从 runtime_params 补一次设备选择恢复。
+        这里从 runtime_params 补一次设备选择恢复。注意设备列表是按驱动过滤的：
+        恢复保存的驱动必须触发按该驱动重列设备，否则保存的设备名不在列表里、
+        选择会静默回落首项（表现为「存档配置没有正确读取」）。
         """
         if result is None:
             return
         ha_names, ins, outs, in_idx, out_idx = result
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
-        # 重填 hostapi 列表前屏蔽信号，避免触发 _ha_changed 递归刷新
-        self.window.hostapi_combo.blockSignals(True)
-        self.window.hostapi_combo.clear()
-        self.window.hostapi_combo.addItems(ha_names)
-        self.window.hostapi_combo.blockSignals(False)
-        self._populate_device_combos(ins, outs)
-        # 恢复上次保存的设备选择（下拉框刚填充，无保留当前选择可言）
         audio = self.window.runtime_params.audio
-        self._select(self.window.hostapi_combo, audio.hostapi)
+        combo = self.window.hostapi_combo
+        # 重填 hostapi 列表前屏蔽信号，避免触发 _ha_changed 递归刷新
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(ha_names)
+        combo.blockSignals(False)
+        if audio.hostapi and combo.findText(audio.hostapi) >= 0 and combo.currentText() != audio.hostapi:
+            # 保存的驱动有效且与默认首项不同：放信号恢复选中，触发 _ha_changed
+            # 按该驱动重列设备
+            combo.setCurrentText(audio.hostapi)
+        else:
+            # ① 无保存/已失效（首次启动或设备拔了）；② 保存的驱动就是默认首项
+            # （setCurrentText 同值不发信号）。两种情况后台枚举结果本就是当前
+            # 驱动过滤的，直接填充设备列表即可。
+            self._populate_device_combos(ins, outs)
+        # 恢复上次保存的设备选择（下拉框刚填充，无保留当前选择可言）
         self._select(self.window.input_combo, audio.input_device)
         self._select(self.window.output_combo, audio.output_device)
         self._select(self.window.output2_combo, audio.output2_device)
