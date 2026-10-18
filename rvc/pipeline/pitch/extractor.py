@@ -372,7 +372,8 @@ def create_f0_extractor(method: str, device: torch.device, is_half: bool, infere
 
     注意：不要在此处清除 CUDA Graph！本函数每次推理都会被调用，
     清除 CUDA Graph 会导致图被反复重建，推理卡顿。
-    CUDA Graph 缓存在模型加载时（ModelSessions）统一清除。
+    F0 提取器的图跨重启复用（与 pth 无关、标量已入 key）；生命周期
+    清理各场景各有兜底（方法切换 release / 换模型 purge / 改参数签名重捕获）。
     """
     if method == "rmvpe":
         # 方法切换时释放 FCPE（仅在真正变化时执行，内部有 _active_f0_method 标记）

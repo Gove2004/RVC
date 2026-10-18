@@ -31,8 +31,12 @@ from rvc.runtime import RuntimeDeviceConfig
 logger = logging.getLogger(__name__)
 
 
-# 实时启动预热迭代次数（取值与依据见 _create_runner）
-_WARMUP_ITERATIONS = 30
+# 实时启动预热迭代次数。职能是 GPU 时钟爬坡 + cuDNN/L2 缓存热身（与 CUDA
+# Graph 无关——图捕获发生在首块缺失处，不受次数影响）。历史值 30 的另一半
+# 职能「重捕获被无条件清除的 F0 图」已随 load_model 入口清图一起移除：
+# 图跨重启复用后预热退化为纯 replay。10 次（笔记本 GPU ≈0.3s）足够爬频，
+# 彻底去掉会让冷 GPU 首几秒卡顿。
+_WARMUP_ITERATIONS = 10
 
 # 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
 # 驱动缓冲」的真实深度（硬件时间戳偏小、stream.latency 偏大），只能靠校准值补。
@@ -131,27 +135,21 @@ class VoiceEngine:
 
     # ── 模型加载 ──
 
-    def _clear_f0_cuda_graph_caches(self) -> None:
-        """无条件清空 F0 提取器的 CUDA Graph 缓存（显式清理步骤，非顺手前置）。
-
-        load_model 入口必经——包括命中缓存快路径与首次加载，
-        不依赖任何条件；离线场景 inference_cache=None，但 pipeline 内部
-        回退到全局 default_inference_cache，故对「显式 cache 或全局单例」
-        统一清理，避免离线切模型时残留旧图。
-        """
-        from rvc.pipeline.cache import default_inference_cache
-
-        (self.inference_cache or default_inference_cache).clear_f0_cuda_graph_caches()
-
     def load_model(self, pth, force=False, hubert="chinese"):
         """加载模型（创建 InferencePipeline）。
 
-        入口先无条件清空 f0 提取器的旧 CUDA Graph 缓存
-        （见 _clear_f0_cuda_graph_caches）。
         全程持 _load_lock：串行化后台预加载与 GUI/离线的并发加载请求。
+
+        刻意**不**清 F0 提取器的 CUDA Graph（历史行为，已移除）：
+        F0 提取器与 pth 无关，其图跨重启复用是安全的——所有曾需清图的
+        根因均已修复（阈值等 Python 标量已编进图缓存 key、inference_mode
+        污染已隔离、purge 取锁+同步）。各场景兜底：换 F0 方法走
+        switch_f0_method→release 自清；换模型走 purge_cuda_graphs；
+        改阈值/块时长经签名 key 自动重捕获。「静音捕获的图异常」是当年
+        误诊——图只固化计算结构，数据经静态输入张量每块 copy_，本架构
+        一直是静音捕获+真实语音回放。
         """
         with self._load_lock:
-            self._clear_f0_cuda_graph_caches()
             if not force and self.pipeline and self.pth_path == pth:
                 return self.pipeline.target_sr
             from rvc.pipeline.pipeline import InferencePipeline
@@ -213,10 +211,9 @@ class VoiceEngine:
         self._runner = InferenceRunner(self.pipeline, self.runtime_params)
         self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
         self._runner.reset_error_state()
-        # 预热 30 次：2 次只够捕获 CUDA Graph，不足以让 GPU 升频/缓存预热。
-        # 笔记本 GPU 冷启动时频率低、cuDNN 未调优、L2 缓存为空，
-        # 首次实际推理会卡顿；停止重开后 GPU 仍热所以流畅。
-        # 30 次约 300-600ms，换来首次启动即流畅。
+        # 预热 10 次：职能 = GPU 升频 + cuDNN/L2 缓存热身（图捕获发生在首块
+        # 缺失处，与次数无关；图跨重启复用后预热已是纯 replay，见
+        # _WARMUP_ITERATIONS 注释）。换回慢机冷启动若首几秒卡顿，先查这里。
         self._runner.warmup(_WARMUP_ITERATIONS)
         if reset_buffers:
             self._runner.reset_buffers()
