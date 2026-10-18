@@ -1,7 +1,7 @@
 """设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。"""
 import logging
-import threading
 from typing import List
+from rvc.io.devices import get_audio_devices, rescan_audio_devices
 
 from gui.state.bindings import OUTPUT2_NONE_TEXT
 
@@ -22,8 +22,6 @@ class DeviceCatalog:
         """刷新按钮：强制 PortAudio 重新枚举（支持设备热插拔），再刷新列表。"""
         # PortAudio 会缓存设备列表；设备热插拔后必须强制重扫（唯一入口见 rvc/io/devices），
         # 否则 query_devices() 始终返回旧列表，刷新看起来「没反应」。
-        from rvc.io.devices import rescan_audio_devices
-
         try:
             rescan_audio_devices()
         except Exception:
@@ -39,11 +37,8 @@ class DeviceCatalog:
 
     def _refresh_devices(self) -> None:
         """内部：刷新所有设备相关下拉框，并尽量保留当前选择。"""
-        from rvc.io.devices import get_audio_devices
-
-        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(
-            self.window.hostapi_combo.currentText()
-        )
+        hostapi_name = self.window.hostapi_combo.currentText()
+        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(hostapi_name)
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
         prev_ha = self.window.hostapi_combo.currentText()
@@ -68,67 +63,21 @@ class DeviceCatalog:
         if idx >= 0:
             combo.setCurrentIndex(idx)
 
-    def load_hostapis_async(self) -> None:
-        """后台线程枚举音频驱动与设备，完成后经 window.devices_ready 信号回主线程填充。
+    def load_hostapis(self) -> None:
+        """加载可用的音频驱动（同步：PortAudio 加载 ~170ms，在窗口出现前完成）。
 
-        PortAudio DLL 加载 + 设备枚举 ~170ms（sounddevice import 占大头），
-        移出主线程让窗口更早出现（实测本机 43 设备）。rvc.io.devices 的
-        import 也一并留在工作线程内完成。
+        调用时 window 已把 hostapi_combo.currentTextChanged 连到 _ha_changed：
+        重填必须屏蔽信号，否则启动时触发递归刷新——PortAudio 全量枚举跑两遍，
+        后一遍覆盖前一遍结果。
         """
-        def _work():
-            try:
-                from rvc.io.devices import get_audio_devices
-
-                result = get_audio_devices()
-            except Exception:
-                logger.warning("后台枚举音频设备失败", exc_info=True)
-                result = None
-            # Qt 信号跨线程自动队列投递，回调在主线程执行
-            self.window.devices_ready.emit(result)
-
-        threading.Thread(target=_work, daemon=True, name="device-enum").start()
-
-    def apply_hostapis(self, result) -> None:
-        """主线程：填充设备下拉框（devices_ready 信号回调），并恢复配置中的设备选择。
-
-        异步加载时 _load_gui_config 已先跑过，当时下拉框为空、COMBO 回填落空，
-        这里从 runtime_params 补一次设备选择恢复。
-        关键：填充前必须先把存档值快照到局部——填充空下拉框会触发
-        currentTextChanged → 绑定层把「首项」写回 runtime_params，存档值
-        会在恢复之前被冲掉（表现为存档配置读不回来，全部回落首项）。
-        恢复用 _select 走信号回写，绑定层最终与下拉框一致。
-        """
-        if result is None:
-            return
-        ha_names, ins, outs, in_idx, out_idx = result
+        ha_names, ins, outs, in_idx, out_idx = get_audio_devices()
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
-        audio = self.window.runtime_params.audio
-        # ── 存档值快照（绑定层会在填充时冲掉 runtime_params 里的这些值）──
-        saved_ha = audio.hostapi
-        saved_in = audio.input_device
-        saved_out = audio.output_device
-        saved_out2 = audio.output2_device
-        combo = self.window.hostapi_combo
-        # 重填 hostapi 列表前屏蔽信号，避免触发 _ha_changed 递归刷新
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItems(ha_names)
-        combo.blockSignals(False)
-        if saved_ha and combo.findText(saved_ha) >= 0 and combo.currentText() != saved_ha:
-            # 保存的驱动有效且与默认首项不同：放信号恢复选中，触发 _ha_changed
-            # 按该驱动重列设备
-            combo.setCurrentText(saved_ha)
-        else:
-            # ① 无保存/已失效（首次启动或设备拔了）；② 保存的驱动就是默认首项
-            # （setCurrentText 同值不发信号）。两种情况后台枚举结果本就是当前
-            # 驱动过滤的，直接填充设备列表即可；驱动回落事实值保持与下拉框一致
-            self._populate_device_combos(ins, outs)
-            audio.hostapi = combo.currentText()
-        # 恢复快照的设备选择（_select 内 setCurrentIndex 触发绑定信号回写）
-        self._select(self.window.input_combo, saved_in)
-        self._select(self.window.output_combo, saved_out)
-        self._select(self.window.output2_combo, saved_out2)
+        self.window.hostapi_combo.blockSignals(True)
+        self.window.hostapi_combo.clear()
+        self.window.hostapi_combo.addItems(ha_names)
+        self.window.hostapi_combo.blockSignals(False)
+        self._populate_device_combos(ins, outs)
 
     def _populate_device_combos(self, ins: List[str], outs: List[str]) -> None:
         """填充设备下拉框"""
