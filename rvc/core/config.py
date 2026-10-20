@@ -117,8 +117,24 @@ class InferenceParams:
 @dataclass
 class OfflineParams(InferenceParams):
     """离线推理任务配置 = 继承 InferenceParams 所有音频参数 + 路径信息。"""
+
     input_path: str = ""
     output_path: str = ""
+
+    @classmethod
+    def from_inference(cls, src: InferenceParams, *, input_path: str,
+                       output_path: str, hubert: str | None = None) -> "OfflineParams":
+        """从 GUI 收集的 InferenceParams 整体派生离线任务参数。
+
+        必须经此构造，禁止逐字段手抄——手抄在新增参数时必然被遗漏
+        （protect 漏传导致离线恒 0 的事故）。update_from 是唯一拷贝路径，
+        以后给 InferenceParams 加任何字段，离线自动带上。
+        """
+        cfg = cls(input_path=input_path, output_path=output_path)
+        cfg.update_from(src)
+        if hubert is not None:
+            cfg.hubert = hubert
+        return cfg
 
 
 @dataclass

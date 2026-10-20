@@ -73,20 +73,13 @@ class OfflineConversion:
             return
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
+        # from_inference 整体拷贝——逐字段手抄会漏新字段（protect 漏传事故）
         try:
             state = collect_params(self.window)
-            config = OfflineParams(
+            config = OfflineParams.from_inference(
+                state,
                 input_path=inp,
                 output_path=out,
-                voice=state.voice,
-                f0=state.f0,
-                buffer=state.buffer,
-                audio=state.audio,
-                texture=state.texture,
-                rms_mix=state.rms_mix,
-                protect=state.protect,
-                volume=state.volume,
-                model_path=pth,
                 hubert=self.window.hubert_combo.currentText(),
             )
         except Exception as exc:
