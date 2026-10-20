@@ -75,30 +75,34 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(f0_threshold_label, r, 2)
     r += 1
 
-    # ── 输出音量（volume；纯标量增益，0=静音，1=原始，2=两倍）──
-    # 量程经 controller 下发（单源仍是 rvc.core.config，与热路径钳位同一常量）
-    vol_min, vol_max = win.controller.volume_range
-    win.volume_slider, volume_label = _create_slider_row(
-        vol_min, vol_max, 0.1, params.volume, fmt=".2f",
-    )
-    g.addWidget(QLabel("输出音量"), r, 0)
-    g.addWidget(win.volume_slider, r, 1)
-    g.addWidget(volume_label, r, 2)
-    r += 1
-
-    # ── 清辅音保护（protect；0=不保护，1=清音帧完全用原声）──
+    # ── 辅音保护（protect；0=不保护，1=清音帧完全用原声）──
     win.protect_slider, protect_label = _create_slider_row(
-        0.0, 1.0, 0.01, params.protect, fmt=".2f",
+        0.0, 1.0, 0.05, params.protect, fmt=".2f",
     )
     protect_slider = win.protect_slider
     protect_slider.setToolTip(
-        "清辅音保护：F0 低于清音阈值（25Hz）的帧按比例混入原始麦克风音频，\n"
+        "辅音保护：F0 低于「辅音阈值」的帧按比例混入原始麦克风音频，\n"
         "防止「嘶/施/次」等清辅音被转换成电音或撕裂。\n"
         "0=关闭；越大清辅音越接近原声（咬字更真实，但音色一致性下降）。"
     )
-    g.addWidget(QLabel("清辅音保护"), r, 0)
+    g.addWidget(QLabel("辅音保护"), r, 0)
     g.addWidget(protect_slider, r, 1)
     g.addWidget(protect_label, r, 2)
+    r += 1
+
+    # ── 辅音阈值（protect_threshold_hz；F0 低于此值视为清音帧）──
+    win.protect_threshold_slider, protect_threshold_label = _create_slider_row(
+        0.0, 50.0, 5.0, params.protect_threshold_hz, fmt=".0f", unit="Hz",
+    )
+    protect_threshold_slider = win.protect_threshold_slider
+    protect_threshold_slider.setToolTip(
+        "清浊判定阈值：连续 F0 低于此值的帧按「辅音保护」比例混入原声。\n"
+        "RMVPE/FCPE 对清辅音输出接近 0 的 F0，默认 25Hz 只捕获真清音；\n"
+        "调大则更多浊音帧也被保护（咬字更真，音色一致性更差）。"
+    )
+    g.addWidget(QLabel("辅音阈值"), r, 0)
+    g.addWidget(protect_threshold_slider, r, 1)
+    g.addWidget(protect_threshold_label, r, 2)
     r += 1
 
     return w

@@ -36,6 +36,7 @@ BINDINGS = [
     ("voice.formant", "formant_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("protect", "protect_slider", FLOAT),
+    ("protect_threshold_hz", "protect_threshold_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
     # ── F0 参数（f0.*）──
     ("f0.method", "f0_rmvp_btn", RADIO_F0),

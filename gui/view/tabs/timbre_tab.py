@@ -101,4 +101,16 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(airflow_label, r, 2)
     r += 1
 
+    # ── 输出音量（volume；纯标量增益，0=静音，1=原始，2=两倍）──
+    # 从参数页移来平衡两页行数；量程经 controller 下发
+    # （单源仍是 rvc.core.config，与热路径钳位同一常量）
+    vol_min, vol_max = win.controller.volume_range
+    win.volume_slider, volume_label = _create_slider_row(
+        vol_min, vol_max, 0.1, params.volume, fmt=".2f",
+    )
+    g.addWidget(QLabel("输出音量"), r, 0)
+    g.addWidget(win.volume_slider, r, 1)
+    g.addWidget(volume_label, r, 2)
+    r += 1
+
     return w
