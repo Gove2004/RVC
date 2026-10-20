@@ -185,7 +185,6 @@ class InferenceRunner:
         p_rms_mix = self.runtime_params.rms_mix
         p_airflow = self.runtime_params.texture.airflow
         p_protect = self.runtime_params.protect
-        p_protect_hz = self.runtime_params.protect_threshold_hz
 
         with torch.inference_mode():
             # ── stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样 ──
@@ -229,7 +228,6 @@ class InferenceRunner:
             chunk = self.effects.process_output(
                 infer, ref, p_rms_mix, p_airflow,
                 pitchf=pitchf, protect=p_protect,
-                protect_threshold_hz=p_protect_hz,
             )
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。

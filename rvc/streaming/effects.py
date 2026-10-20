@@ -540,21 +540,19 @@ class AudioProcessor:
         self.airflow.reset()
 
     def process_output(self, infer, ref, rms_mix, airflow=0.0,
-                       pitchf=None, protect=0.0, protect_threshold_hz=25.0):
+                       pitchf=None, protect=0.0):
         """输出侧处理：RMS 混合 → SOLA → 麦克风气流声 → 清辅音保护。"""
         infer = self.rms_mix.process(infer, ref, rms_mix)
         infer = self.sola.process(infer)
         infer = self.airflow.process(infer, airflow)
-        return self._apply_consonant_protection(
-            infer, ref, pitchf, protect, protect_threshold_hz,
-        )
+        return self._apply_consonant_protection(infer, ref, pitchf, protect)
 
-    def _apply_consonant_protection(self, infer, ref, pitchf, protect,
-                                    protect_threshold_hz):
+    def _apply_consonant_protection(self, infer, ref, pitchf, protect):
         """清辅音保护：对清音帧按 protect 比例混入原始输入音频。
 
-        F0 连续值低于阈值的帧视为清音（RMVPE/FCPE 对清音输出接近 0 的 F0），
-        这些帧的合成结果容易电音/撕裂，用原始麦克风音频替换/混合即可保住咬字。
+        清浊判定与原版 RVC 一致：F0 为零/负（提取器对清辅音/呼吸声无音高）
+        即清音帧。这些帧的合成结果容易电音/撕裂，用原始麦克风音频
+        替换/混合即可保住咬字。
 
         Args:
             infer: 合成输出音频 [n]（post-SOLA，block_samples 长）
@@ -562,7 +560,6 @@ class AudioProcessor:
                 最多差 1 帧/10ms，对 5ms 平滑的清音 mask 可忽略）
             pitchf: 连续 F0 [T]，100fps（(1, p_len) 或 (p_len,)）
             protect: 保护强度（0-1，0=不保护，1=清音帧完全用原声）
-            protect_threshold_hz: 清浊判定阈值（Hz）
         """
         if pitchf is None or pitchf.numel() == 0 or protect <= 0:
             return infer
@@ -577,8 +574,8 @@ class AudioProcessor:
         else:
             pitchf_up = F.pad(pitchf_up, (0, n - pitchf_up.shape[0]))
 
-        # 生成清音 mask
-        uv_mask = (pitchf_up < protect_threshold_hz).float()
+        # 生成清音 mask（F0 零/负 = 清音，与原版 RVC 同判定）
+        uv_mask = (pitchf_up <= 0).float()
 
         # 平滑 mask（5ms 移动平均，避免帧边界突变）
         smooth_win = max(1, self._sr // 200)
