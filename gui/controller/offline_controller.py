@@ -84,6 +84,7 @@ class OfflineConversion:
                 audio=state.audio,
                 texture=state.texture,
                 rms_mix=state.rms_mix,
+                protect=state.protect,
                 volume=state.volume,
                 model_path=pth,
                 hubert=self.window.hubert_combo.currentText(),
