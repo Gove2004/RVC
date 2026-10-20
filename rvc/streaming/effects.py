@@ -514,22 +514,18 @@ class MicAirflowEffect:
 
 
 class AudioProcessor:
-    """音频处理编排器 — 持有 RMS / SOLA / 麦克风气流声 / 清辅音保护。
+    """音频处理编排器 — 持有 RMS / SOLA / 麦克风气流声。
 
-    输出侧处理链：RMS 混合 → SOLA 拼接 → 麦克风气流声 → 清辅音保护
-    保护放最后一步：清音帧被逐字替换为原始输入（含气流层），保证「说原话」
-    的帧不被任何合成侧效果染色；SOLA 仍只作用于纯合成输出，不受保护干扰。
+    输出侧处理链：RMS 混合 → SOLA 拼接 → 麦克风气流声
     """
 
     def __init__(self):
         self.rms_mix = RmsMixEffect()
         self.sola = SolaEffect()
         self.airflow = MicAirflowEffect()
-        self._sr = 0
 
     def setup(self, sr: int, block_samples: int, sola_buffer_samples: int,
               sola_search_samples: int, device: str):
-        self._sr = sr
         self.rms_mix.setup(sr)
         self.sola.setup(sr, block_samples, sola_buffer_samples, sola_search_samples, device)
         self.airflow.setup(sr, device)
@@ -539,52 +535,8 @@ class AudioProcessor:
         self.sola.reset()
         self.airflow.reset()
 
-    def process_output(self, infer, ref, rms_mix, airflow=0.0,
-                       pitchf=None, protect=0.0):
-        """输出侧处理：RMS 混合 → SOLA → 麦克风气流声 → 清辅音保护。"""
+    def process_output(self, infer, ref, rms_mix, airflow=0.0):
+        """输出侧处理：RMS 混合 → SOLA → 麦克风气流声。"""
         infer = self.rms_mix.process(infer, ref, rms_mix)
         infer = self.sola.process(infer)
-        infer = self.airflow.process(infer, airflow)
-        return self._apply_consonant_protection(infer, ref, pitchf, protect)
-
-    def _apply_consonant_protection(self, infer, ref, pitchf, protect):
-        """清辅音保护：对清音帧按 protect 比例混入原始输入音频。
-
-        清浊判定与原版 RVC 一致：F0 为零/负（提取器对清辅音/呼吸声无音高）
-        即清音帧。这些帧的合成结果容易电音/撕裂，用原始麦克风音频
-        替换/混合即可保住咬字。
-
-        Args:
-            infer: 合成输出音频 [n]（post-SOLA，block_samples 长）
-            ref: 原始输入音频窗口 [M]（M >= n，取头部对齐——与 SOLA 偏移
-                最多差 1 帧/10ms，对 5ms 平滑的清音 mask 可忽略）
-            pitchf: 连续 F0 [T]，100fps（(1, p_len) 或 (p_len,)）
-            protect: 保护强度（0-1，0=不保护，1=清音帧完全用原声）
-        """
-        if pitchf is None or pitchf.numel() == 0 or protect <= 0:
-            return infer
-
-        n = infer.shape[0]
-        samples_per_frame = self._sr // 100
-
-        # F0 上采样到音频采样率
-        pitchf_up = pitchf.reshape(-1).repeat_interleave(samples_per_frame)
-        if pitchf_up.shape[0] >= n:
-            pitchf_up = pitchf_up[:n]
-        else:
-            pitchf_up = F.pad(pitchf_up, (0, n - pitchf_up.shape[0]))
-
-        # 生成清音 mask（F0 零/负 = 清音，与原版 RVC 同判定）
-        uv_mask = (pitchf_up <= 0).float()
-
-        # 平滑 mask（5ms 移动平均，避免帧边界突变）
-        smooth_win = max(1, self._sr // 200)
-        uv_mask = F.avg_pool1d(
-            uv_mask[None, None, :],
-            kernel_size=smooth_win, stride=1, padding=smooth_win // 2,
-        )[0, 0, :n]
-
-        # 混合：清音帧偏向原始输入（仅 protect>0 时走到这里，可接受分配）
-        ref_aligned = ref[:n] if ref.shape[0] >= n else F.pad(ref, (0, n - ref.shape[0]))
-        strength = protect * uv_mask
-        return infer * (1 - strength) + ref_aligned * strength
+        return self.airflow.process(infer, airflow)
