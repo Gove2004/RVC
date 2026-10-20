@@ -86,4 +86,19 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(volume_label, r, 2)
     r += 1
 
+    # ── 清辅音保护（protect；0=不保护，1=清音帧完全用原声）──
+    win.protect_slider, protect_label = _create_slider_row(
+        0.0, 1.0, 0.01, params.protect, fmt=".2f",
+    )
+    protect_slider = win.protect_slider
+    protect_slider.setToolTip(
+        "清辅音保护：F0 低于清音阈值（25Hz）的帧按比例混入原始麦克风音频，\n"
+        "防止「嘶/施/次」等清辅音被转换成电音或撕裂。\n"
+        "0=关闭；越大清辅音越接近原声（咬字更真实，但音色一致性下降）。"
+    )
+    g.addWidget(QLabel("清辅音保护"), r, 0)
+    g.addWidget(protect_slider, r, 1)
+    g.addWidget(protect_label, r, 2)
+    r += 1
+
     return w

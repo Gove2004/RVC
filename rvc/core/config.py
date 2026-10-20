@@ -86,6 +86,11 @@ class InferenceParams:
     audio: AudioParams = field(default_factory=AudioParams)
     texture: TextureParams = field(default_factory=TextureParams)
     rms_mix: float = 0.0
+    # 清辅音保护（输出侧）：F0 低于 protect_threshold_hz 的清音帧按 protect
+    # 比例混入原始输入音频，防止清辅音被转换器撕裂成电音。
+    # protect 0=不保护（默认），1=清音帧完全用原声；阈值单源在此。
+    protect: float = 0.0
+    protect_threshold_hz: float = 25.0
     volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
     model_path: str = ""
     hubert: str = HUBERT_DEFAULT
@@ -104,6 +109,8 @@ class InferenceParams:
                 setattr(dst_group, field_name, getattr(src_group, field_name))
         # 顶层字段
         self.rms_mix = other.rms_mix
+        self.protect = other.protect
+        self.protect_threshold_hz = other.protect_threshold_hz
         self.volume = other.volume
         self.model_path = other.model_path
         self.hubert = other.hubert
