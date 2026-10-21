@@ -63,13 +63,6 @@ def _device_type(device):
     return str(device).split(":", 1)[0].lower()
 
 
-def _cuda_device(device):
-    parsed = device if isinstance(device, torch.device) else torch.device(device)
-    if parsed.index is None:
-        parsed = torch.device("cuda", torch.cuda.current_device())
-    return parsed
-
-
 def configure_cuda_graph(device, options: RuntimeOptions | None = None) -> bool:
     """下发运行时选项并探测设备。返回 CUDA Graph 是否实际启用。
 
