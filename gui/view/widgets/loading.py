@@ -1,5 +1,10 @@
 """模型加载后台线程 — 引擎加载在 QThread 中执行，避免阻塞 UI。"""
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QThread, Signal
+
+if TYPE_CHECKING:
+    from rvc.streaming.engine import VoiceEngine
 
 
 class LoadThread(QThread):
@@ -12,7 +17,7 @@ class LoadThread(QThread):
     ok = Signal(int)
     err = Signal(str)
 
-    def __init__(self, engine, pth, hubert):
+    def __init__(self, engine: "VoiceEngine", pth: str, hubert: str) -> None:
         super().__init__()
         self.engine = engine
         self.pth = pth

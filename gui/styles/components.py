@@ -31,28 +31,28 @@ class ButtonStyles:
         """
 
     @classmethod
-    def primary(cls, width=None, height=None):
+    def primary(cls, width: int | None = None, height: int | None = None) -> str:
         """主要操作按钮（绿色）"""
         size = f"width:{width}px;" if width else ""
         size += f"height:{height}px;" if height else ""
         return cls._button_qss(Colors.PRIMARY, Colors.PRIMARY_HOVER, Colors.PRIMARY_DISABLED, size=size)
 
     @classmethod
-    def secondary(cls, width=None, height=None):
+    def secondary(cls, width: int | None = None, height: int | None = None) -> str:
         """次要操作按钮（蓝色）"""
         size = f"width:{width}px;" if width else ""
         size += f"height:{height}px;" if height else ""
         return cls._button_qss(Colors.SECONDARY, Colors.SECONDARY_HOVER, Colors.SECONDARY_DISABLED, size=size)
 
     @classmethod
-    def danger(cls, width=None, height=None):
+    def danger(cls, width: int | None = None, height: int | None = None) -> str:
         """危险操作按钮（红色）"""
         size = f"width:{width}px;" if width else ""
         size += f"height:{height}px;" if height else ""
         return cls._button_qss(Colors.DANGER, Colors.DANGER_HOVER, Colors.DANGER_DISABLED, size=size)
 
     @staticmethod
-    def small(color="secondary"):
+    def small(color: str = "secondary") -> str:
         """小按钮（查看、修改原名、刷新等）"""
         colors = {
             "primary": (Colors.PRIMARY, Colors.PRIMARY_HOVER),
@@ -81,7 +81,7 @@ class ButtonStyles:
 
 
     @staticmethod
-    def path_button():
+    def path_button() -> str:
         """路径选择按钮（黑色背景，文字左对齐，用于模型路径、输入文件等）"""
         return f"""
             QPushButton {{

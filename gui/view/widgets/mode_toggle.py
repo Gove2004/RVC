@@ -28,13 +28,15 @@ class ModeToggle(QWidget):
     _VALID = {"passthrough", "stop", "convert", "loading"}
     _COLORS = {"passthrough": Colors.INFO, "stop": Colors.DANGER, "convert": Colors.SUCCESS}
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         self._mode = "stop"
-        self._buttons = {}
+        self._buttons: dict[str, QPushButton] = {}
+        # 各段圆角 QSS 模板（首段圆左、末段圆右、中段直角——一体滑轨观感）
+        self._radii_tmpls: dict[str, str] = {}
         for i, (mode, text, tip) in enumerate(self.SEGMENTS):
             b = QPushButton(text)
             b.setCheckable(True)
@@ -43,14 +45,13 @@ class ModeToggle(QWidget):
             b.clicked.connect(lambda checked=False, m=mode: self._on_clicked(m))
             lay.addWidget(b)
             self._buttons[mode] = b
-            # 分段圆角：首段圆左、末段圆右、中段直角（一体滑轨观感）
             if i == 0:
-                self._radii = "border-top-left-radius: {r}px; border-bottom-left-radius: {r}px;"
+                tmpl = "border-top-left-radius: {r}px; border-bottom-left-radius: {r}px;"
             elif i == len(self.SEGMENTS) - 1:
-                self._radii = "border-top-right-radius: {r}px; border-bottom-right-radius: {r}px;"
+                tmpl = "border-top-right-radius: {r}px; border-bottom-right-radius: {r}px;"
             else:
-                self._radii = ""
-            b._radii_tmpl = self._radii
+                tmpl = ""
+            self._radii_tmpls[mode] = tmpl
         self.set_mode("stop")
 
     @property
@@ -71,7 +72,7 @@ class ModeToggle(QWidget):
             b.setEnabled(not loading or m == "stop")
             b.setStyleSheet(self._segment_qss(
                 self._COLORS[m] if checked else None,
-                b._radii_tmpl,
+                self._radii_tmpls[m],
             ))
 
     @staticmethod

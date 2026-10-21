@@ -1,8 +1,10 @@
 """路径与文本展示控件 — 文件选择按钮、中间省略标签。"""
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QLabel, QPushButton, QFileDialog, QSizePolicy
+from PySide6.QtGui import QResizeEvent
+from PySide6.QtWidgets import QLabel, QPushButton, QFileDialog, QSizePolicy, QWidget
 
 from gui.styles import ButtonStyles, Layout
 
@@ -19,9 +21,10 @@ class PathPickerButton(QPushButton):
 
     pathChanged = Signal(str)
 
-    def __init__(self, parent=None, *, title="选择文件",
-                 filter_str="PyTorch (*.pth)", placeholder="选择文件...",
-                 base_dir=None, tooltip=None):
+    def __init__(self, parent: QWidget | None = None, *, title: str = "选择文件",
+                 filter_str: str = "PyTorch (*.pth)", placeholder: str = "选择文件...",
+                 base_dir: str | Callable[[], str] | None = None,
+                 tooltip: str | None = None) -> None:
         super().__init__(placeholder, parent)
         self._placeholder = placeholder
         self._title = title
@@ -68,7 +71,7 @@ class ElidedLabel(QLabel):
     （sizeHint 被 Ignored，宽度完全跟随布局分配）。
     """
 
-    def __init__(self, text: str = "", parent=None):
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._full = ""
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
@@ -83,7 +86,7 @@ class ElidedLabel(QLabel):
         self.setToolTip(self._full)
         self._relayout()
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._relayout()
 

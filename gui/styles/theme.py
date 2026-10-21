@@ -7,6 +7,7 @@
     apply_theme(app)
 """
 from PySide6.QtGui import QPalette, QColor
+from PySide6.QtWidgets import QApplication
 
 from gui.styles.colors import Colors
 from gui.styles.layout import Layout
@@ -17,33 +18,33 @@ def _build_palette() -> QPalette:
     pal = QPalette()
 
     # 背景层
-    pal.setColor(QPalette.Window, QColor(Colors.WINDOW_BG))
-    pal.setColor(QPalette.Base, QColor(Colors.INPUT_BG))
-    pal.setColor(QPalette.AlternateBase, QColor(Colors.ALTERNATE_BG))
-    pal.setColor(QPalette.ToolTipBase, QColor(Colors.TOOLTIP_BG))
-    pal.setColor(QPalette.ToolTipText, QColor(Colors.TEXT_WHITE))
+    pal.setColor(QPalette.ColorRole.Window, QColor(Colors.WINDOW_BG))
+    pal.setColor(QPalette.ColorRole.Base, QColor(Colors.INPUT_BG))
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor(Colors.ALTERNATE_BG))
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(Colors.TOOLTIP_BG))
+    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(Colors.TEXT_WHITE))
 
     # 文字
-    pal.setColor(QPalette.WindowText, QColor(Colors.TEXT_WHITE))
-    pal.setColor(QPalette.Text, QColor(Colors.TEXT_INPUT))
-    pal.setColor(QPalette.ButtonText, QColor(Colors.TEXT_WHITE))
-    pal.setColor(QPalette.BrightText, QColor(Colors.TEXT_WHITE))
+    pal.setColor(QPalette.ColorRole.WindowText, QColor(Colors.TEXT_WHITE))
+    pal.setColor(QPalette.ColorRole.Text, QColor(Colors.TEXT_INPUT))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor(Colors.TEXT_WHITE))
+    pal.setColor(QPalette.ColorRole.BrightText, QColor(Colors.TEXT_WHITE))
 
     # 控件
-    pal.setColor(QPalette.Button, QColor(Colors.SECONDARY))
+    pal.setColor(QPalette.ColorRole.Button, QColor(Colors.SECONDARY))
 
     # 强调色（Windows Blue）
-    pal.setColor(QPalette.Highlight, QColor(Colors.PRIMARY))
-    pal.setColor(QPalette.HighlightedText, QColor(Colors.TEXT_WHITE))
-    pal.setColor(QPalette.Link, QColor(Colors.LINK))
+    pal.setColor(QPalette.ColorRole.Highlight, QColor(Colors.PRIMARY))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(Colors.TEXT_WHITE))
+    pal.setColor(QPalette.ColorRole.Link, QColor(Colors.LINK))
 
     # 禁用态
-    pal.setColor(QPalette.Disabled, QPalette.WindowText, QColor(Colors.DISABLED_TEXT))
-    pal.setColor(QPalette.Disabled, QPalette.Text, QColor(Colors.DISABLED_TEXT))
-    pal.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(Colors.DISABLED_TEXT))
-    pal.setColor(QPalette.Disabled, QPalette.Button, QColor(Colors.DISABLED_BG))
-    pal.setColor(QPalette.Disabled, QPalette.Base, QColor(Colors.INPUT_BG))
-    pal.setColor(QPalette.Disabled, QPalette.Highlight, QColor(Colors.DISABLED_HIGHLIGHT))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(Colors.DISABLED_TEXT))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(Colors.DISABLED_TEXT))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(Colors.DISABLED_TEXT))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Button, QColor(Colors.DISABLED_BG))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base, QColor(Colors.INPUT_BG))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Highlight, QColor(Colors.DISABLED_HIGHLIGHT))
 
     return pal
 
@@ -213,7 +214,7 @@ def _build_global_stylesheet() -> str:
     """
 
 
-def apply_theme(app) -> None:
+def apply_theme(app: QApplication) -> None:
     """应用全局主题（QPalette + QSS）。
 
     Args:
