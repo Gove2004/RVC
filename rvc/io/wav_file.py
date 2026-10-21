@@ -21,7 +21,8 @@ from rvc.io.audio_file import resolve_ffmpeg
 _SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 
-def write_wav(path: str | Path, samples: np.ndarray, samplerate: int, subtype: str = "FLOAT"):
+def write_wav(path: str | Path, samples: np.ndarray, samplerate: int,
+              subtype: str = "FLOAT") -> None:
     """写 WAV 文件。
 
     Args:
@@ -116,7 +117,8 @@ def read_wav_metadata(path: str | Path) -> dict:
             # 跳到下一块（RIFF 规定 chunk 按 2 字节对齐，奇数长度有一个 pad 字节）
             f.seek(chunk_start + chunk_size + (chunk_size & 1))
 
-        if samplerate is None or pcm_size == 0:
+        if (samplerate is None or channels is None or bits_per_sample is None
+                or pcm_size == 0):
             raise ValueError(f"无法解析 WAV 元信息: {path}")
 
         frames = pcm_size // (bits_per_sample // 8) // channels

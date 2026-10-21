@@ -11,12 +11,12 @@ from collections import OrderedDict
 class LRUCache:
     """线程安全的 LRU 字典。"""
 
-    def __init__(self, maxsize: int):
+    def __init__(self, maxsize: int) -> None:
         self.maxsize = maxsize
-        self._d = OrderedDict()
+        self._d: OrderedDict = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, key, default=None):
+    def get(self, key: object, default: object = None) -> object:
         """按键取值并刷新 LRU 位置；未命中返回 default。
 
         用**成员判定**而非 `self._d.get(key) is None`：后者会把「值本身是 None」
@@ -28,19 +28,19 @@ class LRUCache:
                 return self._d[key]
             return default
 
-    def set(self, key, value):
+    def set(self, key: object, value: object) -> None:
         with self._lock:
             self._d[key] = value
             self._d.move_to_end(key)
             while len(self._d) > self.maxsize:
                 self._d.popitem(last=False)
 
-    def values(self):
+    def values(self) -> list:
         """线程安全地返回所有值的快照列表。"""
         with self._lock:
             return list(self._d.values())
 
-    def clear(self):
+    def clear(self) -> None:
         """清空所有条目（不释放值本身，调用方需先 release）。"""
         with self._lock:
             self._d.clear()

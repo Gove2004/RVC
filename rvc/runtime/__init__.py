@@ -8,7 +8,7 @@ from rvc.runtime.paths import config_path, train_config_path
 __all__ = ["RuntimeDeviceConfig", "config_path", "train_config_path"]
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> object:
     if name == "RuntimeDeviceConfig":
         from rvc.runtime.device import RuntimeDeviceConfig
         return RuntimeDeviceConfig

@@ -2,7 +2,7 @@
 import sounddevice as sd
 
 
-def rescan_audio_devices():
+def rescan_audio_devices() -> None:
     """重建 PortAudio 设备列表（热插拔后 query_devices 可能返回空）。
 
     ⚠ 依赖 sounddevice 私有 API `_terminate`/`_initialize`——公开 API 没有
@@ -13,7 +13,9 @@ def rescan_audio_devices():
     sd._initialize()
 
 
-def get_audio_devices(hostapi_name=None):
+def get_audio_devices(
+        hostapi_name: str | None = None,
+) -> tuple[list[str], list[str], list[str], list[int], list[int]]:
     """枚举音频设备，仅在设备列表为空时重新初始化 sounddevice。
 
     hostapi_name 为 hostapi 显示名（'Windows WASAPI' / 'MME' / ...）；
@@ -31,7 +33,7 @@ def get_audio_devices(hostapi_name=None):
         for idx in ha["devices"]:
             devices[idx]["hostapi_name"] = ha["name"]
 
-    def _has_channels(device, channel_key):
+    def _has_channels(device: dict, channel_key: str) -> bool:
         return device[channel_key] > 0 and device.get("hostapi_name") == filter_name
 
     ha_names = [h["name"] for h in hostapis]

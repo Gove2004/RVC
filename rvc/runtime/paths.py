@@ -53,7 +53,7 @@ def config_path() -> Path:
     return STATE_FILE
 
 
-def parse_sr(sr) -> int:
+def parse_sr(sr: str | int) -> int:
     """把 '40k'/'48000' 等统一成 Hz 整数。
 
     采样率解析的唯一入口：训练/推理各处都走这里，避免重复实现。
@@ -64,7 +64,7 @@ def parse_sr(sr) -> int:
     return int(float(s))
 
 
-def train_config_path(sr=None) -> Path:
+def train_config_path(sr: str | int | None = None) -> Path:
     """按采样率返回训练配置路径。
 
     显式给 sr 时**必须**命中对应配置：40k 请求落到 48k 文件会让 hop_length/betas

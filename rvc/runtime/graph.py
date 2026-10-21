@@ -19,7 +19,9 @@ import gc
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 
@@ -57,13 +59,14 @@ class _ActiveGraphOptions:
 _active_options = _ActiveGraphOptions()
 
 
-def _device_type(device):
+def _device_type(device: torch.device | str) -> str:
     if isinstance(device, torch.device):
         return device.type
     return str(device).split(":", 1)[0].lower()
 
 
-def configure_cuda_graph(device, options: RuntimeOptions | None = None) -> bool:
+def configure_cuda_graph(device: torch.device | str,
+                         options: RuntimeOptions | None = None) -> bool:
     """下发运行时选项并探测设备。返回 CUDA Graph 是否实际启用。
 
     本函数是生效选项的唯一写入口；重复调用以最后一次为准。
@@ -81,7 +84,7 @@ def configure_cuda_graph(device, options: RuntimeOptions | None = None) -> bool:
     return enabled
 
 
-def cuda_graph_enabled(device) -> bool:
+def cuda_graph_enabled(device: torch.device | str) -> bool:
     """判断 CUDA Graph 是否对给定设备生效。"""
     opts = _active_options.get()
     return (
@@ -92,7 +95,7 @@ def cuda_graph_enabled(device) -> bool:
     )
 
 
-def _clone_output(value):
+def _clone_output(value: Any) -> Any:
     """深拷贝图输出：张量 clone、容器逐元素递归，其余原样返回。"""
     if torch.is_tensor(value):
         return value.clone()
@@ -103,7 +106,7 @@ def _clone_output(value):
     return value
 
 
-def _tensor_signature(tensor):
+def _tensor_signature(tensor: torch.Tensor) -> tuple:
     return (
         tuple(tensor.shape),
         tuple(tensor.stride()),
@@ -124,7 +127,8 @@ class _CapturedCall:
       必须把它编进 cache key（run_cuda_graph 的 namespace）触发重新捕获。
     """
 
-    def __init__(self, function, inputs):
+    def __init__(self, function: Callable[..., Any],
+                 inputs: tuple[torch.Tensor, ...]) -> None:
         started = time.perf_counter()
         self.lock = threading.RLock()
         # inference_mode 是线程上下文状态，与创建算子无关——在 inference_mode 内
@@ -148,10 +152,10 @@ class _CapturedCall:
             with torch.cuda.graph(self.graph), torch.no_grad():
                 self.output = function(*self.inputs)
         self.capture_ms = (time.perf_counter() - started) * 1000.0
-        self.done_event = None
+        self.done_event: torch.cuda.Event | None = None
         del output
 
-    def replay(self, inputs):
+    def replay(self, inputs: tuple[torch.Tensor, ...]) -> Any:
         with self.lock:
             # 同 __init__：inference_mode(False) 确保 copy_ 和 clone_output 产出普通张量
             with torch.inference_mode(False):
@@ -170,8 +174,8 @@ class _CapturedCall:
 class _GraphCache:
     """按签名缓存 CUDA Graph，支持 LRU 淘汰。"""
 
-    def __init__(self):
-        self.entries = OrderedDict()
+    def __init__(self) -> None:
+        self.entries: OrderedDict[tuple, _CapturedCall] = OrderedDict()
         self.lock = threading.RLock()
         self.capture_count = 0
         self.replay_count = 0
@@ -183,7 +187,8 @@ class _GraphCache:
             else DEFAULT_GRAPH_CACHE_SIZE
         )
 
-    def run(self, key, function, inputs):
+    def run(self, key: tuple, function: Callable[..., Any],
+            inputs: tuple[torch.Tensor, ...]) -> Any:
         signature = key + tuple(_tensor_signature(value) for value in inputs)
         with self.lock:
             entry = self.entries.get(signature)
@@ -203,7 +208,8 @@ class _GraphCache:
         return output
 
 
-def run_cuda_graph(owner, namespace, function, *inputs):
+def run_cuda_graph(owner: Any, namespace: str, function: Callable[..., Any],
+                   *inputs: torch.Tensor) -> Any:
     """CUDA Graph 入口：已缓存则 replay，未缓存则 capture。"""
     if not inputs or not cuda_graph_enabled(inputs[0].device):
         return function(*inputs)
@@ -214,7 +220,7 @@ def run_cuda_graph(owner, namespace, function, *inputs):
     return cache.run((str(namespace),), function, tuple(inputs))
 
 
-def _detach_cache(owner) -> "_GraphCache | None":
+def _detach_cache(owner: Any) -> "_GraphCache | None":
     """摘下 owner 的图缓存（不回收 GPU 资源，回收统一在 purge 里做）。"""
     cache = getattr(owner, "_rvc_cuda_graph_cache", None)
     if cache is not None:
@@ -222,7 +228,7 @@ def _detach_cache(owner) -> "_GraphCache | None":
     return cache
 
 
-def _release_caches(caches) -> None:
+def _release_caches(caches: list["_GraphCache"]) -> None:
     """回收已摘下的图缓存：逐个取锁等待在途回放结束，再统一 GC + 同步 + 清缓存。
 
     取锁是有意的安全点：replay 全程持锁，取到锁即保证没有回放仍在引用
@@ -243,7 +249,7 @@ def _release_caches(caches) -> None:
         torch.cuda.empty_cache()
 
 
-def purge_cuda_graphs(*owners):
+def purge_cuda_graphs(*owners: Any) -> None:
     """单入口清理：摘下所有 owner 的图缓存，统一回收一次（gc+同步+empty_cache）。
 
     多模型切换场景（合成器+HuBERT+RMVPE 各持缓存）请用本函数替代逐个
@@ -253,6 +259,6 @@ def purge_cuda_graphs(*owners):
     _release_caches(caches)
 
 
-def clear_cuda_graph_cache(owner):
+def clear_cuda_graph_cache(owner: Any) -> None:
     """清除单个 owner 的 CUDA Graph 缓存（purge_cuda_graphs 的单 owner 形式）。"""
     purge_cuda_graphs(owner)

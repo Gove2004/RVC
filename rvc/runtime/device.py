@@ -20,7 +20,7 @@ class RuntimeDeviceConfig:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls, device_index: int = 0):
+    def __new__(cls, device_index: int = 0) -> "RuntimeDeviceConfig":
         with cls._lock:
             if cls._instance is None:
                 instance = super().__new__(cls)
@@ -28,7 +28,7 @@ class RuntimeDeviceConfig:
                 cls._instance = instance
         return cls._instance
 
-    def _init(self, device_index: int):
+    def _init(self, device_index: int) -> None:
         self.is_half = True
         self.use_cuda_graph = False
         self.gpu_name = None

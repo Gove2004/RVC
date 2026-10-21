@@ -3,6 +3,9 @@
 自动适配 torch/numpy 输入；推理（GPU/torch）与训练（CPU/numpy）共用，
 避免两处独立实现导致口径漂移。
 """
+from types import ModuleType
+from typing import Any
+
 import numpy as np
 import torch
 
@@ -11,7 +14,8 @@ MIDI_REF_FREQ = 440.0
 MIDI_REF_NOTE = 69
 
 
-def hz_to_midi(freq, xp=None):
+def hz_to_midi(freq: torch.Tensor | np.ndarray | float,
+               xp: ModuleType | None = None) -> Any:
     """Hz → MIDI 半音（A4=440Hz = MIDI 69）。自动适配 torch/numpy。"""
     if xp is None:
         xp = torch if torch.is_tensor(freq) else np
@@ -20,7 +24,8 @@ def hz_to_midi(freq, xp=None):
     return 12.0 * xp.log2(freq / MIDI_REF_FREQ) + MIDI_REF_NOTE
 
 
-def midi_to_hz(midi, xp=None):
+def midi_to_hz(midi: torch.Tensor | np.ndarray | float,
+               xp: ModuleType | None = None) -> Any:
     """MIDI 半音 → Hz。自动适配 torch/numpy。"""
     if xp is None:
         xp = torch if torch.is_tensor(midi) else np

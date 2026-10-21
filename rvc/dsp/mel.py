@@ -3,29 +3,32 @@
 只依赖 numpy，不依赖 torch。推理侧（RMVPE）与训练侧共用同一实现，
 避免两处独立滤波器导致的频谱口径漂移。
 """
+from typing import Any
+
 import numpy as np
 
 
-def _hz_to_mel(freq, htk=False):
+def _hz_to_mel(freq: np.ndarray | float, htk: bool = False) -> Any:
     """Hz → mel 刻度。"""
     if htk:
         return 2595.0 * np.log10(1.0 + freq / 700.0)
     return 1127.0 * np.log(1.0 + freq / 700.0)
 
 
-def _mel_to_hz(mel, htk=False):
+def _mel_to_hz(mel: np.ndarray | float, htk: bool = False) -> Any:
     """mel 刻度 → Hz。"""
     if htk:
         return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
     return 700.0 * (np.exp(mel / 1127.0) - 1.0)
 
 
-def _fft_frequencies(sr, n_fft):
+def _fft_frequencies(sr: float, n_fft: int) -> np.ndarray:
     """FFT 频段中心频率。"""
     return np.linspace(0, sr / 2, 1 + n_fft // 2, dtype=np.float64)
 
 
-def _mel_frequencies(n_mels, fmin=0.0, fmax=None, htk=False):
+def _mel_frequencies(n_mels: int, fmin: float = 0.0,
+                     fmax: float | None = None, htk: bool = False) -> np.ndarray:
     """mel 刻度上均匀分布的频率点。"""
     if fmax is None:
         fmax = 11025.0  # 兜底取 librosa 默认值；mel_filter_bank 调用时总会显式传入
@@ -35,7 +38,9 @@ def _mel_frequencies(n_mels, fmin=0.0, fmax=None, htk=False):
     return _mel_to_hz(mels, htk=htk)
 
 
-def mel_filter_bank(sr, n_fft, n_mels=128, fmin=0.0, fmax=None, htk=False, norm="slaney"):
+def mel_filter_bank(sr: float, n_fft: int, n_mels: int = 128,
+                    fmin: float = 0.0, fmax: float | None = None,
+                    htk: bool = False, norm: str | None = "slaney") -> np.ndarray:
     """生成 mel 滤波器矩阵（兼容 librosa.filters.mel）。
 
     返回 shape: (n_mels, 1 + n_fft//2)
