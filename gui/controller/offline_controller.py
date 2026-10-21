@@ -133,7 +133,11 @@ class OfflineConversion:
             self.window._show_error(f"离线转换初始化失败: {exc}")
             return
 
-        self.worker = OfflineWorker(config, parent=self.window)
+        self.worker = OfflineWorker(
+            config,
+            engine_provider=lambda: self.window.controller.engine,
+            parent=self.window,
+        )
         self._converting = True
         self.worker.progress.connect(self._on_progress)
         self.worker.result_ready.connect(self._on_finished)
@@ -319,9 +323,10 @@ class OfflineWorker(QThread):
     error = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, params: OfflineParams, parent=None):
+    def __init__(self, params: OfflineParams, engine_provider, parent=None):
         super().__init__(parent)
         self.params = params
+        self._engine_provider = engine_provider
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -346,10 +351,12 @@ class OfflineWorker(QThread):
                 pass
 
     def _do_run(self):
-        from rvc.streaming.engine import VoiceEngine
-
+        # 复用实时共享引擎（engine_controller.engine，带 inference_cache）：
+        # process_file 的设计契约就是离线/实时共用同一 engine（见 engine.process_file
+        # 文档）。同 pth 时 load_model 命中快路径零加载，也避免与实时引擎并存导致
+        # 的显存双份。互斥由 start_conversion 的 is_running 守卫保证。
         self.progress.emit(0, 100)
-        engine = VoiceEngine(self.params)
+        engine = self._engine_provider()
         engine.load_model(self.params.model_path, hubert=self.params.hubert)
         self.progress.emit(20, 100)
 
