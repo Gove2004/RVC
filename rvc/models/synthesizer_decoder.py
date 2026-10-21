@@ -4,7 +4,7 @@ from typing import Optional
 
 import numpy as np
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import Conv1d, ConvTranspose1d
 from torch.nn import functional as F
 from torch.nn.utils import parametrize, parametrizations
@@ -14,22 +14,22 @@ from rvc.nn.vits_blocks import init_weights
 class Generator(torch.nn.Module):
     def __init__(
         self,
-        initial_channel,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        gin_channels=0,
-    ):
+        initial_channel: int,
+        resblock: str,
+        resblock_kernel_sizes: list[int],
+        resblock_dilation_sizes: list[list[int]],
+        upsample_rates: list[int],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int],
+        gin_channels: int = 0,
+    ) -> None:
         super(Generator, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
         self.conv_pre = Conv1d(
             initial_channel, upsample_initial_channel, 7, 1, padding=3
         )
-        resblock = modules.ResBlock1 if resblock == "1" else modules.ResBlock2
+        resblock_cls = modules.ResBlock1 if resblock == "1" else modules.ResBlock2
 
         self.ups = nn.ModuleList()
         for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
@@ -51,7 +51,7 @@ class Generator(torch.nn.Module):
             for j, (k, d) in enumerate(
                 zip(resblock_kernel_sizes, resblock_dilation_sizes)
             ):
-                self.resblocks.append(resblock(ch, k, d))
+                self.resblocks.append(resblock_cls(ch, k, d))
 
         self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
         self.ups.apply(init_weights)
@@ -61,10 +61,10 @@ class Generator(torch.nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        g: Optional[torch.Tensor] = None,
-        n_res: int | torch.Tensor | None = None,
-    ):
+        x: Tensor,
+        g: Optional[Tensor] = None,
+        n_res: int | Tensor | None = None,
+    ) -> Tensor:
         if n_res is not None:
             n = int(n_res) if isinstance(n_res, torch.Tensor) else n_res
             if n != x.shape[-1]:
@@ -76,12 +76,13 @@ class Generator(torch.nn.Module):
         for i in range(self.num_upsamples):
             x = F.leaky_relu(x, modules.LRELU_SLOPE)
             x = self.ups[i](x)
-            xs = None
+            xs: Optional[Tensor] = None
             for j in range(self.num_kernels):
                 if xs is None:
                     xs = self.resblocks[i * self.num_kernels + j](x)
                 else:
                     xs += self.resblocks[i * self.num_kernels + j](x)
+            assert isinstance(xs, Tensor)
             x = xs / self.num_kernels
         x = F.leaky_relu(x)
         x = self.conv_post(x)
@@ -107,13 +108,13 @@ class SineGen(torch.nn.Module):
 
     def __init__(
         self,
-        samp_rate,
-        harmonic_num=0,
-        sine_amp=0.1,
-        noise_std=0.003,
-        voiced_threshold=0,
-        flag_for_pulse=False,
-    ):
+        samp_rate: int,
+        harmonic_num: int = 0,
+        sine_amp: float = 0.1,
+        noise_std: float = 0.003,
+        voiced_threshold: float = 0,
+        flag_for_pulse: bool = False,
+    ) -> None:
         super(SineGen, self).__init__()
         self.sine_amp = sine_amp
         self.noise_std = noise_std
@@ -122,12 +123,12 @@ class SineGen(torch.nn.Module):
         self.sampling_rate = samp_rate
         self.voiced_threshold = voiced_threshold
 
-    def _f02uv(self, f0):
+    def _f02uv(self, f0: Tensor) -> Tensor:
         uv = torch.ones_like(f0)
         uv = uv * (f0 > self.voiced_threshold)
         return uv
     
-    def _f02sine(self, f0: torch.Tensor, upp: int):
+    def _f02sine(self, f0: Tensor, upp: int) -> Tensor:
         """ f0: (batchsize, length, dim)
             where dim indicates fundamental tone and overtones
         """
@@ -145,7 +146,7 @@ class SineGen(torch.nn.Module):
         sines = torch.sin(2 * np.pi * rad)
         return sines
         
-    def forward(self, f0: torch.Tensor, upp: int):
+    def forward(self, f0: Tensor, upp: int) -> tuple[Tensor, Tensor, Tensor]:
         """sine_tensor, uv = forward(f0)
         input F0: tensor(batchsize=1, length, dim=1)
                   f0 for unvoiced steps should be 0
@@ -185,12 +186,12 @@ class SourceModuleHnNSF(torch.nn.Module):
 
     def __init__(
         self,
-        sampling_rate,
-        harmonic_num=0,
-        sine_amp=0.1,
-        add_noise_std=0.003,
-        voiced_threshod=0,
-    ):
+        sampling_rate: int,
+        harmonic_num: int = 0,
+        sine_amp: float = 0.1,
+        add_noise_std: float = 0.003,
+        voiced_threshod: float = 0,
+    ) -> None:
         super(SourceModuleHnNSF, self).__init__()
 
         self.sine_amp = sine_amp
@@ -204,7 +205,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.l_linear = torch.nn.Linear(harmonic_num + 1, 1)
         self.l_tanh = torch.nn.Tanh()
 
-    def forward(self, x: torch.Tensor, upp: int = 1):
+    def forward(self, x: Tensor, upp: int = 1) -> tuple[Tensor, None, None]:
         sine_wavs, uv, _ = self.l_sin_gen(x, upp)
         sine_wavs = sine_wavs.to(dtype=self.l_linear.weight.dtype)
         sine_merge = self.l_tanh(self.l_linear(sine_wavs))
@@ -214,16 +215,16 @@ class SourceModuleHnNSF(torch.nn.Module):
 class GeneratorNSF(torch.nn.Module):
     def __init__(
         self,
-        initial_channel,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        gin_channels,
-        sr,
-    ):
+        initial_channel: int,
+        resblock: str,
+        resblock_kernel_sizes: list[int],
+        resblock_dilation_sizes: list[list[int]],
+        upsample_rates: list[int],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int],
+        gin_channels: int,
+        sr: int,
+    ) -> None:
         super(GeneratorNSF, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
@@ -235,7 +236,7 @@ class GeneratorNSF(torch.nn.Module):
         self.conv_pre = Conv1d(
             initial_channel, upsample_initial_channel, 7, 1, padding=3
         )
-        resblock = modules.ResBlock1 if resblock == "1" else modules.ResBlock2
+        resblock_cls = modules.ResBlock1 if resblock == "1" else modules.ResBlock2
 
         self.ups = nn.ModuleList()
         for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
@@ -271,7 +272,7 @@ class GeneratorNSF(torch.nn.Module):
             for j, (k, d) in enumerate(
                 zip(resblock_kernel_sizes, resblock_dilation_sizes)
             ):
-                self.resblocks.append(resblock(ch, k, d))
+                self.resblocks.append(resblock_cls(ch, k, d))
 
         self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
         self.ups.apply(init_weights)
@@ -285,11 +286,11 @@ class GeneratorNSF(torch.nn.Module):
 
     def forward(
         self,
-        x,
-        f0,
-        g: Optional[torch.Tensor] = None,
-        n_res: int | torch.Tensor | None = None,
-    ):
+        x: Tensor,
+        f0: Tensor,
+        g: Optional[Tensor] = None,
+        n_res: int | Tensor | None = None,
+    ) -> Tensor:
         """f0 必须是 2D (B, L)：SineGen 内部 unsqueeze(-1) 成 3D (B, L, 1)，
         传 3D 输入会在 _f02sine 报 a(40) vs b(39)。"""
         har_source, noi_source, uv = self.m_source(f0, self.upp)
@@ -327,9 +328,10 @@ class GeneratorNSF(torch.nn.Module):
 
         return x
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         for l in self.ups:
             if parametrize.is_parametrized(l, "weight"):
                 parametrize.remove_parametrizations(l, "weight")
         for l in self.resblocks:
+            assert isinstance(l, (modules.ResBlock1, modules.ResBlock2))
             l.remove_weight_norm()

@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> object:
     if name == "load_hubert":
         from rvc.models.hubert import load_hubert
         return load_hubert

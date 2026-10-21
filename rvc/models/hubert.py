@@ -7,6 +7,7 @@
 import logging
 from rvc.core.errors import FeatureExtractionError
 import os
+from typing import Any
 import sys
 
 import torch
@@ -29,7 +30,7 @@ class HubertModelWithFinalProj(HubertModel):
     BaseModelOutput），特征提取层用 outputs.last_hidden_state 取值，
     不再需要包装层。final_proj 是 RVC 导出模型的固定结构。
     """
-    def __init__(self, config):
+    def __init__(self, config: Any) -> None:
         super().__init__(config)
         self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
 
@@ -46,7 +47,7 @@ def hubert_path(variant: str = "chinese") -> str:
     return str(HUBERT_ROOT / variant)
 
 
-def load_hubert(config, variant: str = "chinese"):
+def load_hubert(config: Any, variant: str = "chinese") -> Any:
     """加载 HuBERT 特征器（纯加载，不做缓存）。
 
     缓存策略属于调用方（pipeline 组装层 / 训练侧各自的加载上下文），
@@ -75,7 +76,7 @@ def load_hubert(config, variant: str = "chinese"):
             sys.stdout = open(os.devnull, "w")
         if sys.stderr is None:
             sys.stderr = open(os.devnull, "w")
-        hubert_model = HubertModelWithFinalProj.from_pretrained(
+        hubert_model = HubertModelWithFinalProj.from_pretrained(  # type: ignore[call-arg]
             model_path,
             local_files_only=True,
         ).to(device=config.device, dtype=dtype).eval()

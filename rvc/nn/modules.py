@@ -3,6 +3,7 @@
 这些 nn.Module 由合成器模型（rvc.models.synthesizer_model）组装使用。
 """
 from typing import Optional, Tuple
+from collections.abc import Sequence
 
 import torch
 from torch import nn
@@ -136,7 +137,7 @@ class WN(torch.nn.Module):
 
 class ResBlock1(torch.nn.Module):
     def __init__(self, channels: int, kernel_size: int = 3,
-                 dilation: tuple[int, ...] = (1, 3, 5)) -> None:
+                 dilation: Sequence[int] = (1, 3, 5)) -> None:
         super(ResBlock1, self).__init__()
         self.convs1 = nn.ModuleList(
             [
@@ -236,7 +237,7 @@ class ResBlock1(torch.nn.Module):
 
 class ResBlock2(torch.nn.Module):
     def __init__(self, channels: int, kernel_size: int = 3,
-                 dilation: tuple[int, ...] = (1, 3)) -> None:
+                 dilation: Sequence[int] = (1, 3)) -> None:
         super(ResBlock2, self).__init__()
         self.convs = nn.ModuleList(
             [

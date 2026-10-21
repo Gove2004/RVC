@@ -3,7 +3,7 @@ import math
 from typing import Optional
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 from rvc.nn import attentions, modules, vits_blocks
 
@@ -13,16 +13,16 @@ class TextEncoder(nn.Module):
 
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        f0=True,
-    ):
+        in_channels: int,
+        out_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        f0: bool = True,
+    ) -> None:
         super(TextEncoder, self).__init__()
         self.out_channels = out_channels
         self.hidden_channels = hidden_channels
@@ -47,11 +47,11 @@ class TextEncoder(nn.Module):
 
     def forward(
         self,
-        phone: torch.Tensor,
-        pitch: Optional[torch.Tensor],
-        lengths: torch.Tensor,
-        skip_head: int | torch.Tensor | None = None,
-    ):
+        phone: Tensor,
+        pitch: Optional[Tensor],
+        lengths: Tensor,
+        skip_head: int | Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor]:
         if pitch is None:
             x = self.emb_phone(phone)
         else:
@@ -77,14 +77,14 @@ class PosteriorEncoder(nn.Module):
 
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        hidden_channels,
-        kernel_size,
-        dilation_rate,
-        n_layers,
-        gin_channels=0,
-    ):
+        in_channels: int,
+        out_channels: int,
+        hidden_channels: int,
+        kernel_size: int,
+        dilation_rate: int,
+        n_layers: int,
+        gin_channels: int = 0,
+    ) -> None:
         super(PosteriorEncoder, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -105,8 +105,8 @@ class PosteriorEncoder(nn.Module):
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
     def forward(
-        self, x: torch.Tensor, x_lengths: torch.Tensor, g: Optional[torch.Tensor] = None
-    ):
+        self, x: Tensor, x_lengths: Tensor, g: Optional[Tensor] = None
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         x_mask = torch.unsqueeze(vits_blocks.sequence_mask(x_lengths, x.size(2)), 1).to(
             x.dtype
         )
@@ -117,5 +117,5 @@ class PosteriorEncoder(nn.Module):
         z = (m + torch.randn_like(m) * torch.exp(logs)) * x_mask
         return z, m, logs, x_mask
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         self.enc.remove_weight_norm()

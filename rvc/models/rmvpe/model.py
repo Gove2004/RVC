@@ -6,9 +6,12 @@ from rvc.core.constants import (
 )
 import logging
 
+from typing import Any
+
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch import Tensor
 
 from rvc.models.rmvpe.transforms import MelSpectrogram
 from rvc.models.rmvpe.blocks import E2E
@@ -20,7 +23,8 @@ logger = logging.getLogger(__name__)
 class RMVPE:
     """RMVPE F0 提取器：mel → E2E 网络 → 设备端解码，全程留 GPU。"""
 
-    def __init__(self, model_path: str, is_half, device=None):
+    def __init__(self, model_path: str, is_half: bool,
+                 device: str | torch.device | None = None) -> None:
         self.is_half = is_half
         if device is None:
             device = "cuda:0"
@@ -37,7 +41,7 @@ class RMVPE:
         self.cents_mapping = torch.from_numpy(np.pad(cents_mapping, (4, 4))).float().to(self.device)
         self.local_offsets = torch.arange(9, device=self.device, dtype=torch.long)
 
-    def _load_model(self, model_path: str, is_half: bool):
+    def _load_model(self, model_path: str, is_half: bool) -> torch.nn.Module:
         model = E2E(4, 1, (2, 2))
         # 安全前提：RMVPE 权重为随仓库分发的官方资产（assets/rmvpe/rmvpe.pt），来源可信，故 weights_only=False。
         ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
@@ -47,7 +51,7 @@ class RMVPE:
         model = model.half() if is_half else model.float()
         return model.to(self.device)
 
-    def mel2hidden(self, mel):
+    def mel2hidden(self, mel: Tensor) -> Tensor:
         with torch.inference_mode():
             n_frames = mel.shape[-1]
             n_pad = 32 * ((n_frames - 1) // 32 + 1) - n_frames
@@ -59,14 +63,17 @@ class RMVPE:
             )
             return hidden[:, :n_frames, :]
 
-    def decode(self, hidden, thred=RMVPE_THRESHOLD_INFER):
+    def decode(self, hidden: Tensor,
+               thred: float = RMVPE_THRESHOLD_INFER) -> Tensor:
         """设备端解码 → f0 (T,) tensor。全程无 CPU 同步。"""
         cents_pred = self.to_local_average_cents(hidden, thred=thred)
         f0 = 10 * torch.pow(2.0, cents_pred / 1200.0)
         # cents==0 即被判为清音的帧（旧版靠 f0==10 反查置零）
         return torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
 
-    def decode_with_confidence(self, hidden, thred=RMVPE_THRESHOLD_INFER):
+    def decode_with_confidence(self, hidden: Tensor,
+                               thred: float = RMVPE_THRESHOLD_INFER,
+    ) -> tuple[Tensor, Tensor]:
         """设备端解码 → (f0 (T,), confidence (T,))。全程无 CPU 同步。
 
         confidence = salience 峰值（0~1），阈值前的原始置信度，
@@ -79,7 +86,8 @@ class RMVPE:
         f0 = torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
         return f0, confidence
 
-    def infer_from_audio(self, audio, thred=RMVPE_THRESHOLD_INFER):
+    def infer_from_audio(self, audio: Tensor | np.ndarray,
+                         thred: float = RMVPE_THRESHOLD_INFER) -> Tensor:
         """返回设备端 f0 tensor (T,) float32。
 
         调用方若需要 numpy（训练侧落盘）自行 .cpu().numpy()；推理侧全程留在 GPU。
@@ -99,7 +107,9 @@ class RMVPE:
             lambda h: self.decode(h, thred=thred), hidden,
         )
 
-    def infer_from_audio_with_confidence(self, audio, thred=RMVPE_THRESHOLD_INFER):
+    def infer_from_audio_with_confidence(self, audio: Tensor | np.ndarray,
+                                         thred: float = RMVPE_THRESHOLD_INFER,
+    ) -> tuple[Tensor, Tensor]:
         """返回设备端 (f0 (T,), confidence (T,)) float32。
 
         与 infer_from_audio 共用 mel/hidden，仅解码阶段多返回一个 confidence。
@@ -117,7 +127,10 @@ class RMVPE:
             lambda h: self.decode_with_confidence(h, thred=thred), hidden,
         )
 
-    def to_local_average_cents(self, salience, thred=RMVPE_THRESHOLD_INFER, return_confidence=False):
+    def to_local_average_cents(self, salience: Tensor | np.ndarray,
+                               thred: float = RMVPE_THRESHOLD_INFER,
+                               return_confidence: bool = False,
+    ) -> Any:
         """局部加权平均解码（设备端，与旧 numpy 逐帧实现等价）。
 
         Args:

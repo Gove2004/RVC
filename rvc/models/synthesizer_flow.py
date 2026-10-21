@@ -2,7 +2,7 @@
 from typing import Optional
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 from rvc.nn import modules
 
@@ -12,14 +12,14 @@ class ResidualCouplingBlock(nn.Module):
 
     def __init__(
         self,
-        channels,
-        hidden_channels,
-        kernel_size,
-        dilation_rate,
-        n_layers,
-        n_flows=4,
-        gin_channels=0,
-    ):
+        channels: int,
+        hidden_channels: int,
+        kernel_size: int,
+        dilation_rate: int,
+        n_layers: int,
+        n_flows: int = 4,
+        gin_channels: int = 0,
+    ) -> None:
         super(ResidualCouplingBlock, self).__init__()
         self.channels = channels
         self.hidden_channels = hidden_channels
@@ -46,11 +46,11 @@ class ResidualCouplingBlock(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        x_mask: torch.Tensor,
-        g: Optional[torch.Tensor] = None,
+        x: Tensor,
+        x_mask: Tensor,
+        g: Optional[Tensor] = None,
         reverse: bool = False,
-    ):
+    ) -> Tensor:
         if not reverse:
             for flow in self.flows:
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
@@ -59,6 +59,8 @@ class ResidualCouplingBlock(nn.Module):
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
         return x
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         for i in range(self.n_flows):
-            self.flows[i * 2].remove_weight_norm()
+            flow = self.flows[i * 2]
+            assert isinstance(flow, modules.ResidualCouplingLayer)
+            flow.remove_weight_norm()

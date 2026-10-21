@@ -5,6 +5,7 @@ from typing import Final, Optional
 logger = logging.getLogger(__name__)
 
 import torch
+from torch import Tensor
 from torch import nn
 
 from rvc.nn import vits_blocks
@@ -29,30 +30,34 @@ class _SynthesizerTrnMsBase(nn.Module):
 
     __constants__ = ["use_f0"]
 
+    dec: "GeneratorNSF | Generator"
+    flow: "ResidualCouplingBlock"
+    enc_q: "PosteriorEncoder"
+
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr,
-        use_f0=True,
-        phone_dim=256,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int],
+        resblock_dilation_sizes: list[list[int]],
+        upsample_rates: list[int],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str | None,
+        use_f0: bool = True,
+        phone_dim: int = 256,
+        **kwargs: object
+    ) -> None:
         """构造合成器。
 
         `**kwargs` 只用于**吸收**调用方多余的关键字（如 `is_half`）：
@@ -96,6 +101,7 @@ class _SynthesizerTrnMsBase(nn.Module):
 
         # Decoder — 根据 use_f0 选择
         if use_f0:
+            assert sr is not None, "use_f0 模型必须提供 sr"
             self.dec = GeneratorNSF(
                 inter_channels,
                 resblock,
@@ -142,23 +148,25 @@ class _SynthesizerTrnMsBase(nn.Module):
             gin_channels, self.spk_embed_dim, use_f0
         )
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         self.dec.remove_weight_norm()
-        self.flow.remove_weight_norm()
+        flow = self.flow
+        assert isinstance(flow, ResidualCouplingBlock)
+        flow.remove_weight_norm()
         # enc_q 可能在加载时被删除（推理不用，省显存），用 hasattr 防护
         if hasattr(self, "enc_q"):
             self.enc_q.remove_weight_norm()
 
     def forward(
         self,
-        phone: torch.Tensor,
-        phone_lengths: torch.Tensor,
-        pitch: torch.Tensor,
-        pitchf: torch.Tensor,
-        y: torch.Tensor,
-        y_lengths: torch.Tensor,
-        ds: torch.Tensor,
-    ):
+        phone: Tensor,
+        phone_lengths: Tensor,
+        pitch: Tensor,
+        pitchf: Tensor,
+        y: Tensor,
+        y_lengths: Tensor,
+        ds: Tensor,
+    ) -> tuple:
         """训练时的前向传播（仅带 F0 模型支持）。"""
         if not self.use_f0:
             raise NotImplementedError("Training forward only supported for F0 models")
@@ -173,15 +181,15 @@ class _SynthesizerTrnMsBase(nn.Module):
 
     def infer(
         self,
-        phone: torch.Tensor,
-        phone_lengths: torch.Tensor,
-        pitch: Optional[torch.Tensor],
-        nsff0: Optional[torch.Tensor],
-        sid: torch.Tensor,
+        phone: Tensor,
+        phone_lengths: Tensor,
+        pitch: Optional[Tensor],
+        nsff0: Optional[Tensor],
+        sid: Tensor,
         skip_head: int = 0,
         return_length: int = 0,
-        return_length2: int | torch.Tensor | None = None,
-    ):
+        return_length2: int | Tensor | None = None,
+    ) -> tuple:
         """推理 — 统一接口，根据 use_f0 自动处理 pitch/nsff0 参数。
 
         f0 契约：nsff0 必须是 2D (B, L)——SineGen.forward 内部会 unsqueeze(-1)
@@ -234,26 +242,26 @@ class SynthesizerTrnMsNSFsid(_SynthesizerTrnMsBase):
 
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int],
+        resblock_dilation_sizes: list[list[int]],
+        upsample_rates: list[int],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str,
+        **kwargs: object
+    ) -> None:
         super().__init__(
             spec_channels,
             segment_size,
@@ -284,26 +292,26 @@ class SynthesizerTrnMsNSFsid_nono(_SynthesizerTrnMsBase):
 
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr=None,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int],
+        resblock_dilation_sizes: list[list[int]],
+        upsample_rates: list[int],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str | None = None,
+        **kwargs: object
+    ) -> None:
         super().__init__(
             spec_channels,
             segment_size,

@@ -1,10 +1,12 @@
 """RMVPE CNN 模块 — BiGRU, ConvBlockRes, Encoder, Decoder, DeepUnet, E2E"""
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 
 class BiGRU(nn.Module):
-    def __init__(self, input_features, hidden_features, num_layers):
+    def __init__(self, input_features: int, hidden_features: int,
+                 num_layers: int) -> None:
         super(BiGRU, self).__init__()
         self.gru = nn.GRU(
             input_features,
@@ -14,12 +16,13 @@ class BiGRU(nn.Module):
             bidirectional=True,
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self.gru(x)[0]
 
 
 class ConvBlockRes(nn.Module):
-    def __init__(self, in_channels, out_channels, momentum=0.01):
+    def __init__(self, in_channels: int, out_channels: int,
+                 momentum: float = 0.01) -> None:
         super(ConvBlockRes, self).__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(
@@ -46,7 +49,7 @@ class ConvBlockRes(nn.Module):
         if in_channels != out_channels:
             self.shortcut = nn.Conv2d(in_channels, out_channels, (1, 1))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: Tensor) -> Tensor:
         if not hasattr(self, "shortcut"):
             return self.conv(x) + x
         else:
@@ -55,8 +58,10 @@ class ConvBlockRes(nn.Module):
 
 class ResEncoderBlock(nn.Module):
     def __init__(
-        self, in_channels, out_channels, kernel_size, n_blocks=1, momentum=0.01
-    ):
+        self, in_channels: int, out_channels: int,
+        kernel_size: int | tuple[int, int] | None,
+        n_blocks: int = 1, momentum: float = 0.01
+    ) -> None:
         super(ResEncoderBlock, self).__init__()
         self.n_blocks = n_blocks
         self.conv = nn.ModuleList()
@@ -64,10 +69,10 @@ class ResEncoderBlock(nn.Module):
         for i in range(n_blocks - 1):
             self.conv.append(ConvBlockRes(out_channels, out_channels, momentum))
         self.kernel_size = kernel_size
-        if self.kernel_size is not None:
+        if kernel_size is not None:
             self.pool = nn.AvgPool2d(kernel_size=kernel_size)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor | tuple[Tensor, Tensor]:
         for i, conv in enumerate(self.conv):
             x = conv(x)
         if self.kernel_size is not None:
@@ -79,14 +84,14 @@ class ResEncoderBlock(nn.Module):
 class Encoder(nn.Module):
     def __init__(
         self,
-        in_channels,
-        in_size,
-        n_encoders,
-        kernel_size,
-        n_blocks,
-        out_channels=16,
-        momentum=0.01,
-    ):
+        in_channels: int,
+        in_size: int,
+        n_encoders: int,
+        kernel_size: int | tuple[int, int] | None,
+        n_blocks: int,
+        out_channels: int = 16,
+        momentum: float = 0.01,
+    ) -> None:
         super(Encoder, self).__init__()
         self.n_encoders = n_encoders
         self.bn = nn.BatchNorm2d(in_channels, momentum=momentum)
@@ -105,8 +110,8 @@ class Encoder(nn.Module):
         self.out_size = in_size
         self.out_channel = out_channels
 
-    def forward(self, x: torch.Tensor):
-        concat_tensors: list[torch.Tensor] = []
+    def forward(self, x: Tensor) -> tuple[Tensor, list[Tensor]]:
+        concat_tensors: list[Tensor] = []
         x = self.bn(x)
         for i, layer in enumerate(self.layers):
             t, x = layer(x)
@@ -115,7 +120,8 @@ class Encoder(nn.Module):
 
 
 class Intermediate(nn.Module):
-    def __init__(self, in_channels, out_channels, n_inters, n_blocks, momentum=0.01):
+    def __init__(self, in_channels: int, out_channels: int, n_inters: int,
+                 n_blocks: int, momentum: float = 0.01) -> None:
         super(Intermediate, self).__init__()
         self.n_inters = n_inters
         self.layers = nn.ModuleList()
@@ -127,14 +133,16 @@ class Intermediate(nn.Module):
                 ResEncoderBlock(out_channels, out_channels, None, n_blocks, momentum)
             )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         for i, layer in enumerate(self.layers):
             x = layer(x)
         return x
 
 
 class ResDecoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride, n_blocks=1, momentum=0.01):
+    def __init__(self, in_channels: int, out_channels: int,
+                 stride: int | tuple[int, int],
+                 n_blocks: int = 1, momentum: float = 0.01) -> None:
         super(ResDecoderBlock, self).__init__()
         out_padding = (0, 1) if stride == (1, 2) else (1, 1)
         self.n_blocks = n_blocks
@@ -156,7 +164,7 @@ class ResDecoderBlock(nn.Module):
         for i in range(n_blocks - 1):
             self.conv2.append(ConvBlockRes(out_channels, out_channels, momentum))
 
-    def forward(self, x, concat_tensor):
+    def forward(self, x: Tensor, concat_tensor: Tensor) -> Tensor:
         x = self.conv1(x)
         x = torch.cat((x, concat_tensor), dim=1)
         for i, conv2 in enumerate(self.conv2):
@@ -165,7 +173,9 @@ class ResDecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, n_decoders, stride, n_blocks, momentum=0.01):
+    def __init__(self, in_channels: int, n_decoders: int,
+                 stride: int | tuple[int, int],
+                 n_blocks: int, momentum: float = 0.01) -> None:
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList()
         self.n_decoders = n_decoders
@@ -176,7 +186,7 @@ class Decoder(nn.Module):
             )
             in_channels = out_channels
 
-    def forward(self, x: torch.Tensor, concat_tensors: list[torch.Tensor]):
+    def forward(self, x: Tensor, concat_tensors: list[Tensor]) -> Tensor:
         for i, layer in enumerate(self.layers):
             x = layer(x, concat_tensors[-1 - i])
         return x
@@ -185,13 +195,13 @@ class Decoder(nn.Module):
 class DeepUnet(nn.Module):
     def __init__(
         self,
-        kernel_size,
-        n_blocks,
-        en_de_layers=5,
-        inter_layers=4,
-        in_channels=1,
-        en_out_channels=16,
-    ):
+        kernel_size: int | tuple[int, int],
+        n_blocks: int,
+        en_de_layers: int = 5,
+        inter_layers: int = 4,
+        in_channels: int = 1,
+        en_out_channels: int = 16,
+    ) -> None:
         super(DeepUnet, self).__init__()
         self.encoder = Encoder(
             in_channels, 128, en_de_layers, kernel_size, n_blocks, en_out_channels
@@ -216,14 +226,14 @@ class DeepUnet(nn.Module):
 class E2E(nn.Module):
     def __init__(
         self,
-        n_blocks,
-        n_gru,
-        kernel_size,
-        en_de_layers=5,
-        inter_layers=4,
-        in_channels=1,
-        en_out_channels=16,
-    ):
+        n_blocks: int,
+        n_gru: int,
+        kernel_size: int | tuple[int, int],
+        en_de_layers: int = 5,
+        inter_layers: int = 4,
+        in_channels: int = 1,
+        en_out_channels: int = 16,
+    ) -> None:
         super(E2E, self).__init__()
         self.unet = DeepUnet(
             kernel_size,
@@ -242,7 +252,7 @@ class E2E(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, mel):
+    def forward(self, mel: Tensor) -> Tensor:
         mel = mel.transpose(-1, -2).unsqueeze(1)
         x = self.cnn(self.unet(mel)).transpose(1, 2).flatten(-2)
         x = self.fc(x)
