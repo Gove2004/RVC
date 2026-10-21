@@ -76,7 +76,7 @@ def load_hubert(config: Any, variant: str = "chinese") -> Any:
             sys.stdout = open(os.devnull, "w")
         if sys.stderr is None:
             sys.stderr = open(os.devnull, "w")
-        hubert_model = HubertModelWithFinalProj.from_pretrained(  # type: ignore[call-arg]
+        hubert_model = HubertModelWithFinalProj.from_pretrained(
             model_path,
             local_files_only=True,
         ).to(device=config.device, dtype=dtype).eval()

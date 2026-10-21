@@ -13,7 +13,7 @@ from rvc.dsp.mel import mel_filter_bank
 
 class MelSpectrogram(torch.nn.Module):
 
-    # buffer 类型显式声明（mypy 的 register_buffer 推断在此不可靠）
+    # buffer 类型显式声明（register_buffer 的推断在此不可靠）
     mel_basis: Tensor
 
     def __init__(
