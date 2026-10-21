@@ -130,7 +130,7 @@ class MicAirflowEffect:
     # ── 增益（不依赖sr）──
     BREATH_GAIN = 5.4          # 呼呼声 rumble 增益（拉满时相对语音≈0dB）
     FLOOR_GAIN = 0.35          # 底噪增益（静音可闻，降低避免嘶滋）
-    INTENSITY_SCALE = 0.35     # GUI 100% 对应实际 35% 效果
+    INTENSITY_GAMMA = 1.8      # GUI 滑块 → 内部强度：s^1.8（100%=设计满幅，50%≈29%，70%≈53%）
 
     # ── 说话中呼吸退让（v10）：说话中 rumble 门控缩放——真实近讲里
     #    说话中的低频隆隆被语音掩蔽，呼吸声最突出的是停顿吸气。
@@ -368,7 +368,9 @@ class MicAirflowEffect:
         return self._process_block(audio, intensity)
 
     def _process_block(self, audio: torch.Tensor, intensity: float) -> torch.Tensor:
-        intensity = intensity * self.INTENSITY_SCALE
+        # 幂曲线：滑块 100% = 设计满幅（此前线性 ×0.35 导致拉满也只 35%，
+        # 用户实测「100% 像 50%」；幂曲线保持中低段手感、放开上限）
+        intensity = intensity ** self.INTENSITY_GAMMA
         n = audio.shape[0]
         device = audio.device
         k_slow, k_combo, k_gate, k_prox = self._kernels_on(device)
