@@ -12,6 +12,7 @@
 """
 import logging
 import math
+import os
 from types import SimpleNamespace
 
 import torch
@@ -20,8 +21,13 @@ from rvc.core.config import InferenceParams
 from rvc.pipeline.state import EngineState
 from rvc.pipeline.context import InferenceContext
 from rvc.pipeline.cache import default_inference_cache
-from rvc.pipeline.features import extract_hubert_features, upsample_features
-
+from rvc.pipeline.features import (
+    clone_protect_source,
+    extract_hubert_features,
+    protect_blend,
+    upsample_features,
+)
+from rvc.pipeline.retrieval import apply_retrieval, load_index
 
 from rvc.pipeline.pitch.extractor import postprocess_f0, create_f0_extractor
 from rvc.pipeline.sessions import ModelSessions
@@ -103,6 +109,16 @@ class InferencePipeline:
         self.state.model_sr = session.target_sr
         self.state.use_f0 = session.use_f0
 
+        # 特征检索：索引文件约定与模型同目录、同名 .index.pt（由
+        # python -m rvc.train.index_builder 从训练特征 3_feature768 构建）。
+        # 张量本体懒加载（首块 index_rate>0 时经 load_index，带 LRU 缓存），
+        # 换模型/重启时重置检索降频计数与混合缓存。
+        stem, _ = os.path.splitext(self.pth_path)
+        self.state.index_path = stem + ".index.pt"
+        self.state.index_refs = None
+        self.state.blend_counter[0] = 0
+        self.state.blend_cache[0] = None
+
     # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
 
     def extract_features(self, config: InferenceParams,
@@ -154,10 +170,37 @@ class InferencePipeline:
         # 回放不与主流图回放重叠——这个"免费"的串行约束必须保留。
         feats = self._stage_extract_hubert(ctx)
 
+        # ── 特征检索 + protect 源克隆（主流上，F0 启动前）──
+        # 克隆必须在检索之前：feats0 是 protect 混回的「检索前原始特征」。
+        # 检索为 eager 算子（无 CUDA Graph），在主流上执行不影响跨流图回放约束。
+        if state.use_f0 == 1 and config.protect > 0:
+            ctx.feats0 = clone_protect_source(feats, state.use_f0, config.protect)
+        if config.index_rate > 0:
+            self._ensure_index()
+            feats = apply_retrieval(
+                feats, state.index_refs, config.index_rate,
+                skip_head=skip_head,
+                blend_every_n=4,
+                blend_counter=state.blend_counter,
+                blend_cache=state.blend_cache,
+            )
+
         # F0 提取（side stream）必须等主流上的 HuBERT 入队之后再启动（见上）。
         self._start_f0_parallel(ctx)
 
         return feats
+
+    def _ensure_index(self) -> None:
+        """懒加载特征索引（首块 index_rate>0 时调用，LRU 缓存命中则零开销）。
+
+        加载失败（文件缺失/损坏）时置空 index_path 短路，避免每块重试 IO。
+        """
+        if not self.state.index_path or self.state.index_refs is not None:
+            return
+        self.state.index_refs = load_index(self.state.index_path, self.state.inference_cache)
+        if self.state.index_refs is None:
+            logger.warning("特征索引不可用（%s），检索关闭", self.state.index_path)
+            self.state.index_path = ""
 
     # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
 
@@ -186,6 +229,11 @@ class InferencePipeline:
 
         # F0 后处理（音域映射 + 中值滤波 + 离散化）
         pitch, pitchf = self._stage_postprocess_f0(ctx)
+
+        # 特征侧辅音保护：清音帧特征混回检索前版本（必须在检索后、合成前）。
+        # feats0 为 None = protect 关闭或未启用 F0 → 恒等式，直接跳过。
+        if ctx.feats0 is not None:
+            feats = protect_blend(feats, ctx.feats0, pitchf, ctx.config.protect)
 
         return pitch, pitchf, feats
 

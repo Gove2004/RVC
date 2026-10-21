@@ -27,6 +27,7 @@ class InferenceContext:
         "_f0_raw_untruncated",
         "formant_factor",
         "return_length2",
+        "feats0",
     )
 
     def __init__(self):
@@ -36,6 +37,9 @@ class InferenceContext:
         self._f0_raw_untruncated: torch.Tensor | None = None
         self.formant_factor: float = 1.0
         self.return_length2: int = 0
+        # 检索前的原始 HuBERT 特征（protect>0 时在 extract_features 中克隆，
+        # postprocess_features 中做清音帧混回；无检索时与 feats 同源，恒等式）
+        self.feats0: torch.Tensor | None = None
 
     def reset(self, config: InferenceParams) -> None:
         """每块开始时重置所有字段，复用实例避免分配开销。"""
@@ -45,3 +49,4 @@ class InferenceContext:
         self._f0_raw_untruncated = None
         self.formant_factor = 1.0
         self.return_length2 = 0
+        self.feats0 = None
