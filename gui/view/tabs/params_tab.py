@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
+    QSizePolicy,
 )
 
 from gui.view.widgets import _create_slider_row
@@ -59,6 +60,9 @@ def build_params_tab(win: "InferWindowHost"):
     f0_group.addButton(win.f0_fcpe_btn)
 
     f0_row = QWidget()
+    # 垂直必须 Fixed：容器默认 Preferred（可拉伸），而本页其余行都是 Fixed，
+    # 窗口的富余高度会被这一行独吞，radio 垂直居中后上下留白、行明显偏高。
+    f0_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     f0_h = QHBoxLayout(f0_row)
     f0_h.setContentsMargins(0, 0, 0, 0)
     f0_h.setSpacing(12)

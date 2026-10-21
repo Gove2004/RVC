@@ -86,6 +86,9 @@ def build_device_tab(win):
     sr_group.addButton(win.sr_device_radio)
 
     sr_row = QWidget()
+    # 垂直必须 Fixed：容器默认 Preferred（可拉伸），窗口富余高度会被这一行
+    # 独吞导致行偏高（同参数页音高算法行的修复）。
+    sr_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     sr_h = QHBoxLayout(sr_row)
     sr_h.setContentsMargins(0, 0, 0, 0)
     sr_h.setSpacing(12)
