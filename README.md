@@ -76,6 +76,15 @@ checkpoint 则自动续训）。重新预处理会连同旧 checkpoint 一起清
 
 或使用启动脚本：`start-infer.bat`（推理）、`start-train.bat`（Windows 训练）、`start-train.sh`（Linux/macOS 训练）。
 
+## 测试
+
+```bash
+.venv\Scripts\python.exe -m unittest discover tests -v
+```
+
+快、稳、无需 GPU/模型（dsp 换算、音域映射契约、RMS 边界、GUI 离屏构建冒烟），秒级跑完；
+需要真实模型/设备的端到端验证不走这里，靠实机确认。
+
 ## 架构概览
 
 ```
