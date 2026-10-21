@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QRadioButton, QButtonGroup,
+    QWidget, QGridLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
 )
 
 from gui.view.widgets import _create_slider_row
@@ -45,10 +45,11 @@ def build_params_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 音高算法 ──
+    # 两枚单选钮必须包进容器再入格（同设备页采样率行）：裸放进拉伸列时，
+    # 其较小的 sizeHint/最大宽会把整列的 max 钳死，且两钮被拆到两列显得散；
+    # 容器 + 尾部 addStretch 让富余宽度进弹性空隙、两钮贴文字宽度横排靠左。
     win.f0_rmvp_btn = QRadioButton("RMVPE")
-    win.f0_rmvp_btn.setMaximumWidth(80)
     win.f0_fcpe_btn = QRadioButton("FCPE")
-    win.f0_fcpe_btn.setMaximumWidth(80)
     is_rmvpe = params.f0.method == "rmvpe"
     win.f0_rmvp_btn.setChecked(is_rmvpe)
     win.f0_fcpe_btn.setChecked(not is_rmvpe)
@@ -57,9 +58,16 @@ def build_params_tab(win: "InferWindowHost"):
     f0_group.addButton(win.f0_rmvp_btn)
     f0_group.addButton(win.f0_fcpe_btn)
 
+    f0_row = QWidget()
+    f0_h = QHBoxLayout(f0_row)
+    f0_h.setContentsMargins(0, 0, 0, 0)
+    f0_h.setSpacing(12)
+    f0_h.addWidget(win.f0_rmvp_btn)
+    f0_h.addWidget(win.f0_fcpe_btn)
+    f0_h.addStretch(1)
+
     g.addWidget(QLabel("音高算法"), r, 0)
-    g.addWidget(win.f0_rmvp_btn, r, 1)
-    g.addWidget(win.f0_fcpe_btn, r, 2)
+    g.addWidget(f0_row, r, 1, 1, 2)
     r += 1
 
     # ── 音高阈值（行标签随音高算法动态切换为 RMVPE/FCPE 阈值）──
