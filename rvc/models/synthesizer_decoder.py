@@ -90,6 +90,16 @@ class Generator(torch.nn.Module):
 
         return x
 
+    def remove_weight_norm(self) -> None:
+        # 基类 remove_weight_norm 无条件调用 self.dec.remove_weight_norm()，
+        # 非 NSF 分支此前缺该方法——非 F0 模型走该路径会 AttributeError（上游遗留）
+        for l in self.ups:
+            if parametrize.is_parametrized(l, "weight"):
+                parametrize.remove_parametrizations(l, "weight")
+        for l in self.resblocks:
+            assert isinstance(l, (modules.ResBlock1, modules.ResBlock2))
+            l.remove_weight_norm()
+
 class SineGen(torch.nn.Module):
     """Definition of sine generator
     SineGen(samp_rate, harmonic_num = 0,
