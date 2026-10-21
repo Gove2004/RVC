@@ -1,13 +1,13 @@
 """详情 Tab — 模型信息查看。
 
-选择模型文件后自动解析并显示信息（无需点击按钮），原名行同步填入、只读。
+选择模型文件后自动解析并显示信息（无需点击按钮）。
 业务逻辑经 `ModelToolController`，耗时操作在 `ToolRunner` 后台线程执行。
 """
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QLineEdit, QTextEdit, QMessageBox,
+    QWidget, QGridLayout, QLabel, QTextEdit, QMessageBox,
 )
 
 from gui.controller.tool_controller import run_tool_async
@@ -44,15 +44,6 @@ def build_details_tab(win) -> QWidget:
     g.addWidget(win.inspect_result, r, 1, 1, 2)
     r += 1
 
-    # ── 原名（只读展示，随模型解析自动填入）──
-    win.archive_name_edit = QLineEdit()
-    win.archive_name_edit.setReadOnly(True)
-    win.archive_name_edit.setPlaceholderText("选择模型后自动填入")
-
-    g.addWidget(QLabel("原名"), r, 0)
-    g.addWidget(win.archive_name_edit, r, 1, 1, 2)
-    r += 1
-
     g.setRowStretch(r, 1)
     return w
 
@@ -73,12 +64,6 @@ def _run_inspect(win):
 def _on_inspect_done(win, success, result):
     if success:
         win.inspect_result.setText(result)
-        # 把当前 zip 原名填进原名框（解析「zip 原名:」行；首行优先展示 info，
-        # 故不能读首行）
-        for line in result.splitlines():
-            if "zip 原名:" in line:
-                win.archive_name_edit.setText(line.split("zip 原名:", 1)[1].strip())
-                break
     else:
         win.inspect_result.setText("")
         QMessageBox.critical(win, "错误", result)

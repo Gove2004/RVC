@@ -86,7 +86,6 @@ class InferWindowHost(Protocol):
     # ── 详情控件（details_tab）──
     inspect_path: "PathPickerButton"
     inspect_result: "QTextEdit"
-    archive_name_edit: "QLineEdit"
 
     # ── 离线控件（offline_tab）──
     offline_input_btn: "PathPickerButton"
