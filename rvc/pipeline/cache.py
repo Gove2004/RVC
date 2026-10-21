@@ -19,17 +19,8 @@ class InferenceCache:
         self._rmvpe = LRUCache(1)
         self._fcpe = LRUCache(1)
         self._synthesizer = LRUCache(2)  # key: pth_path
-        # 特征索引（检索用 .pt 张量），key: index_path。索引常驻代价 = 显存/
-        # 内存中的 (N,768) fp16 张量，留 2 避免模型来回切换时重复加载大文件。
-        self._index = LRUCache(2)
         # 当前活跃的 F0 方法（"rmvpe"/"fcpe"/None），用于避免每块重复调用 release
         self._active_f0_method = None
-
-    def get_index(self, key):
-        return self._index.get(key)
-
-    def set_index(self, key, value):
-        self._index.set(key, value)
 
     def get_hubert(self, key):
         return self._hubert.get(key)

@@ -76,14 +76,6 @@ class EngineState:
     # ── 模型缓存（ModelCache 实例）──
     inference_cache: Any = None
 
-    # ── 特征检索（index_rate>0 时启用）──
-    # index_path 在 pipeline.load() 时由 pth 同目录 <模型名>.index.pt 推导；
-    # index_refs 首块 index_rate>0 时懒加载（load_index 缓存命中则零开销）。
-    index_path: str = ""
-    index_refs: Any = None          # (N, D) 归一化特征张量，CPU 或 GPU
-    blend_counter: list = field(default_factory=lambda: [0])  # blend_every_n 计数
-    blend_cache: list = field(default_factory=lambda: [None])  # 上次混合结果
-
     # ── F0 side stream（F0 计算错开在此流上执行，串行于主流的 HuBERT，
     #    调用时机契约见 pipeline._start_f0_parallel）──
     f0_stream: Any = None

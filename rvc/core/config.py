@@ -87,12 +87,6 @@ class InferenceParams:
     texture: TextureParams = field(default_factory=TextureParams)
     rms_mix: float = 0.0
     volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
-    # 特征检索强度 [0, 1]：HuBERT 特征按索引近邻混合的比例（0=关闭）。
-    # 需要 <模型名>.index.pt 特征索引文件（与 pth 同目录），索引缺失时自动无效。
-    index_rate: float = 0.0
-    # 辅音保护 [0, 1]：清音帧（pitchf<=0）特征按比例混回检索前的原始特征，
-    # 防止检索改写清辅音细节。与原版 RVC 语义一致，只在 index_rate>0 时有意义。
-    protect: float = 0.0
     model_path: str = ""
     hubert: str = HUBERT_DEFAULT
 
@@ -111,8 +105,6 @@ class InferenceParams:
         # 顶层字段
         self.rms_mix = other.rms_mix
         self.volume = other.volume
-        self.index_rate = other.index_rate
-        self.protect = other.protect
         self.model_path = other.model_path
         self.hubert = other.hubert
 

@@ -101,30 +101,4 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(airflow_label, r, 2)
     r += 1
 
-    # ── 检索强度（index_rate：HuBERT 特征按索引近邻混合的比例）──
-    # 需要 <模型名>.index.pt 特征索引文件（与 pth 同目录），缺失时自动无效
-    win.index_rate_slider, index_rate_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
-    win.index_rate_slider.setToolTip(
-        "特征检索强度：用训练素材的特征索引改写 HuBERT 特征（音色更像训练目标）。\n"
-        "需要模型同目录的 <模型名>.index.pt 索引文件（python -m rvc.train.index_builder 构建），\n"
-        "缺失时本滑块无效。改动需重启变声生效。"
-    )
-    g.addWidget(QLabel("检索强度"), r, 0)
-    g.addWidget(win.index_rate_slider, r, 1)
-    g.addWidget(index_rate_label, r, 2)
-    r += 1
-
-    # ── 辅音保护（protect：清音帧特征混回检索前版本，防检索抹掉清辅音细节）──
-    # 特征侧混合（原版 RVC 语义）：合成器仍只渲染目标音色，100% 也不漏原声。
-    # 仅在检索强度>0 时有意义。
-    win.protect_slider, protect_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
-    win.protect_slider.setToolTip(
-        "辅音保护：清音帧（辅音）特征按比例混回检索前的原始特征，防止检索改写清辅音细节。\n"
-        "特征侧混合，不漏原声；只在「检索强度」>0 时有意义。改动需重启变声生效。"
-    )
-    g.addWidget(QLabel("辅音保护"), r, 0)
-    g.addWidget(win.protect_slider, r, 1)
-    g.addWidget(protect_label, r, 2)
-    r += 1
-
     return w

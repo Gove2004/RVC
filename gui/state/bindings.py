@@ -36,8 +36,6 @@ BINDINGS = [
     ("voice.formant", "formant_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
-    ("index_rate", "index_rate_slider", FLOAT),
-    ("protect", "protect_slider", FLOAT),
     # ── F0 参数（f0.*）──
     ("f0.method", "f0_rmvp_btn", RADIO_F0),
     # ── 缓冲区参数（buffer.*）──
@@ -110,8 +108,8 @@ def params_from_dict(state: dict) -> InferenceParams:
     # device_index 强制 int（JSON 读出来可能是 float）
     params.audio.device_index = int(params.audio.device_index)
 
-    # 顶层字段（rms_mix/volume/index_rate/protect/model_path/hubert）
-    for field_name in ("rms_mix", "volume", "index_rate", "protect", "model_path", "hubert"):
+    # 顶层字段（rms_mix/volume/model_path/hubert）
+    for field_name in ("rms_mix", "volume", "model_path", "hubert"):
         setattr(params, field_name, state.get(field_name, getattr(_DEFAULTS, field_name)))
     return params
 
@@ -133,7 +131,7 @@ def params_to_dict(params: InferenceParams) -> dict:
             if field_name not in _DERIVED_FIELDS
         }
 
-    for field_name in ("rms_mix", "volume", "index_rate", "protect", "model_path", "hubert"):
+    for field_name in ("rms_mix", "volume", "model_path", "hubert"):
         result[field_name] = getattr(params, field_name)
     return result
 
