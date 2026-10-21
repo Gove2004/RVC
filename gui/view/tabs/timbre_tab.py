@@ -1,4 +1,4 @@
-"""音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子"""
+"""音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子 / 输出音量"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
@@ -27,7 +27,7 @@ def _range_row(min_val, max_val, step, low_val, high_val,
 
 
 def build_timbre_tab(win: "InferWindowHost"):
-    """音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子。"""
+    """音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子 / 输出音量。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -92,6 +92,17 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(QLabel("响度因子"), r, 0)
     g.addWidget(win.rms_mix_slider, r, 1)
     g.addWidget(rms_mix_label, r, 2)
+    r += 1
+
+    # ── 输出音量（volume；纯标量增益，1=原始，>1 放大，<1 衰减）──
+    # 量程经 controller 下发（单源仍是 rvc.core.config，与热路径钳位同一常量）
+    vol_min, vol_max = win.controller.volume_range
+    win.volume_slider, volume_label = _create_slider_row(
+        vol_min, vol_max, 0.1, params.volume, fmt=".2f",
+    )
+    g.addWidget(QLabel("输出音量"), r, 0)
+    g.addWidget(win.volume_slider, r, 1)
+    g.addWidget(volume_label, r, 2)
     r += 1
 
     return w

@@ -54,6 +54,7 @@ class InferWindowHost(Protocol):
     pitch_map_dst_range: "RangeSlider"
     formant_slider: "DoubleSlider"
     rms_mix_slider: "DoubleSlider"
+    volume_slider: "DoubleSlider"
 
     # ── 参数控件（params_tab）──
     block_time_slider: "DoubleSlider"
@@ -61,7 +62,6 @@ class InferWindowHost(Protocol):
     crossfade_slider: "DoubleSlider"
     f0_threshold_slider: "DoubleSlider"
     f0_threshold_name: "QLabel"
-    volume_slider: "DoubleSlider"
     f0_rmvp_btn: "QRadioButton"
     f0_fcpe_btn: "QRadioButton"
 
