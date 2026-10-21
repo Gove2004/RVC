@@ -54,7 +54,6 @@ class InferWindowHost(Protocol):
     pitch_map_dst_range: "RangeSlider"
     formant_slider: "DoubleSlider"
     rms_mix_slider: "DoubleSlider"
-    airflow_slider: "DoubleSlider"
 
     # ── 参数控件（params_tab）──
     block_time_slider: "DoubleSlider"

@@ -68,12 +68,6 @@ class AudioParams:
 
 
 @dataclass
-class TextureParams:
-    """输出质感参数 — 麦克风气流声。"""
-    airflow: float = 0.0   # 麦克风气流声强度 0-1
-
-
-@dataclass
 class InferenceParams:
     """统一推理参数 — 同时承担持久化配置和运行时参数职责。
 
@@ -84,7 +78,6 @@ class InferenceParams:
     f0: F0Params = field(default_factory=F0Params)
     buffer: BufferParams = field(default_factory=BufferParams)
     audio: AudioParams = field(default_factory=AudioParams)
-    texture: TextureParams = field(default_factory=TextureParams)
     rms_mix: float = 0.0
     volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
     model_path: str = ""
@@ -97,7 +90,7 @@ class InferenceParams:
         （engine/runner/pipeline）都会自动看到更新后的值，无需同步。
         """
         # 嵌套分组：复制每个分组的所有字段
-        for group_name in ("voice", "f0", "buffer", "audio", "texture"):
+        for group_name in ("voice", "f0", "buffer", "audio"):
             src_group = getattr(other, group_name)
             dst_group = getattr(self, group_name)
             for field_name in src_group.__dataclass_fields__:

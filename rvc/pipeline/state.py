@@ -86,7 +86,7 @@ class EngineState:
     t_hubert_ms: float = 0.0  # HuBERT 特征提取
     t_f0_ms: float = 0.0      # F0 提取 + 后处理 + 特征上采样
     t_synth_ms: float = 0.0   # 合成器推理 + 模型→工作采样率重采样
-    t_output_ms: float = 0.0   # RMS + SOLA + 气流声 + 硬件输出
+    t_output_ms: float = 0.0   # RMS + SOLA + 硬件输出
 
     # ── 输入音高（GUI 显示用，音域映射之前的原始值）──
     # 热路径只留 GPU 定形统计 (pitch_sum, count)，不做 .item() 强制同步；

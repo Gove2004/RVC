@@ -42,8 +42,6 @@ BINDINGS = [
     ("buffer.block_time", "block_time_slider", FLOAT),
     ("buffer.crossfade_time", "crossfade_slider", FLOAT),
     ("buffer.extra_time", "extra_time_slider", FLOAT),
-    # ── 输出质感参数（texture.*）──
-    ("texture.airflow", "airflow_slider", FLOAT),
     # ── 音频设备参数（audio.*）──
     ("audio.sr_mode", "sr_model_radio", RADIO_SR),
     ("audio.hostapi", "hostapi_combo", COMBO),
@@ -90,7 +88,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     特殊字段：enable_out2 是 output2_device 的派生属性，device_index 转 int。
     """
     params = InferenceParams()
-    _GROUP_NAMES = ("voice", "f0", "buffer", "audio", "texture")
+    _GROUP_NAMES = ("voice", "f0", "buffer", "audio")
     _DERIVED_FIELDS = {"enable_out2"}  # 派生属性，不从 dict 读取
 
     for group_name in _GROUP_NAMES:
@@ -120,7 +118,7 @@ def params_to_dict(params: InferenceParams) -> dict:
     派生字段 enable_out2 不持久化（从 output2_device 计算）。
     """
     result = {}
-    _GROUP_NAMES = ("voice", "f0", "buffer", "audio", "texture")
+    _GROUP_NAMES = ("voice", "f0", "buffer", "audio")
     _DERIVED_FIELDS = {"enable_out2"}
 
     for group_name in _GROUP_NAMES:

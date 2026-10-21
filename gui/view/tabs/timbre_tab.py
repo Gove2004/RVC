@@ -1,4 +1,4 @@
-"""音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子 / 气息感"""
+"""音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
@@ -27,7 +27,7 @@ def _range_row(min_val, max_val, step, low_val, high_val,
 
 
 def build_timbre_tab(win: "InferWindowHost"):
-    """音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子 / 气息感。"""
+    """音色 Tab — 模型路径 / 音域映射 / 性别因子 / 响度因子。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -92,13 +92,6 @@ def build_timbre_tab(win: "InferWindowHost"):
     g.addWidget(QLabel("响度因子"), r, 0)
     g.addWidget(win.rms_mix_slider, r, 1)
     g.addWidget(rms_mix_label, r, 2)
-    r += 1
-
-    # ── 气息感（texture.airflow：说话时呼呼声 + 静音底噪）──
-    win.airflow_slider, airflow_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
-    g.addWidget(QLabel("气息感"), r, 0)
-    g.addWidget(win.airflow_slider, r, 1)
-    g.addWidget(airflow_label, r, 2)
     r += 1
 
     return w
