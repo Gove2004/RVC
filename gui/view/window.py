@@ -87,12 +87,13 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._last_delay_tooltip = None
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
+        # 管理器先于 UI 创建：offline_tab 构建时会连接 offline_conversion 的信号
+        self.offline_conversion = OfflineConversion(self)
         self._build_ui()
         self._connect_all_param_signals()
 
         # 初始化管理器
         self.device_catalog = DeviceCatalog(self)
-        self.offline_conversion = OfflineConversion(self)
         self.model_tools = ModelToolController()
         self.tool_runner = None
 
