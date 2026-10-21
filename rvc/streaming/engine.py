@@ -74,6 +74,11 @@ class VoiceEngine:
         self.pth_path = ""
         self.sr_model = 0  # 模型目标采样率（setup 时赋值）
         self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
+        # setup 会改写 sd.default.device（实时的输入/输出设备），stop 时恢复。
+        # 不恢复的话，进程内其它 sounddevice 播放（离线页「监听」的 sd.play）
+        # 会落到实时输出设备、以模型采样率开流——设备不接受即
+        # PaErrorCode-9997「Invalid sample rate」。None = 未改写过。
+        self._saved_default_device = None
         # load_model 互斥锁：后台预加载与点击变声（LoadThread）/离线转换并发
         # 调用时串行化，避免双载竞态。后来者拿锁等待后命中同 pth 快路径。
         self._load_lock = threading.Lock()
@@ -173,6 +178,9 @@ class VoiceEngine:
         """启动实时变声引擎。"""
         if self._streams.stream is not None:
             self.stop()
+        # 仅首次保存系统默认设备（重启引擎时 stop 已恢复为系统默认，保存值不变）
+        if self._saved_default_device is None:
+            self._saved_default_device = tuple(sd.default.device)
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
         self.sr_model = self.pipeline.target_sr
@@ -236,6 +244,10 @@ class VoiceEngine:
         if self._runner:
             self._runner.reset_error_state()
         self._streams.stop_all()
+        # 恢复 sounddevice 全局默认设备（setup 改写过；见 _saved_default_device 注释）
+        if self._saved_default_device is not None:
+            sd.default.device = self._saved_default_device
+            self._saved_default_device = None
         # 等待 GPU 上所有推理操作完成，确保快速 stop→start 时旧 kernel 已结束。
         if torch.cuda.is_available():
             torch.cuda.synchronize()
