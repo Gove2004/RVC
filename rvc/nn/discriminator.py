@@ -1,5 +1,6 @@
 """训练判别器 — MPD v2（多周期）+ MSD（多尺度），上游 RVC 拷贝层。"""
 import torch
+from torch import Tensor
 from torch import nn
 from torch.nn import Conv1d, Conv2d
 from torch.nn import functional as F
@@ -19,7 +20,7 @@ class MultiPeriodDiscriminatorV2(nn.Module):
             + [DiscriminatorP(period, use_spectral_norm=use_spectral_norm) for period in periods]
         )
 
-    def forward(self, y: torch.Tensor, y_hat: torch.Tensor):
+    def forward(self, y: Tensor, y_hat: Tensor) -> tuple[list[Tensor], list[Tensor], list[Tensor], list[Tensor]]:
         y_d_rs = []
         y_d_gs = []
         fmap_rs = []
@@ -50,7 +51,7 @@ class DiscriminatorS(nn.Module):
         )
         self.conv_post = norm_f(Conv1d(1024, 1, 3, 1, padding=1))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: Tensor) -> tuple[Tensor, list[Tensor]]:
         fmap = []
         for conv in self.convs:
             x = conv(x)
@@ -78,7 +79,7 @@ class DiscriminatorP(nn.Module):
         )
         self.conv_post = norm_f(Conv2d(1024, 1, (3, 1), 1, padding=(1, 0)))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: Tensor) -> tuple[Tensor, list[Tensor]]:
         fmap = []
         b, c, t = x.shape
         if t % self.period != 0:

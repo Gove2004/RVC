@@ -4,22 +4,26 @@
 "顺手优化"——slice_segments 等切片实现已锁定现状（见各函数注释），
 改动会影响与已导出模型/预训练权重的数值一致性。
 """
-from typing import Optional
+from typing import Any
 
 import torch
+from torch import Tensor, nn
 
 
-def init_weights(m, mean=0.0, std=0.01):
+def init_weights(m: nn.Module, mean: float = 0.0, std: float = 0.01) -> None:
     classname = m.__class__.__name__
     if classname.find("Conv") != -1:
-        m.weight.data.normal_(mean, std)
+        weight = getattr(m, "weight", None)
+        if weight is not None:
+            weight.data.normal_(mean, std)
 
 
-def get_padding(kernel_size, dilation=1):
+def get_padding(kernel_size: int, dilation: int = 1) -> int:
     return int((kernel_size * dilation - dilation) / 2)
 
 
-def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
+def fused_add_tanh_sigmoid_multiply(input_a: Tensor, input_b: Tensor,
+                                    n_channels: Any) -> Tensor:
     n_channels_int = n_channels[0]
     in_act = input_a + input_b
     t_act = torch.tanh(in_act[:, :n_channels_int, :])
@@ -28,14 +32,14 @@ def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
     return acts
 
 
-def sequence_mask(length: torch.Tensor, max_length: Optional[int] = None):
+def sequence_mask(length: Tensor, max_length: int | None = None) -> Tensor:
     if max_length is None:
-        max_length = length.max()
+        max_length = int(length.max().item())
     x = torch.arange(max_length, dtype=length.dtype, device=length.device)
     return x.unsqueeze(0) < length.unsqueeze(1)
 
 
-def slice_segments(x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 4):
+def slice_segments(x: Tensor, ids_str: Tensor, segment_size: int = 4) -> Tensor:
     # AL-4：刻意不做向量化（gather/index 有数值与边界风险且非性能瓶颈），锁死逐样本切片。
     ret = torch.zeros_like(x[:, :, :segment_size])
     for i in range(x.size(0)):
@@ -45,7 +49,7 @@ def slice_segments(x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 4
     return ret
 
 
-def slice_segments2(x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 4):
+def slice_segments2(x: Tensor, ids_str: Tensor, segment_size: int = 4) -> Tensor:
     ret = torch.zeros_like(x[:, :segment_size])
     for i in range(x.size(0)):
         idx_str = int(ids_str[i].item())
@@ -54,7 +58,8 @@ def slice_segments2(x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 
     return ret
 
 
-def rand_slice_segments(x: torch.Tensor, x_lengths: Optional[torch.Tensor] = None, segment_size: int = 4):
+def rand_slice_segments(x: Tensor, x_lengths: Tensor | None = None,
+                        segment_size: int = 4) -> tuple[Tensor, Tensor]:
     b, _, t = x.size()
     if x_lengths is None:
         x_lengths = torch.full((b,), t, dtype=torch.long, device=x.device)
