@@ -228,8 +228,7 @@ def inspect_model(path: str) -> str:
     name = model_info if model_info else (archive if archive else Path(path).stem)
     lines.append(f"模型信息: {name}")
     # zip 归档原名独立成行——info 为空时与首行可能重复，属可接受冗余，不得省略。
-    # archive=None（非 zip 打包）时该行如实显示 None；据此改名会被
-    # change_archive_name 响亮拒绝（「该文件不是 zip 打包的模型」）。
+    # archive=None（非 zip 打包）时该行如实显示 None。
     lines.append(f"zip 原名: {archive}")
     sr = ckpt.get("sr", "unknown")
     version = ckpt.get("version", "unknown")
@@ -240,42 +239,6 @@ def inspect_model(path: str) -> str:
     lines.append(f"版本: {version}")
     lines.append(f"F0 支持: {'是' if f0 == 1 else '否'}")
     return "\n".join(lines)
-
-
-def _rewrite_archive_prefix(src_path: str, new_prefix: str) -> bool:
-    old = _zip_archive_name(src_path)
-    if old is None or old == new_prefix:
-        return False
-    old_prefix = old + "/"
-    tmp_path = src_path + ".tmpr"
-    with zipfile.ZipFile(src_path) as zin:
-        with zipfile.ZipFile(tmp_path, "w") as zout:
-            for item in zin.infolist():
-                data = zin.read(item.filename)
-                if item.filename.startswith(old_prefix):
-                    new_fn = new_prefix + item.filename[len(old):]
-                else:
-                    new_fn = item.filename
-                zi = zipfile.ZipInfo(new_fn, date_time=item.date_time)
-                zi.compress_type = item.compress_type
-                zi.external_attr = item.external_attr
-                zi.internal_attr = item.internal_attr
-                zout.writestr(zi, data)
-    os.replace(tmp_path, src_path)
-    return True
-
-
-def change_archive_name(path: str, new_name: str) -> str:
-    new_name = re.sub(r"\.pth$", "", new_name.strip(), flags=re.I).strip()
-    if not new_name:
-        raise ValueError("新原名不能为空")
-    old_name = _zip_archive_name(path)
-    if old_name is None:
-        raise ValueError("该文件不是 zip 打包的模型，无法修改原名")
-    if old_name == new_name:
-        return new_name
-    _rewrite_archive_prefix(path, new_name)
-    return new_name
 
 
 # 导出 config 的 segment_size（帧）：与上游 RVC 导出 config 的固定值一致。
