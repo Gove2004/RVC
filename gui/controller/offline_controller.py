@@ -153,8 +153,8 @@ class OfflineConversion:
         """请求取消当前离线转换（worker 在下一个块检查时中止）。"""
         if self.worker and self._converting:
             self.worker.request_cancel()
+            # 文案保持 2 字不变（换长度会撑动整列宽度）；进行状态由置灰+状态行表达
             self.window.offline_button.setEnabled(False)
-            self.window.offline_button.setText("正在取消...")
             self.window.offline_status.setText("正在取消...")
 
     # ── 输出文件监听 / 删除 ──
