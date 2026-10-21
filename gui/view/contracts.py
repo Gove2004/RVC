@@ -93,7 +93,8 @@ class InferWindowHost(Protocol):
     offline_input_btn: "PathPickerButton"
     offline_output: "ElidedLabel"
     offline_button: "QPushButton"
-    offline_cancel_btn: "QPushButton"
+    offline_preview_btn: "QPushButton"
+    offline_delete_btn: "QPushButton"
     offline_status: "QLabel"
     offline_progress: "QProgressBar"
 

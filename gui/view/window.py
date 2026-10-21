@@ -325,7 +325,11 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def _ha_changed(self, name):
         self.device_catalog.on_hostapi_changed(name)
 
-    def _off_start(self):
+    def _off_toggle(self):
+        """离线 tab 的开始/取消单按钮调度（空闲时保存配置并开始）。"""
+        if self.offline_conversion.is_converting:
+            self.offline_conversion.cancel_conversion()
+            return
         # 保存配置（在开始转换前保存当前设置）
         try:
             self._save_gui_config()
@@ -333,10 +337,6 @@ class MainWindow(WindowLifecycle, QMainWindow):
         except Exception as e:
             logger.warning("保存配置失败：%s", e)
         self.offline_conversion.start_conversion()
-
-    def _off_cancel(self):
-        """取消当前离线转换。"""
-        self.offline_conversion.cancel_conversion()
 
     # ── 参数应用（委托给 controller）──
 

@@ -80,6 +80,13 @@ class OfflineConversion:
         """是否有离线转换在跑（供实时侧做互斥守卫）。"""
         return self._converting
 
+    def toggle_conversion(self) -> None:
+        """开始/取消单按钮的调度：空闲时开始转换，转换中请求取消。"""
+        if self._converting:
+            self.cancel_conversion()
+        else:
+            self.start_conversion()
+
     def start_conversion(self) -> None:
         """开始离线转换。"""
         if self._converting:
@@ -138,9 +145,7 @@ class OfflineConversion:
         self.stop_preview()
         self.window.offline_preview_btn.setEnabled(False)
         self.window.offline_delete_btn.setEnabled(False)
-        self.window.offline_button.setEnabled(False)
-        self.window.offline_button.setText("转换中...")
-        self.window.offline_cancel_btn.setEnabled(True)
+        self.window.offline_button.setText("取消")
         self.window.offline_status.setText("初始化...")
         self.window.offline_progress.setValue(0)
 
@@ -148,7 +153,8 @@ class OfflineConversion:
         """请求取消当前离线转换（worker 在下一个块检查时中止）。"""
         if self.worker and self._converting:
             self.worker.request_cancel()
-            self.window.offline_cancel_btn.setEnabled(False)
+            self.window.offline_button.setEnabled(False)
+            self.window.offline_button.setText("正在取消...")
             self.window.offline_status.setText("正在取消...")
 
     # ── 输出文件监听 / 删除 ──
@@ -278,7 +284,6 @@ class OfflineConversion:
         self._converting = False
         self.window.offline_button.setEnabled(True)
         self.window.offline_button.setText("开始")
-        self.window.offline_cancel_btn.setEnabled(False)
         self.window.offline_preview_btn.setEnabled(True)
         self.window.offline_delete_btn.setEnabled(True)
         self.window.offline_status.setText(status_text)

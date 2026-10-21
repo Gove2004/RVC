@@ -30,7 +30,7 @@ def _readonly_style() -> str:
 
 
 def build_offline_tab(win):
-    """6 行布局：输入 / 输出 / 开始取消 / 监听删除 / 进度 / 状态。"""
+    """6 行布局：输入 / 输出 / 开始(取消) / 监听删除 / 进度 / 状态。"""
     w = QWidget()
     g = QGridLayout(w)
     g.setSpacing(6)
@@ -55,20 +55,13 @@ def build_offline_tab(win):
     g.addWidget(win.offline_output, r, 1, 1, 3)
     r += 1
 
-    # 开始 / 取消
+    # 开始 / 取消（单按钮切换：空闲时开始，转换中取消）
     win.offline_button = QPushButton("开始")
     win.offline_button.setMinimumHeight(32)
-    win.offline_button.setToolTip("开始离线转换（输入 → <原名>_converted.wav）")
+    win.offline_button.setToolTip("开始离线转换（输入 → <原名>_converted.wav）；转换中点击取消")
     win.offline_button.setStyleSheet(ButtonStyles.primary())
-    win.offline_button.clicked.connect(win._off_start)
-    g.addWidget(win.offline_button, r, 0, 1, 2)
-
-    win.offline_cancel_btn = QPushButton("取消")
-    win.offline_cancel_btn.setMinimumHeight(32)
-    win.offline_cancel_btn.setToolTip("取消当前离线转换")
-    win.offline_cancel_btn.setEnabled(False)
-    win.offline_cancel_btn.clicked.connect(win._off_cancel)
-    g.addWidget(win.offline_cancel_btn, r, 2, 1, 2)
+    win.offline_button.clicked.connect(win._off_toggle)
+    g.addWidget(win.offline_button, r, 0, 1, 4)
     r += 1
 
     # 监听 / 删除（针对输出文件，无需打开文件管理器即可核对效果）
