@@ -30,6 +30,7 @@ def _readonly_style() -> str:
 
 
 def build_offline_tab(win):
+    """6 行布局：输入 / 输出 / 开始取消 / 监听删除 / 进度 / 状态。"""
     w = QWidget()
     g = QGridLayout(w)
     g.setSpacing(6)
@@ -54,25 +55,35 @@ def build_offline_tab(win):
     g.addWidget(win.offline_output, r, 1, 1, 3)
     r += 1
 
-    # 开始转换 / 取消转换（并排）
-    btn_row = QWidget()
-    btn_layout = QGridLayout(btn_row)
-    btn_layout.setContentsMargins(0, 0, 0, 0)
-    btn_layout.setSpacing(6)
-
-    win.offline_button = QPushButton("开始转换")
+    # 开始 / 取消
+    win.offline_button = QPushButton("开始")
     win.offline_button.setMinimumHeight(32)
+    win.offline_button.setToolTip("开始离线转换（输入 → <原名>_converted.wav）")
     win.offline_button.setStyleSheet(ButtonStyles.primary())
     win.offline_button.clicked.connect(win._off_start)
-    btn_layout.addWidget(win.offline_button, 0, 0)
+    g.addWidget(win.offline_button, r, 0, 1, 2)
 
-    win.offline_cancel_btn = QPushButton("取消转换")
+    win.offline_cancel_btn = QPushButton("取消")
     win.offline_cancel_btn.setMinimumHeight(32)
+    win.offline_cancel_btn.setToolTip("取消当前离线转换")
     win.offline_cancel_btn.setEnabled(False)
     win.offline_cancel_btn.clicked.connect(win._off_cancel)
-    btn_layout.addWidget(win.offline_cancel_btn, 0, 1)
+    g.addWidget(win.offline_cancel_btn, r, 2, 1, 2)
+    r += 1
 
-    g.addWidget(btn_row, r, 0, 1, 4)
+    # 监听 / 删除（针对输出文件，无需打开文件管理器即可核对效果）
+    win.offline_preview_btn = QPushButton("监听")
+    win.offline_preview_btn.setMinimumHeight(32)
+    win.offline_preview_btn.setToolTip("播放输出文件（播放中再点一次停止）")
+    win.offline_preview_btn.clicked.connect(win.offline_conversion.toggle_preview)
+    g.addWidget(win.offline_preview_btn, r, 0, 1, 2)
+
+    win.offline_delete_btn = QPushButton("删除")
+    win.offline_delete_btn.setMinimumHeight(32)
+    win.offline_delete_btn.setToolTip("删除输出文件（移入回收站）")
+    win.offline_delete_btn.setStyleSheet(ButtonStyles.danger())
+    win.offline_delete_btn.clicked.connect(win.offline_conversion.delete_output)
+    g.addWidget(win.offline_delete_btn, r, 2, 1, 2)
     r += 1
 
     # 进度条
@@ -81,7 +92,7 @@ def build_offline_tab(win):
     g.addWidget(win.offline_progress, r, 0, 1, 4)
     r += 1
 
-    # 状态文本（在进度条下方）
+    # 状态文本（最后一行）
     win.offline_status = QLabel("")
     g.addWidget(win.offline_status, r, 0, 1, 4)
 

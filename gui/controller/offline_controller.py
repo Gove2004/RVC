@@ -1,11 +1,12 @@
-"""离线推理管理器 — 负责离线音频文件转换。"""
+"""离线推理管理器 — 负责离线音频文件转换（含输出文件监听/删除）。"""
 
+import ctypes
 import logging
 import os
 import traceback
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QTimer, QThread, Signal
 
 from gui.state.bindings import collect_params
 from rvc.core.config import OfflineParams
@@ -28,6 +29,43 @@ def default_output_path(input_path: str) -> str:
     return base + OUTPUT_SUFFIX
 
 
+def _recycle_file(path: str) -> None:
+    """把文件移入回收站（Windows SHFileOperation，FOF_ALLOWUNDO）。
+
+    不用 os.remove——那是永久删除、不可恢复；回收站删除给误删留退路。
+    非 Windows 平台抛 NotImplementedError（本应用仅 Windows）。
+    """
+    if os.name != "nt":
+        raise NotImplementedError("回收站删除仅支持 Windows")
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", ctypes.c_void_p),
+            ("wFunc", ctypes.c_uint),
+            ("pFrom", ctypes.c_wchar_p),
+            ("pTo", ctypes.c_wchar_p),
+            ("fFlags", ctypes.c_ushort),
+            ("fAnyOperationsAborted", ctypes.c_int),
+            ("hNameMappings", ctypes.c_void_p),
+            ("lpszProgressTitle", ctypes.c_wchar_p),
+        ]
+
+    FO_DELETE = 3
+    FOF_SILENT = 0x0004
+    FOF_NOCONFIRMATION = 0x0010
+    FOF_ALLOWUNDO = 0x0040
+    FOF_NOERRORUI = 0x0400
+
+    op = SHFILEOPSTRUCTW()
+    op.wFunc = FO_DELETE
+    # c_wchar_p 会在末尾补 \0，字符串自带一个 \0 ⇒ 恰为双零结尾（列表语义）
+    op.pFrom = path + "\0"
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+    ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    if ret != 0 or op.fAnyOperationsAborted:
+        raise OSError(f"SHFileOperationW 返回 {ret}")
+
+
 class OfflineConversion:
     """管理离线音频文件转换流程。"""
 
@@ -35,6 +73,7 @@ class OfflineConversion:
         self.window = window
         self.worker = None
         self._converting = False
+        self._preview_timer = None
 
     @property
     def is_converting(self) -> bool:
@@ -95,6 +134,10 @@ class OfflineConversion:
         self.worker.cancelled.connect(self._on_cancelled)
         self.worker.start()
 
+        # 转换会覆写输出文件：先停监听，监听/删除按钮置灰直到转换结束
+        self.stop_preview()
+        self.window.offline_preview_btn.setEnabled(False)
+        self.window.offline_delete_btn.setEnabled(False)
         self.window.offline_button.setEnabled(False)
         self.window.offline_button.setText("转换中...")
         self.window.offline_cancel_btn.setEnabled(True)
@@ -107,6 +150,105 @@ class OfflineConversion:
             self.worker.request_cancel()
             self.window.offline_cancel_btn.setEnabled(False)
             self.window.offline_status.setText("正在取消...")
+
+    # ── 输出文件监听 / 删除 ──
+
+    def _output_path(self) -> str:
+        """由当前输入文件派生输出路径（未选输入返回空串）。"""
+        inp = self.window.offline_input_btn.path().strip()
+        return default_output_path(inp)
+
+    def _preview_active(self) -> bool:
+        import sounddevice as sd
+        try:
+            s = sd.get_stream()
+        except RuntimeError:
+            return False  # 尚未调用过 play()，必然未在播放
+        return s is not None and s.active
+
+    def toggle_preview(self) -> None:
+        """监听输出文件：播放 / 再点停止（按钮文本随状态切换）。"""
+        import sounddevice as sd
+        import soundfile as sf
+
+        if self._preview_active():
+            sd.stop()
+            self._stop_preview_ui()
+            return
+
+        path = self._output_path()
+        if not path:
+            self.window._show_warning("请先选择输入文件")
+            return
+        if not os.path.exists(path):
+            self.window._show_warning("输出文件不存在，请先完成一次转换")
+            return
+        try:
+            data, sr = sf.read(path, dtype="float32")
+        except Exception as exc:
+            self.window._show_error(f"无法读取音频文件: {exc}")
+            return
+        if data.ndim == 1:
+            data = data[:, None]
+        try:
+            sd.play(data, sr)
+        except Exception as exc:
+            self.window._show_error(f"播放失败: {exc}")
+            return
+
+        self.window.offline_preview_btn.setText("停止")
+        self.window.offline_status.setText(f"监听中: {os.path.basename(path)}")
+        if self._preview_timer is None:
+            self._preview_timer = QTimer(self.window)
+            self._preview_timer.setInterval(150)
+            self._preview_timer.timeout.connect(self._poll_preview)
+        self._preview_timer.start()
+
+    def _poll_preview(self) -> None:
+        """播放自然结束后复位按钮（sounddevice 的 play 流是自动关闭的）。"""
+        if not self._preview_active():
+            self._stop_preview_ui()
+
+    def _stop_preview_ui(self) -> None:
+        if self._preview_timer is not None:
+            self._preview_timer.stop()
+        self.window.offline_preview_btn.setText("监听")
+
+    def stop_preview(self) -> None:
+        """外部强制停止监听（开始转换 / 删除前调用，任意状态安全）。"""
+        if self._preview_active():
+            import sounddevice as sd
+            sd.stop()
+        self._stop_preview_ui()
+
+    def delete_output(self) -> None:
+        """删除输出文件——二次确认后移入回收站（可恢复）。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        path = self._output_path()
+        if not path:
+            self.window._show_warning("请先选择输入文件")
+            return
+        if not os.path.exists(path):
+            self.window._show_warning("输出文件不存在，无需删除")
+            return
+
+        ans = QMessageBox.question(
+            self.window, "删除输出文件",
+            f"确定删除该输出文件吗？\n{path}\n\n文件将移入回收站。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+
+        self.stop_preview()
+        try:
+            _recycle_file(path)
+        except Exception as exc:
+            self.window._show_error(f"删除失败: {exc}")
+            return
+        self.window.offline_status.setText("输出文件已移入回收站")
 
     def shutdown(self, timeout_ms: int = 5000) -> None:
         """退出程序时的清理：请求取消并等待 worker 结束。
@@ -135,8 +277,10 @@ class OfflineConversion:
         """转换结束（完成/取消/出错）共用的 UI 复位。"""
         self._converting = False
         self.window.offline_button.setEnabled(True)
-        self.window.offline_button.setText("开始转换")
+        self.window.offline_button.setText("开始")
         self.window.offline_cancel_btn.setEnabled(False)
+        self.window.offline_preview_btn.setEnabled(True)
+        self.window.offline_delete_btn.setEnabled(True)
         self.window.offline_status.setText(status_text)
 
     def _on_finished(self, path: str) -> None:
