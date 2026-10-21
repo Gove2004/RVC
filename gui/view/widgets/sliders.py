@@ -33,7 +33,7 @@ class DoubleSlider(QSlider):
         self._label_fmt = label_fmt
         self._label_unit = label_unit
 
-    def value(self) -> float:
+    def value(self) -> float:  # type: ignore[override]  # 刻意放宽：对外是物理值(float)
         """返回物理值（float）。"""
         return super().value() * self._step
 
@@ -41,10 +41,10 @@ class DoubleSlider(QSlider):
         """设置物理值（float）。"""
         super().setValue(round(float(value) / self._step))
 
-    def minimum(self) -> float:
+    def minimum(self) -> float:  # type: ignore[override]
         return self._int_min * self._step
 
-    def maximum(self) -> float:
+    def maximum(self) -> float:  # type: ignore[override]
         return self._int_max * self._step
 
     def _fmt(self, v: float) -> str:
@@ -53,7 +53,7 @@ class DoubleSlider(QSlider):
     def _update_label(self) -> None:
         """刷新值标签：拖动经 valueChanged 自动触发；程序化 setValue 不触发
         valueChanged 时（如控件未显示）由调用方手动调用。"""
-        self._value_label.setText(self._fmt(self.value()))
+        if self._value_label is not None:/n            self._value_label.setText(self._fmt(self.value()))
 
 
 def _create_slider_row(mn: float, mx: float, st: float, dv: float,
