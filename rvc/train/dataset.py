@@ -2,10 +2,15 @@
 
 TextAudioLoaderMultiNSFsid 按帧长过滤样本，BucketSampler 按长度分桶减少
 batch 内 padding，TextAudioCollateMultiNSFsid 负责补齐并打包。
+
+三级缓存（从慢到快）：ffmpeg 解码 → 落盘 wav.npy；STFT → 落盘 .spec.pt；
+本 epoch 反复读取 → 进程内按字节预算的样本 LRU（见 _SampleMemoryCache）。
 """
 import bisect
 import logging
+import math
 import random
+from collections import OrderedDict
 from pathlib import Path
 from typing import NamedTuple
 
@@ -20,6 +25,59 @@ from rvc.train.atomic_save import save_npy_atomic, save_torch_atomic
 from rvc.train.mel_processing import spectrogram_torch
 
 logger = logging.getLogger(__name__)
+
+# 进程内样本缓存预算（字节）。单个样本以 spec 为主，约 4MB（1029×1000 float32），
+# 256MB ≈ 60 个样本——够覆盖小数据集整轮，大语料退化成 LRU 但仍命中相邻 epoch
+# 的同一批样本（分桶采样让同一桶的样本在相邻轮次被连续取用）。
+# 每个 DataLoader worker 各持一份（spawn 从头建、fork 走 COW），故总量 ≈
+# 预算 × worker 数，默认 2 worker 即上限 512MB。
+_SAMPLE_CACHE_BYTES = 256 * 1024 * 1024
+
+
+class _SampleMemoryCache:
+    """按字节预算淘汰的样本 LRU（键 = 数据集下标）。
+
+    失效假设：训练期间素材与预处理产物不变（预处理在训练前一次做完，
+    训练中改语料本就不受支持）。因此不做 mtime 校验，避免每次取样本
+    多一次 stat —— 那正是本缓存要省掉的开销。
+    """
+
+    __slots__ = ("_budget", "_entries", "_bytes")
+
+    def __init__(self, budget_bytes: int = _SAMPLE_CACHE_BYTES):
+        self._budget = max(0, int(budget_bytes))
+        self._entries: OrderedDict[int, tuple] = OrderedDict()
+        self._bytes = 0
+
+    def get(self, key: int):
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        self._entries.move_to_end(key)
+        return entry[1]
+
+    def put(self, key: int, value, nbytes: int) -> None:
+        if self._budget <= 0 or nbytes > self._budget:
+            return
+        if key in self._entries:
+            self._bytes -= self._entries[key][0]
+            del self._entries[key]
+        self._entries[key] = (nbytes, value)
+        self._bytes += nbytes
+        while self._bytes > self._budget:
+            _, (old_bytes, _old) = self._entries.popitem(last=False)
+            self._bytes -= old_bytes
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+
+def _sample_nbytes(sample: "TrainSample") -> int:
+    """样本常驻内存的字节数（张量本体，不含 Python 包装开销）。"""
+    return sum(
+        t.element_size() * t.nelement()
+        for t in (sample.phone, sample.pitch, sample.pitchf, sample.spec, sample.wav)
+    )
 
 
 class TrainSample(NamedTuple):
@@ -54,7 +112,8 @@ class TrainBatch(NamedTuple):
 
 class TextAudioLoaderMultiNSFsid(Dataset):
     def __init__(self, filelist_path: str, mel_config: dict, spec_cache_dir: str | Path,
-                 ffmpeg_exe: str | None = None):
+                 ffmpeg_exe: str | None = None,
+                 mem_cache_bytes: int = _SAMPLE_CACHE_BYTES):
         """数据集加载器。
 
         Args:
@@ -62,6 +121,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
                 目录（0_gt_wavs/），统一放 {exp}/spec_cache/——切片目录保持
                 "纯产物"，缓存失效由 mtime 判断 + 素材变更时整目录清除。
             ffmpeg_exe: ffmpeg 路径（D4 显式传参）。None = 用 runtime 默认。
+            mem_cache_bytes: 样本内存缓存预算；0 = 关闭内存缓存（只读盘缓存）。
         """
         self.mel_config = mel_config
         self.spec_cache_dir = Path(spec_cache_dir)
@@ -72,6 +132,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         self.hop_length = mel_config["hop_length"]
         self.win_length = mel_config["win_length"]
         self.lengths = self._filter()
+        self._mem_cache = _SampleMemoryCache(mem_cache_bytes)
 
     @staticmethod
     def _load_filelist(filelist_path: str):
@@ -97,6 +158,15 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         return lengths
 
     def __getitem__(self, index):
+        cached = self._mem_cache.get(index)
+        if cached is not None:
+            return cached
+        sample = self._load_sample(index)
+        self._mem_cache.put(index, sample, _sample_nbytes(sample))
+        return sample
+
+    def _load_sample(self, index) -> "TrainSample":
+        """从盘上缓存拼出一个样本（未命中内存缓存时才会走这里）。"""
         wav_path, feat_path, pitch_path, pitchf_path, sid = self.audiopaths_and_text[index]
         phone = torch.from_numpy(np.load(feat_path).astype(np.float32))
         phone = phone.repeat_interleave(2, dim=0)
@@ -254,13 +324,26 @@ class BucketSampler(Sampler):
 
     def __iter__(self):
         batches = []
+        tails = []   # 各桶「不满一个 batch」的尾部样本
         for bucket in self.buckets:
             ids = bucket.copy()
             random.shuffle(ids)
-            for i in range(0, len(ids) - len(ids) % self.batch_size, self.batch_size):
-                batches.append(ids[i : i + self.batch_size])
+            full = len(ids) - len(ids) % self.batch_size
+            batches.extend(
+                ids[i: i + self.batch_size] for i in range(0, full, self.batch_size))
+            tails.extend(ids[full:])
+        # 桶尾不再静默丢弃：旧实现 `range(0, len - len % bs, bs)` 直接跳过尾部，
+        # 语料量不是 batch_size 整数倍时，这些样本**每个 epoch 都不参与训练**
+        # 且没有任何提示。代价是合并后的尾批跨桶（padding 略多），收益是全覆盖。
+        if tails:
+            random.shuffle(tails)
+            batches.extend(
+                tails[i: i + self.batch_size]
+                for i in range(0, len(tails), self.batch_size))
         random.shuffle(batches)
         return iter(batches)
 
     def __len__(self):
-        return sum(len(bucket) // self.batch_size for bucket in self.buckets)
+        # 与 __iter__ 严格一致：sum(floor(len_i/bs)) + ceil(sum(len_i mod bs)/bs)
+        # == ceil(sum(len_i)/bs)，合并尾部只改变批次构成、不改变批次数。
+        return math.ceil(sum(len(bucket) for bucket in self.buckets) / self.batch_size)
