@@ -21,7 +21,6 @@ from rvc.core.errors import ModelLoadError
 from rvc.models.hubert import load_hubert
 from rvc.pipeline.cache import default_inference_cache
 from rvc.pipeline.loader import SynthesizerLoader
-from rvc.runtime.graph import purge_cuda_graphs
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +57,16 @@ class ModelSessions:
 
         两个模型都先查 InferenceCache：命中直接复用（切回旧模型秒开），
         未命中才调加载器并回填。
+
+        命中即短路：两个组件都命中时，不做任何加载后处理——要返回的就是
+        上次那个对象，它已经处在加载完成态，CUDA Graph 缓存也仍然有效。
+        本层不再清图缓存：图缓存挂在模型对象上，签名含 shape/dtype/device
+        与 namespace，换模型天然不命中；旧实现在这里无条件 purge，等于每次
+        切回旧模型都把已捕获的图全拆掉重捕获（每张图几十毫秒），把 LRU 缓存
+        的意义抵消掉了。真正的回收点在 InferenceCache 淘汰值的那一刻。
         """
         logger.info("加载 %s", os.path.basename(pth_path))
-        # 加载前先回收 CUDA 缓存碎片，确保最大可用显存（避免碎片导致 OOM）
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        reloaded = False
         try:
             # HuBERT 的 key 含变体：base 与 chinese 是两套不同权重的特征器
             hubert_key = (self.device, self.is_half, hubert_variant)
@@ -70,6 +74,7 @@ class ModelSessions:
             if hubert is None:
                 hubert = load_hubert(self._device_config(), variant=hubert_variant)
                 self.inference_cache.set_hubert(hubert_key, hubert)
+                reloaded = True
             else:
                 logger.info("  · HuBERT（缓存, %s）", hubert_variant)
 
@@ -80,29 +85,30 @@ class ModelSessions:
             if syn is None:
                 syn = SynthesizerLoader(self._device_config()).load(pth_path)
                 self.inference_cache.set_synthesizer(syn_key, syn)
+                reloaded = True
             else:
                 logger.info("  · Synthesizer（缓存）")
-            synthesizer = syn.synthesizer
         except Exception as e:
             raise ModelLoadError(f"模型加载失败 [{os.path.basename(pth_path)}]: {e}") from e
 
-        # 所有 Synthesizer 变体都继承 remove_weight_norm；保留异常兜底（权重可能已是移除状态）
-        try:
-            synthesizer.remove_weight_norm()
-        except Exception as e:
-            logger.warning("移除 weight_norm 失败：%s", e)
+        if reloaded:
+            # 所有 Synthesizer 变体都继承 remove_weight_norm；保留异常兜底
+            # （权重可能已是移除状态）
+            try:
+                syn.synthesizer.remove_weight_norm()
+            except Exception as e:
+                logger.warning("移除 weight_norm 失败：%s", e)
 
-        # 清除旧模型的 CUDA Graph 缓存（避免形状/设备不匹配）
-        purge_cuda_graphs(synthesizer, hubert)
-
-        # 模型全部加载到 GPU 后，强制回收 CPU 侧残留的 checkpoint 副本
-        # （torch.load(map_location="cpu") 的 ckpt 已 del，但 Python 分配器可能
-        # 未立即归还 OS；gc.collect() 触发引用计数清理，省 ~500-700MB 系统内存）
-        gc.collect()
+            # 换模型：先释放显存碎片，再回收 CPU 侧残留的 checkpoint 副本
+            # （torch.load(map_location="cpu") 的 ckpt 已 del，但 Python 分配器
+            # 可能未立即归还 OS；gc.collect() 省 ~500-700MB 系统内存）
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
         return ModelSession(
             hubert=hubert,
-            synthesizer=synthesizer,
+            synthesizer=syn.synthesizer,
             target_sr=syn.target_sr,
             use_f0=syn.use_f0,
         )

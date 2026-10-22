@@ -4,10 +4,27 @@ LRU 淘汰：synthesizer（几百 MB/个）只进不出会让显存/内存持续
 各槽位保留最近使用的 N 个，超限淘汰最久未用的。
 槽位数量属于本层（pipeline 组装层）的策略，通用 LRU 基础设施在 runtime。
 
+淘汰即回收：被淘汰的模型若持有 CUDA Graph 缓存，要在这里显式 purge。
+CUDAGraph 与其静态输入/输出张量占的显存不会随引用消失立刻归还，而新模型
+捕获图时可能复用同一批地址（见 runtime/graph.py 的内存地址竞争说明）——
+把回收动作放在「值被遗忘」的那一行，比指望 GC 时机可靠。
+
 失效语义（现状契约）：仅 LRU 容量淘汰，无文件 mtime 校验——
 同名 pth 被外部覆盖后仍会返回旧权重，属已知且被接受的现状。
 """
 from rvc.runtime.caches import LRUCache
+from rvc.runtime.graph import purge_cuda_graphs
+
+
+def _release_graph_caches(value) -> None:
+    """回收被淘汰模型持有的图缓存（bundle 与其内层模型都算 owner）。"""
+    if value is None:
+        return
+    owners = [value]
+    inner = getattr(value, "synthesizer", None)
+    if inner is not None:
+        owners.append(inner)
+    purge_cuda_graphs(*owners)
 
 
 class InferenceCache:
@@ -26,19 +43,25 @@ class InferenceCache:
         return self._hubert.get(key)
 
     def set_hubert(self, key, value):
-        self._hubert.set(key, value)
+        _release_graph_caches(self._hubert.set(key, value))
 
     def get_rmvpe(self, key):
         return self._rmvpe.get(key)
 
     def set_rmvpe(self, key, value):
-        self._rmvpe.set(key, value)
+        # 提取器自带 release()（清图 + 删模型 + 回收显存），淘汰即调它，
+        # 否则槽位容量变化时旧提取器会一直挂着显存
+        evicted = self._rmvpe.set(key, value)
+        if evicted is not None:
+            evicted.release()
 
     def get_fcpe(self, key):
         return self._fcpe.get(key)
 
     def set_fcpe(self, key, value):
-        self._fcpe.set(key, value)
+        evicted = self._fcpe.set(key, value)
+        if evicted is not None:
+            evicted.release()
 
     def get_synthesizer(self, key):
         """获取缓存的 Synthesizer（LRU 命中即刷新）。
@@ -57,7 +80,7 @@ class InferenceCache:
         Args:
             value: SynthesizerBundle
         """
-        self._synthesizer.set(key, value)
+        _release_graph_caches(self._synthesizer.set(key, value))
 
     def release_rmvpe(self) -> None:
         """释放缓存中的 RMVPE 提取器（clear_cuda_graph + del model + gc + empty_cache）。

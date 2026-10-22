@@ -28,12 +28,19 @@ class LRUCache:
                 return self._d[key]
             return default
 
-    def set(self, key: object, value: object) -> None:
+    def set(self, key: object, value: object) -> object:
+        """写入并刷新 LRU 位置；因容量淘汰时返回被淘汰的值（未淘汰返回 None）。
+
+        返回淘汰值是给调用方的回收钩子：值可能持有 GPU 资源（如 CUDA Graph
+        缓存），必须在被遗忘的那一刻显式回收，不能指望 GC 时机。
+        """
         with self._lock:
             self._d[key] = value
             self._d.move_to_end(key)
-            while len(self._d) > self.maxsize:
-                self._d.popitem(last=False)
+            if len(self._d) > self.maxsize:
+                _, evicted = self._d.popitem(last=False)
+                return evicted
+            return None
 
     def values(self) -> list:
         """线程安全地返回所有值的快照列表。"""

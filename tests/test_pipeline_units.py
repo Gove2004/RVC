@@ -85,6 +85,112 @@ class TestFormantResampleKernelCache(unittest.TestCase):
         self.assertEqual(kernels, {})
 
 
+class _FakeSynth:
+    def __init__(self):
+        self.removed = 0
+
+    def remove_weight_norm(self):
+        self.removed += 1
+
+
+class _FakeBundle:
+    def __init__(self):
+        self.synthesizer = _FakeSynth()
+        self.target_sr = 40000
+        self.use_f0 = True
+
+
+class _FakeEntry:
+    def __init__(self):
+        self.lock = threading.RLock()
+
+
+class _FakeGraphCache:
+    """假图缓存（真 _GraphCache 需要 CUDA 才能捕获）。"""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.entries = {("ns",): _FakeEntry()}
+
+
+def _patched_load():
+    """加载器替换为假实现的 patcher 列表（真加载需要权重与 transformers）。"""
+    return [
+        mock.patch("rvc.pipeline.sessions.load_hubert"),
+        mock.patch("rvc.pipeline.sessions.SynthesizerLoader"),
+        mock.patch("rvc.pipeline.sessions.torch.cuda.is_available", return_value=False),
+        mock.patch("rvc.pipeline.sessions.gc.collect"),
+    ]
+
+
+class TestModelSessionsCache(unittest.TestCase):
+    """会话层缓存：命中要「零后处理 + 保留图缓存」，否则 LRU 等于白做。"""
+
+    def setUp(self):
+        from rvc.pipeline.cache import InferenceCache
+        from rvc.pipeline.sessions import ModelSessions
+
+        self.sessions = ModelSessions("cpu", True, InferenceCache())
+        self._patchers = _patched_load()
+        started = [p.start() for p in self._patchers]
+        self.addCleanup(lambda: [p.stop() for p in self._patchers])
+        self.hubert, self.loader = started[0], started[1]
+        self.hubert.return_value = object()
+        self.loader.return_value.load.return_value = _FakeBundle()
+
+    def test_same_pth_loads_once_and_skips_post_processing(self):
+        first = self.sessions.load("a.pth")
+        second = self.sessions.load("a.pth")
+
+        self.assertIs(first.synthesizer, second.synthesizer)
+        self.assertEqual(self.loader.return_value.load.call_count, 1)
+        self.assertEqual(self.hubert.call_count, 1)
+        # reloaded=False → 不再重复 remove_weight_norm
+        self.assertEqual(first.synthesizer.removed, 1)
+
+    def test_cache_hit_keeps_captured_graphs(self):
+        first = self.sessions.load("a.pth")
+        sentinel = _FakeGraphCache()
+        first.synthesizer._rvc_cuda_graph_cache = sentinel
+
+        second = self.sessions.load("a.pth")
+
+        self.assertIs(getattr(second.synthesizer, "_rvc_cuda_graph_cache", None),
+                      sentinel,
+                      "切回已缓存模型时图缓存必须存活，不能被无条件 purge")
+
+    def test_hubert_variant_change_reloads_only_hubert(self):
+        self.sessions.load("a.pth", hubert_variant="chinese")
+        sentinel = _FakeGraphCache()
+        self.loader.return_value.load.return_value.synthesizer._rvc_cuda_graph_cache = sentinel
+
+        self.sessions.load("a.pth", hubert_variant="base")
+
+        self.assertEqual(self.hubert.call_count, 2)
+        self.assertEqual(self.loader.return_value.load.call_count, 1)
+        self.assertIs(getattr(self.loader.return_value.load.return_value.synthesizer,
+                              "_rvc_cuda_graph_cache", None), sentinel,
+                      "只换 hubert 变体时合成器仍复用同一对象，图缓存同样不该被拆")
+
+
+class TestInferenceCacheEviction(unittest.TestCase):
+    def test_evicted_bundle_loses_graph_cache(self):
+        from rvc.pipeline.cache import InferenceCache
+
+        cache = InferenceCache()
+        bundles = [_FakeBundle() for _ in range(3)]   # synthesizer 槽位只留 2 个
+        with mock.patch("rvc.runtime.graph.gc.collect"), \
+                mock.patch("rvc.runtime.graph.torch.cuda.is_available", return_value=False):
+            for index, bundle in enumerate(bundles):
+                bundle.synthesizer._rvc_cuda_graph_cache = _FakeGraphCache()
+                cache.set_synthesizer(("cpu", True, f"{index}.pth"), bundle)
+
+        self.assertIsNone(cache.get_synthesizer(("cpu", True, "0.pth")))
+        self.assertFalse(hasattr(bundles[0].synthesizer, "_rvc_cuda_graph_cache"),
+                         "被淘汰的模型必须显式回收图缓存，不能留给 GC")
+        self.assertTrue(hasattr(bundles[2].synthesizer, "_rvc_cuda_graph_cache"))
+
+
 class TestNormalizeF0ToCoarse(unittest.TestCase):
     def _f0(self):
         rng = np.random.default_rng(7)
