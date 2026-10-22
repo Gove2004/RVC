@@ -153,13 +153,25 @@ class AudioStreams:
     def start_secondary_output(self, dev_idx: int, sr: int, channels: int, block_samples: int) -> None:
         """创建并启动副输出流。
 
+        幂等：重复调用先关掉旧流。旧实现直接覆盖 self.stream2，被覆盖的
+        OutputStream 再没人 abort/close，设备会一直处于占用状态（下次打开
+        或其它程序占用同一虚拟设备时表现为「设备不可用」）。
+
         Args:
             dev_idx: 副输出设备索引
             sr: 采样率
             channels: 通道数
             block_samples: 块大小（样本数）
         """
+        self._safe_close_stream(self.stream2)
+        self.stream2 = None
+        self.enable_out2 = False
+
         self.validate_secondary_output(dev_idx, channels)
+
+        # 清空上次残留的数据（在启动前做：启动后回调线程会开始消费）
+        while not self.out2_q.empty():
+            self.out2_q.get_nowait()
 
         def out2_callback(outdata, frames, audio_clock, status):
             if status:
@@ -181,10 +193,6 @@ class AudioStreams:
         )
         self.stream2.start()
         self.enable_out2 = True
-
-        # 清空队列中可能残留的旧数据
-        while not self.out2_q.empty():
-            self.out2_q.get_nowait()
 
     def stop_all(self) -> None:
         """安全中止并关闭所有流（主流 + 副输出）。"""
