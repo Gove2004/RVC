@@ -20,8 +20,6 @@ from rvc.pipeline.state import EngineState
 from rvc.pipeline.context import InferenceContext
 from rvc.pipeline.cache import default_inference_cache
 from rvc.pipeline.features import extract_hubert_features, upsample_features
-
-
 from rvc.pipeline.pitch.extractor import postprocess_f0, create_f0_extractor
 from rvc.pipeline.sessions import ModelSessions
 from rvc.pipeline.synthesis import cached_long_tensor, infer_synth_audio
@@ -357,7 +355,7 @@ class InferencePipeline:
         # 合成器推理
         p_len_t = cached_long_tensor(state.long_tensor_cache, ctx.p_len, state.device)
         sid = cached_long_tensor(state.long_tensor_cache, state.sid, state.device)
-        infered_audio, _, _ = infer_synth_audio(
+        inferred_audio, _, _ = infer_synth_audio(
             state.synthesizer, feats, p_len_t,
             pitch, pitchf, sid,
             state.use_f0, state.is_half,
@@ -365,7 +363,7 @@ class InferencePipeline:
             return_length=state.return_length,
             return_length2=ctx.return_length2,
         )
-        infered_audio = infered_audio.squeeze(1).float()
+        inferred_audio = inferred_audio.squeeze(1).float()
 
-        return infered_audio.squeeze()
+        return inferred_audio.squeeze()
 

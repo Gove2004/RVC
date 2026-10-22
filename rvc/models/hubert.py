@@ -5,10 +5,9 @@
 是链路的硬成本：extra 上下文时长折算出的帧数直接决定推理耗时下限。
 """
 import logging
-from rvc.core.errors import FeatureExtractionError
 import os
-from typing import Any
 import sys
+from typing import Any
 
 import torch
 from torch import nn
@@ -18,6 +17,7 @@ from transformers.utils.logging import disable_progress_bar
 # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
 disable_progress_bar()
 
+from rvc.core.errors import FeatureExtractionError
 from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)
