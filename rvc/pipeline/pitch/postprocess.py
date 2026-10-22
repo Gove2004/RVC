@@ -2,7 +2,15 @@
 
 推理侧（GPU/torch）与训练侧（CPU/numpy）共用同一套常量与算法，
 避免两处独立实现导致的口径漂移。
+
+双后端策略：数学表达式只写一份，`clamp/where/nan_to_num/取整` 等
+后端差异经 _Ops 注入（见 _TENSOR_OPS / _ARRAY_OPS）。旧实现把整段
+算法按 `if xp is torch` 复制两份，两边的更新迟早不同步——本模块存在的
+理由就是消灭这种漂移，就不该在模块内部再制造一份。
 """
+from types import ModuleType
+from typing import Any
+
 import numpy as np
 import torch
 
@@ -18,8 +26,6 @@ PITCH_MIN = 1
 PITCH_MAX = 255
 PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
 
-
-
 # 音域映射缓存上限（MIDI 常量缓存与 (参数,设备) tensor 缓存共用同一上限）
 _PITCH_MAP_CACHE_LIMIT = 128
 
@@ -33,6 +39,93 @@ _pitch_map_midi_cache: dict[tuple, tuple] = {}
 # 同步 H2D 拷贝，实时路径每块调用 4 次纯属浪费——参数与设备在会话内不变。
 # 同上无锁设计。
 _pitch_map_tensor_cache: dict[tuple, tuple] = {}
+
+
+class _Ops:
+    """同一套逐元素算子的两种实现（torch / numpy）。
+
+    只收数学上必须分流的算子：能两边同名的（log/log2/乘加）不包一层，
+    免得把「后端注入」变成新的样板代码。
+    """
+
+    __slots__ = ("xp", "log", "clip", "where", "nan_to_num", "zeros_like",
+                 "round_to_int")
+
+    def __init__(self, xp: ModuleType, *, clip, where, nan_to_num, zeros_like,
+                 round_to_int):
+        self.xp = xp
+        self.log = xp.log
+        self.clip = clip
+        self.where = where
+        self.nan_to_num = nan_to_num
+        self.zeros_like = zeros_like
+        self.round_to_int = round_to_int
+
+
+_TENSOR_OPS = _Ops(
+    torch,
+    # hi=None 表示只钳下界（apply_pitch_map 需要「下方兜底、上方不限」）
+    clip=lambda t, lo, hi: torch.clamp(t, min=lo, max=hi),
+    where=lambda cond, a, b: torch.where(cond, a, b),
+    nan_to_num=lambda t: torch.nan_to_num(t, nan=0.0, posinf=0.0, neginf=0.0),
+    zeros_like=torch.zeros_like,
+    # round 与 numpy rint 同为「四舍六入五取偶」，再取 long
+    round_to_int=lambda t: torch.round(t).long(),
+)
+
+_ARRAY_OPS = _Ops(
+    np,
+    clip=lambda t, lo, hi: np.clip(t, lo, hi),
+    where=lambda cond, a, b: np.where(cond, a, b),
+    nan_to_num=lambda t: np.nan_to_num(t, nan=0.0, posinf=0.0, neginf=0.0),
+    zeros_like=lambda t: np.zeros_like(t),
+    round_to_int=lambda t: np.rint(t).astype(np.int64),
+)
+
+
+def _ops_for(value: Any) -> _Ops:
+    """按输入类型选后端（torch.Tensor → GPU 路径，其余按 numpy 数组处理）。"""
+    return _TENSOR_OPS if torch.is_tensor(value) else _ARRAY_OPS
+
+
+def _evict_oldest(cache: dict) -> None:
+    """超上限丢最早插入的项；pop 带 default，容忍并发插入造成的字典变化。"""
+    if len(cache) > _PITCH_MAP_CACHE_LIMIT:
+        cache.pop(next(iter(cache)), None)
+
+
+def _pitch_map_midi(key: tuple) -> tuple:
+    """参数组合 → 4 个 MIDI 半音值（float，进程内缓存）。"""
+    cached = _pitch_map_midi_cache.get(key)
+    if cached is not None:
+        return cached
+    src_min, src_max, dst_min, dst_max = key
+    value = (
+        float(hz_to_midi(src_min)), float(hz_to_midi(src_max)),
+        float(hz_to_midi(dst_min)), float(hz_to_midi(dst_max)),
+    )
+    _pitch_map_midi_cache[key] = value
+    _evict_oldest(_pitch_map_midi_cache)
+    return value
+
+
+def _pitch_map_consts(key: tuple, ops: _Ops, f0: Any) -> tuple:
+    """4 个 MIDI 常量：numpy 直接用 float，torch 用同设备 0 维张量。
+
+    张量版本按 (参数, 设备) 缓存，避免每块 4 次同步 H2D 拷贝。
+    """
+    if ops.xp is np:
+        return _pitch_map_midi(key)
+    tensor_key = (*key, f0.device)
+    cached = _pitch_map_tensor_cache.get(tensor_key)
+    if cached is None:
+        cached = tuple(
+            torch.tensor(v, dtype=torch.float32, device=f0.device)
+            for v in _pitch_map_midi(key)
+        )
+        _pitch_map_tensor_cache[tensor_key] = cached
+        _evict_oldest(_pitch_map_tensor_cache)
+    return cached
 
 
 def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
@@ -77,71 +170,26 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     if src_min >= src_max or dst_min >= dst_max:
         return f0  # 无效参数，原样返回
 
-    # 预计算 MIDI 值缓存（参数很少变化，避免每次调用重复计算）
-    cache_key = (src_min, src_max, dst_min, dst_max)
-    if cache_key not in _pitch_map_midi_cache:
-        src_min_m = float(hz_to_midi(src_min))
-        src_max_m = float(hz_to_midi(src_max))
-        dst_min_m = float(hz_to_midi(dst_min))
-        dst_max_m = float(hz_to_midi(dst_max))
-        _pitch_map_midi_cache[cache_key] = (src_min_m, src_max_m, dst_min_m, dst_max_m)
-        # 限制缓存大小，避免极端情况下无限增长；pop 带 default：双引擎并发
-        # 插入时 next(iter()) 与 pop 之间字典可能变化，竞态下跳过本次淘汰即可
-        if len(_pitch_map_midi_cache) > _PITCH_MAP_CACHE_LIMIT:
-            _pitch_map_midi_cache.pop(next(iter(_pitch_map_midi_cache)), None)
-    src_min_m, src_max_m, dst_min_m, dst_max_m = _pitch_map_midi_cache[cache_key]
+    key = (src_min, src_max, dst_min, dst_max)
+    midi = _pitch_map_midi(key)
 
-    if torch.is_tensor(f0):
-        xp = torch
-        uv_mask = f0 <= 0
-        f0_safe = xp.clamp(f0, min=1e-6)
-        # 预计算的 MIDI 标量常量 tensor 按 (参数, 设备) 缓存，避免每块 4 次同步 H2D
-        tkey = (*cache_key, f0.device)
-        tensors = _pitch_map_tensor_cache.get(tkey)
-        if tensors is None:
-            tensors = tuple(
-                torch.tensor(v, dtype=torch.float32, device=f0.device)
-                for v in _pitch_map_midi_cache[cache_key]
-            )
-            _pitch_map_tensor_cache[tkey] = tensors
-            # 与 MIDI 缓存同策略：限制大小；pop 带 default 容忍并发竞态
-            if len(_pitch_map_tensor_cache) > _PITCH_MAP_CACHE_LIMIT:
-                _pitch_map_tensor_cache.pop(next(iter(_pitch_map_tensor_cache)), None)
-        src_min_m_t, src_max_m_t, dst_min_m_t, dst_max_m_t = tensors
-    else:
-        xp = np
-        uv_mask = f0 <= 0
-        f0_safe = xp.clip(f0, 1e-6, None)
-        src_min_m_t = src_min_m
-        src_max_m_t = src_max_m
-        dst_min_m_t = dst_min_m
-        dst_max_m_t = dst_max_m
-
-    # Hz → MIDI 半音（只对 f0 计算，参数已缓存）
-    f0_m = hz_to_midi(f0_safe, xp)
-
-    # 半音尺度线性映射
-    src_range = src_max_m_t - src_min_m_t
-    if src_range < 1e-6:
+    # 守卫用 Python float：拿 0 维 CUDA 张量做 if 判断等于每块强同步一次
+    if midi[1] - midi[0] < 1e-6:
         return f0  # 原声音域无效，原样返回
-    ratio = (f0_m - src_min_m_t) / src_range
-    out_m = dst_min_m_t + ratio * (dst_max_m_t - dst_min_m_t)
 
-    # 模型音域侧钳制：超出 [dst_min_m, dst_max_m] 的帧钳制到最近边界（保持有声）
-    if xp is torch:
-        out_m = torch.clamp(out_m, min=dst_min_m_t, max=dst_max_m_t)
-    else:
-        out_m = np.clip(out_m, dst_min_m_t, dst_max_m_t)
+    ops = _ops_for(f0)
+    c_src_min, c_src_max, c_dst_min, c_dst_max = _pitch_map_consts(key, ops, f0)
 
-    # MIDI → Hz
-    out = midi_to_hz(out_m, xp)
+    # 清音掩码在钳制前取：钳制把 0 抬到 1e-6，之后就找不到哪些是 UV 帧了
+    uv_mask = f0 <= 0
+    f0_m = hz_to_midi(ops.clip(f0, 1e-6, None), ops.xp)   # Hz → MIDI 半音
 
-    # 合并掩码：原始 UV 帧 + NaN/inf 帧 → 输出 0
-    if xp is torch:
-        out = torch.where(uv_mask, torch.zeros_like(out), torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
-    else:
-        out = np.where(uv_mask, 0.0, np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
-    return out
+    ratio = (f0_m - c_src_min) / (c_src_max - c_src_min)   # 半音尺度线性映射
+    out_m = ops.clip(c_dst_min + ratio * (c_dst_max - c_dst_min), c_dst_min, c_dst_max)
+
+    out = midi_to_hz(out_m, ops.xp)   # MIDI → Hz
+    # 原始 UV 帧 + NaN/inf 帧 → 输出 0
+    return ops.where(uv_mask, ops.zeros_like(out), ops.nan_to_num(out))
 
 
 def _f0_to_mel(f0, xp):
@@ -190,23 +238,12 @@ def normalize_f0_to_coarse(f0):
     Returns:
         离散化的 pitch 值，范围 [1, 255]，类型与输入一致
     """
-    if torch.is_tensor(f0):
-        # NaN/inf 保护：异常值视为清音（f0=0）
-        f0 = torch.nan_to_num(f0, nan=0.0, posinf=0.0, neginf=0.0)
-        f0_mel = _f0_to_mel(f0, torch)
-        # 刻意不用布尔掩码索引（f0_mel[voiced] = ...）：布尔索引要先 nonzero()
-        # 定输出形状，是数据依赖形状操作 —— 每块强制同步 GPU 队列，且无法被
-        # CUDA Graph 捕获（cudaErrorStreamCaptureInvalidated）。torch.where 全程
-        # 形状静态，可进图、无同步。
-        scaled = (f0_mel - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_MIN
-        pitch = torch.where(f0_mel > 0, scaled, torch.zeros_like(scaled))
-        return torch.round(torch.clamp(pitch, PITCH_MIN, PITCH_MAX)).long()
-    else:
-        xp = np
-        # NaN/inf 保护：异常值视为清音（f0=0）
-        f0 = np.nan_to_num(f0, nan=0.0, posinf=0.0, neginf=0.0)
-        f0_mel = _f0_to_mel(f0, xp)
-        voiced = f0_mel > 0
-        f0_mel[voiced] = (f0_mel[voiced] - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_MIN
-        f0_mel = xp.clip(f0_mel, PITCH_MIN, PITCH_MAX)
-        return xp.rint(f0_mel).astype(np.int64)
+    ops = _ops_for(f0)
+    f0_mel = _f0_to_mel(ops.nan_to_num(f0), ops.xp)
+    scaled = (f0_mel - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_MIN
+    # 刻意不用布尔掩码索引（f0_mel[voiced] = ...）：布尔索引要先 nonzero()
+    # 定输出形状，是数据依赖形状操作 —— 每块强制同步 GPU 队列，且无法被
+    # CUDA Graph 捕获（cudaErrorStreamCaptureInvalidated）。where 全程形状
+    # 静态，可进图、无同步。
+    pitch = ops.where(f0_mel > 0, scaled, ops.zeros_like(scaled))
+    return ops.round_to_int(ops.clip(pitch, PITCH_MIN, PITCH_MAX))

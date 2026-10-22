@@ -122,9 +122,11 @@ class InferencePipeline:
         # **F0 side stream 的 CUDA Graph 回放与主流的 HuBERT / 合成器图回放并发**。
         # 每个 CUDA Graph 各持私有显存池，PyTorch 明确要求同一张图必须「同流、同序」
         # 回放；跨流并发回放属未定义行为。
-        # 实测后果（真实实时链路，RTX 5060 Laptop）：数秒~数十秒后音频回调卡死在
-        # `apply_pitch_map` 的 GPU→CPU 同步上，设备再也排不空 → 回调不再被调用、
-        # GUI 冻结、GPU 被占满。**与 mel 前端是否图化无关**——mel 已改回 eager 后
+        # 实测后果（真实实时链路，RTX 5060 Laptop）：数秒~数十秒后音频回调卡在
+        # F0 后处理的 GPU→CPU 同步上（当时表现为 `apply_pitch_map`，那里有个拿
+        # 0 维张量做 if 判断的守卫；该同步点现已改成 Python float，症状会转移到
+        # 下一个真正同步的位置），设备再也排不空 → 回调不再被调用、GUI 冻结、
+        # GPU 被占满。**与 mel 前端是否图化无关**——mel 已改回 eager 后
         # 仅恢复 F0 先启动，~6s 即复现（fcpe-core replay=56 后挂死）。
         # 旧顺序（HuBERT 先入队、F0 等它算完）虽然名义上没并行，但它保证了侧流图
         # 回放不与主流图回放重叠——这个"免费"的串行约束必须保留。

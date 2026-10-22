@@ -227,5 +227,50 @@ class TestNormalizeF0ToCoarse(unittest.TestCase):
         self.assertNotIn("[voiced]", torch_branch.replace(" ", ""))
 
 
+class TestPitchMapBackends(unittest.TestCase):
+    """音域映射双后端收敛成一份实现后，两条路径必须仍然等价。"""
+
+    def _f0(self):
+        rng = np.random.default_rng(11)
+        return np.concatenate([
+            np.zeros(5, dtype=np.float32),          # 清音帧
+            rng.uniform(50, 900, 120).astype(np.float32),
+        ])
+
+    def test_torch_matches_numpy(self):
+        from rvc.pipeline.pitch.postprocess import apply_pitch_map
+
+        f0 = self._f0()
+        expected = apply_pitch_map(f0, 60, 720, 160, 720)
+        got = apply_pitch_map(torch.from_numpy(f0), 60, 720, 160, 720).numpy()
+        np.testing.assert_allclose(got, expected, rtol=1e-5)
+
+    def test_unvoiced_stay_zero_and_output_clamped(self):
+        from rvc.pipeline.pitch.postprocess import apply_pitch_map
+
+        f0 = self._f0()
+        out = apply_pitch_map(f0, 60, 720, 160, 720)
+        self.assertTrue(np.all(out[:5] == 0), "清音帧必须保持 0，不能被映射成有声")
+        self.assertGreaterEqual(float(out[5:].min()), 160.0 - 1e-3)
+        self.assertLessEqual(float(out[5:].max()), 720.0 + 1e-3)
+
+    def test_invalid_range_returns_input_untouched(self):
+        from rvc.pipeline.pitch.postprocess import apply_pitch_map
+
+        f0 = torch.linspace(100, 200, 8)
+        self.assertIs(apply_pitch_map(f0, 720, 60, 160, 720), f0)
+        self.assertIs(apply_pitch_map(f0, 60, 720, 720, 160), f0)
+
+    def test_constants_cached_per_device(self):
+        from rvc.pipeline.pitch import postprocess
+
+        postprocess._pitch_map_tensor_cache.clear()
+        f0 = torch.linspace(100, 200, 8)
+        postprocess.apply_pitch_map(f0, 60, 720, 160, 720)
+        postprocess.apply_pitch_map(f0, 60, 720, 160, 720)
+        self.assertEqual(len(postprocess._pitch_map_tensor_cache), 1,
+                         "同参数同设备只该有一份常量张量")
+
+
 if __name__ == "__main__":
     unittest.main()
