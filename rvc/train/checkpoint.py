@@ -151,12 +151,21 @@ def prune_orphan_checkpoints(exp_dir: str | Path) -> int:
         }
 
     g, d = _by_epoch("G"), _by_epoch("D")
+
+    def _drop(path) -> None:
+        nonlocal removed
+        try:
+            path.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            # 与上面 *.pairtmp 一致：Windows 下被占用时只告警，不让清理失败
+            # 掀翻整个训练启动流程
+            logger.warning("孤儿 checkpoint 删除失败（跳过）: %s", path)
+
     for e in set(g) - set(d):
-        g[e].unlink(missing_ok=True)
-        removed += 1
+        _drop(g[e])
     for e in set(d) - set(g):
-        d[e].unlink(missing_ok=True)
-        removed += 1
+        _drop(d[e])
     if removed:
         logger.warning("清理孤儿 checkpoint / 中断残留: %d 个", removed)
     return removed

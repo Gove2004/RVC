@@ -231,9 +231,11 @@ class Trainer:
                     "batch": batch_idx,
                     "loss_d": loss_d_v,
                     # G = 纯对抗分量，与上游 train.py loss_gen 口径一致（可逐字段对表）；
-                    # loss_gen_all（对抗+FM+Mel+KL 的 backward 总目标）另以 loss_total 上报。
+                    # loss_total（对抗+FM+Mel+KL 的 backward 总目标）由四个已取回的
+                    # 分量相加得到，不再单独 .item() 一次——它只是诊断量，用同一批
+                    # fp32 标量求和与 tensor.sum().item() 的差异在显示精度之外。
                     "loss_g": loss_g_v,
-                    "loss_total": loss_gen_all.item(),
+                    "loss_total": loss_g_v + loss_fm_v + loss_mel_v + loss_kl_v,
                     "loss_mel": loss_mel_v,
                     "loss_kl": loss_kl_v,
                     "loss_fm": loss_fm_v,
