@@ -1,4 +1,6 @@
 """Synthesizer 推理调用。"""
+import math
+
 import torch
 from torchaudio.transforms import Resample as TatResample
 
@@ -68,17 +70,33 @@ def infer_synth_audio(
     return run_cuda_graph(synthesizer, graph_key, call, *tensor_inputs)
 
 
+def formant_resample_ratio(factor: float, target_sr: int) -> int:
+    """formant 重采样的「上采样分母」：orig_freq，单位为 100Hz。
+
+    抽成单源函数：runner 需要它算截断长度、apply_formant_resample 需要它做
+    缓存键与构造核，两处若各写一遍算术，日后单边修改就会无声漂移。
+    """
+    return int(math.floor(factor * target_sr // 100))
+
+
 def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, resample_kernel: dict, device: str) -> torch.Tensor:
-    upp_res = int((factor * target_sr // 100))
-    if upp_res == target_sr // 100:
+    "formant 偏移用重采样实现（保留共振峰位置，改变音高）。"
+    sr100 = target_sr // 100
+    upp_res = formant_resample_ratio(factor, target_sr)
+    if upp_res == sr100:
         return audio
 
-    if upp_res not in resample_kernel:
+    # 缓存键必须含两侧频率：upp_res 由 factor*target_sr 派生，不同 target_sr 在
+    # 特定 factor 下会撞出同一个 upp_res（如 48000*1.0208 与 44100*1.1111 都得 490），
+    # 而核的 new_freq 是 target_sr//100 —— 只按 upp_res 缓存会复用错误采样率的核，
+    # 表现为换采样率模式后 formant 量持续偏差。
+    key = (upp_res, sr100)
+    if key not in resample_kernel:
         if len(resample_kernel) >= _RESAMPLE_KERNEL_LIMIT:
             resample_kernel.clear()
-        resample_kernel[upp_res] = TatResample(
+        resample_kernel[key] = TatResample(
             orig_freq=upp_res,
-            new_freq=target_sr // 100,
+            new_freq=sr100,
             dtype=torch.float32,
         ).to(device)
-    return resample_kernel[upp_res](audio)
+    return resample_kernel[key](audio)

@@ -191,14 +191,16 @@ def normalize_f0_to_coarse(f0):
         离散化的 pitch 值，范围 [1, 255]，类型与输入一致
     """
     if torch.is_tensor(f0):
-        xp = torch
         # NaN/inf 保护：异常值视为清音（f0=0）
         f0 = torch.nan_to_num(f0, nan=0.0, posinf=0.0, neginf=0.0)
-        f0_mel = _f0_to_mel(f0, xp)
-        voiced = f0_mel > 0
-        f0_mel[voiced] = (f0_mel[voiced] - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_MIN
-        f0_mel = xp.clamp(f0_mel, PITCH_MIN, PITCH_MAX)
-        return xp.round(f0_mel).long()
+        f0_mel = _f0_to_mel(f0, torch)
+        # 刻意不用布尔掩码索引（f0_mel[voiced] = ...）：布尔索引要先 nonzero()
+        # 定输出形状，是数据依赖形状操作 —— 每块强制同步 GPU 队列，且无法被
+        # CUDA Graph 捕获（cudaErrorStreamCaptureInvalidated）。torch.where 全程
+        # 形状静态，可进图、无同步。
+        scaled = (f0_mel - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_MIN
+        pitch = torch.where(f0_mel > 0, scaled, torch.zeros_like(scaled))
+        return torch.round(torch.clamp(pitch, PITCH_MIN, PITCH_MAX)).long()
     else:
         xp = np
         # NaN/inf 保护：异常值视为清音（f0=0）

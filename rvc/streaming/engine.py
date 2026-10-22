@@ -155,7 +155,11 @@ class VoiceEngine:
         一直是静音捕获+真实语音回放。
         """
         with self._load_lock:
-            if not force and self.pipeline and self.pth_path == pth:
+            # 快路径必须同时比对 pth 与 hubert 变体：离线页有独立的特征器选择器，
+            # 实时页先用 chinese 加载同一 pth 后，离线改用 base 转换时会命中旧
+            # pipeline —— 整条链路静默用错特征器（音色发闷/咬字错），无任何告警。
+            if (not force and self.pipeline and self.pth_path == pth
+                    and self.pipeline.hubert_variant == hubert):
                 return self.pipeline.target_sr
             from rvc.pipeline.pipeline import InferencePipeline
 

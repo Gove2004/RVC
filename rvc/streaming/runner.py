@@ -13,7 +13,6 @@
 - formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取
 """
 import logging
-import math
 import queue
 import time
 
@@ -26,7 +25,7 @@ from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
 from rvc.streaming.output import route_secondary_output, write_main_output
 from rvc.streaming.effects import AudioProcessor
-from rvc.pipeline.synthesis import apply_formant_resample
+from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -325,13 +324,12 @@ class InferenceRunner:
         # formant 因子从 ctx 读取（pipeline.extract_features 中已计算并存入）
         formant = self.runtime_params.voice.formant
         if formant != 0:
-            factor = ctx.formant_factor
             target_sr = state.work_sr
-            upp_res = int(math.floor(factor * target_sr // 100))
+            upp_res = formant_resample_ratio(ctx.formant_factor, target_sr)
             if upp_res != target_sr // 100:
                 infer = apply_formant_resample(
                     infer[: state.return_length * upp_res],
-                    factor, target_sr, state.resample_kernel, state.device,
+                    ctx.formant_factor, target_sr, state.resample_kernel, state.device,
                 ).squeeze()
 
         # 统一长度对齐（formant 重采样可能改变长度，SOLA 期望固定长度）
