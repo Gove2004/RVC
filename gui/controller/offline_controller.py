@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer, QThread, Signal
 
+from gui.controller.recycle import recycle_file
 from rvc.core.config import OfflineParams
 from rvc.core.errors import CancelledError
 
@@ -32,45 +33,6 @@ def default_output_path(input_path: str) -> str:
     return base + OUTPUT_SUFFIX
 
 
-def _recycle_file(path: str) -> None:
-    """把文件移入回收站（Windows SHFileOperation，FOF_ALLOWUNDO）。
-
-    不用 os.remove——那是永久删除、不可恢复；回收站删除给误删留退路。
-    非 Windows 平台抛 NotImplementedError（本应用仅 Windows）。
-    """
-    if os.name != "nt":
-        raise NotImplementedError("回收站删除仅支持 Windows")
-
-    import ctypes
-
-    class SHFILEOPSTRUCTW(ctypes.Structure):
-        _fields_ = [
-            ("hwnd", ctypes.c_void_p),
-            ("wFunc", ctypes.c_uint),
-            ("pFrom", ctypes.c_wchar_p),
-            ("pTo", ctypes.c_wchar_p),
-            ("fFlags", ctypes.c_ushort),
-            ("fAnyOperationsAborted", ctypes.c_int),
-            ("hNameMappings", ctypes.c_void_p),
-            ("lpszProgressTitle", ctypes.c_wchar_p),
-        ]
-
-    FO_DELETE = 3
-    FOF_SILENT = 0x0004
-    FOF_NOCONFIRMATION = 0x0010
-    FOF_ALLOWUNDO = 0x0040
-    FOF_NOERRORUI = 0x0400
-
-    op = SHFILEOPSTRUCTW()
-    op.wFunc = FO_DELETE
-    # c_wchar_p 会在末尾补 \0，字符串自带一个 \0 ⇒ 恰为双零结尾（列表语义）
-    op.pFrom = path + "\0"
-    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
-    ret = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
-    if ret != 0 or op.fAnyOperationsAborted:
-        raise OSError(f"SHFileOperationW 返回 {ret}")
-
-
 class OfflineConversion:
     """管理离线音频文件转换流程（controller — 只依赖 OfflineViewHost）。"""
 
@@ -88,21 +50,28 @@ class OfflineConversion:
     def start_conversion(self) -> None:
         """开始离线转换。"""
         if self._converting:
-            self.host._show_warning("已有转换任务正在运行")
+            self.host.show_warning("已有转换任务正在运行")
             return
 
         # 实时推理运行时禁止离线转换（共享模型缓存，同时运行会互相干扰 CUDA Graph）。
         # 经 controller.is_running 判断：引擎未构造时短路返回 False，不会触发惰性加载。
         if self.host.controller.is_running:
-            self.host._show_warning("实时推理正在运行，请先停止实时推理再进行离线转换")
+            self.host.show_warning("实时推理正在运行，请先停止实时推理再进行离线转换")
+            return
+
+        # 模型加载中也要拒：实时/离线共用同一个 engine，离线 worker 会在
+        # engine._load_lock 上静默阻塞整个加载时长，进度条停在「初始化」，
+        # 用户没有任何反馈（加载线程本身没有结束，is_running 仍为 False）。
+        if self.host.is_engine_loading():
+            self.host.show_warning("模型正在加载中，请等待加载完成再开始离线转换")
             return
 
         inp = self.host.offline_input_path()
         if not inp:
-            self.host._show_warning("请选择输入文件")
+            self.host.show_warning("请选择输入文件")
             return
         if not os.path.exists(inp):
-            self.host._show_warning(f"文件不存在: {inp}")
+            self.host.show_warning(f"文件不存在: {inp}")
             return
 
         # 输出路径由输入派生（界面上是只读文本，用户不可修改）
@@ -110,7 +79,7 @@ class OfflineConversion:
 
         pth = self.host.offline_model_path()
         if not pth:
-            self.host._show_warning("请先在「音色」中选择模型文件")
+            self.host.show_warning("请先在「音色」中选择模型文件")
             return
 
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
@@ -124,7 +93,7 @@ class OfflineConversion:
             )
         except Exception as exc:
             logger.error("离线转换初始化失败:\n%s", traceback.format_exc())
-            self.host._show_error(f"离线转换初始化失败: {exc}")
+            self.host.show_error(f"离线转换初始化失败: {exc}")
             return
 
         self.worker = OfflineWorker(
@@ -133,6 +102,11 @@ class OfflineConversion:
             parent=self.host,
         )
         self._converting = True
+        # QThread 结束后不会自动销毁（无 WA_DeleteOnClose）；不挂 deleteLater
+        # 就会在 MainWindow 名下累积 —— 每次转换泄漏一个含完整 OfflineParams
+        # 的线程对象。接内建 finished（线程真正结束后由事件循环回收，不违反
+        # _on_finished 注释里担心的「提前析构」竞态），不要接自定义 result_ready。
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.progress.connect(self._on_progress)
         self.worker.result_ready.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
@@ -175,22 +149,22 @@ class OfflineConversion:
 
         path = self._output_path()
         if not path:
-            self.host._show_warning("请先选择输入文件")
+            self.host.show_warning("请先选择输入文件")
             return
         if not os.path.exists(path):
-            self.host._show_warning("输出文件不存在，请先完成一次转换")
+            self.host.show_warning("输出文件不存在，请先完成一次转换")
             return
         try:
             data, sr = sf.read(path, dtype="float32")
         except Exception as exc:
-            self.host._show_error(f"无法读取音频文件: {exc}")
+            self.host.show_error(f"无法读取音频文件: {exc}")
             return
         if data.ndim == 1:
             data = data[:, None]
         try:
             sd.play(data, sr)
         except Exception as exc:
-            self.host._show_error(f"播放失败: {exc}")
+            self.host.show_error(f"播放失败: {exc}")
             return
 
         self.host.offline_set_previewing(True, name=os.path.basename(path))
@@ -221,10 +195,10 @@ class OfflineConversion:
         """删除输出文件——二次确认（宿主弹窗）后移入回收站（可恢复）。"""
         path = self._output_path()
         if not path:
-            self.host._show_warning("请先选择输入文件")
+            self.host.show_warning("请先选择输入文件")
             return
         if not os.path.exists(path):
-            self.host._show_warning("输出文件不存在，无需删除")
+            self.host.show_warning("输出文件不存在，无需删除")
             return
 
         if not self.host.offline_confirm_delete(path):
@@ -232,9 +206,9 @@ class OfflineConversion:
 
         self.stop_preview()
         try:
-            _recycle_file(path)
+            recycle_file(path)
         except Exception as exc:
-            self.host._show_error(f"删除失败: {exc}")
+            self.host.show_error(f"删除失败: {exc}")
             return
         self.host.offline_set_status("输出文件已移入回收站")
 
@@ -259,11 +233,12 @@ class OfflineConversion:
         self.host.offline_set_progress(current, total)
 
     def _on_finished(self, path: str) -> None:
-        """转换完成 — worker 会自动退出并由 Qt 事件循环回收，不阻塞等待。"""
+        """转换完成 — 线程由 finished→deleteLater 自行回收，这里只收敛状态。"""
         self._converting = False
         self.host.offline_reset("完成")
-        # QThread.run() 返回后线程自动结束，worker 对象稍后由 Qt 事件循环删除。
-        # 不调用 deleteLater()/wait()，避免阻塞和 "Destroyed while thread still running" 警告。
+        # 不调用 wait()：result_ready 在 run() 内发出，此刻线程可能尚未退出，
+        # 阻塞等待会冻住 UI；对象回收交给 start_conversion 里挂的
+        # finished→deleteLater（线程真正结束后才触发）。
 
     def _on_cancelled(self) -> None:
         self._converting = False
@@ -274,8 +249,9 @@ class OfflineConversion:
         self._converting = False
         self.host.offline_reset("错误")
         # 与 _on_finished 一致：error 信号在 run() 内发出，此刻线程可能尚未
-        # 真正退出，提前析构有竞态。引用保留到下次 start_conversion 被新 worker 覆盖。
-        self.host._show_error(f"离线推理错误: {msg}")
+        # 真正退出，故不在此处析构；回收由 start_conversion 挂的
+        # finished→deleteLater 保证（线程结束后才触发）。
+        self.host.show_error(f"离线推理错误: {msg}")
 
 
 class OfflineWorker(QThread):

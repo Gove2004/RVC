@@ -77,7 +77,7 @@ def _set_nested(obj, path: str, value):
 
 
 # ── 派生字段（唯一事实源）──
-# 副输出「不使用」是 output2_combo 的首项占位文本（见 DeviceCatalog._populate_device_combos）
+# 副输出「不使用」是 output2_combo 的首项占位文本（重填见 MainWindow.device_populate）
 OUTPUT2_NONE_TEXT = "不使用"
 
 # F0 阈值标签文案单源（apply_params / 窗口切换方法两处消费）

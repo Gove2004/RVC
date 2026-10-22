@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel, QComboBox
 
-from gui.view.widgets import _create_slider_row, RangeSlider, PathPickerButton
+from gui.view.widgets import create_slider_row, RangeSlider, PathPickerButton
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -81,14 +81,14 @@ def build_timbre_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 性别因子（formant）──
-    win.formant_slider, formant_label = _create_slider_row(-2.5, 2.5, 0.05, 0.0, fmt="+.2f")
+    win.formant_slider, formant_label = create_slider_row(-2.5, 2.5, 0.05, 0.0, fmt="+.2f")
     g.addWidget(QLabel("性别因子"), r, 0)
     g.addWidget(win.formant_slider, r, 1)
     g.addWidget(formant_label, r, 2)
     r += 1
 
     # ── 响度因子（rms_mix）──
-    win.rms_mix_slider, rms_mix_label = _create_slider_row(0.0, 1.0, 0.05, 0.0)
+    win.rms_mix_slider, rms_mix_label = create_slider_row(0.0, 1.0, 0.05, 0.0)
     g.addWidget(QLabel("响度因子"), r, 0)
     g.addWidget(win.rms_mix_slider, r, 1)
     g.addWidget(rms_mix_label, r, 2)
@@ -97,7 +97,7 @@ def build_timbre_tab(win: "InferWindowHost"):
     # ── 输出音量（volume；纯标量增益，1=原始，>1 放大，<1 衰减）──
     # 量程经 controller 下发（单源仍是 rvc.core.config，与热路径钳位同一常量）
     vol_min, vol_max = win.controller.volume_range
-    win.volume_slider, volume_label = _create_slider_row(
+    win.volume_slider, volume_label = create_slider_row(
         vol_min, vol_max, 0.1, params.volume, fmt=".2f",
     )
     g.addWidget(QLabel("输出音量"), r, 0)

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from gui.view.widgets import _create_slider_row
+from gui.view.widgets import create_slider_row
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -25,21 +25,21 @@ def build_params_tab(win: "InferWindowHost"):
     r = 0
 
     # ── 采样长度（block_time）──
-    win.block_time_slider, block_time_label = _create_slider_row(0.05, 0.50, 0.01, 0.25)
+    win.block_time_slider, block_time_label = create_slider_row(0.05, 0.50, 0.01, 0.25)
     g.addWidget(QLabel("采样长度"), r, 0)
     g.addWidget(win.block_time_slider, r, 1)
     g.addWidget(block_time_label, r, 2)
     r += 1
 
     # ── 上下文长度（extra_time）──
-    win.extra_time_slider, extra_time_label = _create_slider_row(0.10, 5.0, 0.10, 2.5)
+    win.extra_time_slider, extra_time_label = create_slider_row(0.10, 5.0, 0.10, 2.5)
     g.addWidget(QLabel("上下文长度"), r, 0)
     g.addWidget(win.extra_time_slider, r, 1)
     g.addWidget(extra_time_label, r, 2)
     r += 1
 
     # ── 淡入长度（crossfade_time）──
-    win.crossfade_slider, crossfade_label = _create_slider_row(0.01, 0.05, 0.01, 0.05)
+    win.crossfade_slider, crossfade_label = create_slider_row(0.01, 0.05, 0.01, 0.05)
     g.addWidget(QLabel("淡入长度"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(crossfade_label, r, 2)
@@ -76,7 +76,7 @@ def build_params_tab(win: "InferWindowHost"):
 
     # ── 音高阈值（行标签随音高算法动态切换为 RMVPE/FCPE 阈值）──
     initial_threshold = params.f0.rmvpe_threshold if params.f0.method == "rmvpe" else params.f0.fcpe_confidence_threshold
-    win.f0_threshold_slider, f0_threshold_label = _create_slider_row(
+    win.f0_threshold_slider, f0_threshold_label = create_slider_row(
         0.01, 0.10, 0.01,
         initial_threshold, fmt=".2f",
     )

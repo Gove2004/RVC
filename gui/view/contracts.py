@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from gui.controller.device_controller import DeviceCatalog
     from gui.controller.engine_controller import InferController
+    from gui.controller.offline_controller import OfflineConversion
     from gui.controller.tool_controller import ModelToolController, ToolRunner
     from gui.view.tray import SystemTray
     from gui.view.widgets import (
@@ -50,6 +51,13 @@ class InferWindowHost(Protocol):
     _timer: "QTimer"
     _lt: "LoadThread | None"
     _loading: bool
+    # 遥测 tooltip 变更缓存（内容不变不重写，避免每 tick 触发重绘）
+    _last_delay_tooltip: str
+    _last_pitch_text: str | None
+    _last_error_count: int
+
+    # ── 离线转换（生命周期与启动互斥都会碰它）──
+    offline_conversion: "OfflineConversion"
 
     # ── 音色控件（timbre_tab）──
     model_path_btn: "PathPickerButton"
@@ -110,6 +118,9 @@ class InferWindowHost(Protocol):
 
     # ── 信号（音频回调线程 → 主线程错误转发）──
     runtime_error: "Signal"
+    # 预热线程 → 主线程：显卡列表回填 / 预热失败提示
+    gpu_list_ready: "Signal"
+    warmup_error: "Signal"
 
     # ── 惰性引擎 ──
     @property
@@ -128,9 +139,9 @@ class InferWindowHost(Protocol):
 
     def _reset_runtime_ui(self) -> None: ...
 
-    def _show_error(self, message: str) -> None: ...
+    def show_error(self, message: str) -> None: ...
 
-    def _show_warning(self, message: str) -> None: ...
+    def show_warning(self, message: str) -> None: ...
 
 
 class OfflineViewHost(Protocol):
@@ -150,12 +161,16 @@ class OfflineViewHost(Protocol):
 
     def offline_hubert_variant(self) -> str: ...
 
+    def is_engine_loading(self) -> bool:
+        """模型是否正在后台加载（离线启动互斥用：加载中 is_running 仍为 False）。"""
+        ...
+
     def collect_gui_state(self) -> "InferenceParams": ...
 
     # ── 反馈 ──
-    def _show_warning(self, message: str) -> None: ...
+    def show_warning(self, message: str) -> None: ...
 
-    def _show_error(self, message: str) -> None: ...
+    def show_error(self, message: str) -> None: ...
 
     def offline_confirm_delete(self, path: str) -> bool:
         """删除输出文件的二次确认（弹窗在 view 层）。"""

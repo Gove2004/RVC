@@ -24,6 +24,9 @@ class DeviceCatalog:
         # 下拉框 currentIndex() 只是过滤后的位置，必须通过映射转换。
         self._input_indices: List[int] = []
         self._output_indices: List[int] = []
+        # 最近一次成功枚举所用的 hostapi：运行中拒绝切换驱动时，view 用它把
+        # 下拉框回退到真实生效值（回退不重扫，避免一次无谓的全量枚举）
+        self.applied_hostapi = ""
 
     def reload_devices(self) -> None:
         """刷新按钮：强制 PortAudio 重新枚举（支持设备热插拔），再刷新列表。"""
@@ -57,6 +60,7 @@ class DeviceCatalog:
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
         self.host.device_populate(ha_names, ins, outs, prev)
+        self.applied_hostapi = self.host.device_current_selections()[0]
 
     def get_input_device_index(self, combo_idx: int) -> int:
         """下拉框位置 → PortAudio 全局设备索引。

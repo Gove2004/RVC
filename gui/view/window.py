@@ -84,11 +84,14 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.controller = InferController(on_runtime_error=self._on_runtime_error)
         self.runtime_params = self.controller.runtime_params
         self.runtime_error.connect(self._handle_runtime_error)
-        self.warmup_error.connect(self._show_error)
+        self.warmup_error.connect(self.show_error)
         self.gpu_list_ready.connect(self._populate_gpu_combo)
         self._loading = False
         self._lt = None
         self._last_delay_tooltip = None
+        # 遥测文本缓存：内容未变时跳过 setText/show/hide（每 200ms 一跳）
+        self._last_pitch_text = None
+        self._last_error_count = 0
         self._timer = QTimer()
         self._timer.timeout.connect(self._update_timer)
         # 管理器先于 UI 创建：offline_tab 构建时会连接 offline_conversion 的信号
@@ -135,10 +138,10 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     # ── UI 辅助方法 ──
 
-    def _show_warning(self, message: str) -> None:
+    def show_warning(self, message: str) -> None:
         QMessageBox.warning(self, "提示", message)
 
-    def _show_error(self, message: str) -> None:
+    def show_error(self, message: str) -> None:
         QMessageBox.critical(self, "错误", message)
 
     # ── 控制器契约实现（离线 OfflineViewHost / 设备 DeviceViewHost）──
@@ -153,6 +156,10 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def offline_hubert_variant(self) -> str:
         return self.hubert_combo.currentText()
+
+    def is_engine_loading(self) -> bool:
+        """模型是否正在后台加载（生命周期混入维护 _loading）。"""
+        return self._loading
 
     def offline_confirm_delete(self, path: str) -> bool:
         ans = QMessageBox.question(
@@ -205,27 +212,39 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def device_populate(self, hostapis, ins, outs, sel) -> None:
         """重填四个设备下拉框并恢复原选择。
 
-        重填 hostapi 前屏蔽信号：currentTextChanged 会触发 _ha_changed 递归刷新
-        （PortAudio 全量枚举跑两遍）。副输出首项恒为占位「不使用」（单源 bindings）。
+        四个下拉框全部屏蔽信号后再重填：currentTextChanged 会触发
+        _ha_changed 递归刷新（PortAudio 全量枚举跑两遍）；副输出重填期间的
+        clear() 还会让 _on_output2_changed 把 enable_out2 瞬时写成 False
+        （设备不在新列表时甚至会永久脱节）。派生字段在重填后统一同步一次。
+        副输出首项恒为占位「不使用」（单源 bindings）。
         """
         ha, inp, outp, out2 = sel
-        self.hostapi_combo.blockSignals(True)
-        self.hostapi_combo.clear()
-        self.hostapi_combo.addItems(hostapis)
-        self._select_combo(self.hostapi_combo, ha)
-        self.hostapi_combo.blockSignals(False)
+        combos = (self.hostapi_combo, self.input_combo,
+                  self.output_combo, self.output2_combo)
+        for combo in combos:
+            combo.blockSignals(True)
+        try:
+            self.hostapi_combo.clear()
+            self.hostapi_combo.addItems(hostapis)
+            self._select_combo(self.hostapi_combo, ha)
 
-        self.input_combo.clear()
-        self.input_combo.addItems(ins)
-        self.output_combo.clear()
-        self.output_combo.addItems(outs)
-        self.output2_combo.clear()
-        self.output2_combo.addItem(OUTPUT2_NONE_TEXT)
-        self.output2_combo.addItems(outs)
-        for combo, text in ((self.input_combo, inp),
-                            (self.output_combo, outp),
-                            (self.output2_combo, out2)):
-            self._select_combo(combo, text)
+            self.input_combo.clear()
+            self.input_combo.addItems(ins)
+            self.output_combo.clear()
+            self.output_combo.addItems(outs)
+            self.output2_combo.clear()
+            self.output2_combo.addItem(OUTPUT2_NONE_TEXT)
+            self.output2_combo.addItems(outs)
+            for combo, text in ((self.input_combo, inp),
+                                (self.output_combo, outp),
+                                (self.output2_combo, out2)):
+                self._select_combo(combo, text)
+            # 信号屏蔽期间不会触发，这里补一次派生同步（也保证恢复失败时
+            # 派生字段如实反映「不使用」）
+            self._on_output2_changed(self.output2_combo.currentText())
+        finally:
+            for combo in combos:
+                combo.blockSignals(False)
 
     @staticmethod
     def _select_combo(combo, text: str) -> None:
@@ -391,7 +410,15 @@ class MainWindow(WindowLifecycle, QMainWindow):
         for i, name in enumerate(names):
             combo.addItem(f"GPU {i}: {name}")
         index = int(self.runtime_params.audio.device_index)
-        combo.setCurrentIndex(index if 0 <= index < len(names) else 0)
+        if 0 <= index < len(names):
+            combo.setCurrentIndex(index)
+        else:
+            # 越界（换卡/删卡）回落到 GPU 0，并且**同步写回状态**：
+            # 回填全程屏蔽信号，_on_gpu_changed 不会触发；只改 UI 会让
+            # runtime_params 里的旧索引一直留着，下次保存配置就又写回文件。
+            logger.warning("配置的 GPU 编号 %d 超出本机显卡数 %d，回落到 GPU 0", index, len(names))
+            combo.setCurrentIndex(0)
+            self.runtime_params.audio.device_index = 0
         combo.blockSignals(False)
 
     def _on_sr_mode_changed(self):
@@ -410,11 +437,25 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def _reload_dev(self):
         """委托给 DeviceCatalog（运行中禁止刷新，防止杀活动流）"""
         if self.controller.is_running or self.controller.passthrough_running:
-            self._show_warning("运行中不能刷新设备，请先停止")
+            self.show_warning("运行中不能刷新设备，请先停止")
             return
         self.device_catalog.reload_devices()
 
     def _ha_changed(self, name):
+        """音频驱动切换（下拉框直选）— 与刷新按钮是同一条「全量重扫+重填」链路。
+
+        必须与 _reload_dev 同守卫：运行中重扫会把四个下拉框清空重填，期间
+        output2 的 clear() 会让派生字段 enable_out2 瞬时变 False；若副输出设备
+        不在新驱动的列表里，恢复失败后该字段就永久脱节，随后任意一次保存都会
+        把脱节状态持久化。拒绝时把下拉框回退到实际生效的驱动（不重扫）。
+        """
+        if self.controller.is_running or self.controller.passthrough_running:
+            self.show_warning("运行中不能切换音频驱动，请先停止")
+            applied = self.device_catalog.applied_hostapi
+            self.hostapi_combo.blockSignals(True)
+            self._select_combo(self.hostapi_combo, applied)
+            self.hostapi_combo.blockSignals(False)
+            return
         self.device_catalog.on_hostapi_changed(name)
 
     def _off_toggle(self):

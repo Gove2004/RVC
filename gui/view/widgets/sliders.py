@@ -51,7 +51,7 @@ class DoubleSlider(QSlider):
             self._value_label.setText(self._fmt(self.value()))
 
 
-def _create_slider_row(mn: float, mx: float, st: float, dv: float,
+def create_slider_row(mn: float, mx: float, st: float, dv: float,
                        fmt: str = ".2f", unit: str = "",
                        label_w: int = 80) -> tuple[DoubleSlider, QLabel]:
     """创建「滑杆 + 自动格式化值标签」，返回 (slider, label)。

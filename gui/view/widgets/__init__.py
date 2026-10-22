@@ -7,11 +7,11 @@
 - loading：模型加载后台线程
 """
 from gui.view.widgets.pickers import ElidedLabel, PathPickerButton
-from gui.view.widgets.sliders import DoubleSlider, RangeSlider, _create_slider_row
+from gui.view.widgets.sliders import DoubleSlider, RangeSlider, create_slider_row
 from gui.view.widgets.mode_toggle import ModeToggle
 from gui.view.widgets.loading import LoadThread
 
 __all__ = [
-    "LoadThread", "_create_slider_row", "DoubleSlider", "RangeSlider",
+    "LoadThread", "create_slider_row", "DoubleSlider", "RangeSlider",
     "PathPickerButton", "ElidedLabel", "ModeToggle",
 ]

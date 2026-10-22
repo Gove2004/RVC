@@ -9,7 +9,8 @@ class Layout:
 
     # 按钮尺寸
     BTN_HEIGHT_NORMAL = 28        # 标准按钮高度
-    BTN_WIDTH_NORMAL = 60         # 标准按钮宽度（开始/停止）
+    # 按钮宽度不设常量：离线页按文案字宽动态钉定（见 offline_tab._pin_button_width），
+    # 「文案恒 2 字」是防宽度跳动的另一道约束。
 
     # 圆角（Windows 11 风格）
     RADIUS_NORMAL = 4             # 标准圆角

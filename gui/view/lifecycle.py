@@ -135,17 +135,21 @@ class WindowLifecycle:
                 self._last_delay_tooltip = tooltip
                 self.delay_lbl.setToolTip(tooltip)
 
-            # 显示当前输入音高（音域映射之前的原始值）
-            if snap.input_pitch > 0:
-                self.pitch_lbl.setText(f"音高: {snap.input_pitch:.0f}Hz")
-            else:
-                self.pitch_lbl.setText("音高: -")
+            # 显示当前输入音高（音域映射之前的原始值）。文本未变不重写——
+            # QLabel.setText 即使内容相同也会触发一次 repaint，200ms 一跳无谓。
+            pitch_text = f"音高: {snap.input_pitch:.0f}Hz" if snap.input_pitch > 0 else "音高: -"
+            if pitch_text != self._last_pitch_text:
+                self._last_pitch_text = pitch_text
+                self.pitch_lbl.setText(pitch_text)
 
         # 错误计数：音频回调吞错（输出清零但引擎继续跑）的唯一可见信号
         if snap.error_count > 0:
-            self.error_lbl.setText(f"错误: {snap.error_count}")
-            self.error_lbl.show()
-        else:
+            if snap.error_count != self._last_error_count:
+                self._last_error_count = snap.error_count
+                self.error_lbl.setText(f"错误: {snap.error_count}")
+                self.error_lbl.show()
+        elif self._last_error_count != 0:
+            self._last_error_count = 0
             self.error_lbl.hide()
 
         # 主循环已持有快照，传给托盘复用，避免同 tick 内二次 snapshot()
@@ -182,7 +186,7 @@ class WindowLifecycle:
             self.controller.start_passthrough(in_idx, out_idx)
         except Exception as e:
             self._refresh_mode()
-            self._show_error(f"原声直通启动失败：{e}")
+            self.show_error(f"原声直通启动失败：{e}")
             return
         self._refresh_mode()
         if self.tray is not None:
@@ -203,10 +207,7 @@ class WindowLifecycle:
     def _on_mode_stop(self):
         """停止档：停掉当前运行态（加载中→取消加载；变声→停引擎；原声→停直通）。"""
         if self._loading:
-            if self._lt and self._lt.isRunning():
-                self._lt.request_stop()
-                self._lt.wait(3000)
-            self._loading = False
+            self._cancel_load()
             self._reset_runtime_ui()
         elif self.controller.is_running:
             self._stop()
@@ -223,14 +224,14 @@ class WindowLifecycle:
         pth = self.model_path_btn.path().strip()
 
         if not pth:
-            self._show_warning("请先在「音色」中选择模型文件")
+            self.show_warning("请先在「音色」中选择模型文件")
             self._refresh_mode()  # 拒绝启动：toggle 勾选态回弹到实际状态
             return
 
         # 离线/实时共用同一 engine/runner（process_file 会替换 _runner），
         # 离线转换进行中启动实时会并发 load_model 竞态——双向互斥
         if self.offline_conversion.is_converting:
-            self._show_warning("离线转换进行中，请等待完成或取消后再启动实时")
+            self.show_warning("离线转换进行中，请等待完成或取消后再启动实时")
             self._refresh_mode()
             return
 
@@ -292,6 +293,11 @@ class WindowLifecycle:
         self._refresh_mode()
 
     def _on_loaded(self, sr):
+        if not self._loading:
+            # 停止路径已取消这次加载（信号可能在断开之前就已入队）：迟到的
+            # 加载结果绝不能把引擎拉起来——「点了停止却开始变声」是本应用最忌讳的故障。
+            logger.info("忽略已取消的加载结果（sr=%s）", sr)
+            return
         try:
             # 直通流先让位：它占着同一对设备，推理流起来前必须关（否则双重出声）
             self.controller.stop_passthrough()
@@ -316,12 +322,16 @@ class WindowLifecycle:
             self._on_err(str(e))
 
     def _on_err(self, e):
+        if not self._loading:
+            # 同 _on_loaded：已取消的加载不该再弹错误框打扰用户
+            logger.info("忽略已取消加载的错误：%s", e)
+            return
         # 不变量：出错一律收敛到停止档，严禁回落原声——目标软件固定录
         # 虚拟声卡，错误后突然传出原声会露馅。直通在这里显式关掉
         # （即使理论上没开），_refresh_mode 只读状态、绝不自动开直通。
         self.controller.stop_passthrough()
         self._reset_runtime_ui()
-        self._show_error(str(e))
+        self.show_error(str(e))
 
     def _on_runtime_error(self, message):
         # 在音频回调线程（PortAudio）调用：只发信号，所有 Qt 操作转发主线程执行
@@ -336,15 +346,36 @@ class WindowLifecycle:
         self._reset_runtime_ui()
         if self.tray is not None:
             self.tray.update_status()
-        self._show_error(f"实时推理错误: {message}")
+        self.show_error(f"实时推理错误: {message}")
+
+    def _cancel_load(self, wait_ms: int = 3000) -> None:
+        """取消正在进行的模型加载（三条停止路径共用，避免各写一遍漏掉断连）。
+
+        **必须先断开 ok/err**：LoadThread.run() 只在入口检查一次停止标志，
+        加载一旦开始就一定会 emit 结果；而 wait() 期间主线程不处理事件，
+        这些信号会排队，等停止逻辑返回事件循环后照常投递——ok 会走
+        _on_loaded 把引擎启动起来，用户点了「停止」却开始变声。
+
+        finished 保留连接：_on_load_done 负责 deleteLater（线程结束才能安全销毁）
+        与按实际状态收敛三档 UI。_on_loaded/_on_err 另有「已取消则忽略」的守卫，
+        兜住「信号在我们断开之前就已入队」的窗口。
+        """
+        lt = self._lt
+        if lt is not None:
+            for sig in (lt.ok, lt.err):
+                try:
+                    sig.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+            if lt.isRunning():
+                lt.request_stop()
+                lt.wait(wait_ms)
+        self._loading = False
 
     def _stop(self):
         """停引擎（变声档 → 停止档）。取消加载与停直通走 _on_mode_stop。"""
         if self._loading:
-            if self._lt and self._lt.isRunning():
-                self._lt.request_stop()
-                self._lt.wait(3000)
-            self._loading = False
+            self._cancel_load()
             self._reset_runtime_ui()
             if self.tray is not None:
                 self.tray.update_status()

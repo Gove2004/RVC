@@ -11,10 +11,11 @@ class FakeHost:
     """OfflineViewHost / DeviceViewHost 替身 — 记录全部语义调用。"""
 
     def __init__(self, input_path="", model_path="m.pth", hubert="chinese",
-                 running=False, exists=None):
+                 running=False, exists=None, loading=False):
         self.controller = mock.Mock()
         self.controller.is_running = running
         self.controller.engine = object()
+        self._loading = loading
         self._input_path = input_path
         self._model_path = model_path
         self._hubert = hubert
@@ -35,14 +36,17 @@ class FakeHost:
     def offline_hubert_variant(self):
         return self._hubert
 
+    def is_engine_loading(self):
+        return self._loading
+
     def collect_gui_state(self):
         return self.params
 
     # 反馈
-    def _show_warning(self, m):
+    def show_warning(self, m):
         self.warnings.append(m)
 
-    def _show_error(self, m):
+    def show_error(self, m):
         self.errors.append(m)
 
     def offline_confirm_delete(self, path):
@@ -91,11 +95,16 @@ class _FakeWorker:
         self.result_ready = _FakeSignal()
         self.error = _FakeSignal()
         self.cancelled = _FakeSignal()
+        # QThread 内建 finished（真实类由 Qt 提供；控制器用它挂 deleteLater 回收）
+        self.finished = _FakeSignal()
         self.started = False
         _FakeWorker.instances.append(self)
 
     def start(self):
         self.started = True
+
+    def deleteLater(self):
+        """QObject.deleteLater 替身（真类由 Qt 提供）。"""
 
 
 def _make_conversion(host):
@@ -211,7 +220,7 @@ class TestDeleteOutput(unittest.TestCase):
         host._input_path = path
         return _make_conversion(host), out
 
-    @mock.patch("gui.controller.offline_controller._recycle_file")
+    @mock.patch("gui.controller.offline_controller.recycle_file")
     @mock.patch("gui.controller.offline_controller.os.path.exists", lambda p: True)
     def test_delete_confirmed_recycles(self, recycle):
         host = FakeHost()
@@ -220,7 +229,7 @@ class TestDeleteOutput(unittest.TestCase):
         recycle.assert_called_once_with(out)
         self.assertEqual(host.last_call("status"), ("status", "输出文件已移入回收站"))
 
-    @mock.patch("gui.controller.offline_controller._recycle_file")
+    @mock.patch("gui.controller.offline_controller.recycle_file")
     @mock.patch("gui.controller.offline_controller.os.path.exists", lambda p: True)
     def test_delete_declined_keeps_file(self, recycle):
         host = FakeHost()

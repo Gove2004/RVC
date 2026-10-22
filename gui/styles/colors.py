@@ -18,7 +18,6 @@ class Colors:
     DANGER_DISABLED = "#7a2a20"
 
     # 中性色
-    MUTED_BG = "#202020"          # 禁用/静音背景
     MUTED_TEXT = "#888888"        # 禁用/静音文字
 
     # 边框
@@ -27,7 +26,6 @@ class Colors:
     # 状态色 - Windows 系统色
     SUCCESS = "#107c10"           # Windows 绿
     INFO = "#0078D4"              # Windows 蓝
-    WARNING = "#ff8c00"           # Windows 橙
     ERROR = "#c42b1c"             # Windows 红
 
     # 背景色

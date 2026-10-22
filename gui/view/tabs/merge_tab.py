@@ -51,7 +51,7 @@ def build_merge_tab(win) -> QWidget:
 
     # ── 融合比例（A 的占比；B = 100 - A）──
     # 版式与「音色 / 参数」页签的滑块行完全一致：标签 | 滑块(col1) | 值(col2)。
-    # 值列必须是定宽标签（同 _create_slider_row 的 label_w=80）：定宽后三页签
+    # 值列必须是定宽标签（同 create_slider_row 的 label_w=80）：定宽后三页签
     # 列宽一致，滑块拿到相同宽度与左边界；长度随内容变化的裸 QLabel 会以整段
     # 文本作为 minimumSizeHint，把 col2 挤掉、多余宽度全归滑块。
     win.merge_slider = QSlider(Qt.Orientation.Horizontal)
