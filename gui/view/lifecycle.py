@@ -131,7 +131,7 @@ class WindowLifecycle:
                 f"注：WASAPI共享模式驱动层缓冲（系统混音器+VB-Cable）未计入，\n"
                 f"实际听感通常比显示值大 100-150ms。换 WASAPI独占/ASIO 可降低。"
             )
-            if tooltip != getattr(self, "_last_delay_tooltip", None):
+            if tooltip != self._last_delay_tooltip:
                 self._last_delay_tooltip = tooltip
                 self.delay_lbl.setToolTip(tooltip)
 
@@ -148,8 +148,9 @@ class WindowLifecycle:
         else:
             self.error_lbl.hide()
 
+        # 主循环已持有快照，传给托盘复用，避免同 tick 内二次 snapshot()
         if self.tray is not None:
-            self.tray.update_status()
+            self.tray.update_status(snap)
 
     # ── 三档运行态（原声直通 / 停止 / 变声）──
 

@@ -134,13 +134,13 @@ def _run_merge(win):
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())
     _set_merge_status(win, "融合中...", Colors.TEXT_SECONDARY)
     run_tool_async(win, win.model_tools.merge_models, a, b, ratio, out,
-                   on_done=lambda ok, msg: _on_merge_done(win, ok, msg, name))
+                   on_done=lambda ok, msg: _on_merge_done(win, ok, msg, out))
 
 
-def _on_merge_done(win, success, message, name):
+def _on_merge_done(win, success, message, out_path):
     win.btn_merge.setEnabled(True)
     win.btn_merge.setStyleSheet(ButtonStyles.primary())
     if success:
-        _set_merge_status(win, f"完成：已保存到 assets/models/{name}.pth", Colors.SUCCESS)
+        _set_merge_status(win, f"完成：已保存到 {out_path}", Colors.SUCCESS)
     else:
         _set_merge_status(win, f"失败：{message}", Colors.ERROR)

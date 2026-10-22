@@ -37,11 +37,10 @@ class DeviceCatalog:
 
     def _refresh_devices(self) -> None:
         """内部：刷新所有设备相关下拉框，并尽量保留当前选择。"""
-        hostapi_name = self.window.hostapi_combo.currentText()
-        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(hostapi_name)
+        prev_ha = self.window.hostapi_combo.currentText()
+        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(prev_ha)
         self._input_indices = list(in_idx)
         self._output_indices = list(out_idx)
-        prev_ha = self.window.hostapi_combo.currentText()
         prev_in = self.window.input_combo.currentText()
         prev_out = self.window.output_combo.currentText()
         prev_out2 = self.window.output2_combo.currentText()
@@ -66,18 +65,10 @@ class DeviceCatalog:
     def load_hostapis(self) -> None:
         """加载可用的音频驱动（同步：PortAudio 加载 ~170ms，在窗口出现前完成）。
 
-        调用时 window 已把 hostapi_combo.currentTextChanged 连到 _ha_changed：
-        重填必须屏蔽信号，否则启动时触发递归刷新——PortAudio 全量枚举跑两遍，
-        后一遍覆盖前一遍结果。
+        调用时 combo 全为空，_refresh_devices 的「保留当前选择」退化为
+        首项默认；blockSignals 已在其内部处理（启动时不触发递归刷新）。
         """
-        ha_names, ins, outs, in_idx, out_idx = get_audio_devices()
-        self._input_indices = list(in_idx)
-        self._output_indices = list(out_idx)
-        self.window.hostapi_combo.blockSignals(True)
-        self.window.hostapi_combo.clear()
-        self.window.hostapi_combo.addItems(ha_names)
-        self.window.hostapi_combo.blockSignals(False)
-        self._populate_device_combos(ins, outs)
+        self._refresh_devices()
 
     def _populate_device_combos(self, ins: List[str], outs: List[str]) -> None:
         """填充设备下拉框"""

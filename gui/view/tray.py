@@ -113,9 +113,14 @@ class SystemTray:
         else:
             win._on_mode_convert()
 
-    def update_status(self):
-        """刷新三态图标与 tooltip：绿=变声中 / 蓝=原声直通中 / 红=停止输出。"""
-        snap = self.window.controller.snapshot()
+    def update_status(self, snap=None):
+        """刷新三态图标与 tooltip：绿=变声中 / 蓝=原声直通中 / 红=停止输出。
+
+        snap: 预取的引擎快照。调用方（lifecycle 主循环）已有快照时传入复用，
+        避免每个遥测 tick 重复读一遍引擎属性；不传则自行取。
+        """
+        if snap is None:
+            snap = self.window.controller.snapshot()
         if snap.running:
             icon, tip = self._icon_active, (f"{snap.measure_ms:.0f}ms" if snap.measure_ms > 0 else "-")
         elif self.window.controller.passthrough_running:

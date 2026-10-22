@@ -80,6 +80,29 @@ def _set_nested(obj, path: str, value):
 # 副输出「不使用」是 output2_combo 的首项占位文本（见 DeviceCatalog._populate_device_combos）
 OUTPUT2_NONE_TEXT = "不使用"
 
+# F0 阈值标签文案单源（apply_params / 窗口切换方法两处消费）
+F0_THRESHOLD_LABELS = {"rmvpe": "RMVPE 阈值", "fcpe": "FCPE 阈值"}
+
+
+def f0_threshold_label(method: str) -> str:
+    """当前 F0 方法对应的阈值滑条标签文案。"""
+    return F0_THRESHOLD_LABELS.get(method, F0_THRESHOLD_LABELS["fcpe"])
+
+
+def f0_active_threshold(params: InferenceParams) -> float:
+    """当前 F0 方法对应的阈值（滑条应展示的值）。"""
+    if params.f0.method == "rmvpe":
+        return params.f0.rmvpe_threshold
+    return params.f0.fcpe_confidence_threshold
+
+
+def f0_store_threshold(params: InferenceParams, value: float) -> None:
+    """把阈值滑条值写入当前 F0 方法对应的字段。"""
+    if params.f0.method == "rmvpe":
+        params.f0.rmvpe_threshold = value
+    else:
+        params.f0.fcpe_confidence_threshold = value
+
 
 def output2_enabled(output2_device: str) -> bool:
     """副输出是否启用 = output2_device 的派生（下拉框选到真实设备才算启用）。"""
@@ -175,12 +198,10 @@ def apply_params(win: "InferWindowHost", params: InferenceParams) -> None:
         _set(win, widget, kind, value)
 
     # F0 阈值滑动条
-    is_rmvpe = params.f0.method == "rmvpe"
-    val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
     slider = win.f0_threshold_slider
-    slider.setValue(val)
+    slider.setValue(f0_active_threshold(params))
     slider._update_label()
-    win.f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+    win.f0_threshold_name.setText(f0_threshold_label(params.f0.method))
 
     # 音域映射 RangeSlider
     win.pitch_map_src_range.setRange(
@@ -212,17 +233,14 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
             continue
         _set_nested(params, path, value)
 
-    # F0 阈值
-    is_rmvpe = params.f0.method == "rmvpe"
+    # F0 阈值：滑条只展示当前方法的阈值；非活动方法的阈值从 runtime_params
+    # 回填——若另一方法落回 dataclass 默认值，任何一次保存都会重置用户调好的值
     val = float(win.f0_threshold_slider.value())
-    if is_rmvpe:
-        params.f0.rmvpe_threshold = val
+    f0_store_threshold(params, val)
+    if params.f0.method == "rmvpe":
         params.f0.fcpe_confidence_threshold = win.runtime_params.f0.fcpe_confidence_threshold
     else:
-        params.f0.fcpe_confidence_threshold = val
         params.f0.rmvpe_threshold = win.runtime_params.f0.rmvpe_threshold
-    # 非活动方法的阈值从 runtime_params 回填：滑条只展示当前方法的阈值，
-    # 若另一方法落回 dataclass 默认值，任何一次保存都会重置用户调好的值
 
     params.voice.pitch_map_src_min = float(win.pitch_map_src_range.low())
     params.voice.pitch_map_src_max = float(win.pitch_map_src_range.high())

@@ -24,6 +24,9 @@ from gui.controller.engine_controller import InferController
 from gui.state.bindings import (
     collect_params,
     apply_params,
+    f0_active_threshold,
+    f0_store_threshold,
+    f0_threshold_label,
 )
 
 from gui.view.lifecycle import WindowLifecycle
@@ -242,11 +245,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # 3. F0 阈值滑动条 — 根据当前 F0 方法更新对应字段
         # 注意：DoubleSlider 的 valueChanged 发射内部编码整数值，必须读取 slider.value()
         def _on_f0_threshold(_v, slider=self.f0_threshold_slider):
-            val = slider.value()
-            if self.runtime_params.f0.method == "rmvpe":
-                self.runtime_params.f0.rmvpe_threshold = val
-            else:
-                self.runtime_params.f0.fcpe_confidence_threshold = val
+            f0_store_threshold(self.runtime_params, slider.value())
         self.f0_threshold_slider.valueChanged.connect(_on_f0_threshold)
 
         # 4. 缓冲区参数滑块（块时长/交叉淡化/额外上下文）— 运行中改动自动停止转换。
@@ -309,10 +308,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
         """F0 方法切换时，更新 runtime_params 和阈值滑动条。"""
         is_rmvpe = self.f0_rmvpe_btn.isChecked()
         self.runtime_params.f0.method = "rmvpe" if is_rmvpe else "fcpe"
-        params = self.runtime_params
-        val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold
-        self.f0_threshold_slider.setValue(val)
-        self.f0_threshold_name.setText("RMVPE 阈值" if is_rmvpe else "FCPE 阈值")
+        self.f0_threshold_slider.setValue(f0_active_threshold(self.runtime_params))
+        self.f0_threshold_name.setText(f0_threshold_label(self.runtime_params.f0.method))
 
     # ── 设备/离线委托 ──
 
