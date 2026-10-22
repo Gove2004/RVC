@@ -39,23 +39,20 @@ class DeviceCatalog:
             # 重扫失败不应打断刷新流程，但必须留痕——否则「设备热插拔后刷新没反应」
             # 会完全无线索（PortAudio 内部错误信息只在异常里）
             logger.warning("PortAudio 设备重扫失败，继续按现有缓存刷新列表", exc_info=True)
-        self._refresh_devices()
+        self.refresh_devices()
 
     def on_hostapi_changed(self, name: str) -> None:
         """音频驱动改变时的处理"""
         if name:
-            self._refresh_devices()
+            self.refresh_devices()
 
-    def load_hostapis(self) -> None:
-        """加载可用的音频驱动（同步：PortAudio 加载 ~170ms，在窗口出现前完成）。
+    def refresh_devices(self) -> None:
+        """按当前 hostapi 过滤枚举设备，交宿主重填并恢复选择。
 
-        调用时下拉框全为空，「保留当前选择」退化为首项默认；hostapi 重填
+        启动时也走这里（同步：PortAudio 加载 ~170ms，在窗口出现前完成）；
+        那时下拉框全为空，「保留当前选择」退化为首项默认。hostapi 重填
         期间的信号屏蔽在 device_populate 内部处理（启动时不触发递归刷新）。
         """
-        self._refresh_devices()
-
-    def _refresh_devices(self) -> None:
-        """按当前 hostapi 过滤枚举设备，交宿主重填并恢复选择。"""
         prev = self.host.device_current_selections()
         ha_names, ins, outs, in_idx, out_idx = get_audio_devices(prev[0])
         self._input_indices = list(in_idx)

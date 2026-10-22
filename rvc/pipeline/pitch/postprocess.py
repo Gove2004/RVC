@@ -19,9 +19,9 @@ from rvc.dsp.mel import F0_MEL_MAX, F0_MEL_MIN, hz_to_mel_htk
 
 
 # 离散 pitch 范围：[1, 255]，0 保留为静音/UV
-PITCH_MIN = 1
-PITCH_MAX = 255
-PITCH_BINS = PITCH_MAX - PITCH_MIN + 1  # 255
+PITCH_BIN_MIN = 1
+PITCH_BIN_MAX = 255
+PITCH_BINS = PITCH_BIN_MAX - PITCH_BIN_MIN + 1  # 255
 
 # 音域映射缓存上限（MIDI 常量缓存与 (参数,设备) tensor 缓存共用同一上限）
 _PITCH_MAP_CACHE_LIMIT = 128
@@ -237,10 +237,10 @@ def normalize_f0_to_coarse(f0):
     """
     ops = _ops_for(f0)
     f0_mel = _f0_to_mel(ops.nan_to_num(f0), ops.xp)
-    scaled = (f0_mel - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_MIN
+    scaled = (f0_mel - F0_MEL_MIN) * (PITCH_BINS - 1) / (F0_MEL_MAX - F0_MEL_MIN) + PITCH_BIN_MIN
     # 刻意不用布尔掩码索引（f0_mel[voiced] = ...）：布尔索引要先 nonzero()
     # 定输出形状，是数据依赖形状操作 —— 每块强制同步 GPU 队列，且无法被
     # CUDA Graph 捕获（cudaErrorStreamCaptureInvalidated）。where 全程形状
     # 静态，可进图、无同步。
     pitch = ops.where(f0_mel > 0, scaled, ops.zeros_like(scaled))
-    return ops.round_to_int(ops.clip(pitch, PITCH_MIN, PITCH_MAX))
+    return ops.round_to_int(ops.clip(pitch, PITCH_BIN_MIN, PITCH_BIN_MAX))

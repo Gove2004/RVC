@@ -88,25 +88,25 @@ def formant_frames(formant_factor: float, return_length: int) -> tuple[int, floa
     return frames, frames / return_length
 
 
-def formant_resample_ratio(factor: float, target_sr: int) -> int:
+def formant_resample_ratio(factor: float, sr: int) -> int:
     """formant 重采样的「上采样分母」：orig_freq，单位为 100Hz。
 
     抽成单源函数：runner 需要它算截断长度、apply_formant_resample 需要它做
     缓存键与构造核，两处若各写一遍算术，日后单边修改就会无声漂移。
     """
-    return int(math.floor(factor * target_sr // 100))
+    return int(math.floor(factor * sr // 100))
 
 
-def apply_formant_resample(audio: torch.Tensor, factor: float, target_sr: int, resample_kernel: dict, device: str) -> torch.Tensor:
+def apply_formant_resample(audio: torch.Tensor, factor: float, sr: int, resample_kernel: dict, device: str) -> torch.Tensor:
     "formant 偏移用重采样实现（保留共振峰位置，改变音高）。"
-    sr100 = target_sr // 100
-    upp_res = formant_resample_ratio(factor, target_sr)
+    sr100 = sr // 100
+    upp_res = formant_resample_ratio(factor, sr)
     if upp_res == sr100:
         return audio
 
-    # 缓存键必须含两侧频率：upp_res 由 factor*target_sr 派生，不同 target_sr 在
+    # 缓存键必须含两侧频率：upp_res 由 factor*sr 派生，不同 sr 在
     # 特定 factor 下会撞出同一个 upp_res（如 48000*1.0208 与 44100*1.1111 都得 490），
-    # 而核的 new_freq 是 target_sr//100 —— 只按 upp_res 缓存会复用错误采样率的核，
+    # 而核的 new_freq 是 sr//100 —— 只按 upp_res 缓存会复用错误采样率的核，
     # 表现为换采样率模式后 formant 量持续偏差。
     key = (upp_res, sr100)
     if key not in resample_kernel:

@@ -2,7 +2,7 @@
 
 - engine.load_model 快路径必须同时比对 pth 与 hubert 变体（否则离线页选了 base
   却沿用 chinese 特征器，音色发闷且无告警）
-- formant 重采样核缓存的键必须含两侧频率（upp_res 可在不同 target_sr 下撞出同值）
+- formant 重采样核缓存的键必须含两侧频率（upp_res 可在不同 sr 下撞出同值）
 - normalize_f0_to_coarse 的 torch 分支必须与 numpy 分支逐值等价，且不使用
   布尔掩码索引（数据依赖形状 → 每块强制同步 + 无法进 CUDA Graph）
 """
@@ -32,7 +32,7 @@ def _bare_engine(pipeline, pth):
 
 class TestLoadModelFastPath(unittest.TestCase):
     def test_same_pth_and_variant_hits_fast_path(self):
-        pipeline = mock.Mock(target_sr=40000, hubert_variant="chinese")
+        pipeline = mock.Mock(model_sr=40000, hubert_variant="chinese")
         engine = _bare_engine(pipeline, "m.pth")
         with mock.patch("rvc.pipeline.pipeline.InferencePipeline") as ctor:
             self.assertEqual(engine.load_model("m.pth", hubert="chinese"), 40000)
@@ -40,21 +40,21 @@ class TestLoadModelFastPath(unittest.TestCase):
 
     def test_same_pth_different_variant_reloads(self):
         """实时页用 chinese 加载后，离线页切 base 必须真的重新加载。"""
-        pipeline = mock.Mock(target_sr=40000, hubert_variant="chinese")
+        pipeline = mock.Mock(model_sr=40000, hubert_variant="chinese")
         engine = _bare_engine(pipeline, "m.pth")
         with mock.patch("rvc.pipeline.pipeline.InferencePipeline") as ctor, \
                 mock.patch("torch.cuda.empty_cache"), mock.patch("gc.collect"):
-            ctor.return_value.target_sr = 40000
+            ctor.return_value.model_sr = 40000
             engine.load_model("m.pth", hubert="base")
             ctor.assert_called_once()
             self.assertEqual(ctor.call_args.kwargs["hubert"], "base")
 
     def test_force_reloads_same_pth(self):
-        pipeline = mock.Mock(target_sr=40000, hubert_variant="chinese")
+        pipeline = mock.Mock(model_sr=40000, hubert_variant="chinese")
         engine = _bare_engine(pipeline, "m.pth")
         with mock.patch("rvc.pipeline.pipeline.InferencePipeline") as ctor, \
                 mock.patch("torch.cuda.empty_cache"), mock.patch("gc.collect"):
-            ctor.return_value.target_sr = 40000
+            ctor.return_value.model_sr = 40000
             engine.load_model("m.pth", force=True, hubert="chinese")
             ctor.assert_called_once()
 
@@ -97,7 +97,7 @@ class _FakeSynth:
 class _FakeBundle:
     def __init__(self):
         self.synthesizer = _FakeSynth()
-        self.target_sr = 40000
+        self.model_sr = 40000
         self.use_f0 = True
 
 
@@ -390,7 +390,7 @@ class TestRunnerPrewarmWiring(unittest.TestCase):
     """只有实时的 runner 需要预捕获 formant 图；离线一次转换只用一个档位。"""
 
     def _make(self, **kwargs):
-        engine = _bare_engine(mock.Mock(target_sr=40000), "x.pth")
+        engine = _bare_engine(mock.Mock(model_sr=40000), "x.pth")
         engine.runtime_params = mock.Mock()
         with mock.patch("rvc.streaming.engine.InferenceRunner") as ctor, \
                 mock.patch("torch.cuda.is_available", return_value=False):

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class SynthesizerBundle:
     """加载结果的轻量载体（避免字典字符串键）。"""
     synthesizer: object
-    target_sr: int
+    model_sr: int
     use_f0: bool
 
 
@@ -38,7 +38,7 @@ class SynthesizerLoader:
         """加载标准 PyTorch Synthesizer。"""
         # 安全前提：用户自备或官方导出的 .pth 模型文件，来源可信，故 weights_only=False。
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
-        target_sr = ckpt["config"][-1]
+        model_sr = ckpt["config"][-1]
         use_f0 = bool(ckpt.get("f0", 1))
 
         from rvc.models.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
@@ -69,4 +69,4 @@ class SynthesizerLoader:
 
         # CUDA Graph 已在 RuntimeDeviceConfig 初始化时探测，此处不重复
 
-        return SynthesizerBundle(synthesizer, target_sr, use_f0)
+        return SynthesizerBundle(synthesizer, model_sr, use_f0)

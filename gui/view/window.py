@@ -121,7 +121,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
         # 同步加载设备（PortAudio ~170ms 在窗口出现前完成）：
         # 先填下拉框再载入配置，_load_gui_config 的 COMBO 回填才能直接命中
-        self.device_catalog.load_hostapis()
+        self.device_catalog.refresh_devices()
         self._load_gui_config()
         # 初始三档按钮 UI（停止档）
         self._refresh_mode()

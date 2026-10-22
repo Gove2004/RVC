@@ -212,7 +212,7 @@ class TestProgressAndCompletion(unittest.TestCase):
         conv.worker = mock.Mock()
         conv._converting = True
         conv.cancel_conversion()
-        conv.worker.request_cancel.assert_called_once()
+        conv.worker.request_stop.assert_called_once()
         self.assertIsNotNone(host.last_call("enter_cancelling"))
 
 
@@ -255,7 +255,7 @@ class TestWorkerLifecycle(unittest.TestCase):
         conv.worker = worker
         conv._converting = True
         conv.shutdown()
-        worker.request_cancel.assert_called_once()
+        worker.request_stop.assert_called_once()
         self.assertFalse(conv.is_converting)
 
     def test_shutdown_without_worker_is_noop(self):
@@ -355,7 +355,7 @@ class TestDeviceCatalog(unittest.TestCase):
     def test_refresh_passes_prev_hostapi_and_updates_maps(self, gad):
         gad.return_value = (["WASAPI", "MME"], ["mic"], ["spk", "tv"], [3, 7], [4, 9])
         cat, host = self._catalog()
-        cat._refresh_devices()
+        cat.refresh_devices()
         # 以当前 hostapi 文本为过滤条件
         gad.assert_called_once_with("WASAPI")
         # 索引映射更新
@@ -370,7 +370,7 @@ class TestDeviceCatalog(unittest.TestCase):
     def test_index_out_of_range_raises(self, gad):
         gad.return_value = (["WASAPI"], ["mic"], ["spk"], [3], [4])
         cat, _ = self._catalog()
-        cat._refresh_devices()
+        cat.refresh_devices()
         with self.assertRaises(IndexError):
             cat.get_input_device_index(5)
         with self.assertRaises(IndexError):

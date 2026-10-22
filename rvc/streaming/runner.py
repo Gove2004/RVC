@@ -113,7 +113,6 @@ class InferenceRunner:
         # pinned memory 用于快速 GPU→CPU 传输（输出侧）。单缓冲即可：D2H 是
         # 同步的，拷完立刻被复制进设备缓冲，不存在两块同时在飞。
         # SOLA 输出恒为 block_samples（对齐契约），长度异常块由 write_main_output
-        # 回退 chunk.cpu().numpy() 兜底——该分支现在不可达，属防御而非正常路径。
         state.out_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
 
         # 重采样器（work_sr → 16k）
@@ -269,21 +268,21 @@ class InferenceRunner:
 
             # ── stage_output：RMS + SOLA + 硬件输出 ──
             ref = state.input_wav_work[state.extra_samples:]
-            chunk = self.effects.process_output(infer, ref, p_rms_mix)
+            block = self.effects.process_output(infer, ref, p_rms_mix)
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
             # 范围钳制放在消费点：配置文件可被外部改写，滑块量程不构成保证。
             vol = min(max(self.runtime_params.volume, VOLUME_MIN), VOLUME_MAX)
             if vol != 1.0:
-                chunk.mul_(vol)
+                block.mul_(vol)
             # 硬钳位到 [-1, 1]：写设备前的最后一道保护，**必须无条件执行**。
             # RMS 混合（rvc/dsp/rms.py）会乘上 (r1/r2)^(1-rms_mix) 这一独立于
             # volume 的增益源，参考音量更大时该增益 > 1；此时即使 vol <= 1，
-            # chunk 仍可能越界。钳位是一次逐元素比较，相对块预算可忽略。
-            chunk.clamp_(min=-1.0, max=1.0)
+            # block 仍可能越界。钳位是一次逐元素比较，相对块预算可忽略。
+            block.clamp_(min=-1.0, max=1.0)
 
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
-            write_main_output(chunk, outdata, state.channels, state.out_pin)
+            write_main_output(block, outdata, state.channels, state.out_pin)
 
             # 音高遥测取回成 Python float：放在同步 D2H 之后，本块的 GPU 队列
             # 已经排空，.item() 几乎零等待。反过来（让 GUI 线程自己 .item()）
@@ -381,12 +380,11 @@ class InferenceRunner:
 
         factor = state.formant_ratio
         if factor != 1.0:
-            target_sr = state.work_sr
-            upp_res = formant_resample_ratio(factor, target_sr)
-            if upp_res != target_sr // 100:
+            upp_res = formant_resample_ratio(factor, state.work_sr)
+            if upp_res != state.work_sr // 100:
                 infer = apply_formant_resample(
                     infer[: state.return_length * upp_res],
-                    factor, target_sr, state.resample_kernel, state.device,
+                    factor, state.work_sr, state.resample_kernel, state.device,
                 ).squeeze()
 
         # 统一长度对齐（formant 重采样可能改变长度，SOLA 期望固定长度）

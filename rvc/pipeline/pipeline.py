@@ -63,7 +63,7 @@ class InferencePipeline:
     # ── 便捷属性 ──
 
     @property
-    def target_sr(self) -> int:
+    def model_sr(self) -> int:
         return self.state.model_sr
 
     # ── 模型加载 ──
@@ -76,7 +76,7 @@ class InferencePipeline:
         session = sessions.load(self.pth_path, hubert_variant=self.hubert_variant)
         self.state.hubert_model = session.hubert
         self.state.synthesizer = session.synthesizer
-        self.state.model_sr = session.target_sr
+        self.state.model_sr = session.model_sr
         self.state.use_f0 = session.use_f0
 
     # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
@@ -168,7 +168,7 @@ class InferencePipeline:
             pitchf: 连续 F0 (1, p_len)，use_f0=False 时为 None
 
         Returns:
-            合成音频张量（target_sr 采样率，未做 formant 后处理）
+            合成音频张量（model_sr 采样率，未做 formant 后处理）
         """
         return self._stage_synthesize(self.ctx, feats, pitch, pitchf)
 
@@ -330,7 +330,7 @@ class InferencePipeline:
             pitchf: 连续 F0 (1, p_len)，use_f0=False 时为 None
 
         Returns:
-            合成音频张量（target_sr 采样率，未做 formant 后处理）
+            合成音频张量（model_sr 采样率，未做 formant 后处理）
         """
         state = self.state
 

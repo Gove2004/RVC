@@ -28,7 +28,7 @@ class LRUCache:
                 return self._d[key]
             return default
 
-    def set(self, key: object, value: object) -> object:
+    def insert(self, key: object, value: object) -> object:
         """写入并刷新 LRU 位置；因容量淘汰时返回被淘汰的值（未淘汰返回 None）。
 
         返回淘汰值是给调用方的回收钩子：值可能持有 GPU 资源（如 CUDA Graph

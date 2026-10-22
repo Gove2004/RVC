@@ -204,7 +204,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
     def _cached_wav(self, filename: str, mtime: float) -> torch.Tensor:
         """解码并重采样 wav，结果缓存为 npy（key 含采样率，mtime 判失效）。
 
-        load_audio 的契约保证返回采样率恒等于 target_sr（ffmpeg -ar 强制重采样），
+        load_audio 的契约保证返回采样率恒等于请求的 target_sr（ffmpeg -ar 强制重采样），
         无需二次校验。
         """
         cache_path = self.spec_cache_dir / f"{Path(filename).stem}.sr{self.sampling_rate}.wav.npy"

@@ -30,7 +30,7 @@ class ModelSession:
     """一个模型文件的完整推理会话（HuBERT/Synthesizer 均为共享缓存实例）。"""
     hubert: object
     synthesizer: object
-    target_sr: int
+    model_sr: int
     use_f0: bool
 
 
@@ -109,7 +109,7 @@ class ModelSessions:
         return ModelSession(
             hubert=hubert,
             synthesizer=syn.synthesizer,
-            target_sr=syn.target_sr,
+            model_sr=syn.model_sr,
             use_f0=syn.use_f0,
         )
 

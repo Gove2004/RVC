@@ -46,7 +46,7 @@ class InferenceCache:
         return self._hubert.get(key)
 
     def set_hubert(self, key, value):
-        _release_graph_caches(self._hubert.set(key, value))
+        _release_graph_caches(self._hubert.insert(key, value))
 
     def get_rmvpe(self, key):
         return self._rmvpe.get(key)
@@ -54,7 +54,7 @@ class InferenceCache:
     def set_rmvpe(self, key, value):
         # 提取器自带 release()（清图 + 删模型 + 回收显存），淘汰即调它，
         # 否则槽位容量变化时旧提取器会一直挂着显存
-        evicted = self._rmvpe.set(key, value)
+        evicted = self._rmvpe.insert(key, value)
         if evicted is not None:
             evicted.release()
 
@@ -62,7 +62,7 @@ class InferenceCache:
         return self._fcpe.get(key)
 
     def set_fcpe(self, key, value):
-        evicted = self._fcpe.set(key, value)
+        evicted = self._fcpe.insert(key, value)
         if evicted is not None:
             evicted.release()
 
@@ -83,7 +83,7 @@ class InferenceCache:
         Args:
             value: SynthesizerBundle
         """
-        _release_graph_caches(self._synthesizer.set(key, value))
+        _release_graph_caches(self._synthesizer.insert(key, value))
 
     def release_rmvpe(self) -> None:
         """释放缓存中的 RMVPE 提取器（clear_cuda_graph + del model + gc + empty_cache）。

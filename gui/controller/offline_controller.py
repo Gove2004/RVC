@@ -124,7 +124,7 @@ class OfflineConversion:
         """请求取消当前离线转换（worker 在下一个块检查时中止）。"""
         if self.worker and self._converting:
             self._cancelling = True
-            self.worker.request_cancel()
+            self.worker.request_stop()
             self.host.offline_enter_cancelling()
 
     # ── 输出文件监听 / 删除 ──
@@ -247,7 +247,7 @@ class OfflineConversion:
             return  # C++ 对象已随 finished→deleteLater 回收
         if not running:
             return
-        worker.request_cancel()
+        worker.request_stop()
         if not worker.wait(timeout_ms):
             logger.warning("离线转换线程 %dms 内未结束（可能卡在模型加载/CUDA 调用中），继续退出", timeout_ms)
 
@@ -307,7 +307,7 @@ class OfflineWorker(QThread):
         self._engine_provider = engine_provider
         self._cancel_requested = False
 
-    def request_cancel(self) -> None:
+    def request_stop(self) -> None:
         """请求取消（线程安全：bool 赋值在 GIL 下原子）。"""
         self._cancel_requested = True
 

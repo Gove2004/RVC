@@ -26,7 +26,7 @@ def build_params_tab(win: "InferWindowHost"):
 
     # ── 采样长度（block_time）──
     win.block_time_slider, block_time_label = create_slider_row(0.05, 0.50, 0.01, 0.25)
-    g.addWidget(QLabel("采样长度"), r, 0)
+    g.addWidget(QLabel("块时长"), r, 0)
     g.addWidget(win.block_time_slider, r, 1)
     g.addWidget(block_time_label, r, 2)
     r += 1
@@ -38,9 +38,9 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(extra_time_label, r, 2)
     r += 1
 
-    # ── 淡入长度（crossfade_time）──
+    # ── 交叉淡化（crossfade_time）──
     win.crossfade_slider, crossfade_label = create_slider_row(0.01, 0.05, 0.01, 0.05)
-    g.addWidget(QLabel("淡入长度"), r, 0)
+    g.addWidget(QLabel("交叉淡化"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(crossfade_label, r, 2)
     r += 1

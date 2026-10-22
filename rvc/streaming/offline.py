@@ -48,17 +48,17 @@ def run_stream(wav: np.ndarray, runner, block: int, pad: int,
             [padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
 
     total_blocks = len(padded) // block
-    out_chunks = []
+    out_blocks = []
     for i in range(total_blocks):
         if cancel_cb and cancel_cb():
             raise CancelledError("离线推理已取消")
         seg = padded[i * block: (i + 1) * block]
         outdata = np.zeros((block, 1), dtype=np.float32)
         runner.process_block(seg, outdata, block)
-        out_chunks.append(outdata[:, 0])
+        out_blocks.append(outdata[:, 0])
         if progress_cb:
             progress_cb(i + 1, total_blocks)
-    return np.concatenate(out_chunks)[pad: pad + len(wav)]
+    return np.concatenate(out_blocks)[pad: pad + len(wav)]
 
 
 def write_output(result: np.ndarray, output_path: str, sr: int) -> None:

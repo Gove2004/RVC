@@ -151,7 +151,7 @@ class VoiceEngine:
             # （音色发闷/咬字错），无任何告警。
             if (not force and self.pipeline and self.pth_path == pth
                     and self.pipeline.hubert_variant == hubert):
-                return self.pipeline.target_sr
+                return self.pipeline.model_sr
             from rvc.pipeline.pipeline import InferencePipeline
 
             try:
@@ -161,7 +161,7 @@ class VoiceEngine:
                 torch.cuda.empty_cache()
                 gc.collect()
                 self.pth_path = pth
-                return self.pipeline.target_sr
+                return self.pipeline.model_sr
             except Exception as e:
                 logger.error("模型加载失败：%s", e, exc_info=True)
                 self.pipeline = None
@@ -186,7 +186,7 @@ class VoiceEngine:
             self._saved_default_device = tuple(sd.default.device)
         sd.default.device = [in_dev, out_dev]
         self.device_sr = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.model_sr = self.pipeline.target_sr
+        self.model_sr = self.pipeline.model_sr
         sr = self.model_sr if sr_mode == "model" else self.device_sr
 
         # 设备校验与日志
@@ -351,7 +351,7 @@ class VoiceEngine:
         """
         # 离线全程按模型原生采样率跑（work_sr == model_sr），不做设备率重采样：
         # 输出文件要和模型同域，多一次重采样只丢精度。
-        model_sr = self.pipeline.target_sr
+        model_sr = self.pipeline.model_sr
         wav = offline.load_audio_at_sr(task.input_path, model_sr)
 
         # 原地更新 runtime_params 字段（不替换对象引用，已创建的 runner 自动生效）
