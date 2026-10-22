@@ -103,16 +103,6 @@ class InferenceCache:
             self.release_fcpe()
         self._active_f0_method = method
 
-    def clear_synthesizer_cuda_graphs(self) -> None:
-        """清除所有缓存的 synthesizer 的 CUDA Graph（外部经此操作，不触碰私有槽位）。"""
-        # 惰性导入：graph.py 顶层 import torch（~1.7s），不能进主线程导入链
-        # （GUI 启动契约：torch 只允许在引擎预热线程加载）
-        from rvc.runtime.graph import purge_cuda_graphs
-
-        purge_cuda_graphs(
-            *(bundle.synthesizer for bundle in self.synthesizer_bundles())
-        )
-
     def synthesizer_bundles(self) -> tuple:
         """当前缓存的全部 synthesizer bundle 快照（LRU 最新→最旧）。"""
         return tuple(self._synthesizer.values())

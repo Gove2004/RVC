@@ -129,11 +129,6 @@ class ModelSessions:
         self._current_pth = None
         self._current_session = None
 
-    @property
-    def current_session(self) -> ModelSession | None:
-        """当前加载的模型会话（未加载时为 None）。"""
-        return self._current_session
-
 
 class _DeviceConfig:
     """轻量级设备配置适配器，供 load_hubert / SynthesizerLoader 使用。"""

@@ -52,35 +52,6 @@ class ButtonStyles:
         return cls._button_qss(Colors.DANGER, Colors.DANGER_HOVER, Colors.DANGER_DISABLED, size=size)
 
     @staticmethod
-    def small(color: str = "secondary") -> str:
-        """小按钮（查看、修改原名、刷新等）"""
-        colors = {
-            "primary": (Colors.PRIMARY, Colors.PRIMARY_HOVER),
-            "secondary": (Colors.SECONDARY, Colors.SECONDARY_HOVER),
-            "danger": (Colors.DANGER, Colors.DANGER_HOVER),
-        }
-        bg, hover = colors.get(color, colors["secondary"])
-
-        return f"""
-            QPushButton {{
-                background: {bg};
-                color: {Colors.TEXT_WHITE};
-                font-weight: normal;
-                padding: 0px;
-                border: none;
-                border-radius: {Layout.RADIUS_NORMAL}px;
-            }}
-            QPushButton:hover {{
-                background: {hover};
-            }}
-            QPushButton:disabled {{
-                background: {Colors.MUTED_BG};
-                color: {Colors.MUTED_TEXT};
-            }}
-        """
-
-
-    @staticmethod
     def path_button() -> str:
         """路径选择按钮（黑色背景，文字左对齐，用于模型路径、输入文件等）"""
         return f"""

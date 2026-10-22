@@ -6,23 +6,25 @@ __dataclass_fields__ 对比全部字段，新增字段漏拷贝会立刻失败�
 """
 import unittest
 
-from gui.state.bindings import params_from_dict, params_to_dict
+from gui.state.bindings import (
+    GROUP_NAMES,
+    TOP_LEVEL_FIELDS,
+    params_from_dict,
+    params_to_dict,
+)
 from rvc.core.config import InferenceParams, OfflineParams
-
-_GROUPS = ("voice", "f0", "buffer", "audio")
-_TOP = ("rms_mix", "volume", "model_path", "hubert")
 
 
 def _snapshot(p: InferenceParams) -> dict:
     """拍下全部字段（含嵌套分组；不含派生属性 enable_out2）。"""
     out = {}
-    for g in _GROUPS:
+    for g in GROUP_NAMES:
         group = getattr(p, g)
         for f in group.__dataclass_fields__:
             if f == "enable_out2":
                 continue
             out[f"{g}.{f}"] = getattr(group, f)
-    for t in _TOP:
+    for t in TOP_LEVEL_FIELDS:
         out[t] = getattr(p, t)
     return out
 

@@ -104,7 +104,7 @@ app.py                    # 入口：--infer 启动推理 GUI；--train 启动�
 ├── gui/                  # PySide6 GUI 层（View 不得 import rvc——依赖单向约束）
 │   ├── view/             # 视图：主窗口（window.py 装配 + lifecycle.py 生命周期）、控件、托盘、页签
 │   ├── controller/       # 控制器：引擎控制、遥测快照、设备目录、离线转换、模型工具
-│   ├── state/            # 状态：参数绑定、配置持久化
+│   ├── state/            # 状态：控件 ↔ InferenceParams 参数绑定（持久化在 gui/configs）
 │   ├── configs/          # 通用配置读写
 │   └── styles/           # QSS 主题与样式
 ```
@@ -172,7 +172,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
 - **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，改成实例归属会破坏跨管线复用。
 - **八层单向依赖（`gui | rvc/train/cli → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
-- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 30） — 提升可读性而不改数值行为；`crossfade_time=0.04` 是 dataclass 字段默认值而非算法常数，故不具名化。
+- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.04` 是 dataclass 字段默认值而非算法常数，故不具名化。
 
 ## 训练
 
