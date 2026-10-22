@@ -8,7 +8,7 @@
 
 采样率术语：work_sr = 实时流的工作采样率（可能是设备默认采样率，如 44100/96000，
 不必然是 48000），model_sr = 模型原生采样率。所有缓冲区/重采样器都按 work_sr
-命名，不再使用历史的 "48k" 字样——那在 device 模式下是字面谎言。
+命名，不要用 "48k" 字样——那在 device 模式下是字面谎言。
 
 注意：输出效果器（RMS/SOLA，AudioProcessor）不属于推理状态，由
 streaming 的 runner 直接持有——pipeline 的产物止于"合成音频块"。
@@ -37,7 +37,7 @@ class EngineState:
     f0_extractor: Any = None
     f0_extractor_method: str = ""
 
-    # ── 采样率（语义明确，不再互相覆盖）──
+    # ── 采样率（work_sr / model_sr 语义各自独立，互不覆盖）──
     model_sr: int | None = None   # 模型原生采样率，load()/init_processing() 时设置
     work_sr: int | None = None    # 工作采样率，setup() 时设置
     use_f0: bool = True
@@ -81,8 +81,8 @@ class EngineState:
 
     # 本块的输入音高（Hz，音域映射前；全清音/无 F0 模型时为 0）。
     # 由 runner 在「同步 D2H 写完主输出之后」取回成 Python float——
-    # 那一刻本块的 GPU 队列已经排空，.item() 几乎零等待；GUI 任何频率读取
-    # 都不会触发新的同步（早期版本由 GUI 自己 .item()，只能 5Hz 刷）。
+    # 那一刻本块的 GPU 队列已经排空，.item() 几乎零等待。所以 GUI 想多快刷
+    # 就多快刷，读取这个字段不触发任何 GPU 同步。
     input_pitch_hz: float = 0.0
 
     # ── 会话级参数（init_processing 时快照，运行中不随 GUI 改动）──
@@ -100,15 +100,14 @@ class EngineState:
     f0_stream: Any = None
 
     # ── 性能统计 ──
-    # 只保留端到端单块耗时：GUI 遥测读它，是唯一有消费者的字段。
-    # 曾经的 t_input/t_hubert/t_f0/t_synth/t_output 五段计时只写不读，
-    # 且在热路径上额外付 4 次 perf_counter —— 已删，需要分阶段排查时
-    # 用 nsys 采样，别在音频回调里常年挂计时器。
+    # 只留端到端单块耗时：GUI 遥测读它，是唯一有消费者的字段。
+    # 需要分阶段排查时用 nsys 采样，别在音频回调里常年挂计时器
+    # （每个阶段一次 perf_counter 是热路径上的纯开销）。
     infer_ms: float = 0.0
 
     # ── 输入音高（GUI 显示用，音域映射之前的原始值）──
     # 热路径只留 GPU 定形统计 (pitch_sum, count)，不做 .item() 强制同步；
-    # GUI 低频读取 VoiceEngine.input_pitch 时才做唯一的 GPU→CPU 同步取值。
+    # 取回成 Python float 的动作也在音频线程内完成，写入 input_pitch_hz。
     last_input_pitch_gpu: tuple | None = None
 
     # ── 错误状态 ──

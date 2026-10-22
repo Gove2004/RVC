@@ -4,9 +4,9 @@
 避免两处独立实现导致的口径漂移。
 
 双后端策略：数学表达式只写一份，`clamp/where/nan_to_num/取整` 等
-后端差异经 _Ops 注入（见 _TENSOR_OPS / _ARRAY_OPS）。旧实现把整段
-算法按 `if xp is torch` 复制两份，两边的更新迟早不同步——本模块存在的
-理由就是消灭这种漂移，就不该在模块内部再制造一份。
+后端差异经 _Ops 注入（见 _TENSOR_OPS / _ARRAY_OPS）。不要在模块内部
+按 `if xp is torch` 把算法复制两份——两边的更新迟早不同步，而本模块
+存在的理由就是消灭这种漂移。
 """
 from types import ModuleType
 from typing import Any

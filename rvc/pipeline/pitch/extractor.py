@@ -234,10 +234,8 @@ class FCPEExtractor(F0Extractor):
         ⚠️ **刻意不做 CUDA Graph 捕获**（尽管复刻实现本身是可捕获的）：
         本调用发生在 F0 的 side stream 上，捕获后它会在侧流回放，与主流上的
         HuBERT / 合成器图回放处于不同私有显存池。实测（真实实时链路，RTX 5060
-        Laptop）这样跑约 30s 后音频回调会卡在 F0 后处理的 GPU→CPU 同步上
-        （当时表现为 `apply_pitch_map` 的 0 维张量守卫，该同步点现已改成
-        Python float；症状会转移到下一个真正同步的位置），设备再也排不空
-        → 回调不再被调用 → GUI 冻结、GPU 占满）。
+        Laptop）这样跑约 30s 后音频回调会卡在 F0 后处理的 GPU→CPU 同步上，
+        设备再也排不空 → 回调不再被调用 → GUI 冻结、GPU 占满。
         图化相对 eager 只省约 1.66ms（0.53 vs 2.19ms），而代价是整条实时链路
         不稳定——真正值钱的收益是「去掉 torchfcpe MelModule 每块两次设备同步」
         （3.31 → 2.19ms），这一项无副作用地保留了。

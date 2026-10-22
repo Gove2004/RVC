@@ -114,8 +114,8 @@ class MultiHeadAttention(nn.Module):
                 * rel_stddev
             )
 
-        # 四个投影层统一初始化口径（旧实现只覆盖 q/k/v，漏了输出投影 conv_o，
-        # 导致 conv_o 沿用 Conv1d 默认 kaiming 初始化，与同族的 q/k/v 不一致）
+        # 四个投影层统一初始化口径，必须覆盖 q/k/v/o 全部四个：只初始化 q/k/v
+        # 会让 conv_o 沿用 Conv1d 默认的 kaiming 初始化，与同族的 q/k/v 不一致
         nn.init.xavier_uniform_(self.conv_q.weight)
         nn.init.xavier_uniform_(self.conv_k.weight)
         nn.init.xavier_uniform_(self.conv_v.weight)

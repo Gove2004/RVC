@@ -46,7 +46,7 @@ class TestBucketSamplerBoundaries(unittest.TestCase):
         return BucketSampler(_FakeDataset(lengths), batch_size)
 
     def test_max_length_is_not_dropped(self):
-        """length == TRAIN_FRAME_MAX 以前会算出桶下标 == 桶数而被静默丢弃。"""
+        """length == TRAIN_FRAME_MAX 必须落进合法桶，不能算出桶下标 == 桶数被静默丢弃。"""
         sampler = self._sampler([TRAIN_FRAME_MAX])
         assigned = [i for bucket in sampler.buckets for i in bucket]
         self.assertEqual(assigned, [0], "等于上界的样本必须入桶")

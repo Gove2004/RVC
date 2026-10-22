@@ -64,8 +64,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         """构造合成器。
 
         `**kwargs` 只用于**吸收**调用方多余的关键字（如 `is_half`）：
-        推理侧 loader 与训练侧 trainer 都会传它，但精度由外部 `.half()`
-        决定，模型内部没有任何地方需要该信息。签名保留以兼容这两处调用点。
+        精度由外部 `.half()` 决定，模型内部不用这个信息。
         """
         super(_SynthesizerTrnMsBase, self).__init__()
         if isinstance(sr, str):
@@ -89,7 +88,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         self.spk_embed_dim = spk_embed_dim
         self.use_f0: Final[bool] = use_f0
 
-        # Text Encoder（HuBERT 特征维度：v2 一律 768，基类默认 256 仅为兼容旧签名）
+        # Text Encoder（HuBERT 特征维度：v2 一律 768；256 是基类默认值，v2 子类传 768）
         self.enc_p = TextEncoder(
             phone_dim,
             inter_channels,

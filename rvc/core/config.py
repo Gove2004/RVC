@@ -38,7 +38,7 @@ class VoiceParams:
 class F0Params:
     """基频提取参数 — 方法 + 清浊判定阈值。
 
-    阈值默认值单源取自 rvc.core.constants（推理侧常量），不再在本文件写字面量。
+    阈值默认值单源取自 rvc.core.constants（推理侧常量），本文件不写字面量。
     """
     method: str = "rmvpe"  # rmvpe / fcpe
     rmvpe_threshold: float = RMVPE_THRESHOLD_INFER

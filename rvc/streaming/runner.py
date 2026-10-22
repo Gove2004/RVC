@@ -124,7 +124,7 @@ class InferenceRunner:
         else:
             state.resampler_model_to_work = None
 
-        # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（A2 单源）
+        # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（单源）
         self.effects.setup(
             work_sr, state.block_samples, state.sola_buffer_samples,
             state.sola_search_samples, state.device,
@@ -318,7 +318,7 @@ class InferenceRunner:
         """formant 共振峰偏移（重采样实现）+ 长度对齐。
 
         formant 因子从 state.formant_factor 读取（init_processing 时快照），
-        不再每块读配置——那会让运行中拖动滑块触发图重捕获。
+        不是每块读配置——那会让运行中拖动滑块触发图重捕获。
         formant=0（factor=1）时直接做长度对齐返回。
         formant 重采样后统一对齐到 expected 长度（SOLA 期望固定长度）。
 

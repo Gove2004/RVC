@@ -92,7 +92,7 @@ class Generator(torch.nn.Module):
 
     def remove_weight_norm(self) -> None:
         # 基类 remove_weight_norm 无条件调用 self.dec.remove_weight_norm()，
-        # 非 NSF 分支此前缺该方法——非 F0 模型走该路径会 AttributeError（上游遗留）
+        # 所以非 NSF 分支（非 F0 模型走的那条）必须实现本方法，否则 AttributeError。
         for l in self.ups:
             if parametrize.is_parametrized(l, "weight"):
                 parametrize.remove_parametrizations(l, "weight")
@@ -318,10 +318,9 @@ class GeneratorNSF(torch.nn.Module):
             x = F.leaky_relu(x, self.lrelu_slope)
             x = ups(x)
             x = x + noise_convs(har_source)
-            # 直接索引本层的 num_kernels 个 resblock（base + j）。
-            # 旧实现每层都遍历全部 num_upsamples × num_kernels 个 resblock 再逐个
-            # 做 `j in l` 成员判断，是 O(n²) 的纯 Python 开销；Generator.forward
-            # 一直用的就是这里的直接索引写法。
+            # 直接索引本层的 num_kernels 个 resblock（base + j）。不要遍历全部
+            # num_upsamples × num_kernels 个再做 `j in l` 成员判断——那是 O(n²)
+            # 的纯 Python 开销。Generator.forward 用的是同一套直接索引写法。
             xs: Optional[torch.Tensor] = None
             base = i * self.num_kernels
             for j in range(self.num_kernels):

@@ -35,7 +35,7 @@ class InferController:
         self.on_runtime_error = on_runtime_error
         # 原声直通流（无 torch 依赖，窗口启动阶段即可用）
         self._passthrough = PassthroughStream()
-        # 加载状态由 window 层持有（_loading + LoadThread），本类不再存第二份
+        # 加载状态由 window 层持有（_loading + LoadThread），本类不存第二份
 
     @property
     def engine(self):

@@ -4,16 +4,16 @@
 synthesis/pitch）都要用图加速，而依赖规则禁止它们互为依赖——唯一的共同
 下层是 runtime。
 
-为什么 purge/clear 要强制 GC + 同步 + empty_cache：旧的 _CapturedCall 持有
+为什么 purge/clear 要强制 GC + 同步 + empty_cache：`_CapturedCall` 持有
 CUDAGraph 实例和静态输入/输出张量，仅 delattr 不会立即释放 GPU 资源，Python
 GC 可能延迟回收。此时新捕获的图可能复用旧静态张量的内存地址，导致新旧图
 数据竞争——表现为快速 stop/start 后声音沙哑或输出全零。
 
-为什么用 RuntimeOptions 显式对象而非环境变量：旧实现以 RVC_CUDA_GRAPH /
-RVC_CUDA_GRAPH_MAX_CACHE 环境变量做进程内通信，模块 import 顺序敏感、
-可测试性差。开关现在由 device.RuntimeDeviceConfig 持有并一次性下发到本模块
+为什么用 RuntimeOptions 显式对象而非环境变量：拿 RVC_CUDA_GRAPH /
+RVC_CUDA_GRAPH_MAX_CACHE 之类的环境变量做进程内通信，会对 import 顺序敏感、
+可测试性差。开关由 device.RuntimeDeviceConfig 持有并一次性下发到本模块
 （configure_cuda_graph），调用方一律经 run_cuda_graph/cuda_graph_enabled
-读取，不再触碰进程环境。
+读取，不触碰进程环境。
 """
 import gc
 import threading

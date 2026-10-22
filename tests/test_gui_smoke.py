@@ -34,7 +34,7 @@ class TestTabsConstruct(unittest.TestCase):
         self.assertIsNotNone(w.layout())
 
     def test_details_tab_no_inspect_button(self):
-        # 详情页契约：选定即自动解析，不再有「查看」按钮
+        # 详情页契约：选定即自动解析，没有「查看」按钮
         from gui.view.tabs.details_tab import build_details_tab
 
         class _Ctrl:

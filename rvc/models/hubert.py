@@ -48,7 +48,7 @@ def _model_class():
 
             forward 直接可调用（transformers 约定，return_dict=True 默认返回
             BaseModelOutput），特征提取层用 outputs.last_hidden_state 取值，
-            不再需要包装层。final_proj 是 RVC 导出模型的固定结构。
+            不需要包一层适配。final_proj 是 RVC 导出模型的固定结构。
             """
 
             def __init__(self, config: Any) -> None:

@@ -1,6 +1,5 @@
 """融合 Tab — 模型合并：两个模型按比例融合为一个新模型。
 
-原「工具」Tab 的模型合并部分；训练 GUI 退场后随其余模型工具一起迁入推理端。
 业务逻辑经 `ModelToolController`，耗时操作在 `ToolRunner` 后台线程执行。
 """
 import re

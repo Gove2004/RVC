@@ -1,8 +1,7 @@
 """推理 GUI 的模型工具控制器 — 模型合并 / 检视。
 
-原挂在训练 GUI 的 `TrainController` 上；训练改为命令行向导后，是 GUI 侧保留的
-唯一「非推理」功能，故迁到推理端。耗时操作由 `ToolRunner` 在后台线程执行，
-本类方法即其执行体；View 层不直接 import rvc，业务函数一律经此类转发。
+模型工具是本 GUI 里唯一「非推理」功能。耗时操作由 `ToolRunner` 在后台线程
+执行，本类方法即其执行体；View 层不直接 import rvc，业务函数一律经此类转发。
 
 队列接口（`tool_runner` / `tool_queue`）同时被生命周期用于退出前等待，
 两处字段属于 `gui.view.contracts.InferWindowHost`，不要在别处另起一份。
@@ -36,9 +35,9 @@ def run_tool_async(win, fn, *args, on_done) -> None:
     - 当前没有任务在跑 → 立刻启动
     - 已有任务在跑 → 排队，等它结束再启动；**主线程一次也不等**
 
-    旧实现用 `old.wait(10000)` 在 GUI 线程上等上一个工具线程结束，最坏
-    僵住 10 秒（Windows 上还会被判定「无响应」）。串行化本身是必要的
-    （合并与检视都要读同一批模型文件），但等待不该发生在主线程。
+    不要在 GUI 线程上 wait 上一个工具线程结束（最坏僵住 10 秒，Windows 上还会
+    被判定「无响应」）。串行化本身是必要的（合并与检视都要读同一批模型文件），
+    但等待不该发生在主线程。
     """
     queue = getattr(win, "tool_queue", None)
     if queue is None:

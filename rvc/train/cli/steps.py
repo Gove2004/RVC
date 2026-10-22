@@ -70,7 +70,8 @@ def step_preprocess(log: TrainLogger, cfg: dict):
     gt = sorted((exp_dir / "0_gt_wavs").glob("*.wav"))
     if gt:
         bytes_total = sum(p.stat().st_size for p in gt)
-        # 切片以 FLOAT32（4 字节/样本）落盘；此前按 16bit 估算导致时长虚高一倍
+        # 切片以 FLOAT32（4 字节/样本）落盘，所以时长按 bytes/4 估；用 16bit
+        # （2 字节）估会虚高一倍
         log.log(f"生成切片：{len(gt)} 条，约 {human_dur(bytes_total / 4 / cfg['sr_hz'])} 音频，{human_size(bytes_total)}")
     if len(gt) < 50:
         log.log("切片数偏少（<50），训练容易过拟合，建议补充素材", "WARN")

@@ -23,7 +23,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size):
 
     centering 在此手动完成：pad (n_fft-hop)/2 后以 center=False 调 torch.stft，
     与 center=True 语义一致但避免双重 padding（本函数恒手动 pad，故不提供
-    center 参数——传 center=True 会 pad 两次，属潜在陷阱，已移除）。
+    center 参数——传 center=True 会 pad 两次）。
     """
     # STFT 实际以 fp32 执行（下方 fp16 输入会转 float，窗口也恒 .float()），
     # 窗口缓存 key 按实际计算 dtype 取——若按转换前的 y.dtype 做 key，

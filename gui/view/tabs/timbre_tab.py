@@ -39,7 +39,7 @@ def build_timbre_tab(win: "InferWindowHost"):
     r = 0
 
     # ── 模型路径 + 特征器 ──
-    # 路径由按钮自带（path()），不再另存 win.model_path 平行字段；
+    # 路径由按钮自带（path()），不另存 win.model_path 平行字段；
     # 参数绑定里 model_path 走 PATH 方式直接读按钮。
     win.model_path_btn = PathPickerButton(
         win, title="选择模型", filter_str="模型 (*.pth)",

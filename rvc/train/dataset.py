@@ -81,7 +81,7 @@ def _sample_nbytes(sample: "TrainSample") -> int:
 
 
 class TrainSample(NamedTuple):
-    """单条训练样本（`__getitem__` 的输出契约）。字段顺序即历史位置顺序。"""
+    """单条训练样本（`__getitem__` 的输出契约）。字段顺序即 RVC 训练数据的列顺序。"""
 
     phone: torch.Tensor
     pitch: torch.Tensor
@@ -117,10 +117,10 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         """数据集加载器。
 
         Args:
-            spec_cache_dir: STFT 频谱缓存目录。A6：缓存不再写进切片产物
-                目录（0_gt_wavs/），统一放 {exp}/spec_cache/——切片目录保持
+            spec_cache_dir: STFT 频谱缓存目录。缓存不写进切片产物目录
+                （0_gt_wavs/），统一放 {exp}/spec_cache/——切片目录保持
                 "纯产物"，缓存失效由 mtime 判断 + 素材变更时整目录清除。
-            ffmpeg_exe: ffmpeg 路径（D4 显式传参）。None = 用 runtime 默认。
+            ffmpeg_exe: ffmpeg 路径（显式传参）。None = 用 runtime 默认。
             mem_cache_bytes: 样本内存缓存预算；0 = 关闭内存缓存（只读盘缓存）。
         """
         self.mel_config = mel_config
@@ -292,8 +292,9 @@ class BucketSampler(Sampler):
         # 边界表从有效长度范围单源推导，**右端封闭**：bisect_right 返回的是
         # 「第一个 > length 的边界下标」，要让 TRAIN_FRAME_MAX 恰好落进最后一个桶，
         # 必须有一个严格大于它的边界。所以上界取 MAX + STEP 而非常见的 MAX + 1 段。
-        # （历史 bug：range(MIN, MAX+1, STEP) 的末元素 = MAX，length == MAX 的样本
-        # 进得了数据集、却算出桶下标 == 桶数而被静默丢弃，警告文案还自相矛盾。）
+        # 注意别把上界写成 MAX + 1：range(MIN, MAX+1, STEP) 的末元素 = MAX，
+        # 于是 length == MAX 的样本进得了数据集、却算出桶下标 == 桶数而被
+        # 静默丢弃。
         self.boundaries = list(range(
             TRAIN_FRAME_MIN, TRAIN_FRAME_MAX + self._BUCKET_STEP + 1, self._BUCKET_STEP,
         ))
@@ -332,7 +333,7 @@ class BucketSampler(Sampler):
             batches.extend(
                 ids[i: i + self.batch_size] for i in range(0, full, self.batch_size))
             tails.extend(ids[full:])
-        # 桶尾不再静默丢弃：旧实现 `range(0, len - len % bs, bs)` 直接跳过尾部，
+        # 桶尾不能静默丢弃：`range(0, len - len % bs, bs)` 会直接跳过尾部，
         # 语料量不是 batch_size 整数倍时，这些样本**每个 epoch 都不参与训练**
         # 且没有任何提示。代价是合并后的尾批跨桶（padding 略多），收益是全覆盖。
         if tails:

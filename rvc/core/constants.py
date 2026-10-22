@@ -24,7 +24,7 @@ AUDIO_EXTS = frozenset({".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma",
 NATIVE_EXTS = frozenset({".wav", ".flac", ".ogg"})
 
 # F0 置信度阈值（低于此值判为静音/UV）。
-# 训练与推理数值不同是有意为之（历史口径），单源定义防止双处漂移：
+# 训练与推理的取值有意不同，在此单源定义防双处漂移：
 # - 训练侧 0.03：RMVPE 官方推荐值，批量切片底噪干净；
 # - 推理侧 0.05：实时链路底噪更脏，用户可经 InferenceParams.f0.* 调整。
 RMVPE_THRESHOLD_TRAIN = 0.03

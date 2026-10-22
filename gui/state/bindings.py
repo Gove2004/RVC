@@ -9,7 +9,7 @@ collect_params（保存配置 → 从控件收集），collect/apply 都在本�
 3. Tab 里建控件，创建时传入 params 初始值
 
 默认值单源：所有缺省值只活在 InferenceParams dataclass 上，
-params_from_dict 从「刚构造出的默认实例」取 fallback，不再写第二份字面量。
+params_from_dict 从「刚构造出的默认实例」取 fallback，不写第二份字面量。
 """
 from typing import TYPE_CHECKING
 

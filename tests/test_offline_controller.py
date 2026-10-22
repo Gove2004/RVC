@@ -170,7 +170,7 @@ class TestStartConversionHappyPath(unittest.TestCase):
         kwargs = from_inf.call_args.kwargs
         self.assertEqual(kwargs["output_path"], "E:/audio/aaa_converted.wav")
         self.assertEqual(kwargs["input_path"], "E:/audio/aaa.wav")
-        # hubert 不再单独传：它随 collect_gui_state 一起进入 from_inference
+        # hubert 不单独传：它随 collect_gui_state 一起进入 from_inference
         self.assertNotIn("hubert", kwargs)
         self.assertTrue(conv.is_converting)
         self.assertIsNotNone(host.last_call("enter_converting"))
@@ -195,7 +195,7 @@ class TestProgressAndCompletion(unittest.TestCase):
         conv._converting = True
         conv._on_finished("out.wav")
         self.assertFalse(conv.is_converting)
-        # 用上 result_ready 携带的路径：以前该参数被丢弃，状态行只说「完成」，
+        # 状态行必须带上 result_ready 携带的路径，否则只说「完成」，
         # 用户无从确认这次产出的是哪个文件
         self.assertEqual(host.last_call("reset"), ("reset", "完成: out.wav"))
 

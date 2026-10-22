@@ -178,16 +178,16 @@ rvc/core                         # 配置/常量/异常（最底层）
 
 - **训练 = 纯命令行，推理 = GUI** — 训练是长时无人值守任务，问答式向导 + 逐步跳过已完成阶段，天然适合脚本化与远程（SSH）运行；需要图形交互的只有推理与模型工具，故留在 GUI。
 - **训练数据集用 `NamedTuple` 而非 dataclass** — DataLoader 的 `pin_memory=True` 只对 namedtuple 逐元素重建并钉页（torch 内部按 `_fields` 识别）；dataclass 会被原样返回导致钉页**静默失效**，`non_blocking` 拷贝语义随之漂移。
-- **`load_model` 刻意不清 F0 提取器的 CUDA Graph**（历史行为已移除）— F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走淘汰侧回收，改阈值/块时长经签名 key 自动重捕获。
+- **`load_model` 刻意不清 F0 提取器的 CUDA Graph** — F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走淘汰侧回收，改阈值/块时长经签名 key 自动重捕获。
 - **CUDA Graph：张量走参数、标量走闭包** — 捕获/回放要求张量地址静态，标量（`skip_head` 等）若作为参数传入会用外部变量地址而非静态地址，导致声音沙哑/失真；`return_length2` 随 formant 变化、经闭包编译进图，故必须进 `graph_key`，否则错误命中旧图（输出长度错误、爆音）。
 - **GUI 侧不留长时主线程等待** — 模型工具（合并/检视）是入队 + 队列泵：正在跑就排队、调用立刻返回，由 `finished` 拉起下一项；只有退出路径允许 `wait()`（否则进程挂死）。
 - **F0 每块重提取，但两条路径的窗口不同** — RMVPE 走整段缓冲区，取前 p_len 帧；FCPE 只算尾部 0.6s 窗口（前段 F0 永远用不上），帧数不足 p_len 时**右对齐补零**到 p_len。对齐规则写在 `_sync_f0_parallel`：整段窗口取前 p_len 帧、尾窗补零到 p_len，两者都保证末帧落在下标 `p_len-1`。
 - **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。
-- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 把 transformers 也改成惰性导入：`import rvc.pipeline.pipeline` 从 21s（transformers→sklearn→torch._dynamo）降到 0.11s，训练 CLI 与单测都直接受益。
+- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 对 transformers 也做惰性导入：惰性化后 `import rvc.pipeline.pipeline` 为 0.11s，而一次性拉起 transformers（→sklearn→torch._dynamo）要 21s，训练 CLI 与单测都直接受益。
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
-- **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，改成实例归属会破坏跨管线复用。
+- **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，若改成实例归属，跨管线复用就没了。
 - **模型缓存的回收点在「淘汰」，不在「加载」** — 命中缓存时拿到的就是上次那个对象，它的图仍然有效；在那里 purge 等于每次切回旧模型都重捕获一遍。`LRUCache.set` 把被淘汰的值回报给调用方，由 `InferenceCache` 显式回收（模型清图、提取器 `release()`）。
-- **训练分桶采样不丢桶尾** — 语料量不是 `batch_size` 整数倍时，旧的 `range(0, len - len % bs, bs)` 会让桶尾样本每轮都被跳过且无提示；现在把各桶尾部合并成尾批，`__len__` 与批次数严格相等（`ceil(total/bs)`）。
+- **训练分桶采样不丢桶尾** — 语料量不是 `batch_size` 整数倍时，按 `range(0, len - len % bs, bs)` 切会把桶尾样本每轮静默跳过且无提示；正确做法是把各桶尾部合并成尾批，`__len__` 与批次数严格相等（`ceil(total/bs)`）。
 - **样本读盘三级缓存** — ffmpeg 解码 → `wav.npy`；STFT → `.spec.pt`；每轮重复读取 → 进程内按字节预算的样本 LRU（默认 256MB/worker，`0` 关闭）。单样本省约 4ms，代价是显存之外的内存占用需显式预算。
 - **八层单向依赖（`gui | rvc/train/cli → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
 - **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.05` 是 dataclass 字段默认值而非算法常数，故不具名化（SOLA 缓冲实际取 `min(crossfade_samples, 50ms)`）。

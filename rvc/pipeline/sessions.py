@@ -60,10 +60,10 @@ class ModelSessions:
 
         命中即短路：两个组件都命中时，不做任何加载后处理——要返回的就是
         上次那个对象，它已经处在加载完成态，CUDA Graph 缓存也仍然有效。
-        本层不再清图缓存：图缓存挂在模型对象上，签名含 shape/dtype/device
-        与 namespace，换模型天然不命中；旧实现在这里无条件 purge，等于每次
-        切回旧模型都把已捕获的图全拆掉重捕获（每张图几十毫秒），把 LRU 缓存
-        的意义抵消掉了。真正的回收点在 InferenceCache 淘汰值的那一刻。
+        本层不清图缓存：图缓存挂在模型对象上，签名含 shape/dtype/device 与
+        namespace，换模型天然不命中。在这里无条件 purge，等于每次切回旧模型
+        都把已捕获的图全拆掉重捕获（每张图几十毫秒），把 LRU 缓存的意义抵消
+        掉。真正的回收点是 InferenceCache 淘汰值的那一刻。
         """
         logger.info("加载 %s", os.path.basename(pth_path))
         reloaded = False

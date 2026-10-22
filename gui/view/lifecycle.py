@@ -274,10 +274,9 @@ class WindowLifecycle:
     def _start_engine(self, pth, hubert):
         """起一个后台加载线程（调用方已保证此刻没有别的加载在跑）。
 
-        旧实现前面还有一段「若 _loading 则为旧线程断连 + wait(3000)」的清理，
-        但唯一调用方 _on_mode_convert 已经在入口挡掉了加载中的情况，那段代码
-        既不可达、又带着一次主线程阻塞等待，故删除。真正可能并存的旧线程
-        来自「取消加载后线程仍在跑」，由 _on_load_done(lt) 认代回收。
+        唯一调用方 _on_mode_convert 在入口就挡掉了加载中的情况，所以这里不需要
+        额外的清理。真正可能并存的旧线程来自「取消加载后线程仍在跑」，由
+        _on_load_done(lt) 认代回收。
         """
         self._loading = True
 
@@ -336,9 +335,9 @@ class WindowLifecycle:
             self.tray.update_status()
 
         # 存配置单独 try：磁盘满/只读目录/文件被占用都属于「引擎已正常起流、
-        # 只是记不住偏好」，与推理失败不是一类事。旧实现把它和 setup_engine 放
-        # 在同一个 try 里，写盘失败会走 _on_err 弹出「实时推理错误」并把遥测
-        # 面板复位成停止态——用户看到报错却仍在变声，之后整段会话不再刷新遥测。
+        # 只是记不住偏好」，与推理失败不是一类事。若与 setup_engine 共用一个
+        # try，写盘失败会走 _on_err 弹出「实时推理错误」并把遥测面板复位成
+        # 停止态——用户看到报错却仍在变声，之后整段会话不再刷新遥测。
         try:
             self._save_gui_config()
         except Exception as e:
@@ -353,7 +352,7 @@ class WindowLifecycle:
         # 虚拟声卡，错误后突然传出原声会露馅。直通在这里显式关掉
         # （即使理论上没开），_refresh_mode 只读状态、绝不自动开直通。
         # controller.stop() 兜住「流已起来、后续步骤才失败」的半启动状态：
-        # 旧实现只复位 UI 不停引擎，界面显示停止而麦克风仍在往虚拟声卡送声音。
+        # 只复位 UI 不停引擎的话，界面显示停止而麦克风仍在往虚拟声卡送声音。
         self.controller.stop_passthrough()
         self.controller.stop()
         self._reset_runtime_ui()
@@ -381,10 +380,10 @@ class WindowLifecycle:
         加载一旦开始就一定会 emit 结果；这些信号若仍连着，_on_loaded 会把
         引擎启动起来——用户点了「停止」却开始变声。
 
-        **不等待线程**：旧实现在这里 wait(3000)，把 GUI 线程按到加载结束
-        （大模型冷盘/机械盘会真的卡满 3 秒，Windows 判定「无响应」），而且
-        超时后线程仍在跑、_loading 已置 False，反而让 is_engine_loading 守卫
-        失效。等待想保证的两件事现在各有明确机制：
+        **不等待线程**：在 GUI 线程 wait 会把界面按到加载结束（大模型冷盘/
+        机械盘会真的卡满 3 秒，Windows 判定「无响应」），而且超时后线程仍在跑、
+        _loading 已置 False，反而让 is_engine_loading 守卫失效。等待想保证的
+        两件事各有明确机制：
         - 不误起引擎：断开 ok/err + _on_loaded/_on_err 的「已取消」守卫；
         - 不误删线程：_on_load_done(lt) 按线程实例认代，迟到的旧线程只回收自己。
         线程照常跑完（load_model 无法安全中断），由 finished 自行回收。

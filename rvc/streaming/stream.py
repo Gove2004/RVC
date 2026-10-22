@@ -6,15 +6,14 @@
 - 副输出流创建与启动（sd.OutputStream + 块队列）
 - 流安全中止与关闭、错误日志
 
-术语：**主**流/主输出 = `main_*`，**副**输出 = `out2_*`（与配置字段
-`audio.output2_device`、`audio.enable_out2` 同一套词表；曾混用
-`secondary_*`/`stream2`，现统一到 `out2`）。
+术语：**主**流/主输出 = `main_*`，**副**输出 = `out2_*`——与配置字段
+`audio.output2_device`、`audio.enable_out2` 同一套词表，不要另起 `secondary_*`。
 
 VoiceEngine 保留对外接口，内部委托给本组件处理音频流。
 
 刻意不在这里存「流统计」：sr / block_samples 的真相源是 EngineState，
-错误数在 engine.error_count。曾经有一份本地副本 + 一把锁，只写不读，
-却让音频回调线程每次 status 非空都要加锁拼字符串。
+错误数在 engine.error_count。另存一份本地副本就得配一把锁，而音频回调线程
+每次 status 非空都要为它加锁、拼字符串。
 """
 import logging
 
@@ -145,9 +144,9 @@ class AudioStreams:
     def start_out2_stream(self, dev_idx: int, sr: int, channels: int, block_samples: int) -> None:
         """创建并启动副输出流。
 
-        幂等：重复调用先关掉旧流。旧实现直接覆盖 self.out2_stream 引用，被覆盖的
-        OutputStream 再没人 abort/close，设备会一直处于占用状态（下次打开
-        或其它程序占用同一虚拟设备时表现为「设备不可用」）。
+        幂等：重复调用先关掉旧流。不能直接在 self.out2_stream 上覆盖新流——
+        被覆盖的 OutputStream 再没人 abort/close，设备会一直处于占用状态
+        （下次打开或其它程序占用同一虚拟设备时表现为「设备不可用」）。
 
         Args:
             dev_idx: 副输出设备索引

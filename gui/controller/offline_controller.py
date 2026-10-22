@@ -87,7 +87,7 @@ class OfflineConversion:
         # from_inference 整体拷贝——逐字段手抄会漏新字段（protect 漏传事故）
         try:
             # hubert 变体随 collect_gui_state 一起进来（音色页是唯一选择器），
-            # 不再单独传一次——那会造出一个并不存在的「离线独立选择器」概念
+            # 不单独传一次——那会造出一个并不存在的「离线独立选择器」概念
             config = OfflineParams.from_inference(
                 self.host.collect_gui_state(),
                 input_path=inp,

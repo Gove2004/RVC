@@ -2,7 +2,7 @@
 
 重点锁两条实时性契约：
 1. 队列满时丢最旧块，且被丢的缓冲回到空闲表（不会泄漏）；
-2. 稳态 push/take 不再新分配缓冲——旧实现每块 outdata.copy() 一次 15-19KB。
+2. 稳态 push/take 不新分配缓冲——每块一次 outdata.copy() 就是 15-19KB 的纯开销。
 """
 import unittest
 

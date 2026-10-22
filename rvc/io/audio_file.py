@@ -8,7 +8,7 @@ float32 numpy 数组。这是"数据加载"，不是"文件读写"。
 - wav_file.py:   WAV 文件结构化读写（写 FLOAT32/PCM16，读元信息）
 
 ffmpeg 定位单源在本文件 locate_ffmpeg（RVC_FFMPEG → 系统 PATH → assets/ffmpeg）：
-训练 CLI 的 envcheck 探测与运行时默认路径共用同一查找链，不再各写一套。
+训练 CLI 的 envcheck 探测与运行时默认路径共用同一查找链，避免两处各写一套。
 """
 import logging
 import os

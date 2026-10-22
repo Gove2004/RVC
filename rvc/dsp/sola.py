@@ -15,8 +15,8 @@ SOLA (Short-time Overlap-Add) 是一种语音处理中的时域对齐算法，
 SOLA 必须每块独立跟踪；一旦沿用旧值，块边界就会重复或跳缺数毫秒——
 听感正是「某几个字带小混响/重影」。
 
-性能：NaN 防护已改为 GPU 端 torch.where（替代原来的「打包进一个 bool 向量再
-`.tolist()`」），去掉了那一次 GPU→CPU 同步。
+性能：NaN 防护走 GPU 端 `torch.where`。不要写成「打包进一个 bool 向量再
+`.tolist()`」——那会在这里引入一次 GPU→CPU 同步。
 
 但 **offset 切片那一处仍然同步**，不要被「0-dim tensor 索引」误导：
 `infer[offset:]` 里的 `offset` 是 CUDA 标量，Python 切片要拿到主机端整数，
@@ -25,7 +25,7 @@ SOLA 必须每块独立跟踪；一旦沿用旧值，块边界就会重复或跳
     int(cuda_0dim_tensor)  70.3 ms     ← 等价
     x[python_int:]          0.017 ms
 所以它与显式 `.item()` 完全等价，只是把同步藏进了下标运算。要真正消除这次同步，
-必须改成 GPU 端**固定长度**对齐（pad + gather/roll 出定长块），代价是每块多一次
+就得走 GPU 端**固定长度**对齐（pad + gather/roll 出定长块），代价是每块多一次
 GPU 上的搬移。**目前不做**：本函数之后紧接着的 `write_main_output` 走的是同步
 D2H（回调线程必须在返回前拿到数据），CPU 在同一位置本来就要等 GPU 排空，
 这次同步是被掩盖的、不额外增加端到端延迟。

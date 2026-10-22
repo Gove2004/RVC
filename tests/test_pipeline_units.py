@@ -145,7 +145,7 @@ class TestModelSessionsCache(unittest.TestCase):
         self.assertIs(first.synthesizer, second.synthesizer)
         self.assertEqual(self.loader.return_value.load.call_count, 1)
         self.assertEqual(self.hubert.call_count, 1)
-        # reloaded=False → 不再重复 remove_weight_norm
+        # reloaded=False → 不重复 remove_weight_norm
         self.assertEqual(first.synthesizer.removed, 1)
 
     def test_cache_hit_keeps_captured_graphs(self):

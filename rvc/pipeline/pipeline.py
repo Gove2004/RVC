@@ -85,17 +85,17 @@ class InferencePipeline:
         """stage_features：HuBERT 特征提取 + F0 原始提取。
 
         注意：ctx.reset() 由 inference_runner 在调用本方法前执行（runner 管理 ctx 生命周期），
-        本方法不再 reset ctx，只填充本阶段字段。
+        本方法不 reset ctx，只填充本阶段字段。
 
         formant 因子只从 state.formant_factor 读（init_processing 时快照）：
         它参与 return_length2 的算术，而 return_length2 会进合成器图的 cache key，
-        运行中变化等于逼音频回调线程重捕获（实测 585ms）。本方法不再接受
+        运行中变化等于逼音频回调线程重捕获（实测 585ms）。本方法不接受
         config 参数——那会和 ctx.config 构成两个真相源。
         这里仍把 return_length2 算好放进 ctx，供合成阶段直接使用。
 
         输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区），它是本阶段
         唯一的数据来源；`skip_head` / `return_length` 由 setup 阶段算好写入
-        state（init_processing），本方法只读——不再作为参数每块重复回写。
+        state（init_processing），本方法只读——不作为参数每块重复回写。
 
         Returns:
             HuBERT 特征 (1, T, 768)，50fps
@@ -113,13 +113,11 @@ class InferencePipeline:
         # 每个 CUDA Graph 各持私有显存池，PyTorch 明确要求同一张图必须「同流、同序」
         # 回放；跨流并发回放属未定义行为。
         # 实测后果（真实实时链路，RTX 5060 Laptop）：数秒~数十秒后音频回调卡在
-        # F0 后处理的 GPU→CPU 同步上（当时表现为 `apply_pitch_map`，那里有个拿
-        # 0 维张量做 if 判断的守卫；该同步点现已改成 Python float，症状会转移到
-        # 下一个真正同步的位置），设备再也排不空 → 回调不再被调用、GUI 冻结、
-        # GPU 被占满。**与 mel 前端是否图化无关**——mel 已改回 eager 后
-        # 仅恢复 F0 先启动，~6s 即复现（fcpe-core replay=56 后挂死）。
-        # 旧顺序（HuBERT 先入队、F0 等它算完）虽然名义上没并行，但它保证了侧流图
-        # 回放不与主流图回放重叠——这个"免费"的串行约束必须保留。
+        # F0 后处理的 GPU→CPU 同步上，设备再也排不空 → 回调不再被调用、GUI 冻结、
+        # GPU 被占满。**与 mel 前端是否图化无关**：mel 前端走 eager 时，仅放开
+        # F0 先启动，~6s 即复现（fcpe-core replay=56 后挂死）。
+        # 当前顺序（HuBERT 先入队、F0 等它算完）虽然名义上没并行，但它保证了侧流
+        # 图回放不与主流图回放重叠——这个"免费"的串行约束必须保留。
         feats = self._stage_extract_hubert()
 
         # F0 提取（side stream）必须等主流上的 HuBERT 入队之后再启动（见上）。
@@ -255,7 +253,7 @@ class InferencePipeline:
 
         # 对齐到 p_len 帧，分两种情形（由 F0 提取器是否用尾部窗口决定）：
         # - 整段窗口（f0 帧数 >= p_len）：取**前** p_len 帧——F0 与特征缓冲左对齐，
-        #   这是原有的对齐口径，不能改成取尾部，否则整体平移若干帧。
+        #   改成取尾部会让整体平移若干帧。
         # - 尾窗（f0 帧数 < p_len，见 FCPE_TAIL_WINDOW_SEC）：F0 只覆盖缓冲末端，
         #   必须**右对齐**——左补零到 p_len，使 F0 的末帧落在下标 p_len-1。
         #   中值滤波是因果的，前段补零不会影响合成器实际取用的尾部帧。

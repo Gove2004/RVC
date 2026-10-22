@@ -32,10 +32,9 @@ logger = logging.getLogger(__name__)
 
 
 # 实时启动预热迭代次数。职能是 GPU 时钟爬坡 + cuDNN/L2 缓存热身（与 CUDA
-# Graph 无关——图捕获发生在首块缺失处，不受次数影响）。历史值 30 的另一半
-# 职能「重捕获被无条件清除的 F0 图」已随 load_model 入口清图一起移除：
-# 图跨重启复用后预热退化为纯 replay。10 次（笔记本 GPU ≈0.3s）足够爬频，
-# 彻底去掉会让冷 GPU 首几秒卡顿。
+# Graph 无关——图捕获发生在首块缺失处，不受次数影响）。图跨重启复用时预热
+# 退化为纯 replay，10 次（笔记本 GPU ≈0.3s）足够爬频，彻底去掉会让冷 GPU
+# 首几秒卡顿。
 _WARMUP_ITERATIONS = 10
 
 # 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
@@ -80,10 +79,10 @@ class VoiceEngine:
         # PaErrorCode-9997「Invalid sample rate」。None = 未改写过。
         self._saved_default_device = None
         # load_model 互斥锁：后台预加载与点击变声（LoadThread）/离线转换并发
-        # 调用时串行化，避免双载竞态。后来者拿锁等待后命中同 pth 快路径。
+        # 调用时串行化，避免双载竞态。后到的调用方拿锁等待后命中同 pth 快路径。
         self._load_lock = threading.Lock()
 
-        # 周期性 empty_cache 已移除：稳态下分配模式固定、缓存池不再增长，回收没有
+        # 不做周期性 empty_cache：稳态下分配模式固定、缓存池不再增长，回收没有
         # 收益，反而可能经分配器锁与音频回调竞争造成周期性抖动。setup/stop 各有
         # 一次 empty_cache，已覆盖真实需要回收的时机。
 
@@ -105,9 +104,7 @@ class VoiceEngine:
 
         **本属性不做任何 GPU 访问**：数值由音频线程在写完主输出后取回成
         Python float（此刻队列已排空，.item() 零等待），这里只读缓存。
-        所以 GUI 想多快刷就多快刷，刷新频率不再反过来影响音频管线。
-        （早期实现是 GUI 线程自己 `.item()`，每次刷新都是一次强制同步，
-        因此刷新被限死在 5Hz。）
+        所以 GUI 想多快刷就多快刷，刷新频率不会反过来影响音频管线。
         """
         if self._runner is None:
             return 0.0
@@ -142,14 +139,14 @@ class VoiceEngine:
 
         全程持 _load_lock：串行化后台预加载与 GUI/离线的并发加载请求。
 
-        刻意**不**清 F0 提取器的 CUDA Graph（历史行为，已移除）：
-        F0 提取器与 pth 无关，其图跨重启复用是安全的——所有曾需清图的
-        根因均已修复（阈值等 Python 标量已编进图缓存 key、inference_mode
-        污染已隔离、purge 取锁+同步）。各场景兜底：换 F0 方法走
-        switch_f0_method→release 自清；换模型时旧模型在 InferenceCache 被
-        淘汰的那一刻回收图缓存；改阈值/块时长经签名 key 自动重捕获。
-        「静音捕获的图异常」是当年误诊——图只固化计算结构，数据经静态输入
-        张量每块 copy_，本架构一直是静音捕获+真实语音回放。
+        刻意**不**清 F0 提取器的 CUDA Graph：
+        F0 提取器与 pth 无关，其图跨重启复用是安全的——图失效的各类根因都已
+        在源头处理掉（阈值等 Python 标量编进图缓存 key、inference_mode 污染隔离、
+        purge 取锁 + 同步）。各场景兜底：换 F0 方法走 switch_f0_method→release
+        自清；换模型时旧模型在 InferenceCache 被淘汰的那一刻回收图缓存；
+        改阈值/块时长经签名 key 自动重捕获。
+        注意「静音捕获会污染图」是错误认知：图只固化计算结构，数据经静态输入
+        张量每块 copy_，本架构就是静音捕获 + 真实语音回放。
         """
         with self._load_lock:
             # 快路径必须同时比对 pth 与 hubert 变体：变体是离线任务自带的参数

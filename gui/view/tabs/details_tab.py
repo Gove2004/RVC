@@ -23,7 +23,7 @@ def build_details_tab(win) -> QWidget:
     r = 0
 
     # ── 模型文件（自带文件对话框的路径按钮，与音色页签一致）──
-    # 选定路径即自动解析（pathChanged 驱动），不再需要「查看」按钮。
+    # 选定路径即自动解析（pathChanged 驱动），不需要额外的「查看」按钮。
     win.inspect_path = PathPickerButton(
         win, title="选择模型文件", placeholder="选择模型...",
         base_dir=lambda: win.controller.models_dir,

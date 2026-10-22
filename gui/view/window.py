@@ -67,8 +67,8 @@ logger = logging.getLogger(__name__)
 # 遥测（延迟/音高/错误计数）刷新周期，毫秒。
 # 数据真正的更新频率是块率（默认 250ms 块 → 4Hz）；这里取 50ms 只是为了让
 # 「看到新值」的滞后小于人眼可辨阈值，代价是一次读缓存 + 可能一次 setText。
-# 之所以能这么密，是因为数值已由音频线程算成 Python float（不再由 GUI 触发
-# GPU 同步）——旧实现每次刷新都是一次强制同步，故只能 5Hz。
+# 之所以能这么密，是因为数值已由音频线程算成 Python float，GUI 侧不触发
+# 任何 GPU 同步。
 _TELEMETRY_INTERVAL_MS = 50
 
 
@@ -102,10 +102,9 @@ class MainWindow(WindowLifecycle, QMainWindow):
         # 遥测文本缓存：内容未变时跳过 setText/show/hide（定时器每 tick 都会跑）
         self._last_pitch_text = None
         self._last_error_count = 0
-        # 遥测刷新周期。取值不再受 GPU 同步约束：音高/延迟都由音频线程算好
-        # 成 Python 数值（见 VoiceEngine.input_pitch），GUI 只是读缓存 + 改文本，
-        # 且文本未变时不重绘。真正的数据更新频率 = 块率（默认 4Hz），
-        # 50ms 轮询只是把「看到」的滞后压到人眼无法察觉。
+        # 遥测定时器。音高/延迟都由音频线程算好成 Python 数值
+        # （见 VoiceEngine.input_pitch），GUI 只读缓存 + 改文本，文本未变不重绘。
+        # 周期取值见 _TELEMETRY_INTERVAL_MS。
         self._timer = QTimer()
         self._timer.setInterval(_TELEMETRY_INTERVAL_MS)
         self._timer.timeout.connect(self._update_timer)
@@ -173,8 +172,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def is_engine_loading(self) -> bool:
         """模型是否正在后台加载（供离线转换等需要互斥的路径判断）。
 
-        不能只看 _loading 布尔量：停止路径取消加载时只是不再关心结果，线程
-        本身仍在 load_model 里（拿不到安全中断点），仍占着 engine._load_lock。
+        不能只看 _loading 布尔量：停止路径取消加载时只是放弃结果，线程本身
+        仍在 load_model 里（拿不到安全中断点），仍占着 engine._load_lock。
         以「线程实际是否在跑」为准，离线 worker 才不会静默卡在那把锁上。
         """
         if self._loading:

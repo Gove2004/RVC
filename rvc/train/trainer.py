@@ -216,8 +216,9 @@ class Trainer:
             self.scaler.step(self.optim_g)
             self.scaler.update()
 
-            # 先取标量再共用：每次 .item() 都是一次 GPU→CPU 同步，回调与 epoch
-            # 累计原先各取一遍（每 batch 共 11 次同步）。同一 tensor 只同步一次。
+            # 先取标量再共用：每次 .item() 都是一次 GPU→CPU 同步。每个标量只取
+            # 一次，回调与 epoch 累计共用同一批值——分开各取一遍会让每 batch
+            # 凭空多出好几次同步。
             loss_d_v = loss_disc.item()
             loss_g_v = loss_gen.item()
             loss_mel_v = loss_mel.item()
@@ -233,8 +234,8 @@ class Trainer:
                     "loss_d": loss_d_v,
                     # G = 纯对抗分量，与上游 train.py loss_gen 口径一致（可逐字段对表）；
                     # loss_total（对抗+FM+Mel+KL 的 backward 总目标）由四个已取回的
-                    # 分量相加得到，不再单独 .item() 一次——它只是诊断量，用同一批
-                    # fp32 标量求和与 tensor.sum().item() 的差异在显示精度之外。
+                    # 分量相加——它只是诊断量，再单独 .item() 一次等于白付一次同步，
+                    # 而两者差异在显示精度之外。
                     "loss_g": loss_g_v,
                     "loss_total": loss_g_v + loss_fm_v + loss_mel_v + loss_kl_v,
                     "loss_mel": loss_mel_v,
