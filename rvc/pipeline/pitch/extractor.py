@@ -162,8 +162,8 @@ class RMVPEExtractor(F0Extractor):
         if not mp.exists():
             raise F0ExtractionError(
                 f"RMVPE 权重文件不存在: {mp}\n"
-                f"请将 rmvpe.pt 放到 {RMVPE_PATH.parent}/ 下，"
-                f"或参考 assets/README/RVC.md 中的指引。"
+                f"请将 rmvpe.pt 放到 {RMVPE_PATH.parent}/ 下"
+                f"（获取方式见 README.md「训练」一节的预训练权重说明）。"
             )
         logger.info("加载 RMVPE")
         self.model = RMVPE(mp, is_half=is_half, device=device)
@@ -280,38 +280,47 @@ class FCPEExtractor(F0Extractor):
 
         wav_t = audio.to(self.device).unsqueeze(0).float()
 
-        with _suppress_torchfcpe_output():
-            if cuda_graph_enabled(self.device) and self._has_model_core:
-                mel = self._mel(wav_t, sr)
-
-                def graphable_infer(mel_input):
-                    model = self.model.model
-                    latent = model(mel_input)
-                    batch, frames, _ = latent.shape
-                    cents = model.cent_table[None, None, :].expand(batch, frames, -1)
-                    confidence, max_index = torch.max(latent, dim=-1, keepdim=True)
-                    local_index = self.local_offsets + (max_index - 4)
-                    local_index = local_index.clamp(0, model.out_dims - 1)
-                    local_cents = torch.gather(cents, -1, local_index)
-                    local_latent = torch.gather(latent, -1, local_index)
-                    decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
-                    confidence_mask = torch.ones_like(confidence)
-                    confidence_mask.masked_fill_(confidence <= params.f0.fcpe_confidence_threshold, float("-inf"))
-                    decoded = decoded * confidence_mask
-                    f0 = 10.0 * torch.pow(2.0, decoded / 1200.0)
-                    return f0, confidence.squeeze(-1)
-
-                f0, conf = run_cuda_graph(
-                    self.model.model,
-                    f"fcpe-core-local_argmax-conf-{params.f0.fcpe_confidence_threshold}",
-                    graphable_infer, mel,
-                )
+        # 抑制范围收窄到「真的会 print 的两处」，不再整段包住每块提取：
+        # redirect_stdout/stderr 是**改进程全局状态**，每秒上百次替换再还原，
+        # 期间其它线程（Qt 警告、任何库的 print）会被吞掉，两线程交错进出时
+        # 还原顺序颠倒还会把 sys.stdout 永久留成一层 _FilteredStream。
+        # 热路径（图化 + 仓库内 mel 前端）本身一个 print 都没有。
+        if cuda_graph_enabled(self.device) and self._has_model_core:
+            if self._has_mel_frontend:
+                mel = self._mel(wav_t, sr)  # 仓库内复刻，无 print
             else:
+                with _suppress_torchfcpe_output():
+                    mel = self._mel(wav_t, sr)  # 退回 torchfcpe MelModule（会刷屏）
+
+            def graphable_infer(mel_input):
+                model = self.model.model
+                latent = model(mel_input)
+                batch, frames, _ = latent.shape
+                cents = model.cent_table[None, None, :].expand(batch, frames, -1)
+                confidence, max_index = torch.max(latent, dim=-1, keepdim=True)
+                local_index = self.local_offsets + (max_index - 4)
+                local_index = local_index.clamp(0, model.out_dims - 1)
+                local_cents = torch.gather(cents, -1, local_index)
+                local_latent = torch.gather(latent, -1, local_index)
+                decoded = torch.sum(local_cents * local_latent, dim=-1, keepdim=True) / torch.sum(local_latent, dim=-1, keepdim=True)
+                confidence_mask = torch.ones_like(confidence)
+                confidence_mask.masked_fill_(confidence <= params.f0.fcpe_confidence_threshold, float("-inf"))
+                decoded = decoded * confidence_mask
+                f0 = 10.0 * torch.pow(2.0, decoded / 1200.0)
+                return f0, confidence.squeeze(-1)
+
+            f0, conf = run_cuda_graph(
+                self.model.model,
+                f"fcpe-core-local_argmax-conf-{params.f0.fcpe_confidence_threshold}",
+                graphable_infer, mel,
+            )
+        else:
+            with _suppress_torchfcpe_output():
                 f0 = self.model.infer(
                     wav_t, sr=sr, decoder_mode="local_argmax",
                     threshold=params.f0.fcpe_confidence_threshold,
                 )
-                conf = None
+            conf = None
         f0_out = f0.squeeze() if f0.dim() > 1 else f0
         conf_out = conf.squeeze() if conf is not None and conf.dim() > 1 else conf
         if skip_frames:

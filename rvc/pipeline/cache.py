@@ -1,5 +1,8 @@
 """推理期共享缓存 — 显式管理 HuBERT / RMVPE / FCPE / Synthesizer 模型复用。
 
+与 `rvc/runtime/lru.py` 的分工：那边是**无业务语义**的通用 LRU 容器，这边是
+**带业务语义**的模型槽位管理（保留几个、淘汰谁、淘汰时怎么回收显存）。
+
 LRU 淘汰：synthesizer（几百 MB/个）只进不出会让显存/内存持续增长。
 各槽位保留最近使用的 N 个，超限淘汰最久未用的。
 槽位数量属于本层（pipeline 组装层）的策略，通用 LRU 基础设施在 runtime。
@@ -12,7 +15,7 @@ CUDAGraph 与其静态输入/输出张量占的显存不会随引用消失立刻
 失效语义（现状契约）：仅 LRU 容量淘汰，无文件 mtime 校验——
 同名 pth 被外部覆盖后仍会返回旧权重，属已知且被接受的现状。
 """
-from rvc.runtime.caches import LRUCache
+from rvc.runtime.lru import LRUCache
 from rvc.runtime.graph import purge_cuda_graphs
 
 

@@ -13,7 +13,7 @@ from rvc.core.constants import HUBERT_SAMPLE_RATE
 from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
 from rvc.pipeline.features import hubert_forward
-from rvc.runtime.caches import LRUCache
+from rvc.runtime.lru import LRUCache
 from rvc.train.atomic_save import save_npy_atomic
 
 # 训练侧 HuBERT 进程级缓存（与推理侧 InferenceCache 的 hubert 槽位同配置 LRU=2）：

@@ -9,7 +9,7 @@ collect_params（保存配置 → 从控件收集），collect/apply 都在本�
 3. Tab 里建控件，创建时传入 params 初始值
 
 默认值单源：所有缺省值只活在 InferenceParams dataclass 上，
-本模块的 dict↔params 转换从 dataclass 实例取 fallback，不再写第二份字面量。
+params_from_dict 从「刚构造出的默认实例」取 fallback，不再写第二份字面量。
 """
 from typing import TYPE_CHECKING
 
@@ -17,9 +17,6 @@ from rvc.core.config import InferenceParams
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
-
-# dataclass 默认值实例（单源 fallback；只读用途）
-_DEFAULTS = InferenceParams()
 
 # 读写方式
 FLOAT = "float"
@@ -113,7 +110,10 @@ def params_from_dict(state: dict) -> InferenceParams:
     """从分组 dict 构造 InferenceParams。
 
     动态遍历各分组的 __dataclass_fields__，新字段自动包含，无需手动更新。
-    缺省值取 InferenceParams 默认（单源）。
+    缺省值取 InferenceParams 默认（单源）：`params` 是刚构造的默认实例，
+    每个字段只被 setattr 一次，所以读 `getattr(group, field)` 拿到的仍是
+    dataclass 默认值——不需要再单独持有一份 _DEFAULTS 副本（那样反而多了
+    一个跨模块共享的可变实例）。
     特殊字段：enable_out2 是 output2_device 的派生属性，device_index 转 int。
     """
     params = InferenceParams()
@@ -121,12 +121,10 @@ def params_from_dict(state: dict) -> InferenceParams:
     for group_name in GROUP_NAMES:
         group_data = state.get(group_name, {})
         group = getattr(params, group_name)
-        defaults = getattr(_DEFAULTS, group_name)
         for field_name in group.__dataclass_fields__:
             if field_name in DERIVED_FIELDS:
                 continue
-            value = group_data.get(field_name, getattr(defaults, field_name))
-            setattr(group, field_name, value)
+            setattr(group, field_name, group_data.get(field_name, getattr(group, field_name)))
 
     # 派生属性：enable_out2 从 output2_device 计算
     params.audio.enable_out2 = output2_enabled(params.audio.output2_device)
@@ -135,7 +133,7 @@ def params_from_dict(state: dict) -> InferenceParams:
 
     # 顶层字段（rms_mix/volume/model_path/hubert）
     for field_name in TOP_LEVEL_FIELDS:
-        setattr(params, field_name, state.get(field_name, getattr(_DEFAULTS, field_name)))
+        setattr(params, field_name, state.get(field_name, getattr(params, field_name)))
     return params
 
 

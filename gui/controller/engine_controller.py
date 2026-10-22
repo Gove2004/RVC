@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EngineStats:
-    sr_model: int
-    sr_dev: int
+    """引擎启动后的两组采样率，GUI 用来刷新「模型 XXXX / 设备 XXXX」单选按钮。"""
+    model_sr: int   # 模型原生采样率
+    device_sr: int  # 输入设备默认采样率（sr_mode="device" 时按它开流）
 
 
 class InferController:
@@ -139,7 +140,7 @@ class InferController:
         except Exception:
             self.engine.stop()  # 启动失败时停掉所有流，避免引擎失控
             raise
-        return EngineStats(self.engine.sr_model, self.engine.sr_dev)
+        return EngineStats(self.engine.model_sr, self.engine.device_sr)
 
     def stop(self):
         """停止引擎。"""

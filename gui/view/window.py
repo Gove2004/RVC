@@ -56,10 +56,20 @@ from gui.state.bindings import OUTPUT2_NONE_TEXT
 from gui.view.widgets import ModeToggle
 
 if TYPE_CHECKING:
-    # 类型注解可引用 rvc 类型（仅 TYPE_CHECKING，运行时不 import）
+    # 类型注解用的 rvc 类型：仅 TYPE_CHECKING，本文件运行时不 import。
+    # 但「view 层不依赖 rvc」只对本文件直接 import 成立——gui.state.bindings
+    # 在模块级 import 了 rvc.core.config（轻量，不拉 torch），
+    # tests/test_layering.py 的 AST 检查看不到这条传递依赖，别把它当强保证。
     from rvc.core.config import InferenceParams
 
 logger = logging.getLogger(__name__)
+
+# 遥测（延迟/音高/错误计数）刷新周期，毫秒。
+# 数据真正的更新频率是块率（默认 250ms 块 → 4Hz）；这里取 50ms 只是为了让
+# 「看到新值」的滞后小于人眼可辨阈值，代价是一次读缓存 + 可能一次 setText。
+# 之所以能这么密，是因为数值已由音频线程算成 Python float（不再由 GUI 触发
+# GPU 同步）——旧实现每次刷新都是一次强制同步，故只能 5Hz。
+_TELEMETRY_INTERVAL_MS = 50
 
 
 class MainWindow(WindowLifecycle, QMainWindow):
@@ -89,10 +99,15 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._loading = False
         self._lt = None
         self._last_delay_tooltip = None
-        # 遥测文本缓存：内容未变时跳过 setText/show/hide（每 200ms 一跳）
+        # 遥测文本缓存：内容未变时跳过 setText/show/hide（定时器每 tick 都会跑）
         self._last_pitch_text = None
         self._last_error_count = 0
+        # 遥测刷新周期。取值不再受 GPU 同步约束：音高/延迟都由音频线程算好
+        # 成 Python 数值（见 VoiceEngine.input_pitch），GUI 只是读缓存 + 改文本，
+        # 且文本未变时不重绘。真正的数据更新频率 = 块率（默认 4Hz），
+        # 50ms 轮询只是把「看到」的滞后压到人眼无法察觉。
         self._timer = QTimer()
+        self._timer.setInterval(_TELEMETRY_INTERVAL_MS)
         self._timer.timeout.connect(self._update_timer)
         # 管理器先于 UI 创建：offline_tab 构建时会连接 offline_conversion 的信号
         self.offline_conversion = OfflineConversion(self)
@@ -155,12 +170,22 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def offline_model_path(self) -> str:
         return self.model_path_btn.path().strip()
 
-    def offline_hubert_variant(self) -> str:
-        return self.hubert_combo.currentText()
-
     def is_engine_loading(self) -> bool:
-        """模型是否正在后台加载（生命周期混入维护 _loading）。"""
-        return self._loading
+        """模型是否正在后台加载（供离线转换等需要互斥的路径判断）。
+
+        不能只看 _loading 布尔量：停止路径取消加载时只是不再关心结果，线程
+        本身仍在 load_model 里（拿不到安全中断点），仍占着 engine._load_lock。
+        以「线程实际是否在跑」为准，离线 worker 才不会静默卡在那把锁上。
+        """
+        if self._loading:
+            return True
+        lt = self._lt
+        if lt is None:
+            return False
+        try:
+            return lt.isRunning()
+        except RuntimeError:
+            return False  # C++ 对象已随 deleteLater 回收
 
     def offline_confirm_delete(self, path: str) -> bool:
         ans = QMessageBox.question(
@@ -173,6 +198,9 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def offline_enter_converting(self) -> None:
         self.offline_button.setText("取消")
+        # 输入文件也锁住：输出路径由输入派生，转换途中改选输入会让「完成」
+        # 之后的输出行/监听/删除全部指向另一个文件（用户听到或删掉的是旧产物）
+        self.offline_input_btn.setEnabled(False)
         self.offline_preview_btn.setEnabled(False)
         self.offline_delete_btn.setEnabled(False)
         self.offline_status.setText("初始化...")
@@ -185,12 +213,14 @@ class MainWindow(WindowLifecycle, QMainWindow):
     def offline_reset(self, status: str) -> None:
         self.offline_button.setEnabled(True)
         self.offline_button.setText("开始")
+        self.offline_input_btn.setEnabled(True)
         self.offline_preview_btn.setEnabled(True)
         self.offline_delete_btn.setEnabled(True)
         self.offline_status.setText(status)
 
     def offline_set_progress(self, current: int, total: int) -> None:
-        self.offline_status.setText(f"进度: {current}/{total}")
+        """只推进度条。状态行由 controller 经 offline_set_status 单独控制——
+        取消时状态行要停在「正在取消...」，不能被进度覆盖。"""
         if total > 0:
             self.offline_progress.setValue(current)
 
@@ -497,6 +527,10 @@ class MainWindow(WindowLifecycle, QMainWindow):
         else:
             mode = "stop"
         self.mode_toggle.set_mode(mode)
+        # 性别因子是会话级参数：它经 return_length2 决定合成器推理图的输出长度，
+        # 运行中改变会迫使音频回调线程现场重捕获 CUDA Graph（实测 585ms，
+        # 相当于 108 个块的时间），必然断音。运行档禁用，停止后修改、下次启动生效。
+        self.formant_slider.setEnabled(mode != "convert")
 
     def _reset_runtime_ui(self):
         self._timer.stop()
@@ -517,7 +551,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self._refresh_mode()
 
     def _mark_running(self):
-        self._timer.start(200)
+        self._timer.start()
         self._refresh_mode()
 
     def collect_gui_state(self) -> "InferenceParams":

@@ -51,26 +51,18 @@ class WindowLifecycle:
     # ── 托盘退出与窗口关闭 ──
 
     def _tray_quit(self):
-        """托盘退出：完整清理（停 timer/加载线程/离线转换/引擎/保存配置）后退出应用。"""
+        """托盘退出：完整清理（停 timer/加载线程/离线转换/引擎/保存配置）后退出应用。
+
+        线程清理整体包在一个 try 里：此刻托盘图标已被 hide，任何异常冒出都会
+        让后面的保存配置/停引擎/quit 全部跳过——用户看到的是「图标没了、
+        窗口没了、进程还在」，只能去任务管理器。清理失败也要把剩下的事做完。
+        """
         self._timer.stop()
 
-        # LoadThread.run() 内部没有事件循环，quit() 对它无效（只会留下残线程），
-        # 必须先 request_stop() 让 run() 自己退出，再等它结束。
-        if self._lt and self._lt.isRunning():
-            self._lt.request_stop()
-            if not self._lt.wait(3000):
-                logger.warning("加载线程 3s 内未结束，继续退出")
-
-        # 离线转换 worker 是 QThread（非 daemon），且可能正卡在 CUDA 推理中。
-        # 不处理会让进程挂在退出上（表现为「点了退出没反应」）。
-        self.offline_conversion.shutdown()
-
-        # 模型工具线程（合并 / 检视）同为 QThread，退出前等它结束；
-        # 排队中的请求随退出丢弃（没人再消费队列，也不该在关窗后写模型文件）
-        if self.tool_runner and self.tool_runner.isRunning():
-            if not self.tool_runner.wait(5000):
-                logger.warning("模型工具线程 5s 内未结束，继续退出")
-        self.tool_queue.clear()
+        try:
+            self._stop_background_threads()
+        except Exception:
+            logger.exception("退出前清理后台线程失败，继续退出")
 
         try:
             self._save_gui_config()
@@ -81,6 +73,35 @@ class WindowLifecycle:
         self.controller.stop_passthrough()
 
         QApplication.instance().quit()
+
+    def _stop_background_threads(self) -> None:
+        """退出路径专用：等三个后台 QThread 结束（唯一的允许等待之处）。"""
+        # LoadThread.run() 内部没有事件循环，quit() 对它无效（只会留下残线程），
+        # 必须先 request_stop() 让 run() 自己退出，再等它结束。
+        lt = self._lt
+        if lt is not None:
+            try:
+                if lt.isRunning():
+                    lt.request_stop()
+                    if not lt.wait(3000):
+                        logger.warning("加载线程 3s 内未结束，继续退出")
+            except RuntimeError:
+                pass  # C++ 对象已回收
+
+        # 离线转换 worker 是 QThread（非 daemon），且可能正卡在 CUDA 推理中。
+        # 不处理会让进程挂在退出上（表现为「点了退出没反应」）。
+        self.offline_conversion.shutdown()
+
+        # 模型工具线程（合并 / 检视）同为 QThread，退出前等它结束；
+        # 排队中的请求随退出丢弃（没人再消费队列，也不该在关窗后写模型文件）
+        runner = self.tool_runner
+        if runner is not None:
+            try:
+                if runner.isRunning() and not runner.wait(5000):
+                    logger.warning("模型工具线程 5s 内未结束，继续退出")
+            except RuntimeError:
+                pass
+        self.tool_queue.clear()
 
     def closeEvent(self, event):
         """点关闭按钮 → 隐藏到托盘继续运行（变声不中断），不退出。"""
@@ -122,8 +143,8 @@ class WindowLifecycle:
 
         if snap.running and snap.measure_ms > 0:
             self.delay_lbl.setText(f"延迟: {snap.measure_ms:.0f}ms")
-            # 动态 tooltip：显示延迟分解（内容未变不重写，避免每 200ms 触发
-            # 无效的 Qt 属性变更/重绘事件）
+            # 动态 tooltip：显示延迟分解（内容未变不重写——定时器每 tick 都会
+            # 走到这里，重写 tooltip 会触发一次无效的 Qt 属性变更/重绘）
             tooltip = (
                 f"算法延迟 = 2×采样长度 + 推理\n"
                 f"  输入块收集: {snap.driver_in_ms:.0f}ms\n"
@@ -138,7 +159,7 @@ class WindowLifecycle:
                 self.delay_lbl.setToolTip(tooltip)
 
             # 显示当前输入音高（音域映射之前的原始值）。文本未变不重写——
-            # QLabel.setText 即使内容相同也会触发一次 repaint，200ms 一跳无谓。
+            # QLabel.setText 即使内容相同也会触发一次 repaint，按 tick 重写无谓。
             pitch_text = f"音高: {snap.input_pitch:.0f}Hz" if snap.input_pitch > 0 else "音高: -"
             if pitch_text != self._last_pitch_text:
                 self._last_pitch_text = pitch_text
@@ -251,44 +272,34 @@ class WindowLifecycle:
         self._start_engine(pth, hubert)
 
     def _start_engine(self, pth, hubert):
-        if self._loading:
-            old = self._lt
+        """起一个后台加载线程（调用方已保证此刻没有别的加载在跑）。
 
-            if old:
-                for sig in (old.ok, old.err, old.finished):
-                    try:
-                        sig.disconnect()
-                    except (RuntimeError, TypeError):
-                        pass
-
-                if old.isRunning():
-                    old.request_stop()
-                    if not old.wait(3000):
-                        # 超时线程仍在跑（load_model 卡在 CUDA/磁盘）：此刻
-                        # deleteLater() 会销毁运行中的 QThread，触发 Qt 致命错误
-                        # "Destroyed while thread is still running"。改为挂
-                        # finished→deleteLater，线程自然结束后由事件循环回收。
-                        logger.warning("旧模型加载线程 3s 内未结束（load_model 阻塞中），断开信号后挂起延后回收")
-                        old.finished.connect(old.deleteLater)
-                    else:
-                        old.deleteLater()
-                else:
-                    old.deleteLater()
-
-            self._loading = False
-
+        旧实现前面还有一段「若 _loading 则为旧线程断连 + wait(3000)」的清理，
+        但唯一调用方 _on_mode_convert 已经在入口挡掉了加载中的情况，那段代码
+        既不可达、又带着一次主线程阻塞等待，故删除。真正可能并存的旧线程
+        来自「取消加载后线程仍在跑」，由 _on_load_done(lt) 认代回收。
+        """
         self._loading = True
 
         self._mark_loading()
         self._lt = LoadThread(self.engine, pth, hubert)
         self._lt.ok.connect(self._on_loaded)
         self._lt.err.connect(self._on_err)
-        self._lt.finished.connect(self._on_load_done)
+        # 线程实例绑进连接：迟到的那一代线程只回收自己，绝不 deleteLater
+        # 当前正在跑的新线程（否则 Qt 报 "Destroyed while thread is still running"）
+        lt = self._lt
+        self._lt.finished.connect(lambda: self._on_load_done(lt))
         self._lt.start()
 
-    def _on_load_done(self):
+    def _on_load_done(self, lt=None):
+        """线程结束收尾（lt = 发出 finished 的那一代线程）。"""
+        if lt is not None and lt is not self._lt:
+            # 已被取消并让位给新加载的旧线程：只回收它自己，不动 UI 状态
+            logger.info("旧加载线程结束（已被新一代取代），仅回收")
+            lt.deleteLater()
+            return
         self._loading = False
-        if self._lt:
+        if self._lt is not None:
             self._lt.deleteLater()
             self._lt = None
         # 加载结束（成功→引擎已运行；失败→引擎未运行）：按实际状态收敛三档 UI
@@ -314,14 +325,24 @@ class WindowLifecycle:
                 extra_time=state.buffer.extra_time,
                 enable_out2=state.audio.enable_out2,
             )
-            self.sr_model_radio.setText(f"模型 {stats.sr_model}")
-            self.sr_device_radio.setText(f"设备 {stats.sr_dev}")
-            self._mark_running()
-            if self.tray is not None:
-                self.tray.update_status()
-            self._save_gui_config()
         except Exception as e:
             self._on_err(str(e))
+            return
+
+        self.sr_model_radio.setText(f"模型 {stats.model_sr}")
+        self.sr_device_radio.setText(f"设备 {stats.device_sr}")
+        self._mark_running()
+        if self.tray is not None:
+            self.tray.update_status()
+
+        # 存配置单独 try：磁盘满/只读目录/文件被占用都属于「引擎已正常起流、
+        # 只是记不住偏好」，与推理失败不是一类事。旧实现把它和 setup_engine 放
+        # 在同一个 try 里，写盘失败会走 _on_err 弹出「实时推理错误」并把遥测
+        # 面板复位成停止态——用户看到报错却仍在变声，之后整段会话不再刷新遥测。
+        try:
+            self._save_gui_config()
+        except Exception as e:
+            logger.warning("保存配置失败（不影响本次变声）：%s", e)
 
     def _on_err(self, e):
         if not self._loading:
@@ -331,7 +352,10 @@ class WindowLifecycle:
         # 不变量：出错一律收敛到停止档，严禁回落原声——目标软件固定录
         # 虚拟声卡，错误后突然传出原声会露馅。直通在这里显式关掉
         # （即使理论上没开），_refresh_mode 只读状态、绝不自动开直通。
+        # controller.stop() 兜住「流已起来、后续步骤才失败」的半启动状态：
+        # 旧实现只复位 UI 不停引擎，界面显示停止而麦克风仍在往虚拟声卡送声音。
         self.controller.stop_passthrough()
+        self.controller.stop()
         self._reset_runtime_ui()
         self.show_error(str(e))
 
@@ -350,29 +374,36 @@ class WindowLifecycle:
             self.tray.update_status()
         self.show_error(f"实时推理错误: {message}")
 
-    def _cancel_load(self, wait_ms: int = 3000) -> None:
-        """取消正在进行的模型加载（三条停止路径共用，避免各写一遍漏掉断连）。
+    def _cancel_load(self) -> None:
+        """取消正在进行的模型加载（停止路径调用，避免各写一遍漏掉断连）。
 
         **必须先断开 ok/err**：LoadThread.run() 只在入口检查一次停止标志，
-        加载一旦开始就一定会 emit 结果；而 wait() 期间主线程不处理事件，
-        这些信号会排队，等停止逻辑返回事件循环后照常投递——ok 会走
-        _on_loaded 把引擎启动起来，用户点了「停止」却开始变声。
+        加载一旦开始就一定会 emit 结果；这些信号若仍连着，_on_loaded 会把
+        引擎启动起来——用户点了「停止」却开始变声。
 
-        finished 保留连接：_on_load_done 负责 deleteLater（线程结束才能安全销毁）
-        与按实际状态收敛三档 UI。_on_loaded/_on_err 另有「已取消则忽略」的守卫，
-        兜住「信号在我们断开之前就已入队」的窗口。
+        **不等待线程**：旧实现在这里 wait(3000)，把 GUI 线程按到加载结束
+        （大模型冷盘/机械盘会真的卡满 3 秒，Windows 判定「无响应」），而且
+        超时后线程仍在跑、_loading 已置 False，反而让 is_engine_loading 守卫
+        失效。等待想保证的两件事现在各有明确机制：
+        - 不误起引擎：断开 ok/err + _on_loaded/_on_err 的「已取消」守卫；
+        - 不误删线程：_on_load_done(lt) 按线程实例认代，迟到的旧线程只回收自己。
+        线程照常跑完（load_model 无法安全中断），由 finished 自行回收。
         """
         lt = self._lt
-        if lt is not None:
-            for sig in (lt.ok, lt.err):
-                try:
-                    sig.disconnect()
-                except (RuntimeError, TypeError):
-                    pass
-            if lt.isRunning():
-                lt.request_stop()
-                lt.wait(wait_ms)
         self._loading = False
+        if lt is None:
+            return
+        for sig in (lt.ok, lt.err):
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        if lt.isRunning():
+            lt.request_stop()  # 仅在 run() 下一次检查点生效；真要等就等下一块
+        else:
+            lt.deleteLater()
+            if self._lt is lt:
+                self._lt = None
 
     def _stop(self):
         """停引擎（变声档 → 停止档）。取消加载与停直通走 _on_mode_stop。"""

@@ -14,6 +14,7 @@ class FakeHost:
                  running=False, exists=None, loading=False):
         self.controller = mock.Mock()
         self.controller.is_running = running
+        self.controller.passthrough_running = False
         self.controller.engine = object()
         self._loading = loading
         self._input_path = input_path
@@ -169,7 +170,8 @@ class TestStartConversionHappyPath(unittest.TestCase):
         kwargs = from_inf.call_args.kwargs
         self.assertEqual(kwargs["output_path"], "E:/audio/aaa_converted.wav")
         self.assertEqual(kwargs["input_path"], "E:/audio/aaa.wav")
-        self.assertEqual(kwargs["hubert"], "chinese")
+        # hubert 不再单独传：它随 collect_gui_state 一起进入 from_inference
+        self.assertNotIn("hubert", kwargs)
         self.assertTrue(conv.is_converting)
         self.assertIsNotNone(host.last_call("enter_converting"))
 
@@ -193,7 +195,9 @@ class TestProgressAndCompletion(unittest.TestCase):
         conv._converting = True
         conv._on_finished("out.wav")
         self.assertFalse(conv.is_converting)
-        self.assertEqual(host.last_call("reset"), ("reset", "完成"))
+        # 用上 result_ready 携带的路径：以前该参数被丢弃，状态行只说「完成」，
+        # 用户无从确认这次产出的是哪个文件
+        self.assertEqual(host.last_call("reset"), ("reset", "完成: out.wav"))
 
     def test_error_resets_and_shows(self):
         host = FakeHost()
@@ -210,6 +214,87 @@ class TestProgressAndCompletion(unittest.TestCase):
         conv.cancel_conversion()
         conv.worker.request_cancel.assert_called_once()
         self.assertIsNotNone(host.last_call("enter_cancelling"))
+
+
+class TestWorkerLifecycle(unittest.TestCase):
+    """worker 生命周期 — 转换结束后必须立刻解引用。
+
+    线程对象由 finished→deleteLater 回收，但控制器若还留着引用，
+    下一次 shutdown()/cancel_conversion() 就会撞上已销毁的 C++ 对象
+    （PySide6 抛 RuntimeError）。退出路径上一旦抛出，后面的保存配置/停引擎/
+    quit 全部不执行 → 托盘图标已隐藏、进程仍在跑。
+    """
+
+    def test_result_handlers_release_worker(self):
+        for handler, arg in (("_on_finished", "out.wav"), ("_on_error", "boom"), ("_on_cancelled", None)):
+            with self.subTest(handler=handler):
+                conv = _make_conversion(FakeHost())
+                conv.worker = mock.Mock()
+                conv._converting = True
+                if arg is None:
+                    getattr(conv, handler)()
+                else:
+                    getattr(conv, handler)(arg)
+                self.assertIsNone(conv.worker, "收尾后必须解引用，否则 shutdown 会访问已销毁对象")
+                self.assertFalse(conv.is_converting)
+
+    def test_shutdown_tolerates_deleted_worker(self):
+        """C++ 对象已被 deleteLater 销毁时 shutdown 不得抛异常。"""
+        conv = _make_conversion(FakeHost())
+        dead = mock.Mock()
+        dead.isRunning.side_effect = RuntimeError("Internal C++ object already deleted")
+        conv.worker = dead
+        conv.shutdown()  # 不抛即通过
+        self.assertIsNone(conv.worker)
+
+    def test_shutdown_cancels_running_worker(self):
+        conv = _make_conversion(FakeHost())
+        worker = mock.Mock()
+        worker.isRunning.return_value = True
+        worker.wait.return_value = True
+        conv.worker = worker
+        conv._converting = True
+        conv.shutdown()
+        worker.request_cancel.assert_called_once()
+        self.assertFalse(conv.is_converting)
+
+    def test_shutdown_without_worker_is_noop(self):
+        conv = _make_conversion(FakeHost())
+        conv.shutdown()  # 不抛即通过
+        self.assertIsNone(conv.worker)
+
+
+class TestPreviewGuard(unittest.TestCase):
+    """监听必须避开实时运行：sd.play 不指定设备，会落到 setup 改写的默认设备上。"""
+
+    def test_preview_blocked_while_realtime_running(self):
+        host = FakeHost(input_path="a.wav", running=True)
+        conv = _make_conversion(host)
+        conv._preview_active = lambda: False  # 不碰 PortAudio
+        conv.toggle_preview()
+        self.assertIn("监听会把文件直接播到输出设备", host.warnings[-1])
+        self.assertIsNone(host.last_call("previewing"))
+
+    def test_preview_blocked_while_passthrough(self):
+        host = FakeHost(input_path="a.wav")
+        host.controller.passthrough_running = True
+        conv = _make_conversion(host)
+        conv._preview_active = lambda: False
+        conv.toggle_preview()
+        self.assertIn("监听会把文件直接播到输出设备", host.warnings[-1])
+
+
+class TestCancelFeedback(unittest.TestCase):
+    def test_progress_does_not_overwrite_cancelling_status(self):
+        host = FakeHost()
+        conv = _make_conversion(host)
+        conv.worker = mock.Mock()
+        conv._converting = True
+        conv.cancel_conversion()
+        conv._on_progress(30, 100)
+        # 进度条照常更新，但状态行必须停在「正在取消...」
+        self.assertEqual(host.last_call("progress"), ("progress", 30, 100))
+        self.assertIsNone(host.last_call("status"))
 
 
 class TestDeleteOutput(unittest.TestCase):

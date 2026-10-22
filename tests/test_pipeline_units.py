@@ -272,5 +272,70 @@ class TestPitchMapBackends(unittest.TestCase):
                          "同参数同设备只该有一份常量张量")
 
 
+class TestFormantIsSessionScoped(unittest.TestCase):
+    """formant 是会话级参数：运行中改配置不得影响已建好的推理会话。
+
+    formant 经 return_length2 进合成器图的 cache key，每跨一档就要重新捕获
+    CUDA Graph（实测 585ms ≈ 108 个块），发生在音频回调线程里必然断音。
+    所以它必须在 init_processing 处快照，热路径只读 state.formant_factor。
+    """
+
+    def _runner(self, formant: float):
+        from rvc.core.config import InferenceParams
+        from rvc.pipeline.context import InferenceContext
+        from rvc.pipeline.state import EngineState
+        from rvc.streaming.runner import InferenceRunner
+
+        params = InferenceParams()
+        params.voice.formant = formant
+        pipeline = mock.Mock()
+        pipeline.state = EngineState(device="cpu", is_half=False)
+        pipeline.ctx = InferenceContext()
+        runner = InferenceRunner(pipeline, params)
+        runner.init_processing(40000, 0.25, 0.05, 0.05, 1, 40000)
+        return runner, params
+
+    def test_factor_snapshotted_at_init(self):
+        runner, _ = self._runner(1.5)
+        self.assertAlmostEqual(runner.state.formant_factor, 2 ** (1.5 / 12), places=6)
+
+    def test_runtime_change_does_not_touch_snapshot(self):
+        runner, params = self._runner(1.5)
+        before = runner.state.formant_factor
+        params.voice.formant = -2.5  # 模拟运行中拖滑块
+        self.assertEqual(runner.state.formant_factor, before,
+                         "运行中改 formant 不许改动会话快照（否则图重捕获）")
+
+    def test_stage_formant_ignores_live_config(self):
+        """state 快照为 1.0 时，即使配置里 formant=1.5 也不做重采样。"""
+        runner, params = self._runner(0.0)
+        params.voice.formant = 1.5
+        expected = (runner.state.block_samples + runner.state.sola_buffer_samples
+                    + runner.state.sola_search_samples)
+        infer = torch.zeros(expected)
+        out = runner._stage_formant(infer)
+        self.assertEqual(out.shape[0], expected)
+        self.assertIs(out, infer, "factor=1 时应原样返回，不构造重采样")
+
+
+class TestInputPitchTelemetry(unittest.TestCase):
+    """音高遥测必须是「读缓存」，不能由 GUI 触发 GPU 同步。
+
+    每读一次 `.item()` 就是一次队列排空；GUI 想刷多快就得付出多少同步代价。
+    数值改由音频线程在写完主输出（队列已排空）时取回成 float，GUI 只读它。
+    """
+
+    def test_reads_cached_float(self):
+        engine = _bare_engine(mock.Mock(), "x.pth")
+        engine._runner = mock.Mock()
+        engine._runner.state.input_pitch_hz = 123.4
+        self.assertEqual(engine.input_pitch, 123.4)
+
+    def test_no_runner_returns_zero(self):
+        engine = _bare_engine(mock.Mock(), "x.pth")
+        engine._runner = None
+        self.assertEqual(engine.input_pitch, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

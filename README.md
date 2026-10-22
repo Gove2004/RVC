@@ -4,12 +4,12 @@
 
 ## 特性
 
-- **实时变声** — 麦克风输入实时转换输出，延迟实时显示（块时长 + 推理耗时，瞬时值；与麦克风对拍实测口径一致）
+- **实时变声** — 麦克风输入实时转换输出，延迟实时显示（算法延迟 = 2×块时长 + 推理耗时，默认不含驱动层；有实测校准值时经 `driver_latency_compensation` 写入才计入）
 - **F0 双后端** — FCPE（实时首选，mel 前端为仓库内无同步复刻）与 RMVPE 可切换
 - **快速启动** — 惰性导入架构，窗口秒开（~0.3s）；torch 后台预热，首次点「开始」不卡顿
 - **CUDA Graph 加速** — HuBERT / F0 网络 / 合成器全链路图捕获（FCPE 的 mel 前端刻意 eager，见 pipeline 注释），开流前静音预热完成
 - **系统托盘** — 关闭窗口最小化到托盘（变声不中断），托盘可开始/停止变声
-- **离线推理** — 音频文件流式转换（复用实时全链路，显存封顶，任意长不 OOM）
+- **离线推理** — 音频文件流式转换（复用实时全链路，**显存**封顶不随音频变长；输出块累积在内存里，内存占用与音频时长成正比）
 - **模型训练** — 命令行向导（`app.py --train`）：环境体检 → 预处理 → F0/特征提取 → 训练 → 导出，支持 40k/48k、中断续训、按指纹跳过已完成阶段；Windows / Linux 同一套流程
 - **模型工具** — 推理 GUI「融合」/「详情」页签：模型合并、模型信息查看（选定即自动解析）
 - **音域映射** — 半音尺度线性映射（原声音域 → 目标音域），音程按恒定斜率等比缩放（k<1 时压缩音高动态，刻意行为）；超出模型音域的帧钳制到最近边界（保持有声，不变气声）
@@ -18,9 +18,12 @@
 
 ## 系统要求
 
-- **推理 GUI**：Windows 10/11（托盘依赖 Win32；ffmpeg 优先取项目内 `assets/ffmpeg/ffmpeg.exe`）
-- **训练命令行向导**：Windows / Linux 通用——ffmpeg 按环境变量 `RVC_FFMPEG` → 系统 PATH → `assets/ffmpeg/ffmpeg.exe`（仅 Windows）顺序定位
-- Python 3.13+
+- **推理 GUI**：Windows 10/11（Windows 限定来自回收站 Shell API `SHFileOperationW` 与 WASAPI 虚拟声卡用法；托盘是纯 Qt `QSystemTrayIcon`）
+- **ffmpeg 定位**（单源 `rvc/io/audio_file.py:locate_ffmpeg`）：环境变量 `RVC_FFMPEG` → 系统 PATH → 项目内 `assets/ffmpeg/ffmpeg.exe`（第三级仅 Windows）
+- **训练命令行向导**：Windows / Linux 通用（同上查找链；非 Windows 平台请走系统 PATH 或 `RVC_FFMPEG`）
+- **Python 3.13** — 开发与验证环境（3.13.7 + torch 2.11.0+cu128）。仓库没有 `pyproject.toml`
+  / `python_requires`，解释器版本不被强制；代码本身没有 3.13 专属语法，但更低版本未经实测，
+  安装依赖时若不满足 wheel 要求再回退即可
 - NVIDIA GPU（CUDA 支持；推理端无 GPU 时启动即报中文错误，无 CPU 回退——刻意行为）
 
 ## 安装
@@ -138,9 +141,9 @@ rvc/core                         # 配置/常量/异常（最底层）
 ```
 
 - `rvc/core` 无内部依赖；`rvc/` 不依赖 `gui/`，可作为库独立使用
-- `gui/` 只通过 `rvc/streaming.VoiceEngine` 与 `rvc/pipeline` 与核心交互，View 层经 Controller 取数（`snapshot()` 遥测快照），禁止直接 import rvc
+- `gui/` 的 rvc 依赖集中在 Controller / State / Configs 三层（`VoiceEngine`、`rvc.pipeline.cache`、`rvc.io.devices`、`rvc.core.config`、`rvc.train.checkpoint` 等）；View 层只用 `TYPE_CHECKING` 引用 rvc 类型，运行时不直接 import，取数一律经 Controller（如 `snapshot()` 遥测快照）
 - `rvc/train/cli/` 只通过 `rvc/train` 与训练管线交互，不依赖 `gui/`
-- 依赖方向为设计约定：单向无环，新增代码必须遵守（View 层禁 import rvc 由代码评审把关）
+- 依赖方向为设计约定：单向无环，新增代码必须遵守——由 `tests/test_layering.py` 的 AST 静态检查自动守卫（rvc 不 import gui、View 运行时不 import rvc、包级依赖必须向下且无环、新包必须先登记 `RANKS`）
 
 ### 关键数据流（实时推理）
 
@@ -162,12 +165,14 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询） |
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化；torch 与 numpy 共用**一份**数学实现，后端差异经 `_Ops` 注入） |
-| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`effects.py`（RMS 响度混合 / SOLA）、`offline.py`（离线文件的读/pad 切块/写，纯步骤可单测） |
+| `rvc/models/` | `synthesizer.py`（合成器基类 + v2 变体：带 F0 / 无 F0）、`synthesizer_encoder.py`/`synthesizer_decoder.py`/`synthesizer_flow.py`（子模块）、`hubert.py`（特征器，transformers 惰性导入）、`rmvpe/`（F0 模型子包） |
+| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（主输出写入 + 副输出块队列 `Out2Queue`）、`effects.py`（RMS 响度混合 / SOLA）、`passthrough.py`（原声直通流，不经模型）、`offline.py`（离线文件的读/pad 切块/写，纯步骤可单测） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
-| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（三级缓存 + 分桶采样 + collate）、`mel_processing.py` |
+| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（三级缓存 + 分桶采样 + collate）、`mel_processing.py`、`atomic_save.py`（中间产物原子写，避免半截文件被当成有效缓存） |
 | `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`defaults.py`（上次参数存档 → 下次默认值）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
 | `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具/回收站）+ `state/`（参数绑定）+ `configs/` + `styles/` |
-| `tests/` | 标准库 unittest（不用 pytest）。覆盖纯函数契约（Hz↔MIDI、音域映射、RMS、SOLA、F0 量化/分桶）、推理缓存与图缓存生命周期、训练链静默失败点、GUI 离屏构建与工具队列；全部无需 GPU/模型，秒级跑完 |
+| `tests/` | 标准库 unittest（不用 pytest）。覆盖纯函数契约（Hz↔MIDI、音域映射、RMS、SOLA、F0 量化/分桶）、推理缓存与图缓存生命周期、训练链静默失败点、离线块循环与副输出队列、GUI 离屏构建与工具队列，以及**分层契约**（AST 单向无环）；全部无需 GPU/模型，秒级跑完 |
+| `tools/` | 离线调试小工具（`pitch_map_demo.html` 音域映射演示页），不参与构建、不被任何代码 import |
 
 ## 设计决策（为什么）
 
@@ -176,7 +181,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 - **`load_model` 刻意不清 F0 提取器的 CUDA Graph**（历史行为已移除）— F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走淘汰侧回收，改阈值/块时长经签名 key 自动重捕获。
 - **CUDA Graph：张量走参数、标量走闭包** — 捕获/回放要求张量地址静态，标量（`skip_head` 等）若作为参数传入会用外部变量地址而非静态地址，导致声音沙哑/失真；`return_length2` 随 formant 变化、经闭包编译进图，故必须进 `graph_key`，否则错误命中旧图（输出长度错误、爆音）。
 - **GUI 侧不留长时主线程等待** — 模型工具（合并/检视）是入队 + 队列泵：正在跑就排队、调用立刻返回，由 `finished` 拉起下一项；只有退出路径允许 `wait()`（否则进程挂死）。
-- **F0 每块从完整缓冲区重提取（取前 p_len 帧）** — 旧滚动缓存方案的 F0 窗口与 HuBERT 输入窗口长度不同会错位；现在两路输入完全一致、帧天然对齐，取前 p_len 帧是特征侧（upsample 后取前 p_len 帧）的对齐要求。
+- **F0 每块重提取，但两条路径的窗口不同** — RMVPE 走整段缓冲区，取前 p_len 帧；FCPE 只算尾部 0.6s 窗口（前段 F0 永远用不上），帧数不足 p_len 时**右对齐补零**到 p_len。对齐规则写在 `_sync_f0_parallel`：整段窗口取前 p_len 帧、尾窗补零到 p_len，两者都保证末帧落在下标 `p_len-1`。
 - **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。
 - **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 把 transformers 也改成惰性导入：`import rvc.pipeline.pipeline` 从 21s（transformers→sklearn→torch._dynamo）降到 0.11s，训练 CLI 与单测都直接受益。
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
@@ -185,7 +190,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 - **训练分桶采样不丢桶尾** — 语料量不是 `batch_size` 整数倍时，旧的 `range(0, len - len % bs, bs)` 会让桶尾样本每轮都被跳过且无提示；现在把各桶尾部合并成尾批，`__len__` 与批次数严格相等（`ceil(total/bs)`）。
 - **样本读盘三级缓存** — ffmpeg 解码 → `wav.npy`；STFT → `.spec.pt`；每轮重复读取 → 进程内按字节预算的样本 LRU（默认 256MB/worker，`0` 关闭）。单样本省约 4ms，代价是显存之外的内存占用需显式预算。
 - **八层单向依赖（`gui | rvc/train/cli → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
-- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.04` 是 dataclass 字段默认值而非算法常数，故不具名化。
+- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.05` 是 dataclass 字段默认值而非算法常数，故不具名化（SOLA 缓冲实际取 `min(crossfade_samples, 50ms)`）。
 
 ## 训练
 

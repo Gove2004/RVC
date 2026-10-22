@@ -40,6 +40,7 @@ class OfflineConversion:
         self.host = host
         self.worker = None
         self._converting = False
+        self._cancelling = False
         self._preview_timer = None
 
     @property
@@ -85,11 +86,12 @@ class OfflineConversion:
         # 构建配置并启动转换（效果/音高参数统一从 GUI 状态读取，与实时一致）
         # from_inference 整体拷贝——逐字段手抄会漏新字段（protect 漏传事故）
         try:
+            # hubert 变体随 collect_gui_state 一起进来（音色页是唯一选择器），
+            # 不再单独传一次——那会造出一个并不存在的「离线独立选择器」概念
             config = OfflineParams.from_inference(
                 self.host.collect_gui_state(),
                 input_path=inp,
                 output_path=out,
-                hubert=self.host.offline_hubert_variant(),
             )
         except Exception as exc:
             logger.error("离线转换初始化失败:\n%s", traceback.format_exc())
@@ -115,11 +117,13 @@ class OfflineConversion:
 
         # 转换会覆写输出文件：先停监听（按钮置灰等 UI 三态由 enter_converting 统一收）
         self.stop_preview()
+        self._cancelling = False
         self.host.offline_enter_converting()
 
     def cancel_conversion(self) -> None:
         """请求取消当前离线转换（worker 在下一个块检查时中止）。"""
         if self.worker and self._converting:
+            self._cancelling = True
             self.worker.request_cancel()
             self.host.offline_enter_cancelling()
 
@@ -145,6 +149,13 @@ class OfflineConversion:
         if self._preview_active():
             sd.stop()
             self._stop_preview_ui()
+            return
+
+        # 实时变声/直通运行中禁止监听：engine.setup 把 sd.default.device 改成了
+        # 实时输出设备，而 sd.play 不指定 device 就走全局默认——整段原文件会被
+        # 直接播进虚拟声卡（对端听到未变声的原声），采样率不匹配时还会 -9997。
+        if self.host.controller.is_running or self.host.controller.passthrough_running:
+            self.host.show_warning("实时变声/原声直通运行中，监听会把文件直接播到输出设备，请先停止")
             return
 
         path = self._output_path()
@@ -220,33 +231,56 @@ class OfflineConversion:
         取消标志在下一个块边界被检查，故正常情况零点几秒即返回；
         仍在加载模型等长阻塞阶段时可能等到 timeout_ms，超时后照常退出，
         不让退出流程无限期卡住。
+
+        本方法是退出路径上的最后一环，**不允许抛异常**：托盘图标此时已被
+        hide，一旦异常冒出，后面的保存配置/停引擎/quit 全部不执行，表现为
+        「图标没了、窗口没了、进程还在」。
         """
         worker = self.worker
-        if worker is not None and worker.isRunning():
-            worker.request_cancel()
-            if not worker.wait(timeout_ms):
-                logger.warning("离线转换线程 %dms 内未结束（可能卡在模型加载/CUDA 调用中），继续退出", timeout_ms)
         self.worker = None
         self._converting = False
+        if worker is None:
+            return
+        try:
+            running = worker.isRunning()
+        except RuntimeError:
+            return  # C++ 对象已随 finished→deleteLater 回收
+        if not running:
+            return
+        worker.request_cancel()
+        if not worker.wait(timeout_ms):
+            logger.warning("离线转换线程 %dms 内未结束（可能卡在模型加载/CUDA 调用中），继续退出", timeout_ms)
+
+    def _release_worker(self) -> None:
+        """本次转换收尾：立刻解引用 worker。
+
+        QThread 对象的销毁由 finished→deleteLater 负责，但「还有没有 worker」
+        必须当场改回 None。否则 shutdown()/cancel_conversion() 会拿到已被
+        销毁的包装对象，isRunning() 抛 RuntimeError（PySide6 的 "Internal C++
+        object already deleted"），退出流程在中途断掉。
+        """
+        self.worker = None
+        self._converting = False
+        self._cancelling = False
 
     def _on_progress(self, current: int, total: int) -> None:
         self.host.offline_set_progress(current, total)
 
     def _on_finished(self, path: str) -> None:
         """转换完成 — 线程由 finished→deleteLater 自行回收，这里只收敛状态。"""
-        self._converting = False
-        self.host.offline_reset("完成")
+        self._release_worker()
+        self.host.offline_reset(f"完成: {os.path.basename(path)}")
         # 不调用 wait()：result_ready 在 run() 内发出，此刻线程可能尚未退出，
         # 阻塞等待会冻住 UI；对象回收交给 start_conversion 里挂的
         # finished→deleteLater（线程真正结束后才触发）。
 
     def _on_cancelled(self) -> None:
-        self._converting = False
+        self._release_worker()
         self.host.offline_reset("已取消")
 
     def _on_error(self, msg: str) -> None:
         """转换出错。"""
-        self._converting = False
+        self._release_worker()
         self.host.offline_reset("错误")
         # 与 _on_finished 一致：error 信号在 run() 内发出，此刻线程可能尚未
         # 真正退出，故不在此处析构；回收由 start_conversion 挂的

@@ -67,15 +67,30 @@ class EngineState:
 
     # ── 输入传输（pinned memory 双缓冲，CPU→GPU 异步 DMA）──
     in_pin: list | None = None  # [pin_a, pin_b] 交替使用
+    in_pin_np: list | None = None  # 上面两块 pinned 的 numpy 视图（单声道化直接写入）
     in_pin_idx: int = 0         # 当前块使用的缓冲索引
     input_gpu: torch.Tensor | None = None  # GPU 侧单声道输入暂存
 
-    # ── 输出传输（pinned memory，GPU→CPU 快速传输，与 in_pin 对称）──
+    # ── 输出传输（pinned memory，GPU→CPU 快速传输，单缓冲）──
+    # 单缓冲即可：D2H 是同步的，写完立刻被复制进设备缓冲，不存在两块在飞。
     out_pin: torch.Tensor | None = None
 
     # ── 合成器相关缓存 ──
     resample_kernel: dict = field(default_factory=dict)
     long_tensor_cache: dict = field(default_factory=dict)
+
+    # 本块的输入音高（Hz，音域映射前；全清音/无 F0 模型时为 0）。
+    # 由 runner 在「同步 D2H 写完主输出之后」取回成 Python float——
+    # 那一刻本块的 GPU 队列已经排空，.item() 几乎零等待；GUI 任何频率读取
+    # 都不会触发新的同步（早期版本由 GUI 自己 .item()，只能 5Hz 刷）。
+    input_pitch_hz: float = 0.0
+
+    # ── 会话级参数（init_processing 时快照，运行中不随 GUI 改动）──
+    # formant 因子 2^(formant/12)。它不是「每块读一次配置」的普通参数：
+    # 它决定合成器推理图的输出长度（return_length2 进 graph_key），运行中
+    # 改变会迫使音频回调线程现场重捕获 CUDA Graph——实测 585ms，相当于
+    # 108 个块的耗时，必然断音。故在 init_processing 处快照，改动下次启动生效。
+    formant_factor: float = 1.0
 
     # ── 模型缓存（ModelCache 实例）──
     inference_cache: Any = None

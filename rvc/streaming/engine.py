@@ -72,8 +72,8 @@ class VoiceEngine:
         # 单例缓存，避免多处重复获取；设备编号只在首次构造时生效（见 RuntimeDeviceConfig）
         self._cfg = RuntimeDeviceConfig(self.runtime_params.audio.device_index)
         self.pth_path = ""
-        self.sr_model = 0  # 模型目标采样率（setup 时赋值）
-        self.sr_dev = 0  # 输入设备默认采样率（setup 时赋值）
+        self.model_sr = 0  # 模型原生采样率（load_model / setup 时赋值）
+        self.device_sr = 0  # 输入设备的默认采样率（setup 时赋值，供 sr_mode="device" 用）
         # setup 会改写 sd.default.device（实时的输入/输出设备），stop 时恢复。
         # 不恢复的话，进程内其它 sounddevice 播放（离线页「监听」的 sd.play）
         # 会落到实时输出设备、以模型采样率开流——设备不接受即
@@ -102,19 +102,16 @@ class VoiceEngine:
         """当前输入音高（Hz，音域映射之前的原始值；无声/未运行为 0）。
 
         只读遥测——GUI 延迟/音高显示经此门面取数，禁止穿透 pipeline 内部状态。
-        热路径（pipeline）只留 GPU 定形统计，本属性被 GUI 读取时才在这里做
-        唯一一次 GPU→CPU 同步取值；GUI 侧刷新周期为 200ms（约 5 次/秒，
-        见 window._update_timer），该频率下 `.item()` 的同步开销可忽略。
+
+        **本属性不做任何 GPU 访问**：数值由音频线程在写完主输出后取回成
+        Python float（此刻队列已排空，.item() 零等待），这里只读缓存。
+        所以 GUI 想多快刷就多快刷，刷新频率不再反过来影响音频管线。
+        （早期实现是 GUI 线程自己 `.item()`，每次刷新都是一次强制同步，
+        因此刷新被限死在 5Hz。）
         """
         if self._runner is None:
             return 0.0
-        stat = self._runner.state.last_input_pitch_gpu
-        if stat is None:
-            return 0.0
-        pitch_sum, count = stat
-        # count==0（本块全清音）→ 0，与「无声为 0」的契约一致。
-        # clamp(min=1) 防除零，全程单次 .item() 同步。
-        return float((pitch_sum / count.clamp(min=1)).item())
+        return self._runner.state.input_pitch_hz
 
     @property
     def driver_latency_compensation(self) -> float:
@@ -155,9 +152,10 @@ class VoiceEngine:
         张量每块 copy_，本架构一直是静音捕获+真实语音回放。
         """
         with self._load_lock:
-            # 快路径必须同时比对 pth 与 hubert 变体：离线页有独立的特征器选择器，
-            # 实时页先用 chinese 加载同一 pth 后，离线改用 base 转换时会命中旧
-            # pipeline —— 整条链路静默用错特征器（音色发闷/咬字错），无任何告警。
+            # 快路径必须同时比对 pth 与 hubert 变体：变体是离线任务自带的参数
+            # （音色页选择器 → OfflineParams），可以先 chinese 转一次、再 base 转
+            # 同一个 pth。只比 pth 会命中旧 pipeline，整条链路静默用错特征器
+            # （音色发闷/咬字错），无任何告警。
             if (not force and self.pipeline and self.pth_path == pth
                     and self.pipeline.hubert_variant == hubert):
                 return self.pipeline.target_sr
@@ -178,22 +176,25 @@ class VoiceEngine:
 
     # ── 引擎启动/停止 ──
 
-    def setup(self, sr_mode, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
+    def setup(self, sr_mode, in_dev, out_dev, block_time, crossfade_time, extra_time,
+              out2_dev_idx=None):
         """启动实时变声引擎。
 
         Args:
             sr_mode: "model"（流按模型采样率跑）或 "device"（按设备默认采样率跑）；
                 与配置层 InferenceParams.audio.sr_mode 同一套词表，不做二次翻译。
+            block_time / crossfade_time / extra_time: 时长参数（秒），与
+                InferenceParams.buffer 同名字段一一对应。
         """
-        if self._streams.stream is not None:
+        if self._streams.main_stream is not None:
             self.stop()
         # 仅首次保存系统默认设备（重启引擎时 stop 已恢复为系统默认，保存值不变）
         if self._saved_default_device is None:
             self._saved_default_device = tuple(sd.default.device)
         sd.default.device = [in_dev, out_dev]
-        self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.sr_model = self.pipeline.target_sr
-        sr = self.pipeline.target_sr if sr_mode == "model" else self.sr_dev
+        self.device_sr = int(sd.query_devices(in_dev)["default_samplerate"])
+        self.model_sr = self.pipeline.target_sr
+        sr = self.model_sr if sr_mode == "model" else self.device_sr
 
         # 设备校验与日志
         self._streams.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
@@ -201,7 +202,8 @@ class VoiceEngine:
 
         # 推理运行器初始化（实时模式：预热后重置缓冲区）
         self._runner = self._make_runner(
-            sr, channels, block_t, cf_t, extra_t, self.pipeline.target_sr, reset_buffers=True)
+            sr, channels, block_time, crossfade_time, extra_time, self.model_sr,
+            reset_buffers=True)
 
         # 启动主流（显式指定设备，不依赖 sd.default.device）
         self._streams.start_main_stream(
@@ -214,22 +216,24 @@ class VoiceEngine:
         if out2_dev_idx is not None:
             self.setup_out2(out2_dev_idx)
 
-    def _make_runner(self, sr, channels, block_t, cf_t, extra_t, sr_model, *, reset_buffers=True):
+    def _make_runner(self, work_sr, channels, block_time, crossfade_time, extra_time,
+                     model_sr, *, reset_buffers=True):
         """构造并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
 
         只负责「造一个可用的 runner」，不写 self——由调用方决定挂在哪里。
 
         Args:
-            sr: 工作采样率
+            work_sr: 工作采样率（流实际跑的采样率）
             channels: 通道数
-            block_t: 块时长（秒）
-            cf_t: 交叉淡化时长（秒）
-            extra_t: 额外上下文时长（秒）
-            sr_model: 模型目标采样率
+            block_time: 块时长（秒）
+            crossfade_time: 交叉淡化时长（秒）
+            extra_time: 额外上下文时长（秒）
+            model_sr: 模型原生采样率
             reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
         """
         runner = InferenceRunner(self.pipeline, self.runtime_params)
-        runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
+        runner.init_processing(
+            work_sr, block_time, crossfade_time, extra_time, channels, model_sr)
         runner.reset_error_state()
         # 预热 10 次：职能 = GPU 升频 + cuDNN/L2 缓存热身（图捕获发生在首块
         # 缺失处，与次数无关；图跨重启复用后预热已是纯 replay，见
@@ -247,7 +251,7 @@ class VoiceEngine:
         """启动副输出流。"""
         if self._runner is None:
             raise RuntimeError("请先启动主引擎再设置副输出")
-        self._streams.start_secondary_output(
+        self._streams.start_out2_stream(
             dev_idx, self._runner.state.work_sr, self._runner.state.channels, self._runner.state.block_samples
         )
 
@@ -299,14 +303,17 @@ class VoiceEngine:
 
             # 副输出路由
             if self._streams.enable_out2:
-                self._streams.push_secondary_output(outdata)
+                self._streams.push_out2(outdata)
 
             self._runner.acknowledge_success()
         except Exception as e:
             should_stop = self._runner.handle_error(e)
+            # 先静音再打日志：这是回调线程里唯一会做格式化/文件 I/O 的地方，
+            # traceback 格式化 + 写盘可能花掉可观时间，而设备此刻正等着这块
+            # 数据。顺序反了就是「为了记错误而多丢一块」。
+            outdata[:] = 0
             logger.error("音频回调异常(%d/%d)：%s", self._runner.state.error_count, self._runner.state.max_error_count, e, exc_info=True)
 
-            outdata[:] = 0
             if should_stop:
                 self.running = False
                 if self.on_runtime_error:
@@ -332,26 +339,28 @@ class VoiceEngine:
         Args:
             cancel_cb: 可选回调，返回 True 时中止推理（抛出 CancelledError）。
         """
-        sr_model = self.pipeline.target_sr
-        wav = offline.load_audio_at_sr(task.input_path, sr_model)
+        # 离线全程按模型原生采样率跑（work_sr == model_sr），不做设备率重采样：
+        # 输出文件要和模型同域，多一次重采样只丢精度。
+        model_sr = self.pipeline.target_sr
+        wav = offline.load_audio_at_sr(task.input_path, model_sr)
 
         # 原地更新 runtime_params 字段（不替换对象引用，已创建的 runner 自动生效）
         self.runtime_params.update_from(task)
 
         # 从 task 中读取缓冲区参数，与实时 setup 保持一致
         self._runner = self._make_runner(
-            sr_model, 1,
+            model_sr, 1,
             task.buffer.block_time, task.buffer.crossfade_time, task.buffer.extra_time,
-            sr_model,
+            model_sr,
             reset_buffers=False,   # 离线不清 pipeline 缓冲，避免丢掉 pad 上下文
         )
         # 但必须重置有状态效果器（SOLA 缓冲等），避免 warmup 零块污染上下文缓存
         self._runner.effects.reset()
 
         result = offline.run_stream(
-            wav, self._runner, self._runner.state.block_samples, int(sr_model * pad_sec),
+            wav, self._runner, self._runner.state.block_samples, int(model_sr * pad_sec),
             progress_cb, cancel_cb,
         )
-        offline.write_output(result, task.output_path, sr_model)
+        offline.write_output(result, task.output_path, model_sr)
         return result
 

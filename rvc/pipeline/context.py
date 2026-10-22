@@ -25,7 +25,6 @@ class InferenceContext:
         "p_len",
         "f0_raw",
         "_f0_raw_untruncated",
-        "formant_factor",
         "return_length2",
     )
 
@@ -34,7 +33,6 @@ class InferenceContext:
         self.p_len: int = 0
         self.f0_raw: torch.Tensor | None = None
         self._f0_raw_untruncated: torch.Tensor | None = None
-        self.formant_factor: float = 1.0
         self.return_length2: int = 0
 
     def reset(self, config: InferenceParams) -> None:
@@ -43,5 +41,4 @@ class InferenceContext:
         self.p_len = 0
         self.f0_raw = None
         self._f0_raw_untruncated = None
-        self.formant_factor = 1.0
         self.return_length2 = 0

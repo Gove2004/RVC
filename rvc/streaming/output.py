@@ -14,9 +14,10 @@ def write_main_output(chunk: torch.Tensor, outdata: np.ndarray, channels: int,
                       out_pin: torch.Tensor | None = None) -> None:
     """把输出块写入硬件缓冲区。
 
-    out_pin：预分配的 pinned 中转缓冲（与输入侧 in_pin 对称）。提供且足够大时，
-    D2H 走 pinned DMA——避免每块分配 pageable 临时内存 + 慢速拷贝；
-    长度异常（超过预分配）或未提供时回退 chunk.cpu().numpy()。
+    out_pin：预分配的 pinned 中转缓冲（输出侧单缓冲，输入侧的 in_pin 才是双缓冲——
+    这里 D2H 是同步的，写完立刻被拷进设备缓冲，不存在两块在飞）。
+    提供且足够大时 D2H 走 pinned DMA，避免每块分配 pageable 临时内存 + 慢速拷贝；
+    长度超过预分配或未提供时回退 chunk.cpu().numpy()（实际不可达的防御分支）。
 
     并发安全说明：D2H 拷贝是同步的（non_blocking=False）——声卡回调线程必须
     在本函数返回前拿到数据；pinned 缓冲仅回调线程读写，无跨线程竞争。

@@ -6,7 +6,7 @@
 - extract_features（stage_features：HuBERT 特征提取；F0 原始提取也在本方法末尾启动）
   → postprocess_features（stage_f0：F0 同步/截断 + 后处理 + 特征上采样）
   → synthesize_audio（stage_synthesis）
-- formant 因子在 extract_features 中计算并存到 ctx.formant_factor，输出侧复用避免重复计算
+- formant 因子在 init_processing 时快照进 state.formant_factor（会话级参数，见 EngineState）
 
 对外接口：__init__ / load() / extract_features() / postprocess_features() / synthesize_audio()
 """
@@ -81,21 +81,21 @@ class InferencePipeline:
 
     # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
 
-    def extract_features(self, config: InferenceParams) -> torch.Tensor:
-        """stage_features：formant 因子 + HuBERT 特征提取 + F0 原始提取。
+    def extract_features(self) -> torch.Tensor:
+        """stage_features：HuBERT 特征提取 + F0 原始提取。
 
         注意：ctx.reset() 由 inference_runner 在调用本方法前执行（runner 管理 ctx 生命周期），
         本方法不再 reset ctx，只填充本阶段字段。
 
-        formant 因子计算后存到 ctx.formant_factor，供输出侧 formant 重采样复用，
-        避免 inference_runner 重复计算 pow(2, formant/12)。
+        formant 因子只从 state.formant_factor 读（init_processing 时快照）：
+        它参与 return_length2 的算术，而 return_length2 会进合成器图的 cache key，
+        运行中变化等于逼音频回调线程重捕获（实测 585ms）。本方法不再接受
+        config 参数——那会和 ctx.config 构成两个真相源。
+        这里仍把 return_length2 算好放进 ctx，供合成阶段直接使用。
 
         输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区），它是本阶段
         唯一的数据来源；`skip_head` / `return_length` 由 setup 阶段算好写入
         state（init_processing），本方法只读——不再作为参数每块重复回写。
-
-        Args:
-            config: 推理参数
 
         Returns:
             HuBERT 特征 (1, T, 768)，50fps
@@ -103,11 +103,7 @@ class InferencePipeline:
         state = self.state
         ctx = self.ctx
 
-        # formant 因子存到 ctx，输出侧复用，避免重复计算
-        formant_factor = config.voice.formant
-        factor = pow(2, formant_factor / 12)
-        ctx.formant_factor = factor
-        ctx.return_length2 = int(math.ceil(state.return_length * factor))
+        ctx.return_length2 = int(math.ceil(state.return_length * state.formant_factor))
 
         # 只提取 HuBERT 特征（50fps）。
         #
@@ -203,6 +199,7 @@ class InferencePipeline:
         state = self.state
         if not state.use_f0:
             ctx.f0_raw = None
+            ctx._f0_raw_untruncated = None
             return
 
         # 确保 F0 提取器存在（懒加载，与原逻辑一致）
@@ -246,6 +243,7 @@ class InferencePipeline:
         """
         state = self.state
         if not state.use_f0:
+            ctx._f0_raw_untruncated = None
             return
 
         # 等待 side stream 上的 F0 提取完成
@@ -268,6 +266,10 @@ class InferencePipeline:
             f0 = torch.nn.functional.pad(f0_raw, (p_len - n, 0))
 
         ctx.f0_raw = f0[None, :]
+        # 未截断的原始值是「单块临时状态」，用完即弃：留着会让 ctx 的
+        # 生命周期契约（reset 清除一切）不成立，调试/统计代码会读到陈旧 F0，
+        # 而且它是一条跨块活着的 GPU 张量引用。
+        ctx._f0_raw_untruncated = None
 
     def _stage_postprocess_f0(self, ctx: InferenceContext):
         """F0 后处理（音域映射 + 中值滤波 + 离散化）。
@@ -288,8 +290,8 @@ class InferencePipeline:
 
         # 输入音高统计（音域映射之前，非零帧平均，用于 GUI 显示）。
         # 全程定形 GPU 算子（掩码乘法 + 求和），不做布尔索引 / .item()——
-        # 那会输出数据依赖形状，每块强制同步 GPU 队列 2~3 次打断流水线；
-        # GUI 低频读取 VoiceEngine.input_pitch 时才做唯一一次同步取值。
+        # 那会输出数据依赖形状，每块强制同步 GPU 队列 2~3 次打断流水线。
+        # 取回 Python float 的唯一点在 runner 写完主输出之后（队列已排空，零等待）。
         f0_raw_flat = ctx.f0_raw.squeeze(0)
         mask = f0_raw_flat > 0
         state.last_input_pitch_gpu = ((f0_raw_flat * mask).sum(), mask.sum())
@@ -332,10 +334,11 @@ class InferencePipeline:
         """
         state = self.state
 
-        # 合成器推理
         p_len_t = cached_long_tensor(state.long_tensor_cache, ctx.p_len, state.device)
         sid = cached_long_tensor(state.long_tensor_cache, state.sid, state.device)
-        inferred_audio, _, _ = infer_synth_audio(
+
+        # 合成器推理（只回传音频：中间量在图回放时没必要 clone，见 synthesis）
+        inferred_audio = infer_synth_audio(
             state.synthesizer, feats, p_len_t,
             pitch, pitchf, sid,
             state.use_f0, state.is_half,
@@ -343,7 +346,5 @@ class InferencePipeline:
             return_length=state.return_length,
             return_length2=ctx.return_length2,
         )
-        inferred_audio = inferred_audio.squeeze(1).float()
-
-        return inferred_audio.squeeze()
+        return inferred_audio.squeeze(1).float().squeeze()
 

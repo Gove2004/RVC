@@ -54,7 +54,7 @@ class InferWindowHost(Protocol):
     _lt: "LoadThread | None"
     _loading: bool
     # 遥测 tooltip 变更缓存（内容不变不重写，避免每 tick 触发重绘）
-    _last_delay_tooltip: str
+    _last_delay_tooltip: str | None
     _last_pitch_text: str | None
     _last_error_count: int
 
@@ -160,8 +160,6 @@ class OfflineViewHost(Protocol):
     def offline_input_path(self) -> str: ...
 
     def offline_model_path(self) -> str: ...
-
-    def offline_hubert_variant(self) -> str: ...
 
     def is_engine_loading(self) -> bool:
         """模型是否正在后台加载（离线启动互斥用：加载中 is_running 仍为 False）。"""

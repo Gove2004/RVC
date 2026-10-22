@@ -10,7 +10,7 @@
     stage_f0：F0 同步/截断 + 后处理 + 特征上采样（pipeline.postprocess_features）
     stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
     stage_output：RMS 混合 + SOLA + 硬件输出
-- formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取
+- formant 因子在 init_processing 时快照进 state.formant_factor，各阶段只读
 """
 import logging
 import time
@@ -51,31 +51,31 @@ class InferenceRunner:
         # 它们是输出侧效果，不属于推理状态（pipeline 产物止于合成音频块）
         self.effects = AudioProcessor()
 
-    def init_processing(self, sr: int, block_t: float, cf_t: float, extra_t: float,
-                        channels: int, sr_model: int) -> None:
+    def init_processing(self, work_sr: int, block_time: float, crossfade_time: float,
+                        extra_time: float, channels: int, model_sr: int) -> None:
         """初始化所有缓冲区和计算参数，直接写入 EngineState。
 
         Args:
-            sr: 工作采样率
-            block_t: 块时长（秒）
-            cf_t: 交叉淡化时长（秒）
-            extra_t: 额外上下文时长（秒）
+            work_sr: 工作采样率（流实际跑的采样率，模型率或设备率之一）
+            block_time: 块时长（秒）
+            crossfade_time: 交叉淡化时长（秒）
+            extra_time: 额外上下文时长（秒）
             channels: 通道数
-            sr_model: 模型目标采样率
+            model_sr: 模型原生采样率
         """
         state = self.state
-        state.work_sr = sr
-        state.model_sr = sr_model
+        state.work_sr = work_sr
+        state.model_sr = model_sr
         state.channels = channels
-        zc = sr // 100
+        zc = work_sr // 100
         state.samples_per_centis = zc
 
         # 计算参数（对齐到 10ms 边界）
-        state.block_samples = int(np.round(block_t * sr / zc)) * zc
-        state.crossfade_samples = int(np.round(cf_t * sr / zc)) * zc
+        state.block_samples = int(np.round(block_time * work_sr / zc)) * zc
+        state.crossfade_samples = int(np.round(crossfade_time * work_sr / zc)) * zc
         state.sola_buffer_samples = min(state.crossfade_samples, 5 * zc)
         state.sola_search_samples = zc
-        state.extra_samples = int(np.round(extra_t * sr / zc)) * zc
+        state.extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
 
         state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
         state.skip_head = state.extra_samples // zc
@@ -83,6 +83,12 @@ class InferenceRunner:
         # 尾窗只有 return_length 帧进合成器；SOLA 拼接期望固定块长，输出侧
         # 按 block_samples + sola_buffer + sola_search 截齐（见 _stage_formant）。
         state.return_length = (state.block_samples + state.sola_buffer_samples + state.sola_search_samples) // zc
+
+        # formant 因子在此快照：它经 return_length2 决定合成器的图形状，运行中
+        # 改变会让音频回调线程现场重捕获 CUDA Graph（实测 585ms ≈ 108 个块），
+        # 必然断音。配置里的新值在下次 init_processing（重新启动）时生效，
+        # GUI 侧运行档位禁用该滑块，避免「改了没反应」的错觉。
+        state.formant_factor = 2.0 ** (float(self.runtime_params.voice.formant) / 12.0)
 
         # work_sr 滚动缓冲区
         n = state.extra_samples + state.crossfade_samples + state.sola_search_samples + state.block_samples
@@ -98,32 +104,38 @@ class InferenceRunner:
             torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True),
             torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True),
         ]
+        # 对应的 numpy 视图：每块单声道化直接写进 pinned，省掉一次分配与一次拷贝
+        # （pinned 张量尺寸在会话内固定，视图可以一直复用）
+        state.in_pin_np = [buf.numpy() for buf in state.in_pin]
         state.in_pin_idx = 0
 
-        # pinned memory 用于快速 GPU→CPU 传输（输出侧，与 in_pin 对称）。
-        # SOLA 输出恒为 block_samples（SOLA 期望固定长度的对齐契约），
-        # 长度异常块由 write_main_output 回退 chunk.cpu().numpy() 兜底。
+        # pinned memory 用于快速 GPU→CPU 传输（输出侧）。单缓冲即可：D2H 是
+        # 同步的，拷完立刻被复制进设备缓冲，不存在两块同时在飞。
+        # SOLA 输出恒为 block_samples（对齐契约），长度异常块由 write_main_output
+        # 回退 chunk.cpu().numpy() 兜底——该分支现在不可达，属防御而非正常路径。
         state.out_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
 
         # 重采样器（work_sr → 16k）
-        state.resampler_work_to_16k = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(state.device)
+        state.resampler_work_to_16k = TatResample(work_sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(state.device)
 
-        # 重采样器（模型采样率 → work_sr）
-        if sr_model != sr:
-            state.resampler_model_to_work = TatResample(sr_model, sr, dtype=torch.float32).to(state.device)
+        # 重采样器（模型采样率 → work_sr）。两者相同（sr_mode="model"）时不需要
+        if model_sr != work_sr:
+            state.resampler_model_to_work = TatResample(model_sr, work_sr, dtype=torch.float32).to(state.device)
         else:
             state.resampler_model_to_work = None
 
         # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（A2 单源）
         self.effects.setup(
-            sr, state.block_samples, state.sola_buffer_samples,
+            work_sr, state.block_samples, state.sola_buffer_samples,
             state.sola_search_samples, state.device,
         )
 
     def warmup(self, n: int = 2) -> None:
-        """预热推理引擎（用静音数据跑 n 次，捕获 CUDA Graph）。
+        """预热推理引擎：用静音数据跑 n 个完整块。
 
-        失败只警告不影响运行。
+        职能是 GPU 时钟爬坡 + cuDNN/L2 缓存热身。CUDA Graph 的**捕获**也发生
+        在这里——在第一个「签名未命中」的块上，与 n 的取值无关（n 只决定随后
+        还能回放几次）。失败只警告不影响运行。
         """
         state = self.state
         if self.pipeline is None or state.input_wav_16k is None:
@@ -193,7 +205,7 @@ class InferenceRunner:
             # 立刻 AttributeError 暴露，不做「静默直通」降级——那会把配置错误
             # 伪装成「能出声但没变声」，掩盖真正的故障。
             ctx.reset(self.runtime_params)
-            feats = self.pipeline.extract_features(self.runtime_params)
+            feats = self.pipeline.extract_features()
 
             # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
             pitch, pitchf, feats = self.pipeline.postprocess_features(feats)
@@ -204,7 +216,7 @@ class InferenceRunner:
             if state.resampler_model_to_work:
                 infer = state.resampler_model_to_work(infer)
 
-            # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
+            # formant 重采样 + 长度对齐（因子取自 state.formant_factor 快照）
             infer = self._stage_formant(infer)
 
             # ── stage_output：RMS + SOLA + 硬件输出 ──
@@ -225,6 +237,16 @@ class InferenceRunner:
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)
 
+            # 音高遥测取回成 Python float：放在同步 D2H 之后，本块的 GPU 队列
+            # 已经排空，.item() 几乎零等待。反过来（让 GUI 线程自己 .item()）
+            # 每一次刷新都是一次真实的队列排空——刷得越快，越会踩停音频管线。
+            stat = state.last_input_pitch_gpu
+            if stat is None:
+                state.input_pitch_hz = 0.0
+            else:
+                pitch_sum, count = stat
+                state.input_pitch_hz = float((pitch_sum / count.clamp(min=1)).item())
+
         state.infer_ms = (time.perf_counter() - t0) * 1000
 
     # ── stage_input：硬件输入 ──
@@ -240,13 +262,20 @@ class InferenceRunner:
         后续 GPU 算子在同一 stream 上，会自动等待 DMA 完成，无需显式同步。
         """
         state = self.state
-        mono = indata.mean(axis=1) if indata.ndim > 1 else indata[:]
-        mono = np.ascontiguousarray(mono)
-        n = mono.shape[0]
+        n = indata.shape[0]
         # 交替使用双缓冲
         pin = state.in_pin[state.in_pin_idx]
+        pin_np = state.in_pin_np[state.in_pin_idx]
         state.in_pin_idx ^= 1
-        pin[:n].copy_(torch.from_numpy(mono))  # CPU→pinned 内存拷贝（同步但快，内存带宽级）
+        # 直接写进 pinned 内存：indata.mean(axis=1) 会为每块新分配一个 float32
+        # 数组，再经 torch.from_numpy 拷进 pinned —— 双声道输入就是每块一次
+        # 8KB 分配 + 一次多余的 CPU→CPU 拷贝，而回调线程最不该做的就是这个。
+        if indata.ndim == 1:
+            np.copyto(pin_np[:n], indata)
+        elif indata.shape[1] == 1:
+            np.copyto(pin_np[:n], indata[:, 0])
+        else:
+            np.mean(indata, axis=1, out=pin_np[:n])
         if state.input_gpu is None or state.input_gpu.shape[0] < n:
             state.input_gpu = torch.empty(n, device=state.device, dtype=torch.float32)
         state.input_gpu[:n].copy_(pin[:n], non_blocking=True)  # 异步 DMA，CPU 不等
@@ -288,9 +317,9 @@ class InferenceRunner:
     def _stage_formant(self, infer: torch.Tensor) -> torch.Tensor:
         """formant 共振峰偏移（重采样实现）+ 长度对齐。
 
-        formant 因子从 ctx.formant_factor 读取（pipeline.extract_features 中已计算），
-        避免重复计算 pow(2, formant/12)。
-        formant=0 时直接做长度对齐返回。
+        formant 因子从 state.formant_factor 读取（init_processing 时快照），
+        不再每块读配置——那会让运行中拖动滑块触发图重捕获。
+        formant=0（factor=1）时直接做长度对齐返回。
         formant 重采样后统一对齐到 expected 长度（SOLA 期望固定长度）。
 
         Args:
@@ -300,18 +329,17 @@ class InferenceRunner:
             formant 处理 + 长度对齐后的音频
         """
         state = self.state
-        ctx = self.ctx
+
         expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
 
-        # formant 因子从 ctx 读取（pipeline.extract_features 中已计算并存入）
-        formant = self.runtime_params.voice.formant
-        if formant != 0:
+        factor = state.formant_factor
+        if factor != 1.0:
             target_sr = state.work_sr
-            upp_res = formant_resample_ratio(ctx.formant_factor, target_sr)
+            upp_res = formant_resample_ratio(factor, target_sr)
             if upp_res != target_sr // 100:
                 infer = apply_formant_resample(
                     infer[: state.return_length * upp_res],
-                    ctx.formant_factor, target_sr, state.resample_kernel, state.device,
+                    factor, target_sr, state.resample_kernel, state.device,
                 ).squeeze()
 
         # 统一长度对齐（formant 重采样可能改变长度，SOLA 期望固定长度）

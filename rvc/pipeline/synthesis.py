@@ -37,8 +37,8 @@ def infer_synth_audio(
     skip_head: int,
     return_length: int,
     return_length2: int,
-):
-    """Synthesizer 推理调用，走 CUDA Graph（如果启用）。
+) -> torch.Tensor:
+    """Synthesizer 推理调用，走 CUDA Graph（如果启用）。返回合成音频。
 
     skip_head/return_length/return_length2 是标量参数，不是张量，
     不能作为 CUDA Graph 输入，必须通过闭包捕获。
@@ -59,12 +59,15 @@ def infer_synth_audio(
         graph_key = f"synth-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
         def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
-            return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)
+            return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)[0]
     else:
         graph_key = f"synth-no-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, sid)
         def call(feats_, p_len_t_, sid_):
-            return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)
+            return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)[0]
+    # 只回传音频：infer 的 (x_mask, (z, z_p, m_p, logs_p)) 全部是块内中间量。
+    # 图回放必须 clone 输出（静态缓冲下一块就被覆写），若把整个 tuple 交出去，
+    # 每块会多拷 4 个 (1,192,T) 张量（约 1MB）——拷完立刻变垃圾。
     # 必须把 tensor inputs 传到 run_cuda_graph 里——否则 cache 不认识 tensor shape，
     # synthesize 实际从未进 graph，每次都走 eager，Python 调度开销白白浪费。
     return run_cuda_graph(synthesizer, graph_key, call, *tensor_inputs)

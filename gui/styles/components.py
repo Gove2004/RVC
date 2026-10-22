@@ -8,12 +8,15 @@ class ButtonStyles:
 
     @staticmethod
     def _button_qss(bg: str, hover: str, disabled: str, *,
-                    size: str = "", padding: str = "5px 12px",
+                    padding: str = "5px 12px",
                     font_weight: str = "bold") -> str:
-        """主/次/危险按钮共用的 QSS 模板（仅色值与字重不同）。"""
+        """主/次/危险按钮共用的 QSS 模板（仅色值与字重不同）。
+
+        刻意不接受 width/height：按钮尺寸由布局（`_pin_button_width` 等）决定，
+        在样式里写死宽高会让布局约束失效，二者迟早打架。
+        """
         return f"""
             QPushButton {{
-                {size}
                 background: {bg};
                 color: {Colors.TEXT_WHITE};
                 font-weight: {font_weight};
@@ -31,25 +34,19 @@ class ButtonStyles:
         """
 
     @classmethod
-    def primary(cls, width: int | None = None, height: int | None = None) -> str:
+    def primary(cls) -> str:
         """主要操作按钮（绿色）"""
-        size = f"width:{width}px;" if width else ""
-        size += f"height:{height}px;" if height else ""
-        return cls._button_qss(Colors.PRIMARY, Colors.PRIMARY_HOVER, Colors.PRIMARY_DISABLED, size=size)
+        return cls._button_qss(Colors.PRIMARY, Colors.PRIMARY_HOVER, Colors.PRIMARY_DISABLED)
 
     @classmethod
-    def secondary(cls, width: int | None = None, height: int | None = None) -> str:
+    def secondary(cls) -> str:
         """次要操作按钮（蓝色）"""
-        size = f"width:{width}px;" if width else ""
-        size += f"height:{height}px;" if height else ""
-        return cls._button_qss(Colors.SECONDARY, Colors.SECONDARY_HOVER, Colors.SECONDARY_DISABLED, size=size)
+        return cls._button_qss(Colors.SECONDARY, Colors.SECONDARY_HOVER, Colors.SECONDARY_DISABLED)
 
     @classmethod
-    def danger(cls, width: int | None = None, height: int | None = None) -> str:
+    def danger(cls) -> str:
         """危险操作按钮（红色）"""
-        size = f"width:{width}px;" if width else ""
-        size += f"height:{height}px;" if height else ""
-        return cls._button_qss(Colors.DANGER, Colors.DANGER_HOVER, Colors.DANGER_DISABLED, size=size)
+        return cls._button_qss(Colors.DANGER, Colors.DANGER_HOVER, Colors.DANGER_DISABLED)
 
     @staticmethod
     def path_button() -> str:
