@@ -74,6 +74,16 @@ class InferController:
         from rvc.core.config import VOLUME_MAX, VOLUME_MIN
         return VOLUME_MIN, VOLUME_MAX
 
+    @property
+    def formant_range(self) -> tuple[float, float]:
+        """性别因子滑条量程 (min, max)，单位半音。
+
+        与实时启动时图预捕获覆盖的量程是同一组常量——View 层经此取数，不直接
+        import rvc 常量。
+        """
+        from rvc.core.config import FORMANT_MAX, FORMANT_MIN
+        return FORMANT_MIN, FORMANT_MAX
+
     def list_gpus(self) -> list[str]:
         """可用的 CUDA 显卡名称列表（索引 = 显卡编号）。
 
@@ -146,6 +156,15 @@ class InferController:
         """停止引擎。"""
         if self._engine is not None:
             self.engine.stop()
+
+    def set_formant(self, formant: float) -> None:
+        """运行中调整性别因子（半音），下一块音频即生效。
+
+        引擎未构造时直接返回——不为了下发一个参数去加载 torch。
+        """
+        if self._engine is None:
+            return
+        self.engine.set_formant(formant)
 
     # ── 原声直通 ──
 

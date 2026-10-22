@@ -25,7 +25,7 @@ import torch
 from rvc.streaming import offline
 from rvc.streaming.runner import InferenceRunner
 from rvc.streaming.stream import AudioStreams
-from rvc.core.config import InferenceParams
+from rvc.core.config import FORMANT_MAX, FORMANT_MIN, InferenceParams
 from rvc.runtime import RuntimeDeviceConfig
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ class VoiceEngine:
         # 推理运行器初始化（实时模式：预热后重置缓冲区）
         self._runner = self._make_runner(
             sr, channels, block_time, crossfade_time, extra_time, self.model_sr,
-            reset_buffers=True)
+            reset_buffers=True, prewarm_formant=True)
 
         # 启动主流（显式指定设备，不依赖 sd.default.device）
         self._streams.start_main_stream(
@@ -214,7 +214,7 @@ class VoiceEngine:
             self.setup_out2(out2_dev_idx)
 
     def _make_runner(self, work_sr, channels, block_time, crossfade_time, extra_time,
-                     model_sr, *, reset_buffers=True):
+                     model_sr, *, reset_buffers=True, prewarm_formant=False):
         """构造并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
 
         只负责「造一个可用的 runner」，不写 self——由调用方决定挂在哪里。
@@ -227,6 +227,8 @@ class VoiceEngine:
             extra_time: 额外上下文时长（秒）
             model_sr: 模型原生采样率
             reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
+            prewarm_formant: 是否预捕获 formant 全量程的合成器图（只有实时需要：
+                它换来运行中拖动性别因子的零断音；离线一次转换只用一个档位）
         """
         runner = InferenceRunner(self.pipeline, self.runtime_params)
         runner.init_processing(
@@ -236,6 +238,10 @@ class VoiceEngine:
         # 缺失处，与次数无关；图跨重启复用后预热已是纯 replay，见
         # _WARMUP_ITERATIONS 注释）。换回慢机冷启动若首几秒卡顿，先查这里。
         runner.warmup(_WARMUP_ITERATIONS)
+        if prewarm_formant:
+            # 必须在主流启动前：捕获期间不能有在途回放。图缓存挂在合成器对象上，
+            # 跨 stop/start 复用，所以这段通常只在换模型后的首次启动付一次。
+            runner.prewarm_formant(FORMANT_MIN, FORMANT_MAX)
         if reset_buffers:
             runner.reset_buffers()
         # 预热完成后推理用固定张量尺寸，归还 PyTorch GPU 内存池中未用的缓存。
@@ -243,6 +249,17 @@ class VoiceEngine:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return runner
+
+    def set_formant(self, formant: float) -> None:
+        """运行中调整性别因子（半音，即滑条值），下一块生效。
+
+        只改 runner 的 formant 因子，不碰缓冲区：各档位的合成器图已在 setup 时
+        预捕获，切换就是一次纯图回放，音频回调不会被捕获阻塞。
+        未启动时直接忽略——下次 setup 的 init_processing 会从配置取当前值。
+        """
+        if self._runner is None:
+            return
+        self._runner.set_formant_factor(2.0 ** (float(formant) / 12.0))
 
     def setup_out2(self, dev_idx):
         """启动副输出流。"""

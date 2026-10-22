@@ -6,6 +6,7 @@
 - normalize_f0_to_coarse 的 torch 分支必须与 numpy 分支逐值等价，且不使用
   布尔掩码索引（数据依赖形状 → 每块强制同步 + 无法进 CUDA Graph）
 """
+import math
 import threading
 import unittest
 from unittest import mock
@@ -272,15 +273,18 @@ class TestPitchMapBackends(unittest.TestCase):
                          "同参数同设备只该有一份常量张量")
 
 
-class TestFormantIsSessionScoped(unittest.TestCase):
-    """formant 是会话级参数：运行中改配置不得影响已建好的推理会话。
+class TestFormantRuntimeAdjust(unittest.TestCase):
+    """性别因子（formant）可在变声运行中调整。
 
-    formant 经 return_length2 进合成器图的 cache key，每跨一档就要重新捕获
-    CUDA Graph（实测 585ms ≈ 108 个块），发生在音频回调线程里必然断音。
-    所以它必须在 init_processing 处快照，热路径只读 state.formant_factor。
+    formant 经 return_length2 决定合成器输出形状，每换一个整数帧数就是另一张图；
+    量程内的全部档位由 prewarm_formant 在流启动前预捕获（实测每档 0.19~0.30s，
+    全量程 ~2s），所以运行中切换只是回放另一张图，不阻塞音频回调。
+
+    配置（runtime_params）与运行态（state）之间没有隐式同步：只有显式的
+    engine.set_formant 才会改运行态，避免"改了配置就悄悄生效"这条通路。
     """
 
-    def _runner(self, formant: float):
+    def _runner(self, formant: float = 0.0):
         from rvc.core.config import InferenceParams
         from rvc.pipeline.context import InferenceContext
         from rvc.pipeline.state import EngineState
@@ -295,27 +299,141 @@ class TestFormantIsSessionScoped(unittest.TestCase):
         runner.init_processing(40000, 0.25, 0.05, 0.05, 1, 40000)
         return runner, params
 
-    def test_factor_snapshotted_at_init(self):
+    def test_factor_initialized_from_config(self):
         runner, _ = self._runner(1.5)
         self.assertAlmostEqual(runner.state.formant_factor, 2 ** (1.5 / 12), places=6)
 
-    def test_runtime_change_does_not_touch_snapshot(self):
+    def test_config_change_alone_does_not_touch_state(self):
+        """拖滑块只写 runtime_params；运行态由 engine.set_formant 显式下发。"""
         runner, params = self._runner(1.5)
         before = runner.state.formant_factor
-        params.voice.formant = -2.5  # 模拟运行中拖滑块
-        self.assertEqual(runner.state.formant_factor, before,
-                         "运行中改 formant 不许改动会话快照（否则图重捕获）")
+        params.voice.formant = -2.5
+        self.assertEqual(runner.state.formant_factor, before)
 
-    def test_stage_formant_ignores_live_config(self):
-        """state 快照为 1.0 时，即使配置里 formant=1.5 也不做重采样。"""
-        runner, params = self._runner(0.0)
-        params.voice.formant = 1.5
-        expected = (runner.state.block_samples + runner.state.sola_buffer_samples
-                    + runner.state.sola_search_samples)
-        infer = torch.zeros(expected)
+    def test_set_formant_factor_updates_state(self):
+        runner, _ = self._runner(0.0)
+        runner.set_formant_factor(2 ** (2.0 / 12))
+        self.assertAlmostEqual(runner.state.formant_factor, 2 ** (2.0 / 12), places=9)
+
+    def test_stage_formant_uses_quantized_ratio(self):
+        """重采样比例取量化后的 formant_ratio，而不是原始 formant_factor。"""
+        runner, _ = self._runner(0.0)
+        state = runner.state
+        state.formant_ratio = 36 / 31
+        expected = (state.block_samples + state.sola_buffer_samples
+                    + state.sola_search_samples)
+        infer = torch.zeros(36 * (state.block_samples // 31))
         out = runner._stage_formant(infer)
-        self.assertEqual(out.shape[0], expected)
-        self.assertIs(out, infer, "factor=1 时应原样返回，不构造重采样")
+        self.assertEqual(out.shape[0], expected, "formant 处理后必须对齐到固定块长")
+
+    def test_stage_formant_is_identity_when_ratio_is_one(self):
+        runner, _ = self._runner(0.0)
+        state = runner.state
+        state.formant_factor = 1.2          # 原始因子不为 1
+        state.formant_ratio = 1.0           # 但量化后落回基准帧数
+        expected = (state.block_samples + state.sola_buffer_samples
+                    + state.sola_search_samples)
+        infer = torch.zeros(expected)
+        self.assertIs(runner._stage_formant(infer), infer)
+
+
+class TestFormantDoesNotShiftPitch(unittest.TestCase):
+    """性别因子只该移动共振峰，不能顺带改音高。
+
+    合成器按 return_length2 帧合成时会把谐波源 interpolate 到 n*upp，这一步
+    的时长拉伸本身就把搬回 return_length 帧时的升频抵掉了；若再多乘一次
+    return_length2/return_length，音高会被抬一遍（实测 formant=+2.5 时
+    396Hz → 460Hz）。所以 pitchf 必须原样返回。
+    """
+
+    def _pitchf_for(self, ratio: float) -> torch.Tensor:
+        from rvc.core.config import InferenceParams
+        from rvc.pipeline.context import InferenceContext
+        from rvc.pipeline.pipeline import InferencePipeline
+        from rvc.pipeline.state import EngineState
+
+        pipe = InferencePipeline.__new__(InferencePipeline)
+        pipe.state = EngineState(device="cpu", is_half=False)
+        pipe.state.use_f0 = True
+        pipe.state.return_length = 31
+        pipe.state.formant_ratio = ratio
+        pipe.ctx = InferenceContext()
+        pipe.ctx.config = InferenceParams()
+        pipe.ctx.f0_raw = torch.full((1, 16), 200.0)
+        _, pitchf = pipe._stage_postprocess_f0(pipe.ctx)
+        return pitchf
+
+    def test_pitchf_is_independent_of_formant(self):
+        base = self._pitchf_for(1.0)
+        shifted = self._pitchf_for(36 / 31)
+        torch.testing.assert_close(shifted, base,
+                                   msg="formant 比例不许进入 pitchf，否则音高会跟着走")
+
+
+class TestEngineSetFormant(unittest.TestCase):
+    """engine.set_formant 是运行态的唯一写入点（GUI 经 controller 调用）。"""
+
+    def test_running_engine_receives_factor(self):
+        engine = _bare_engine(mock.Mock(), "x.pth")
+        engine._runner = mock.Mock()
+        engine.set_formant(2.0)
+        factor = engine._runner.set_formant_factor.call_args[0][0]
+        self.assertAlmostEqual(factor, 2 ** (2 / 12), places=9)
+
+    def test_not_running_is_noop(self):
+        engine = _bare_engine(mock.Mock(), "x.pth")
+        engine._runner = None
+        engine.set_formant(2.0)  # 未启动：不抛、不构造引擎
+
+
+class TestRunnerPrewarmWiring(unittest.TestCase):
+    """只有实时的 runner 需要预捕获 formant 图；离线一次转换只用一个档位。"""
+
+    def _make(self, **kwargs):
+        engine = _bare_engine(mock.Mock(target_sr=40000), "x.pth")
+        engine.runtime_params = mock.Mock()
+        with mock.patch("rvc.streaming.engine.InferenceRunner") as ctor, \
+                mock.patch("torch.cuda.is_available", return_value=False):
+            engine._make_runner(40000, 1, 0.25, 0.05, 2.5, 40000, **kwargs)
+            return ctor.return_value
+
+    def test_realtime_prewarms_after_warmup(self):
+        runner = self._make(reset_buffers=True, prewarm_formant=True)
+        runner.warmup.assert_called_once()
+        runner.prewarm_formant.assert_called_once()
+        args = runner.prewarm_formant.call_args[0]
+        from rvc.core.config import FORMANT_MAX, FORMANT_MIN
+        self.assertEqual(args, (FORMANT_MIN, FORMANT_MAX))
+
+    def test_offline_skips_prewarm(self):
+        runner = self._make(reset_buffers=False)
+        self.assertFalse(runner.prewarm_formant.called)
+
+
+class TestFormantPrewarmCoverage(unittest.TestCase):
+    """预捕获必须覆盖滑条上的每一个位置，否则拖动时仍会在回调线程补捕获。"""
+
+    def test_quantized_frames_and_ratio_agree(self):
+        from rvc.pipeline.synthesis import formant_frames
+        for factor in (0.866, 1.0, 1.1547):
+            frames, ratio = formant_frames(31, factor)
+            self.assertEqual(frames, max(1, math.ceil(31 * factor)))
+            self.assertAlmostEqual(ratio, frames / 31, places=12)
+
+    def test_every_slider_position_hits_a_prewarmed_slot(self):
+        from rvc.core.config import FORMANT_MAX, FORMANT_MIN
+        from rvc.pipeline.synthesis import formant_frames
+
+        return_length = 31
+        steps = 101  # 滑条 -2.5..2.5，步长 0.05
+        positions = [FORMANT_MIN + i * (FORMANT_MAX - FORMANT_MIN) / (steps - 1)
+                     for i in range(steps)]
+        needed = {formant_frames(return_length, 2 ** (f / 12))[0] for f in positions}
+        lo = math.ceil(return_length * 2 ** (FORMANT_MIN / 12))
+        hi = math.ceil(return_length * 2 ** (FORMANT_MAX / 12))
+        self.assertLessEqual(needed, set(range(lo, hi + 1)),
+                             "预捕获的量程必须盖住滑条能取到的全部档位")
+        self.assertGreater(len(needed), 1, "量程两端不该落在同一张图上")
 
 
 class TestInputPitchTelemetry(unittest.TestCase):

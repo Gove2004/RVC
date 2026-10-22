@@ -6,12 +6,12 @@
 - extract_features（stage_features：HuBERT 特征提取；F0 原始提取也在本方法末尾启动）
   → postprocess_features（stage_f0：F0 同步/截断 + 后处理 + 特征上采样）
   → synthesize_audio（stage_synthesis）
-- formant 因子在 init_processing 时快照进 state.formant_factor（会话级参数，见 EngineState）
+- formant 因子存于 state.formant_factor，运行中可变；其量化后的有效比例写在
+  state.formant_ratio，供输出侧重采样使用（见 EngineState）
 
 对外接口：__init__ / load() / extract_features() / postprocess_features() / synthesize_audio()
 """
 import logging
-import math
 
 import torch
 
@@ -22,7 +22,7 @@ from rvc.pipeline.cache import default_inference_cache
 from rvc.pipeline.features import extract_hubert_features, upsample_features
 from rvc.pipeline.pitch.extractor import postprocess_f0, create_f0_extractor
 from rvc.pipeline.sessions import ModelSessions
-from rvc.pipeline.synthesis import cached_long_tensor, infer_synth_audio
+from rvc.pipeline.synthesis import cached_long_tensor, formant_frames, infer_synth_audio
 from rvc.core.constants import HUBERT_SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
@@ -87,11 +87,9 @@ class InferencePipeline:
         注意：ctx.reset() 由 inference_runner 在调用本方法前执行（runner 管理 ctx 生命周期），
         本方法不 reset ctx，只填充本阶段字段。
 
-        formant 因子只从 state.formant_factor 读（init_processing 时快照）：
-        它参与 return_length2 的算术，而 return_length2 会进合成器图的 cache key，
-        运行中变化等于逼音频回调线程重捕获（实测 585ms）。本方法不接受
-        config 参数——那会和 ctx.config 构成两个真相源。
-        这里仍把 return_length2 算好放进 ctx，供合成阶段直接使用。
+        formant 因子从 state.formant_factor 读，并把「合成帧数 / 基准帧数」这一
+        量化后的有效比例写回 state.formant_ratio，供输出侧重采样使用。
+        本方法不接受 config 参数——那会和 ctx.config 构成两个真相源。
 
         输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区），它是本阶段
         唯一的数据来源；`skip_head` / `return_length` 由 setup 阶段算好写入
@@ -103,7 +101,8 @@ class InferencePipeline:
         state = self.state
         ctx = self.ctx
 
-        ctx.return_length2 = int(math.ceil(state.return_length * state.formant_factor))
+        ctx.return_length2, state.formant_ratio = formant_frames(
+            state.return_length, state.formant_factor)
 
         # 只提取 HuBERT 特征（50fps）。
         #
@@ -273,7 +272,7 @@ class InferencePipeline:
         """F0 后处理（音域映射 + 中值滤波 + 离散化）。
 
         从 ctx 读取 stage_f0 提取的原始 F0，调用 postprocess_f0 做后处理。
-        pitchf 乘以 return_length2/return_length 做 formant 缩放。
+        pitchf 原样返回：formant 的比例补偿由合成器的 n_res 插值负责，此处不参与。
 
         Returns:
             (pitch, pitchf): 离散 F0 (1, p_len)、连续 F0 (1, p_len)
@@ -302,9 +301,12 @@ class InferencePipeline:
             state.device,
             config=ctx.config,
         )
-        # formant 缩放（pitchf 需要乘以 return_length2 / return_length）
-        pitchf = pitchf * ctx.return_length2 / state.return_length
-
+        # **不要在这里乘 formant 比例**：合成器按 return_length2 帧合成时，会把
+        # 谐波源和隐变量一起 interpolate 到 n*upp（见 decoder.Generator.forward），
+        # 这一步对时长做了 L→n_res 的拉伸，恰好把重采样回 return_length 帧时的
+        # 升频抵掉。再乘一次比例会让音高再抬一遍：实测 formant=+2.5 时输出
+        # 基频 ×1.16（396Hz → 460Hz），听感上是"调性别因子顺带变了调"。
+        # 保持 pitchf 原值，音高不变、只有共振峰移动，这才是性别因子的语义。
         return pitch[None, :], pitchf[None, :]
 
     def _stage_upsample_features(self, feats: torch.Tensor) -> torch.Tensor:

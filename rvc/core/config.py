@@ -22,6 +22,12 @@ HUBERT_DEFAULT = "chinese"
 VOLUME_MIN = 0.0
 VOLUME_MAX = 2.5
 
+# 性别因子（formant）量程，单位半音。GUI 滑条量程与实时启动时的图预捕获范围
+# 都取这里——两处若各写一份，滑条改宽了而预捕获没跟上，超出部分会在音频回调
+# 线程里现场捕获（约 0.25s 断音）。
+FORMANT_MIN = -2.5
+FORMANT_MAX = 2.5
+
 
 @dataclass
 class VoiceParams:

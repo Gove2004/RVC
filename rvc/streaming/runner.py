@@ -10,7 +10,8 @@
     stage_f0：F0 同步/截断 + 后处理 + 特征上采样（pipeline.postprocess_features）
     stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
     stage_output：RMS 混合 + SOLA + 硬件输出
-- formant 因子在 init_processing 时快照进 state.formant_factor，各阶段只读
+- formant 因子可运行中调整（state.formant_factor → formant_ratio），各档位的
+  合成器图在启动时预捕获（prewarm_formant），切换即纯回放
 """
 import logging
 import time
@@ -84,11 +85,11 @@ class InferenceRunner:
         # 按 block_samples + sola_buffer + sola_search 截齐（见 _stage_formant）。
         state.return_length = (state.block_samples + state.sola_buffer_samples + state.sola_search_samples) // zc
 
-        # formant 因子在此快照：它经 return_length2 决定合成器的图形状，运行中
-        # 改变会让音频回调线程现场重捕获 CUDA Graph（实测 585ms ≈ 108 个块），
-        # 必然断音。配置里的新值在下次 init_processing（重新启动）时生效，
-        # GUI 侧运行档位禁用该滑块，避免「改了没反应」的错觉。
+        # 启动时以配置值初始化；运行中由 set_formant_factor 改写（滑条实时生效）。
+        # 每换一个 formant 档位就是另一张合成器图（输出形状随 return_length2 变），
+        # 这些图在 prewarm_formant 里按量程整段预捕获。
         state.formant_factor = 2.0 ** (float(self.runtime_params.voice.formant) / 12.0)
+        state.formant_ratio = 1.0
 
         # work_sr 滚动缓冲区
         n = state.extra_samples + state.crossfade_samples + state.sola_search_samples + state.block_samples
@@ -151,6 +152,53 @@ class InferenceRunner:
                 torch.cuda.synchronize()
         except Exception as exc:
             logger.warning("预热失败，不影响运行: %s", exc)
+
+    def prewarm_formant(self, formant_min: float, formant_max: float) -> None:
+        """预捕获 formant 全量程各档位的合成器图（必须在音频流启动前调用）。
+
+        formant 经 return_length2 决定合成器输出形状，每换一个整数帧数就是另一
+        张图。缺图时捕获发生在音频回调线程里，单张实测 0.19~0.30s（RTX 5060
+        Laptop，真实链路），对听者就是一次断音。而全量程的整数帧数只有
+        `ceil(rl*f_max) - ceil(rl*f_min) + 1` 个（250ms 块 / 40kHz → 10 个），
+        一次性把这段跑完约 2s，换来运行中拖动滑条的零开销切换。
+
+        只在流启动前调用：此刻没有在途回放，捕获不会与回放互相干扰。各档位用
+        静音输入，调用方随后 reset_buffers() 清掉静音上下文。
+
+        Args:
+            formant_min / formant_max: 量程（半音），取 FORMANT_MIN/MAX
+        """
+        state = self.state
+        if self.pipeline is None or state.input_wav_16k is None or state.return_length <= 0:
+            return
+
+        ratio = state.return_length
+        lo = int(np.ceil(ratio * 2.0 ** (formant_min / 12.0)))
+        hi = int(np.ceil(ratio * 2.0 ** (formant_max / 12.0)))
+        saved = state.formant_factor
+        frames = state.block_samples
+        indata = np.zeros((frames, state.channels), dtype=np.float32)
+        outdata = np.zeros((frames, state.channels), dtype=np.float32)
+        try:
+            with torch.inference_mode():
+                for frames_rl2 in range(max(1, lo), hi + 1):
+                    # 该档位的代表因子：ceil(rl * (rl2/rl)) 恰为 rl2
+                    state.formant_factor = frames_rl2 / ratio
+                    self.process_block(indata, outdata, frames)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+        except Exception as exc:
+            logger.warning("formant 图预捕获失败，运行中切档会在回调线程补捕获: %s", exc)
+        finally:
+            state.formant_factor = saved
+
+    def set_formant_factor(self, factor: float) -> None:
+        """更新性别因子（共振峰比例），下一块即生效。
+
+        单次属性赋值：音频回调线程每块读一次 state.formant_factor，Python 赋值
+        原子，不需要锁。目标档位的图已由 prewarm_formant 捕获，切换是纯回放。
+        """
+        self.state.formant_factor = float(factor)
 
     def reset_buffers(self) -> None:
         """重置所有缓冲区（warmup 后调用，避免静音数据污染）。"""
@@ -317,13 +365,12 @@ class InferenceRunner:
     def _stage_formant(self, infer: torch.Tensor) -> torch.Tensor:
         """formant 共振峰偏移（重采样实现）+ 长度对齐。
 
-        formant 因子从 state.formant_factor 读取（init_processing 时快照），
-        不是每块读配置——那会让运行中拖动滑块触发图重捕获。
-        formant=0（factor=1）时直接做长度对齐返回。
-        formant 重采样后统一对齐到 expected 长度（SOLA 期望固定长度）。
+        比例取自 state.formant_ratio——它是 state.formant_factor 经合成帧数取整
+        后的有效值，与 _stage_postprocess_f0 里 pitchf 的缩放严格同一个数。
+        比例 1.0（formant=0）时跳过重采样，直接做长度对齐。
 
         Args:
-            infer: 合成器输出音频（target_sr 采样率）
+            infer: 合成器输出音频（work_sr 采样率）
 
         Returns:
             formant 处理 + 长度对齐后的音频
@@ -332,7 +379,7 @@ class InferenceRunner:
 
         expected = state.block_samples + state.sola_buffer_samples + state.sola_search_samples
 
-        factor = state.formant_factor
+        factor = state.formant_ratio
         if factor != 1.0:
             target_sr = state.work_sr
             upp_res = formant_resample_ratio(factor, target_sr)

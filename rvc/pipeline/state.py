@@ -85,12 +85,18 @@ class EngineState:
     # 就多快刷，读取这个字段不触发任何 GPU 同步。
     input_pitch_hz: float = 0.0
 
-    # ── 会话级参数（init_processing 时快照，运行中不随 GUI 改动）──
-    # formant 因子 2^(formant/12)。它不是「每块读一次配置」的普通参数：
-    # 它决定合成器推理图的输出长度（return_length2 进 graph_key），运行中
-    # 改变会迫使音频回调线程现场重捕获 CUDA Graph——实测 585ms，相当于
-    # 108 个块的耗时，必然断音。故在 init_processing 处快照，改动下次启动生效。
+    # ── 性别因子（formant）──
+    # 滑条值经 engine.set_formant 写入，运行中可改：音频回调线程每块读一次，
+    # 单次属性赋值即原子生效。它的代价只在「合成器图签名」上——return_length2
+    # 决定图输出形状，换一档就是另一张图；这些档位在实时启动时已按
+    # FORMANT_MIN..FORMANT_MAX 全量预捕获（每档约 0.2s，全部 ~2s），所以运行中
+    # 拖动是纯回放切换，不断音。
     formant_factor: float = 1.0
+
+    # 量化后的有效共振峰比例（= 合成帧数 / return_length），由 pipeline 每块
+    # 按上方 factor 算出。输出侧重采样按它把合成结果拉回 return_length 帧；
+    # 用取整后的比例而不是原始 factor，重采样与合成器的帧数才严格配套。
+    formant_ratio: float = 1.0
 
     # ── 模型缓存（ModelCache 实例）──
     inference_cache: Any = None

@@ -73,6 +73,21 @@ def infer_synth_audio(
     return run_cuda_graph(synthesizer, graph_key, call, *tensor_inputs)
 
 
+def formant_frames(return_length: int, formant_factor: float) -> tuple[int, float]:
+    """formant 因子 → (合成器输出帧数, 量化后的有效共振峰比例)。
+
+    合成器按 `ceil(return_length * factor)` 帧合成、再重采样回 `return_length`
+    帧：帧率变了、时长没变，于是共振峰随比例移动而音高不变（配合 pitchf 乘
+    同一比例抵消）。取整使 formant 的有效分辨率 = 1/return_length 帧，这正是
+    「一个整数帧数对应一张 CUDA Graph」的原因——图形状由它决定。
+
+    两个返回值必须来自同一次算术：pitchf 缩放用比例、重采样用比例，若各算
+    一遍（一处 ceil、一处用原始 factor），音高会随 formant 偏移漂移 1~3%。
+    """
+    frames = max(1, int(math.ceil(return_length * formant_factor)))
+    return frames, frames / return_length
+
+
 def formant_resample_ratio(factor: float, target_sr: int) -> int:
     """formant 重采样的「上采样分母」：orig_freq，单位为 100Hz。
 

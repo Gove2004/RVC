@@ -81,11 +81,12 @@ def build_timbre_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 性别因子（formant）──
-    win.formant_slider, formant_label = create_slider_row(-2.5, 2.5, 0.05, 0.0, fmt="+.2f")
-    # 会话级参数：它决定合成器推理图的输出长度，运行中改动会让音频回调线程
-    # 现场重捕获 CUDA Graph（实测 585ms ≈ 108 个块），必然断音。运行档禁用
-    # （见 MainWindow._refresh_mode），停止后修改、下次启动生效。
-    win.formant_slider.setToolTip("性别因子（共振峰偏移）：改动在下次启动变声时生效")
+    # 量程取自引擎侧的 FORMANT_MIN/MAX：实时启动时的图预捕获按同一段量程枚举，
+    # 两处若各写一份，滑条改宽而预捕获没跟上，超出段就会在音频回调里补捕获。
+    f_min, f_max = win.controller.formant_range
+    win.formant_slider, formant_label = create_slider_row(f_min, f_max, 0.05, 0.0, fmt="+.2f")
+    win.formant_slider.setToolTip(
+        "性别因子（共振峰偏移）：变声时实时生效。数值为半音，正数偏女、负数偏男。")
     g.addWidget(QLabel("性别因子"), r, 0)
     g.addWidget(win.formant_slider, r, 1)
     g.addWidget(formant_label, r, 2)

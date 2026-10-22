@@ -416,6 +416,15 @@ class MainWindow(WindowLifecycle, QMainWindow):
         #    下拉项来自运行时探测的显卡列表）。
         self.gpu_combo.currentIndexChanged.connect(self._on_gpu_changed)
 
+        # 7. 性别因子 — BINDINGS 只负责写 runtime_params（供下次启动读），运行中
+        #    还要当场下发到引擎。未运行时什么都不做：启动路径的 init_processing
+        #    会从 runtime_params 取当前值，这里再下发一次是多余的。
+        def _on_formant_changed(_v, slider=self.formant_slider):
+            if self.controller.is_running:
+                self.controller.set_formant(slider.value())
+
+        self.formant_slider.valueChanged.connect(_on_formant_changed)
+
     def _on_output2_changed(self, text: str) -> None:
         """副输出选择变化时同步派生字段 enable_out2。"""
         from gui.state.bindings import output2_enabled
@@ -526,10 +535,8 @@ class MainWindow(WindowLifecycle, QMainWindow):
         else:
             mode = "stop"
         self.mode_toggle.set_mode(mode)
-        # 性别因子是会话级参数：它经 return_length2 决定合成器推理图的输出长度，
-        # 运行中改变会迫使音频回调线程现场重捕获 CUDA Graph（实测 585ms，
-        # 相当于 108 个块的时间），必然断音。运行档禁用，停止后修改、下次启动生效。
-        self.formant_slider.setEnabled(mode != "convert")
+        # 性别因子不随运行状态禁用：各档位的合成器图在启动时已整段预捕获
+        # （见 InferenceRunner.prewarm_formant），运行中拖动只是切换回放的图。
 
     def _reset_runtime_ui(self):
         self._timer.stop()

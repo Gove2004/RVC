@@ -180,6 +180,8 @@ rvc/core                         # 配置/常量/异常（最底层）
 - **训练数据集用 `NamedTuple` 而非 dataclass** — DataLoader 的 `pin_memory=True` 只对 namedtuple 逐元素重建并钉页（torch 内部按 `_fields` 识别）；dataclass 会被原样返回导致钉页**静默失效**，`non_blocking` 拷贝语义随之漂移。
 - **`load_model` 刻意不清 F0 提取器的 CUDA Graph** — F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走淘汰侧回收，改阈值/块时长经签名 key 自动重捕获。
 - **CUDA Graph：张量走参数、标量走闭包** — 捕获/回放要求张量地址静态，标量（`skip_head` 等）若作为参数传入会用外部变量地址而非静态地址，导致声音沙哑/失真；`return_length2` 随 formant 变化、经闭包编译进图，故必须进 `graph_key`，否则错误命中旧图（输出长度错误、爆音）。
+- **性别因子（formant）运行中可调，代价挪到启动** — `return_length2` 决定合成器的输出形状，一个整数帧数就是一张图。量程内的档位只有 10 个左右（250ms 块 / 40kHz），启动时整段预捕获约 2.5s、显存 +79MB（RTX 5060 Laptop 实测），之后拖动滑条只是切换回放的图，音频回调不产生捕获。离线转换只用一个档位，不预捕获。
+- **调 formant 不改音高** — 合成器按 `return_length2` 帧合成时会把谐波源 `interpolate` 到 `n*upp`，这次时长拉伸恰好抵掉重采样回 `return_length` 帧的升频；若再在 F0 上乘一次比例，音高会被抬一遍（实测 +2.5 档：396Hz → 460Hz）。所以 `pitchf` 原样进合成器，实测三档输出基频一致（396.04Hz）、频谱质心随档位移动（1173 → 1378 / 1031Hz）。
 - **GUI 侧不留长时主线程等待** — 模型工具（合并/检视）是入队 + 队列泵：正在跑就排队、调用立刻返回，由 `finished` 拉起下一项；只有退出路径允许 `wait()`（否则进程挂死）。
 - **F0 每块重提取，但两条路径的窗口不同** — RMVPE 走整段缓冲区，取前 p_len 帧；FCPE 只算尾部 0.6s 窗口（前段 F0 永远用不上），帧数不足 p_len 时**右对齐补零**到 p_len。对齐规则写在 `_sync_f0_parallel`：整段窗口取前 p_len 帧、尾窗补零到 p_len，两者都保证末帧落在下标 `p_len-1`。
 - **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。

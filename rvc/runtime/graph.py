@@ -24,7 +24,11 @@ from typing import Any
 
 import torch
 
-DEFAULT_GRAPH_CACHE_SIZE = 8
+# 图缓存条目上限。合成器要为每个 formant 档位各持一张图（输出形状不同），档位数
+# 随块时长增长：250ms 块 10 档、500ms 块 17 档。上限若小于档位数，预捕获的图会被
+# LRU 互相淘汰，运行中拖滑条又退回现场捕获。取 32 留出余量；条目只在真的捕获时才
+# 占显存，闲置容量本身不花任何 GPU 内存。
+DEFAULT_GRAPH_CACHE_SIZE = 32
 
 
 @dataclass(frozen=True)

@@ -53,5 +53,58 @@ class TestTabsConstruct(unittest.TestCase):
         self.assertEqual(btns, ["选择模型..."])
 
 
+class TestTimbreTabFormant(unittest.TestCase):
+    """性别因子滑条：量程来自引擎常量，且运行中不禁用。"""
+
+    def _build(self):
+        from types import SimpleNamespace
+
+        from rvc.core.config import (
+            FORMANT_MAX, FORMANT_MIN, VOLUME_MAX, VOLUME_MIN, InferenceParams,
+        )
+        from gui.view.tabs.timbre_tab import build_timbre_tab
+
+        class _Win(QWidget):
+            runtime_params = InferenceParams()
+            controller = SimpleNamespace(
+                models_dir=".",
+                formant_range=(FORMANT_MIN, FORMANT_MAX),
+                volume_range=(VOLUME_MIN, VOLUME_MAX),
+            )
+
+        win = _Win()
+        win._page = build_timbre_tab(win)   # 页容器必须保活，否则其子控件随之销毁
+        return win
+
+    def test_slider_spans_engine_range(self):
+        from rvc.core.config import FORMANT_MAX, FORMANT_MIN
+
+        win = self._build()   # 持有窗口与页容器引用：子控件随它们销毁
+        slider = win.formant_slider
+        slider.setValue(FORMANT_MIN)
+        self.assertAlmostEqual(slider.value(), FORMANT_MIN, places=6)
+        slider.setValue(FORMANT_MAX)
+        self.assertAlmostEqual(slider.value(), FORMANT_MAX, places=6)
+        slider.setValue(FORMANT_MAX + 99)   # 越界钳到量程上界
+        self.assertAlmostEqual(slider.value(), FORMANT_MAX, places=6)
+
+    def test_running_mode_does_not_disable_slider(self):
+        """变声中必须能拖性别因子——各档位的合成器图已在启动时预捕获。"""
+        from types import SimpleNamespace
+
+        from gui.view.window import MainWindow
+
+        win = MainWindow.__new__(MainWindow)
+        win._loading = False
+        win.controller = SimpleNamespace(is_running=True, passthrough_running=False)
+        win.mode_toggle = SimpleNamespace(set_mode=lambda _m: None)
+
+        def _boom(_v):
+            raise AssertionError("变声运行中不许禁用性别因子滑条")
+
+        win.formant_slider = SimpleNamespace(setEnabled=_boom)
+        win._refresh_mode()
+
+
 if __name__ == "__main__":
     unittest.main()
