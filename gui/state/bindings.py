@@ -47,6 +47,10 @@ BINDINGS = [
     ("buffer.extra_time", "extra_time_slider", FLOAT),
     # ── 音频设备参数（audio.*）──
     ("audio.sr_mode", "sr_model_radio", RADIO_SR),
+    # hostapi 必须排在三个设备下拉框之前：apply_params 依序回填，hostapi 的
+    # currentTextChanged 触发按驱动重扫重填，其后 input/output 的回填才能在
+    # 正确的设备列表里命中存档中的名字（BINDINGS 表内顺序即回填顺序）
+    ("audio.hostapi", "hostapi_combo", COMBO),
     ("audio.input_device", "input_combo", COMBO),
     ("audio.output_device", "output_combo", COMBO),
     ("audio.output2_device", "output2_combo", COMBO),

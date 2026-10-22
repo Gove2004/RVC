@@ -139,5 +139,23 @@ class TestF0ThresholdHelpers(unittest.TestCase):
         self.assertTrue(output2_enabled("HDMI 电视"))
 
 
+class TestBindingsOrdering(unittest.TestCase):
+    """BINDINGS 表内顺序即 apply_params 的回填顺序，某些绑定存在顺序约束。"""
+
+    def test_hostapi_precedes_device_combos(self):
+        """hostapi 必须先于 input/output 回填。
+
+        apply_params 依序执行：hostapi 的 currentTextChanged 触发按驱动
+        重扫重填，其后 input/output 的回填才能在正确的设备列表里命中
+        存档中的名字。顺序颠倒会让设备回填全部落空（静默回落首项）。
+        """
+        from gui.state.bindings import BINDINGS
+
+        paths = [path for path, _w, _k in BINDINGS]
+        ha, inp, outp = paths.index("audio.hostapi"), paths.index("audio.input_device"), paths.index("audio.output_device")
+        self.assertLess(ha, inp)
+        self.assertLess(ha, outp)
+
+
 if __name__ == "__main__":
     unittest.main()
