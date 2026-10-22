@@ -9,6 +9,10 @@ import unittest
 from gui.state.bindings import (
     GROUP_NAMES,
     TOP_LEVEL_FIELDS,
+    f0_active_threshold,
+    f0_store_threshold,
+    f0_threshold_label,
+    output2_enabled,
     params_from_dict,
     params_to_dict,
 )
@@ -104,6 +108,36 @@ class TestParamsCopy(unittest.TestCase):
         self.assertEqual(p.f0.method, d.f0.method)
         self.assertEqual(p.buffer.block_time, d.buffer.block_time)
         self.assertEqual(p.hubert, d.hubert)
+
+
+class TestF0ThresholdHelpers(unittest.TestCase):
+    """bindings 的 F0 阈值单源 helper —— 四处消费点（apply/collect/window 信号
+    与方法切换）共用同一逻辑，这里锁定行为防漂移。"""
+
+    def test_active_threshold_follows_method(self):
+        p = _non_default()  # method=fcpe, rmvpe=0.04, fcpe=0.02
+        self.assertEqual(f0_active_threshold(p), 0.02)
+        p.f0.method = "rmvpe"
+        self.assertEqual(f0_active_threshold(p), 0.04)
+
+    def test_store_threshold_targets_active_method_only(self):
+        p = _non_default()
+        f0_store_threshold(p, 0.09)
+        self.assertEqual(p.f0.fcpe_confidence_threshold, 0.09)
+        self.assertEqual(p.f0.rmvpe_threshold, 0.04)  # 非活动方法不受影响
+        p.f0.method = "rmvpe"
+        f0_store_threshold(p, 0.07)
+        self.assertEqual(p.f0.rmvpe_threshold, 0.07)
+        self.assertEqual(p.f0.fcpe_confidence_threshold, 0.09)
+
+    def test_threshold_labels(self):
+        self.assertEqual(f0_threshold_label("rmvpe"), "RMVPE 阈值")
+        self.assertEqual(f0_threshold_label("fcpe"), "FCPE 阈值")
+
+    def test_output2_enabled(self):
+        self.assertFalse(output2_enabled(""))
+        self.assertFalse(output2_enabled("不使用"))
+        self.assertTrue(output2_enabled("HDMI 电视"))
 
 
 if __name__ == "__main__":
