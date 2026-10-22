@@ -36,7 +36,8 @@ def save_checkpoint_pair(g_model, g_opt, d_model, d_opt, learning_rate: float,
 
     先写完两个 .tmp 再连续 os.replace——把「G 已落、D 未落」的中断窗口从
     一次 torch.save（数十秒）压缩到两次 replace（微秒）。若中断仍恰好落在
-    替换之间，会留下单边孤儿文件，由 prune_orphan_checkpoints 在下次训练前清理。
+    替换之间，会留下单边孤儿 .pth 与 *.pairtmp 残骸，由
+    prune_orphan_checkpoints 在下次训练前一并清理。
     """
     save_checkpoint(g_model, g_opt, learning_rate, epoch, g_path + ".pairtmp")
     save_checkpoint(d_model, d_opt, learning_rate, epoch, d_path + ".pairtmp")
@@ -122,14 +123,26 @@ def prune_keep_latest(dir_path, pattern: str, keep: int, epoch_of=checkpoint_epo
 
 
 def prune_orphan_checkpoints(exp_dir: str | Path) -> int:
-    """删除只有 G 或只有 D 的孤儿 checkpoint（保存中断残留），返回删除数。
+    """删除孤儿 checkpoint 与中断残留的临时文件，返回删除数。
 
-    孤儿会同时污染淘汰逻辑（新训低 epoch 被删、陈旧孤儿永存）与续训起点
-    （_detect_ckpt_epoch 按 min(G, D) 取 epoch），必须在检测前清理。
+    孤儿（只有 G 或只有 D）会同时污染淘汰逻辑（新训低 epoch 被删、陈旧孤儿永存）
+    与续训起点（_detect_ckpt_epoch 按 min(G, D) 取 epoch），必须在检测前清理。
+
+    临时文件（*.pairtmp / *.pairtmp.tmp）是成对保存被中断的残骸：它们不以 .pth
+    结尾，G/D 配对扫描对它们完全盲，每中断一次就泄漏 1~2 个模型大小的文件
+    （G + 优化器状态，数百 MB 级），随中断次数线性累积。任何 pairtmp 都无保留价值。
     """
     directory = checkpoints_dir(Path(exp_dir))
     if not directory.is_dir():
         return 0
+
+    removed = 0
+    for tmp in directory.glob("*.pairtmp*"):
+        try:
+            tmp.unlink()
+            removed += 1
+        except OSError:
+            logger.warning("中断残留文件删除失败（跳过）: %s", tmp)
 
     def _by_epoch(prefix: str) -> dict:
         return {
@@ -138,7 +151,6 @@ def prune_orphan_checkpoints(exp_dir: str | Path) -> int:
         }
 
     g, d = _by_epoch("G"), _by_epoch("D")
-    removed = 0
     for e in set(g) - set(d):
         g[e].unlink(missing_ok=True)
         removed += 1
@@ -146,7 +158,7 @@ def prune_orphan_checkpoints(exp_dir: str | Path) -> int:
         d[e].unlink(missing_ok=True)
         removed += 1
     if removed:
-        logger.warning("清理孤儿 checkpoint（G/D 只剩单边的中断残留）: %d 个", removed)
+        logger.warning("清理孤儿 checkpoint / 中断残留: %d 个", removed)
     return removed
 
 

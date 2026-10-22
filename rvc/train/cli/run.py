@@ -11,6 +11,7 @@ import os
 import sys
 import warnings
 
+from rvc.core.config import HUBERT_DEFAULT
 from rvc.runtime.paths import PROJECT_ROOT, TRAIN_LOGS_ROOT
 
 from rvc.train.cli import (
@@ -107,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             log.log(f"切片与素材一致，跳过预处理（要重建请删 {exp_dir / 'manifest.json'}）")
 
         if not STOP.requested:
-            hubert = cfg.get("hubert", "chinese")
+            hubert = cfg.get("hubert", HUBERT_DEFAULT)
             if _features_ready(exp_dir, hubert):
                 log.log("F0 与 HuBERT 特征已完整，跳过提取")
             else:

@@ -17,6 +17,11 @@ def _atomic_write(path: str | Path, writer: Callable[[Any], None]) -> None:
     """原子写通用骨架：写 .tmp 后 os.replace 到目标路径。
 
     writer 接收已打开的二进制文件对象，负责序列化。
+
+    并发前提：tmp 文件名是**固定**的（path + ".tmp"），因此本函数只保证
+    「同一路径不被并发写」时的原子性——两个进程同时写同一目标会互相截断
+    同一个 tmp。现有调用面满足该前提（batch 内 index 唯一、提取阶段单进程），
+    新增并发调用方时必须改成唯一 tmp 名。
     """
     path = Path(path)
     tmp = path.with_suffix(path.suffix + ".tmp")

@@ -4,6 +4,7 @@
 """
 import hashlib
 import json
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -29,6 +30,8 @@ from rvc.core.constants import (
 from rvc.io.audio_file import load_audio as _load_audio_lib
 from rvc.io.wav_file import write_wav
 from rvc.train.checkpoint import CHECKPOINT_DIR_NAME
+
+logger = logging.getLogger(__name__)
 
 _MANIFEST_NAME = "manifest.json"
 _MANIFEST_PENDING = "manifest.json.pending"
@@ -145,10 +148,12 @@ class PreProcessor:
         # sorted 保证文件序号（切片文件名 {index}_{idx}.wav）确定性——中断后重跑
         # 才能得到同样的命名，不会留下新旧混排的半套产物
         files = sorted(p for p in self.input_dir.rglob("*") if p.suffix.lower() in AUDIO_EXTS)
+        done = 0
         for i, path in enumerate(files, 1):
             if stop_check is not None and stop_check():
                 break
             self._process_file(path, i)
+            done += 1
             if progress_callback:
                 progress_callback(i, len(files))
         # 全部切片完成（未被中止）才把 pending 转正。manifest.json 的语义 =
@@ -158,7 +163,8 @@ class PreProcessor:
             pending = self.exp_dir / _MANIFEST_PENDING
             if pending.exists():
                 os.replace(pending, self.exp_dir / _MANIFEST_NAME)
-        return len(files)
+        # 返回实际处理条数（中止时 ≠ 全量），与 F0/特征提取步骤同口径
+        return done
 
     def _prepare_exp_dir(self):
         # 预处理指纹 = (input_dir, input_hash, sr, per)：与上次不一致则清空
@@ -167,7 +173,17 @@ class PreProcessor:
         current = build_exp_manifest(self.input_dir, self.sr, self.per)
         manifest_path = self.exp_dir / _MANIFEST_NAME
         previous = _load_manifest(manifest_path)
-        if previous is not None:
+        if previous is None:
+            # 无 manifest 但目录里已有运行时产物，三种来路：首次预处理被中断
+            # （manifest 只在完整跑完时转正）、用户按 CLI 提示「要重建就删
+            # manifest.json」操作、目录被手工改过。三种都必须重来——旧切片按
+            # 文件名序号（{file_index}_{idx}）编号，源文件集合一变就与新切片错位，
+            # 而 _features_ready 只看 stem 配对，旧 wav + 旧 npy 会静默混入
+            # filelist 参与训练（波形与特征不对应，音色劣化且无任何告警）。
+            if any((self.exp_dir / name).exists() for name in _RUNTIME_DIRS):
+                logger.warning("实验目录有预处理产物但无 manifest.json，判定指纹未知，清空重建")
+                clear_exp_runtime(self.exp_dir)
+        else:
             previous_key = {k: previous.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
             current_key = {k: current.get(k) for k in ("input_dir", "input_hash", "sr", "per")}
             if previous_key != current_key:
@@ -193,21 +209,39 @@ class PreProcessor:
                 if len(chunk) < self.sr:
                     break
                 chunk = normalize_audio(chunk)
-                name = f"{file_index}_{idx}.wav"
-                write_wav(self.gt_dir / name, chunk, self.sr, subtype="FLOAT")
-                chunk16 = signal.resample(chunk, int(len(chunk) * HUBERT_SAMPLE_RATE / self.sr)) if self.sr != HUBERT_SAMPLE_RATE else chunk
-                write_wav(self.wav16k_dir / name, chunk16, HUBERT_SAMPLE_RATE, subtype="FLOAT")
-                idx += 1
+                if chunk.size == 0:
+                    # 坏样本（峰值 > BAD_SAMPLE_PEAK，削波失真）：normalize_audio 返回空
+                    # 数组。绝不能落盘——空 wav 只有 44 字节头，后续 16k 重采样会拿到
+                    # 长度 0，报错与真实原因（坏样本）毫无关联，排查成本极高。
+                    logger.warning(
+                        "跳过坏样本切片（峰值超过 %.1f）: %s 第 %d 段",
+                        BAD_SAMPLE_PEAK, path.name, idx,
+                    )
+                else:
+                    name = f"{file_index}_{idx}.wav"
+                    write_wav(self.gt_dir / name, chunk, self.sr, subtype="FLOAT")
+                    # 16k 副本供 HuBERT/F0 使用。用 resample_poly（多相 FIR）而非
+                    # signal.resample（FFT 法）：非整数比下 FFT 法会有频谱纹波与
+                    # 循环卷积边界效应，而这里是训练特征的上游输入。
+                    chunk16 = (
+                        signal.resample_poly(chunk, HUBERT_SAMPLE_RATE, self.sr)
+                        if self.sr != HUBERT_SAMPLE_RATE else chunk
+                    )
+                    write_wav(self.wav16k_dir / name, chunk16, HUBERT_SAMPLE_RATE, subtype="FLOAT")
+                    idx += 1
                 if start + chunk_len >= len(piece):
                     break
                 start += chunk_len - overlap
 
 
 def normalize_audio(wav: np.ndarray):
-    """峰值归一化并混回部分原始动态；峰值过高视为坏样本直接丢弃。
+    """峰值归一化并混回部分原始动态；峰值过高视为坏样本，返回**空数组**表示丢弃。
 
     参数单源 rvc/core/constants.py（NORMALIZE_PEAK_DEFAULT / NORMALIZE_DYNAMIC_MIX /
     BAD_SAMPLE_PEAK），影响训练素材的字面量不散落。
+
+    ⚠️ 调用方必须检查返回长度：本函数只标记「该丢」，不负责跳过——
+    _process_file 见 size == 0 时不落盘（落空 wav 会让下游在无关的地方炸）。
     """
     wav = wav.astype(np.float32)
     peak = np.abs(wav).max()

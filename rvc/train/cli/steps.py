@@ -63,8 +63,9 @@ def step_preprocess(log: TrainLogger, cfg: dict):
     count = processor.run(_make_progress(log, "预处理"), stop_check=lambda: STOP.requested)
     secs = time.time() - t0
     if STOP.requested:
-        log.log("预处理被中止（已完成的切片保留，manifest 未转正，下次会重新预处理）", "WARN")
-    log.log(f"预处理完成：{count} 个源文件，用时 {_human_dur(secs)}")
+        log.log(f"预处理被中止：实际完成 {count} 个源文件（manifest 未转正，下次会重新预处理）", "WARN")
+    else:
+        log.log(f"预处理完成：{count} 个源文件，用时 {_human_dur(secs)}")
 
     gt = sorted((exp_dir / "0_gt_wavs").glob("*.wav"))
     if gt:

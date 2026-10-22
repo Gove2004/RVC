@@ -144,7 +144,8 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             return torch.from_numpy(np.load(cache_path)).unsqueeze(0)
         wav, _sr = load_audio(filename, target_sr=self.sampling_rate, mono=True, ffmpeg_exe=self.ffmpeg_exe)
         self.spec_cache_dir.mkdir(parents=True, exist_ok=True)
-        # 原子写：多 worker 并发补缓存时不留半写文件
+        # 原子写：中断不留半写缓存（tmp 名固定，依赖「同一路径不并发写」前提，
+        # 见 atomic_save._atomic_write 的并发说明）
         save_npy_atomic(cache_path, wav.astype(np.float32))
         return torch.from_numpy(wav).unsqueeze(0)
 
@@ -213,12 +214,19 @@ class TextAudioCollateMultiNSFsid:
 
 
 class BucketSampler(Sampler):
+    _BUCKET_STEP = 100
+
     def __init__(self, dataset: TextAudioLoaderMultiNSFsid, batch_size: int):
         self.dataset = dataset
         self.batch_size = batch_size
-        # 边界表从有效长度范围单源推导（步长 100）：_filter 放进来的样本
-        # 必然落入某个桶，不会出现「进了数据集却被 sampler 全部跳过」的漂移
-        self.boundaries = list(range(TRAIN_FRAME_MIN, TRAIN_FRAME_MAX + 1, 100))
+        # 边界表从有效长度范围单源推导，**右端封闭**：bisect_right 返回的是
+        # 「第一个 > length 的边界下标」，要让 TRAIN_FRAME_MAX 恰好落进最后一个桶，
+        # 必须有一个严格大于它的边界。所以上界取 MAX + STEP 而非常见的 MAX + 1 段。
+        # （历史 bug：range(MIN, MAX+1, STEP) 的末元素 = MAX，length == MAX 的样本
+        # 进得了数据集、却算出桶下标 == 桶数而被静默丢弃，警告文案还自相矛盾。）
+        self.boundaries = list(range(
+            TRAIN_FRAME_MIN, TRAIN_FRAME_MAX + self._BUCKET_STEP + 1, self._BUCKET_STEP,
+        ))
         self.buckets = self._create_buckets()
 
     def _create_buckets(self):
@@ -232,7 +240,11 @@ class BucketSampler(Sampler):
                 assigned += 1
                 buckets[bucket_idx].append(idx)
         if dropped := total - assigned:
-            logger.warning("BucketSampler：%d/%d 样本被跳过（长度超出范围 [%d, %d]）", dropped, total, self.boundaries[0], self.boundaries[-1])
+            # boundaries[-1] 是开区间右端（不含），有效上界是它减一
+            logger.warning(
+                "BucketSampler：%d/%d 样本被跳过（长度超出范围 [%d, %d]）",
+                dropped, total, self.boundaries[0], self.boundaries[-1] - 1,
+            )
         return [bucket for bucket in buckets if bucket]
 
     def _bisect(self, length: int):

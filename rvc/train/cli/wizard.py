@@ -74,7 +74,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
                          check=_dir_ok)).expanduser()
     files = _scan_audio(input_dir)
     _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe)
-    _require_ffmpeg(log, files)
+    _require_ffmpeg(log, files, ffmpeg_exe=ffmpeg_exe)
 
     # 2) 产物根目录（实验目录与导出模型目录都在其下；默认按平台自适应）
     root_default = Path(defaults["output_root"])

@@ -169,17 +169,22 @@ def _probe_ffmpeg(log: TrainLogger) -> str | None:
     return chosen
 
 
-def _require_ffmpeg(log: TrainLogger, files: list[Path]):
-    """素材里有非原生格式却没有 ffmpeg → 直接失败。"""
+def _require_ffmpeg(log: TrainLogger, files: list[Path], ffmpeg_exe: str | None = None):
+    """素材里有非原生格式却没有**可用的** ffmpeg → 直接失败。
+
+    判定用体检阶段 _probe_ffmpeg 的结论（它做过 -version 实跑验证），
+    不在此处重新 locate：定位得到不等于能跑，损坏/权限不足的 ffmpeg 会在
+    预处理中途才以 AudioLoadError 炸出来，报错与真实原因相距很远。
+    """
     foreign = [p for p in files if p.suffix.lower() not in NATIVE_EXTS]
     if not foreign:
         log.log(f"素材格式    : 全部为 wav/flac/ogg（libsndfile 可直接读取，{len(files)} 个）")
         return
-    if _locate_ffmpeg()[0]:
-        log.log(f"素材格式    : 含 {len(foreign)} 个需 ffmpeg 解码的文件（如 {foreign[0].name}），已定位 ffmpeg")
+    if ffmpeg_exe:
+        log.log(f"素材格式    : 含 {len(foreign)} 个需 ffmpeg 解码的文件（如 {foreign[0].name}），已定位可用 ffmpeg")
         return
     raise EnvFatal(
-        f"素材里有 {len(foreign)} 个非 wav/flac/ogg 文件（如 {foreign[0].name}），但没找到 ffmpeg。\n"
+        f"素材里有 {len(foreign)} 个非 wav/flac/ogg 文件（如 {foreign[0].name}），但没有可用的 ffmpeg。\n"
         "  Windows：winget install ffmpeg（或把 ffmpeg.exe 放进 assets/ffmpeg/）\n"
         "  Linux：apt install -y ffmpeg（或 conda install -c conda-forge ffmpeg）"
     )

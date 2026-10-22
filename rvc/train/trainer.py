@@ -70,7 +70,8 @@ class Trainer:
                 setattr(self, attr, None)
         torch.cuda.empty_cache()
 
-    def checkpoints_dir(self) -> Path:
+    def _checkpoint_dir(self) -> Path:
+        """本实验的 checkpoint 目录（避免与模块函数 checkpoint.checkpoints_dir 同名遮蔽）。"""
         return checkpoints_dir(self.cfg.exp_dir)
 
     def log(self, message: str):
@@ -99,7 +100,7 @@ class Trainer:
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
 
-        ckpt_dir = str(self.checkpoints_dir())
+        ckpt_dir = str(self._checkpoint_dir())
         latest_g = latest_checkpoint_path(ckpt_dir, "G")
         latest_d = latest_checkpoint_path(ckpt_dir, "D")
         if latest_g and latest_d:
@@ -214,30 +215,38 @@ class Trainer:
             self.scaler.step(self.optim_g)
             self.scaler.update()
 
+            # 先取标量再共用：每次 .item() 都是一次 GPU→CPU 同步，回调与 epoch
+            # 累计原先各取一遍（每 batch 共 11 次同步）。同一 tensor 只同步一次。
+            loss_d_v = loss_disc.item()
+            loss_g_v = loss_gen.item()
+            loss_mel_v = loss_mel.item()
+            loss_kl_v = loss_kl.item()
+            loss_fm_v = loss_fm.item()
+
             if self.loss_callback:
                 # 每 batch 都上报（消费方自行汇总/节流）——小数据集一个 epoch 可能
                 # 只有几个 batch，任何门槛都会让整个 epoch 看不到 loss
                 self.loss_callback({
                     "epoch": epoch,
                     "batch": batch_idx,
-                    "loss_d": loss_disc.item(),
+                    "loss_d": loss_d_v,
                     # G = 纯对抗分量，与上游 train.py loss_gen 口径一致（可逐字段对表）；
                     # loss_gen_all（对抗+FM+Mel+KL 的 backward 总目标）另以 loss_total 上报。
-                    "loss_g": loss_gen.item(),
+                    "loss_g": loss_g_v,
                     "loss_total": loss_gen_all.item(),
-                    "loss_mel": loss_mel.item(),
-                    "loss_kl": loss_kl.item(),
-                    "loss_fm": loss_fm.item(),
+                    "loss_mel": loss_mel_v,
+                    "loss_kl": loss_kl_v,
+                    "loss_fm": loss_fm_v,
                 })
 
             if self.batch_callback:
                 self.batch_callback(epoch, batch_idx, total_batches)
 
-            g_sum += loss_gen.item()  # 纯对抗（loss_gen_all 不进 epoch 平均，口径同上）
-            mel_sum += loss_mel.item()
-            kl_sum += loss_kl.item()
-            fm_sum += loss_fm.item()
-            d_sum += loss_disc.item()
+            g_sum += loss_g_v  # 纯对抗（loss_gen_all 不进 epoch 平均，口径同上）
+            mel_sum += loss_mel_v
+            kl_sum += loss_kl_v
+            fm_sum += loss_fm_v
+            d_sum += loss_d_v
             loss_count += 1
 
         n = max(loss_count, 1)
@@ -245,7 +254,7 @@ class Trainer:
 
     def _save(self, epoch: int):
         """保存 checkpoint 并导出可用模型，随后按保留策略清理旧文件。"""
-        ckpt_dir = self.checkpoints_dir()
+        ckpt_dir = self._checkpoint_dir()
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         save_checkpoint_pair(
