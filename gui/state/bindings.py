@@ -1,7 +1,7 @@
 """GUI 控件 ↔ InferenceParams 字段绑定。
 
-滑动条直接绑定 InferenceParams 的分组字段，
-valueChanged 时自动更新参数对象，不再需要 collect/apply 双向搬运。
+双向通路：BINDINGS 表驱动 apply_params（配置加载 → 控件回填）与
+collect_params（保存配置 → 从控件收集），collect/apply 都在本模块。
 
 新增参数时改动点：
 1. rvc/core/config.py 对应分组 dataclass 加字段
@@ -27,7 +27,13 @@ COMBO = "combo"
 PATH = "path"
 RADIO_F0 = "radio_f0"
 RADIO_SR = "radio_sr"
-CHECK = "check"
+
+# 序列化分组名与派生字段（params_from_dict / params_to_dict / 测试共用单源）
+GROUP_NAMES = ("voice", "f0", "buffer", "audio")
+# 派生属性，不参与 dict 序列化（enable_out2 由 output2_device 计算）
+DERIVED_FIELDS = frozenset({"enable_out2"})
+# 顶层字段
+TOP_LEVEL_FIELDS = ("rms_mix", "volume", "model_path", "hubert")
 
 # 状态字段 schema：(分组路径, window 控件属性名, 读写方式)
 # 分组路径用点号分隔，如 "voice.formant"、"buffer.block_time"
@@ -37,7 +43,7 @@ BINDINGS = [
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
     # ── F0 参数（f0.*）──
-    ("f0.method", "f0_rmvp_btn", RADIO_F0),
+    ("f0.method", "f0_rmvpe_btn", RADIO_F0),
     # ── 缓冲区参数（buffer.*）──
     ("buffer.block_time", "block_time_slider", FLOAT),
     ("buffer.crossfade_time", "crossfade_slider", FLOAT),
@@ -88,15 +94,13 @@ def params_from_dict(state: dict) -> InferenceParams:
     特殊字段：enable_out2 是 output2_device 的派生属性，device_index 转 int。
     """
     params = InferenceParams()
-    _GROUP_NAMES = ("voice", "f0", "buffer", "audio")
-    _DERIVED_FIELDS = {"enable_out2"}  # 派生属性，不从 dict 读取
 
-    for group_name in _GROUP_NAMES:
+    for group_name in GROUP_NAMES:
         group_data = state.get(group_name, {})
         group = getattr(params, group_name)
         defaults = getattr(_DEFAULTS, group_name)
         for field_name in group.__dataclass_fields__:
-            if field_name in _DERIVED_FIELDS:
+            if field_name in DERIVED_FIELDS:
                 continue
             value = group_data.get(field_name, getattr(defaults, field_name))
             setattr(group, field_name, value)
@@ -107,7 +111,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     params.audio.device_index = int(params.audio.device_index)
 
     # 顶层字段（rms_mix/volume/model_path/hubert）
-    for field_name in ("rms_mix", "volume", "model_path", "hubert"):
+    for field_name in TOP_LEVEL_FIELDS:
         setattr(params, field_name, state.get(field_name, getattr(_DEFAULTS, field_name)))
     return params
 
@@ -118,18 +122,16 @@ def params_to_dict(params: InferenceParams) -> dict:
     派生字段 enable_out2 不持久化（从 output2_device 计算）。
     """
     result = {}
-    _GROUP_NAMES = ("voice", "f0", "buffer", "audio")
-    _DERIVED_FIELDS = {"enable_out2"}
 
-    for group_name in _GROUP_NAMES:
+    for group_name in GROUP_NAMES:
         group = getattr(params, group_name)
         result[group_name] = {
             field_name: getattr(group, field_name)
             for field_name in group.__dataclass_fields__
-            if field_name not in _DERIVED_FIELDS
+            if field_name not in DERIVED_FIELDS
         }
 
-    for field_name in ("rms_mix", "volume", "model_path", "hubert"):
+    for field_name in TOP_LEVEL_FIELDS:
         result[field_name] = getattr(params, field_name)
     return result
 
@@ -153,13 +155,11 @@ def _set(win: "InferWindowHost", widget, kind, value):
         # 程序化回填（配置加载）：只改显示与内部路径，不反向触发 pathChanged
         getattr(win, widget).set_path(str(value) if value else "", emit=False)
     elif kind == RADIO_F0:
-        win.f0_rmvp_btn.setChecked(value == "rmvpe")
+        win.f0_rmvpe_btn.setChecked(value == "rmvpe")
         win.f0_fcpe_btn.setChecked(value != "rmvpe")
     elif kind == RADIO_SR:
         win.sr_model_radio.setChecked(value == "model")
         win.sr_device_radio.setChecked(value != "model")
-    elif kind == CHECK:
-        getattr(win, widget).setChecked(bool(value))
     else:
         raise ValueError(f"未知读写方式: {kind}")
 
@@ -205,11 +205,9 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
         elif kind == PATH:
             value = w.path()
         elif kind == RADIO_F0:
-            value = "rmvpe" if win.f0_rmvp_btn.isChecked() else "fcpe"
+            value = "rmvpe" if win.f0_rmvpe_btn.isChecked() else "fcpe"
         elif kind == RADIO_SR:
             value = "model" if win.sr_model_radio.isChecked() else "device"
-        elif kind == CHECK:
-            value = w.isChecked()
         else:
             continue
         _set_nested(params, path, value)

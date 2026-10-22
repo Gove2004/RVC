@@ -348,7 +348,7 @@ class WindowLifecycle:
         if not self.controller.is_running:
             return
 
-        self.controller.stop_inference()
+        self.controller.stop()
         self._reset_runtime_ui()
         if self.tray is not None:
             self.tray.update_status()

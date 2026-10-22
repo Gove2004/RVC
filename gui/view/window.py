@@ -307,7 +307,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def _on_f0_method_changed(self):
         """F0 方法切换时，更新 runtime_params 和阈值滑动条。"""
-        is_rmvpe = self.f0_rmvp_btn.isChecked()
+        is_rmvpe = self.f0_rmvpe_btn.isChecked()
         self.runtime_params.f0.method = "rmvpe" if is_rmvpe else "fcpe"
         params = self.runtime_params
         val = params.f0.rmvpe_threshold if is_rmvpe else params.f0.fcpe_confidence_threshold

@@ -62,7 +62,7 @@ class InferWindowHost(Protocol):
     crossfade_slider: "DoubleSlider"
     f0_threshold_slider: "DoubleSlider"
     f0_threshold_name: "QLabel"
-    f0_rmvp_btn: "QRadioButton"
+    f0_rmvpe_btn: "QRadioButton"
     f0_fcpe_btn: "QRadioButton"
 
     # ── 设备控件（device_tab / BINDINGS）──

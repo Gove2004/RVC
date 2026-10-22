@@ -49,14 +49,14 @@ def build_params_tab(win: "InferWindowHost"):
     # 两枚单选钮必须包进容器再入格（同设备页采样率行）：裸放进拉伸列时，
     # 其较小的 sizeHint/最大宽会把整列的 max 钳死，且两钮被拆到两列显得散；
     # 容器 + 尾部 addStretch 让富余宽度进弹性空隙、两钮贴文字宽度横排靠左。
-    win.f0_rmvp_btn = QRadioButton("RMVPE")
+    win.f0_rmvpe_btn = QRadioButton("RMVPE")
     win.f0_fcpe_btn = QRadioButton("FCPE")
     is_rmvpe = params.f0.method == "rmvpe"
-    win.f0_rmvp_btn.setChecked(is_rmvpe)
+    win.f0_rmvpe_btn.setChecked(is_rmvpe)
     win.f0_fcpe_btn.setChecked(not is_rmvpe)
 
     f0_group = QButtonGroup(w)
-    f0_group.addButton(win.f0_rmvp_btn)
+    f0_group.addButton(win.f0_rmvpe_btn)
     f0_group.addButton(win.f0_fcpe_btn)
 
     f0_row = QWidget()
@@ -66,7 +66,7 @@ def build_params_tab(win: "InferWindowHost"):
     f0_h = QHBoxLayout(f0_row)
     f0_h.setContentsMargins(0, 0, 0, 0)
     f0_h.setSpacing(12)
-    f0_h.addWidget(win.f0_rmvp_btn)
+    f0_h.addWidget(win.f0_rmvpe_btn)
     f0_h.addWidget(win.f0_fcpe_btn)
     f0_h.addStretch(1)
 

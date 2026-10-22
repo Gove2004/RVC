@@ -318,11 +318,10 @@ class InferencePipeline:
         mask = f0_raw_flat > 0
         state.last_input_pitch_gpu = ((f0_raw_flat * mask).sum(), mask.sum())
 
-        # confidence 刻意不传入：postprocess_f0 只用它做一次中值滤波后原样返回，
-        # 完全不参与 pitch/pitchf 的计算（pitchf 路径只有音域映射 + 中值滤波 +
-        # 离散化）。旧链路把它一路透传进 ctx 再丢弃，既无收益，又在 FCPE 非
-        # CUDA Graph 路径（confidence=None）触发过 None 下标崩溃。
-        pitch, pitchf, _ = postprocess_f0(
+        # confidence 刻意不传入：postprocess_f0 不消费它（pitchf 路径只有音域映射 +
+        # 中值滤波 + 离散化）。旧链路把 confidence 一路透传进后处理再丢弃，
+        # 既无收益，又在 FCPE 非 CUDA Graph 路径（confidence=None）触发过 None 下标崩溃。
+        pitch, pitchf = postprocess_f0(
             f0_raw_flat,
             state.device,
             config=ctx.config,

@@ -80,13 +80,6 @@ class OfflineConversion:
         """是否有离线转换在跑（供实时侧做互斥守卫）。"""
         return self._converting
 
-    def toggle_conversion(self) -> None:
-        """开始/取消单按钮的调度：空闲时开始转换，转换中请求取消。"""
-        if self._converting:
-            self.cancel_conversion()
-        else:
-            self.start_conversion()
-
     def start_conversion(self) -> None:
         """开始离线转换。"""
         if self._converting:

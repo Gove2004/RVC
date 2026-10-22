@@ -27,12 +27,9 @@ class LoadThread(QThread):
     def request_stop(self) -> None:
         self._stop_requested = True
 
-    def is_stopping(self) -> bool:
-        return self._stop_requested
-
     def run(self) -> None:
         try:
-            if not self.is_stopping():
+            if not self._stop_requested:
                 self.ok.emit(self.engine.load_model(
                     self.pth, True, self.hubert))
         except Exception as e:

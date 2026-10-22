@@ -32,41 +32,34 @@ def infer_synth_audio(
     sid,
     use_f0: int,
     is_half: bool,
-    skip_head: int | None = None,
-    return_length: int | None = None,
-    return_length2: int | None = None,
+    skip_head: int,
+    return_length: int,
+    return_length2: int,
 ):
     """Synthesizer 推理调用，走 CUDA Graph（如果启用）。
 
-    当前唯一调用路径（实时管线）恒传 skip_head/return_length/return_length2
-    （8 参签名，realtime 分支）；offline 分支（5 参签名）按现状保留，
-    当前不可达。
+    skip_head/return_length/return_length2 是标量参数，不是张量，
+    不能作为 CUDA Graph 输入，必须通过闭包捕获。
+    但 feats/p_len_t/pitch/pitchf/sid 是张量，必须作为参数传入，
+    否则 CUDA Graph 捕获/回放时用的是外部变量地址而非静态张量地址，
+    重开时外部变量地址变化导致 CUDA Graph 使用错误数据（声音沙哑/失真）。
     """
-    realtime = skip_head is not None
-    # tail 是标量参数（skip_head/return_length/return_length2），不是张量，
-    # 不能作为 CUDA Graph 输入，必须通过闭包捕获。
-    # 但 feats/p_len_t/pitch/pitchf/sid 是张量，必须作为参数传入，
-    # 否则 CUDA Graph 捕获/回放时用的是外部变量地址而非静态张量地址，
-    # 重开时外部变量地址变化导致 CUDA Graph 使用错误数据（声音沙哑/失真）。
-    tail = (skip_head, return_length, return_length2) if realtime else ()
-    mode = "realtime" if realtime else "offline"
+    tail = (skip_head, return_length, return_length2)
 
     # return_length2 必须加入 graph_key：它通过闭包捕获编译进 CUDA Graph，
     # 不同 formant 因子对应不同 return_length2，若共用 key 会错误命中旧图导致输出长度错误、爆音卡顿。
     # skip_head/return_length 同理入 key——虽然它们当前的变化必然连带改变
     # feats 形状（经形状签名触发重捕获），但那是隐式不变量；显式入 key 后
     # 未来引入「不改变缓冲长度的 head 调整」也不会静默错误复用旧图。
-    rl2_suffix = f"-rl2-{return_length2}" if realtime else ""
-    if realtime:
-        rl2_suffix += f"-head-{skip_head}-len-{return_length}"
+    rl2_suffix = f"-rl2-{return_length2}-head-{skip_head}-len-{return_length}"
     if use_f0 == 1:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
-        graph_key = f"synth-{mode}-f0{rl2_suffix}"
+        graph_key = f"synth-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
         def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
             return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)
     else:
-        graph_key = f"synth-{mode}-no-f0{rl2_suffix}"
+        graph_key = f"synth-no-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, sid)
         def call(feats_, p_len_t_, sid_):
             return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)

@@ -54,10 +54,6 @@ class ModeToggle(QWidget):
             self._radii_tmpls[mode] = tmpl
         self.set_mode("stop")
 
-    @property
-    def mode(self) -> str:
-        return self._mode
-
     def set_mode(self, mode: str) -> None:
         """程序化设置当前档（不发 modeChanged）。mode 可为 'loading'（无勾选段，
         仅停止可点——加载中取消加载的唯一出口）。"""

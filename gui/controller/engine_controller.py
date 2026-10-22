@@ -147,10 +147,6 @@ class InferController:
         if self._engine is not None:
             self.engine.stop()
 
-    def stop_inference(self) -> None:
-        """停止推理（停止引擎）。"""
-        self.stop()
-
     # ── 原声直通 ──
 
     def start_passthrough(self, in_dev: int, out_dev: int) -> None:

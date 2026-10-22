@@ -76,20 +76,18 @@ def _suppress_torchfcpe_output():
     )
 
 
-def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf, confidence)。
+def postprocess_f0(f0, device, config=None) -> tuple[torch.Tensor, torch.Tensor]:
+    """把提取器原始 F0 统一后处理为 (pitch_coarse, pitchf)。
 
     流程：音域映射（半音尺度）→ 因果中值滤波 → 离散化。
 
     Args:
         f0: 原始连续 F0（可能是 np.ndarray 或 tensor，Hz）
         device: 目标设备
-        confidence: 逐帧置信度（0~1），None 时用 f0>0 伪置信度
         config: InferenceParams（含 pitch_map_* 音域映射参数）
 
     Returns:
-        (pitch_coarse, pitchf, confidence):
-        离散 pitch、连续 pitch（映射+滤波后）、置信度
+        (pitch_coarse, pitchf): 离散 pitch、连续 pitch（映射+滤波后）
     """
     if config is None:
         from rvc.core.config import InferenceParams
@@ -97,13 +95,6 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
     if not torch.is_tensor(f0):
         f0 = torch.from_numpy(f0)
     f0 = f0.float().to(device).squeeze()
-
-    # confidence 因果中值滤波（kernel=3）：避免孤立低值帧
-    if confidence is not None:
-        if not torch.is_tensor(confidence):
-            confidence = torch.from_numpy(confidence)
-        confidence = confidence.float().to(device).squeeze()
-        confidence = median_filter_f0(confidence, kernel=3)
 
     # 音域映射（半音尺度，始终生效）
     f0 = apply_pitch_map(
@@ -117,35 +108,18 @@ def postprocess_f0(f0, device, confidence=None, config=None) -> tuple[torch.Tens
     # F0 因果中值滤波（kernel=3）：消除孤立误判帧，减少气声和抖动
     f0 = median_filter_f0(f0, kernel=3)
 
-    # confidence 为 None 时用滤波后 F0 生成伪置信度
-    if confidence is None:
-        confidence = (f0 > 0).float()
-
-    return normalize_f0_to_coarse(f0), f0, confidence
+    return normalize_f0_to_coarse(f0), f0
 
 
 class F0Extractor(ABC):
     """F0 提取器抽象基类 — 统一接口。"""
 
     @abstractmethod
-    def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """提取 F0 (pitch_coarse, pitchf, confidence)。
-
-        Args:
-            audio: 输入音频 (1D Tensor)
-            sr: 采样率
-
-        Returns:
-            (pitch_coarse, pitchf, confidence):
-            离散 pitch、连续 pitch、逐帧置信度
-        """
-        pass
-
     def extract_raw(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """只提取原始 F0 和 confidence，不做后处理（音域映射/滤波/离散化）。
+        """提取原始 F0 和 confidence，不做后处理（音域映射/滤波/离散化）。
 
-        默认实现：调用 extract 后从 pitchf 反推原始值（不准确）。
-        子类应重写此方法以提供真正的原始提取。
+        后处理统一由 postprocess_f0 完成（推理管线在 F0 提取之后单独调用），
+        提取器本身只负责「原始值」这一层。
 
         Args:
             audio: 输入音频 (1D Tensor)
@@ -154,8 +128,7 @@ class F0Extractor(ABC):
         Returns:
             (f0_raw, confidence_raw): 原始连续 F0 (Hz)、原始置信度
         """
-        _, pitchf, conf = self.extract(audio, sr)
-        return pitchf, conf
+        pass
 
     @abstractmethod
     def clear_cuda_graph(self) -> None:
@@ -203,10 +176,6 @@ class RMVPEExtractor(F0Extractor):
         params = self.config or InferenceParams()
         f0, conf = self.model.infer_from_audio_with_confidence(audio, thred=params.f0.rmvpe_threshold)
         return f0, conf
-
-    def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        f0, conf = self.extract_raw(audio, sr)
-        return postprocess_f0(f0, self.device, confidence=conf, config=self.config)
 
     def clear_cuda_graph(self) -> None:
         clear_cuda_graph_cache(self.model.mel_extractor)
@@ -350,10 +319,6 @@ class FCPEExtractor(F0Extractor):
             if conf_out is not None:
                 conf_out = torch.nn.functional.pad(conf_out, (skip_frames, 0))
         return f0_out, conf_out
-
-    def extract(self, audio: torch.Tensor, sr: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        f0, conf = self.extract_raw(audio, sr)
-        return postprocess_f0(f0, self.device, confidence=conf, config=self.config)
 
     def clear_cuda_graph(self) -> None:
         if self._has_model_core:

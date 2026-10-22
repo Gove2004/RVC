@@ -2,28 +2,17 @@
 
 
 class Layout:
-    """统一的布局参数"""
-
-    # 边距
-    WINDOW_MARGIN = 8             # 窗口边距
-    TAB_MARGIN = 8                # Tab 边距
-    CARD_MARGIN = 6               # 卡片边距
+    """统一的布局参数（只保留实际使用的常量，需要时再加回）"""
 
     # 间距
-    SPACING_LARGE = 8             # 大间距（区块之间）
-    SPACING_NORMAL = 6            # 标准间距（组件之间）
     SPACING_SMALL = 4             # 小间距（紧凑布局）
 
     # 按钮尺寸
     BTN_HEIGHT_NORMAL = 28        # 标准按钮高度
-    BTN_HEIGHT_SMALL = 24         # 小按钮高度
-    BTN_WIDTH_ICON = 28           # 图标按钮宽度
-    BTN_WIDTH_SMALL = 48          # 小按钮宽度（查看/修改原名/刷新等）
     BTN_WIDTH_NORMAL = 60         # 标准按钮宽度（开始/停止）
 
     # 圆角（Windows 11 风格）
     RADIUS_NORMAL = 4             # 标准圆角
-    RADIUS_LARGE = 8              # 大圆角
 
     # 滑块控件高度（QSS 与 setFixedHeight 单源——改一处即全局生效）
     SLIDER_HEIGHT = 18

@@ -23,8 +23,7 @@ class PathPickerButton(QPushButton):
 
     def __init__(self, parent: QWidget | None = None, *, title: str = "选择文件",
                  filter_str: str = "PyTorch (*.pth)", placeholder: str = "选择文件...",
-                 base_dir: str | Callable[[], str] | None = None,
-                 tooltip: str | None = None) -> None:
+                 base_dir: str | Callable[[], str] | None = None) -> None:
         super().__init__(placeholder, parent)
         self._placeholder = placeholder
         self._title = title
@@ -34,7 +33,7 @@ class PathPickerButton(QPushButton):
         self._path = ""
         self.setMinimumHeight(Layout.BTN_HEIGHT_NORMAL)
         self.setStyleSheet(ButtonStyles.path_button())
-        self.setToolTip(tooltip or self._idle_tooltip())
+        self.setToolTip(self._idle_tooltip())
         self.clicked.connect(self._pick)
 
     def _idle_tooltip(self) -> str:
@@ -76,10 +75,6 @@ class ElidedLabel(QLabel):
         self._full = ""
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setText(text)
-
-    def text(self) -> str:
-        """完整文本（未截断）。"""
-        return self._full
 
     def setText(self, text: str) -> None:
         self._full = text or ""

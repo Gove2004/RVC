@@ -41,12 +41,6 @@ class DoubleSlider(QSlider):
         """设置物理值（float）。"""
         super().setValue(round(float(value) / self._step))
 
-    def minimum(self) -> float:
-        return self._int_min * self._step
-
-    def maximum(self) -> float:
-        return self._int_max * self._step
-
     def _fmt(self, v: float) -> str:
         return f"{v:{self._label_fmt}}{self._label_unit}"
 
