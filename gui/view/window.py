@@ -103,6 +103,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
         self.device_catalog = DeviceCatalog(self)
         self.model_tools = ModelToolController()
         self.tool_runner = None
+        self.tool_queue = []
 
         # 同步加载设备（PortAudio ~170ms 在窗口出现前完成）：
         # 先填下拉框再载入配置，_load_gui_config 的 COMBO 回填才能直接命中

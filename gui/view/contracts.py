@@ -46,6 +46,8 @@ class InferWindowHost(Protocol):
     # ── 模型工具（融合/详情页签 + 生命周期退出等待）──
     model_tools: "ModelToolController"
     tool_runner: "ToolRunner | None"
+    # 待执行工具队列（[(fn, args, on_done)]）：正在跑时排队，不阻塞 GUI 线程
+    tool_queue: list
 
     # ── 生命周期状态（window.__init__ 初始化）──
     _timer: "QTimer"
