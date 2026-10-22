@@ -11,21 +11,21 @@ VoiceEngine 作为门面（Facade），内部委托给子组件：
 - 模型: load_model(pth, force=False, hubert=...)
 - 离线: process_file(task, pad_sec=3.0, progress_cb=None)
 
-离线与实时走同一 InferenceRunner.process_block，保证音质一致。
+离线与实时走同一 InferenceRunner.process_block，保证音质一致；
+文件读写的纯步骤在 rvc.streaming.offline，本层只做调度。
 """
 
 import gc
 import logging
 import threading
 
-import numpy as np
 import sounddevice as sd
 import torch
 
+from rvc.streaming import offline
 from rvc.streaming.runner import InferenceRunner
 from rvc.streaming.stream import AudioStreams
 from rvc.core.config import InferenceParams
-from rvc.core.errors import CancelledError
 from rvc.runtime import RuntimeDeviceConfig
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,8 @@ class VoiceEngine:
         channels = self._streams.channels
 
         # 推理运行器初始化（实时模式：预热后重置缓冲区）
-        self._create_runner(sr, channels, block_t, cf_t, extra_t, self.pipeline.target_sr, reset_buffers=True)
+        self._runner = self._make_runner(
+            sr, channels, block_t, cf_t, extra_t, self.pipeline.target_sr, reset_buffers=True)
 
         # 启动主流（显式指定设备，不依赖 sd.default.device）
         self._streams.start_main_stream(
@@ -213,8 +214,10 @@ class VoiceEngine:
         if out2_dev_idx is not None:
             self.setup_out2(out2_dev_idx)
 
-    def _create_runner(self, sr, channels, block_t, cf_t, extra_t, sr_model, *, reset_buffers=True):
-        """创建并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
+    def _make_runner(self, sr, channels, block_t, cf_t, extra_t, sr_model, *, reset_buffers=True):
+        """构造并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
+
+        只负责「造一个可用的 runner」，不写 self——由调用方决定挂在哪里。
 
         Args:
             sr: 工作采样率
@@ -225,19 +228,20 @@ class VoiceEngine:
             sr_model: 模型目标采样率
             reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
         """
-        self._runner = InferenceRunner(self.pipeline, self.runtime_params)
-        self._runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
-        self._runner.reset_error_state()
+        runner = InferenceRunner(self.pipeline, self.runtime_params)
+        runner.init_processing(sr, block_t, cf_t, extra_t, channels, sr_model)
+        runner.reset_error_state()
         # 预热 10 次：职能 = GPU 升频 + cuDNN/L2 缓存热身（图捕获发生在首块
         # 缺失处，与次数无关；图跨重启复用后预热已是纯 replay，见
         # _WARMUP_ITERATIONS 注释）。换回慢机冷启动若首几秒卡顿，先查这里。
-        self._runner.warmup(_WARMUP_ITERATIONS)
+        runner.warmup(_WARMUP_ITERATIONS)
         if reset_buffers:
-            self._runner.reset_buffers()
+            runner.reset_buffers()
         # 预热完成后推理用固定张量尺寸，归还 PyTorch GPU 内存池中未用的缓存。
         # 混合显卡模式下 GPU 内存计入进程系统内存，这一步可省 ~300-500MB。
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        return runner
 
     def setup_out2(self, dev_idx):
         """启动副输出流。"""
@@ -316,7 +320,7 @@ class VoiceEngine:
     def process_file(self, task, *, pad_sec=3.0, progress_cb=None, cancel_cb=None):
         """离线文件流式推理：「模拟播放→转换→写录」。
 
-        把整段音频当作持续输入流，逐块走实时 process_block（RMS/SOLA/缓存轮换），
+        把整段音频当作持续输入流，逐块走实时过程（RMS/SOLA/缓存轮换），
         与实时完全同一算法。显存封顶，音质 = 实时音质。
         块/交叉淡化/额外上下文参数从 task（InferenceParams）中读取，与实时一致。
 
@@ -324,67 +328,32 @@ class VoiceEngine:
         本方法会替换 self._runner 并原地更新 runtime_params——
         因此**实时运行中不得调用**；先 stop() 再离线转换。
 
+        步骤顺序有意为之：先读音频（失败即刻抛出，不动引擎状态）→ 再同步
+        runtime_params → 建 runner → 逐块推理 → 写盘。
+
         Args:
             cancel_cb: 可选回调，返回 True 时中止推理（抛出 CancelledError）。
         """
         sr_model = self.pipeline.target_sr
-        tgt_sr = sr_model
-        wav = self._load_audio_at_sr(task.input_path, tgt_sr)
+        wav = offline.load_audio_at_sr(task.input_path, sr_model)
 
         # 原地更新 runtime_params 字段（不替换对象引用，已创建的 runner 自动生效）
         self.runtime_params.update_from(task)
 
         # 从 task 中读取缓冲区参数，与实时 setup 保持一致
-        block_t = task.buffer.block_time
-        cf_t = task.buffer.crossfade_time
-        extra_t = task.buffer.extra_time
-
-        # 创建推理运行器（离线模式：不重置pipeline缓冲区，避免清除pad上下文）
-        self._create_runner(tgt_sr, 1, block_t, cf_t, extra_t, sr_model, reset_buffers=False)
-        # 但必须重置有状态效果器（SOLA 缓冲等），避免warmup零块污染上下文缓存
+        self._runner = self._make_runner(
+            sr_model, 1,
+            task.buffer.block_time, task.buffer.crossfade_time, task.buffer.extra_time,
+            sr_model,
+            reset_buffers=False,   # 离线不清 pipeline 缓冲，避免丢掉 pad 上下文
+        )
+        # 但必须重置有状态效果器（SOLA 缓冲等），避免 warmup 零块污染上下文缓存
         self._runner.effects.reset()
 
-        result = self._infer_stream(wav, self._runner.state.block_samples, int(tgt_sr * pad_sec), progress_cb, cancel_cb)
-        self._write_output_wav(result, task.output_path, tgt_sr)
-        return result
-
-    def _load_audio_at_sr(self, input_path, tgt_sr):
-        """加载音频并重采样到目标采样率（float32, 单声道）。"""
-        from rvc.io.audio_file import load_audio
-
-        wav, _ = load_audio(input_path, tgt_sr)
-        return np.ascontiguousarray(wav, dtype=np.float32)
-
-    def _infer_stream(self, wav, block, pad, progress_cb, cancel_cb=None):
-        """把整段音频按块走实时 process_block，返回裁剪掉 pad 的输出。
-
-        Args:
-            cancel_cb: 可选回调，返回 True 时抛出 CancelledError 中止推理。
-        """
-        padded = np.pad(
-            wav, (pad, pad),
-            # reflect 要求 pad < len；超短音频（<3s pad）退回常数 pad
-            mode="reflect" if len(wav) > pad else "constant",
+        result = offline.run_stream(
+            wav, self._runner, self._runner.state.block_samples, int(sr_model * pad_sec),
+            progress_cb, cancel_cb,
         )
-        if len(padded) % block:
-            padded = np.concatenate([padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
-
-        total_blocks = len(padded) // block
-        out_chunks = []
-        for i in range(total_blocks):
-            if cancel_cb and cancel_cb():
-                raise CancelledError("离线推理已取消")
-            seg = padded[i * block: (i + 1) * block]
-            outdata = np.zeros((block, 1), dtype=np.float32)
-            self._runner.process_block(seg, outdata, block)
-            out_chunks.append(outdata[:, 0])
-            if progress_cb:
-                progress_cb(i + 1, total_blocks)
-        return np.concatenate(out_chunks)[pad: pad + len(wav)]
-
-    def _write_output_wav(self, result, output_path, tgt_sr):
-        """直接写出 wav（与实时推理完全一致：process_block 内已做硬钳位，不做峰值归一化）。"""
-        from rvc.io.wav_file import write_wav
-
-        write_wav(output_path, result, tgt_sr, subtype="FLOAT")
+        offline.write_output(result, task.output_path, sr_model)
+        return result
 

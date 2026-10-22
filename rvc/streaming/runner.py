@@ -189,7 +189,7 @@ class InferenceRunner:
             self._stage_preprocess(mono)
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
-            # self.pipeline 由 VoiceEngine._create_runner 构造时注入，恒非 None
+            # self.pipeline 由 VoiceEngine._make_runner 构造时注入，恒非 None
             # （离线/实时都必经 load_model → pipeline 已就绪）；若为 None 会在这里
             # 立刻 AttributeError 暴露，不做「静默直通」降级——那会把配置错误
             # 伪装成「能出声但没变声」，掩盖真正的故障。
