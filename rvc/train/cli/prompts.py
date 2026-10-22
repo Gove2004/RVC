@@ -108,7 +108,7 @@ def _as_sr(raw):
     return f"{value // 1000}k" if value >= 1000 else f"{value}k"
 
 
-def _human_size(num_bytes: float) -> str:
+def human_size(num_bytes: float) -> str:
     size = float(num_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if size < 1024 or unit == "TB":
@@ -116,7 +116,7 @@ def _human_size(num_bytes: float) -> str:
         size /= 1024
 
 
-def _human_dur(seconds: float) -> str:
+def human_dur(seconds: float) -> str:
     seconds = int(max(seconds, 0))
     if seconds < 60:
         return f"{seconds}s"

@@ -1,7 +1,7 @@
 """滑动条控件 — 浮点滑杆、滑杆行辅助、双滑块范围选择器。"""
 from PySide6.QtCore import Qt, QRect, Signal
 from PySide6.QtGui import QMouseEvent, QPaintEvent, QPainter, QColor, QPen
-from PySide6.QtWidgets import QSlider, QLabel, QWidget, QSizePolicy, QHBoxLayout
+from PySide6.QtWidgets import QLabel, QSizePolicy, QSlider, QWidget
 
 from gui.styles import Layout
 from gui.styles.colors import Colors

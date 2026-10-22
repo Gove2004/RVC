@@ -30,7 +30,7 @@ from rvc.train.cli.envcheck import (
     _probe_platform,
 )
 from rvc.train.cli.logger import TrainLogger
-from rvc.train.cli.prompts import _human_size, ask_yes
+from rvc.train.cli.prompts import human_size, ask_yes
 from rvc.train.cli.steps import (
     STOP,
     _features_ready,
@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         if models:
             log.log(f"导出模型目录: {cfg['model_dir']}")
             for path in models:
-                log.log(f"  · {path.name}  {_human_size(path.stat().st_size)}")
+                log.log(f"  · {path.name}  {human_size(path.stat().st_size)}")
         log.log(f"checkpoint  : {exp_dir / '4_checkpoints'}")
         log.log(f"训练日志    : {exp_dir / 'train.log'}")
         log.log(f"向导日志    : {log.log_file}")

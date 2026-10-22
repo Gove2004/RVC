@@ -1,8 +1,7 @@
 """流模型 — ResidualCouplingBlock（可逆耦合流）"""
 from typing import Optional
 
-import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 from rvc.nn import modules
 

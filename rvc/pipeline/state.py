@@ -18,7 +18,7 @@ streaming 的 runner 直接持有——pipeline 的产物止于"合成音频块"
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 

@@ -19,7 +19,7 @@ from rvc.train.cli import (
 )
 from rvc.train.cli.defaults import load_defaults, save_defaults
 from rvc.train.cli.envcheck import (
-    _probe_dataset,
+    probe_dataset,
     _probe_disk,
     _require_ffmpeg,
     _scan_audio,
@@ -73,7 +73,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     input_dir = Path(ask("数据集路径", argv_dir or defaults["input_dir"],
                          check=_dir_ok)).expanduser()
     files = _scan_audio(input_dir)
-    _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe)
+    probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe)
     _require_ffmpeg(log, files, ffmpeg_exe=ffmpeg_exe)
 
     # 2) 产物根目录（实验目录与导出模型目录都在其下；默认按平台自适应）

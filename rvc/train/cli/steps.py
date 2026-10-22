@@ -6,7 +6,7 @@ from pathlib import Path
 
 from rvc.train.cli import EXIT_RUNTIME
 from rvc.train.cli.logger import TrainLogger
-from rvc.train.cli.prompts import _human_dur, _human_size
+from rvc.train.cli.prompts import human_dur, human_size
 from rvc.train.cli.wizard import _detect_ckpt_epoch
 
 
@@ -47,7 +47,7 @@ def _make_progress(log: TrainLogger, label: str):
             state["last"] = pct
             speed = done / max(time.time() - state["t0"], 1e-6)
             left = (total - done) / speed if speed > 0 else 0
-            log.log(f"{label}: {done}/{total} ({pct}%)  速度 {speed:.1f} 条/s  剩余 {_human_dur(left)}", "进度")
+            log.log(f"{label}: {done}/{total} ({pct}%)  速度 {speed:.1f} 条/s  剩余 {human_dur(left)}", "进度")
 
     return cb
 
@@ -65,13 +65,13 @@ def step_preprocess(log: TrainLogger, cfg: dict):
     if STOP.requested:
         log.log(f"预处理被中止：实际完成 {count} 个源文件（manifest 未转正，下次会重新预处理）", "WARN")
     else:
-        log.log(f"预处理完成：{count} 个源文件，用时 {_human_dur(secs)}")
+        log.log(f"预处理完成：{count} 个源文件，用时 {human_dur(secs)}")
 
     gt = sorted((exp_dir / "0_gt_wavs").glob("*.wav"))
     if gt:
         bytes_total = sum(p.stat().st_size for p in gt)
         # 切片以 FLOAT32（4 字节/样本）落盘；此前按 16bit 估算导致时长虚高一倍
-        log.log(f"生成切片：{len(gt)} 条，约 {_human_dur(bytes_total / 4 / cfg['sr_hz'])} 音频，{_human_size(bytes_total)}")
+        log.log(f"生成切片：{len(gt)} 条，约 {human_dur(bytes_total / 4 / cfg['sr_hz'])} 音频，{human_size(bytes_total)}")
     if len(gt) < 50:
         log.log("切片数偏少（<50），训练容易过拟合，建议补充素材", "WARN")
 
@@ -88,7 +88,7 @@ def _run_extraction_step(log: TrainLogger, cfg: dict, title: str, label: str,
     secs = time.time() - t0
     if STOP.requested:
         log.log(f"{label}提取被中止：实际完成 {n} 条（已完成的 npy 保留，续跑自动跳过）", "WARN")
-    log.log(f"{label}提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
+    log.log(f"{label}提取完成：{n} 条，用时 {human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
     return n
 
 
@@ -232,7 +232,7 @@ def step_train(log: TrainLogger, cfg: dict):
         ema = secs if state["ema_secs"] is None else state["ema_secs"] * 0.7 + secs * 0.3
         state["ema_secs"] = ema
         left = ema * (total - epoch)
-        eta = _human_dur(left) if left > 0 else "--"
+        eta = human_dur(left) if left > 0 else "--"
         lr_now = ""
         if STOP.trainer is not None and hasattr(STOP.trainer, "optim_g") and STOP.trainer.optim_g is not None:
             lr_now = f"lr {STOP.trainer.optim_g.param_groups[0]['lr']:.2e} | "
@@ -263,7 +263,7 @@ def step_train(log: TrainLogger, cfg: dict):
         trainer.cleanup()
         STOP.trainer = None
 
-    log.log(f"训练结束，总用时 {_human_dur(time.time() - t0)}，共 {state['batches']} 个 batch")
+    log.log(f"训练结束，总用时 {human_dur(time.time() - t0)}，共 {state['batches']} 个 batch")
     if cfg["device"].startswith("cuda"):
         log.log(f"显存峰值    : {_gpu_mem()[1]:.2f} GB")
     log.log(f"最终模型    : {output}")

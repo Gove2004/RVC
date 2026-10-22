@@ -25,7 +25,7 @@ from rvc.train.cli import (
     EnvFatal,
 )
 from rvc.train.cli.logger import TrainLogger
-from rvc.train.cli.prompts import _human_dur, _human_size
+from rvc.train.cli.prompts import human_dur, human_size
 
 
 def _system_memory_gb() -> float:
@@ -71,7 +71,7 @@ def _probe_disk(log: TrainLogger, output_root: Path):
     for label, path in (("项目盘", PROJECT_ROOT), ("产物盘", output_root)):
         try:
             usage = shutil.disk_usage(path if path.exists() else Path(path.anchor))
-            log.log(f"{label}剩余   : {_human_size(usage.free)} / {_human_size(usage.total)}  ({path})")
+            log.log(f"{label}剩余   : {human_size(usage.free)} / {human_size(usage.total)}  ({path})")
             if usage.free < 5 * 1024 ** 3:
                 log.log(f"{label}剩余不足 5GB，训练中途可能写满，建议先清理或扩容", "WARN")
         except Exception as exc:
@@ -207,13 +207,13 @@ def _probe_assets(log: TrainLogger) -> dict:
             if not path.exists():
                 fatal.append(f"HuBERT 权重缺失: assets/hubert/{variant}/{f}")
             else:
-                log.log(f"  HuBERT {variant:<7} {f:<24} {_human_size(path.stat().st_size)}")
+                log.log(f"  HuBERT {variant:<7} {f:<24} {human_size(path.stat().st_size)}")
 
     rmvpe = RMVPE_PATH
     if not rmvpe.exists():
         fatal.append("RMVPE 权重缺失: assets/rmvpe/rmvpe.pt")
     else:
-        log.log(f"  RMVPE  rmvpe.pt                {_human_size(rmvpe.stat().st_size)}")
+        log.log(f"  RMVPE  rmvpe.pt                {human_size(rmvpe.stat().st_size)}")
 
     ready = {}
     for sr_k in (40, 48):
@@ -224,7 +224,7 @@ def _probe_assets(log: TrainLogger) -> dict:
                 ok = False
                 warns.append(f"底模缺失: assets/pretrained/f0{key}{sr_k}k.pth（{sr_k}k 将从零训练，收敛明显变慢）")
             else:
-                log.log(f"  底模   f0{key}{sr_k}k.pth              {_human_size(path.stat().st_size)}")
+                log.log(f"  底模   f0{key}{sr_k}k.pth              {human_size(path.stat().st_size)}")
         ready[f"{sr_k}k"] = ok
 
     if fatal:
@@ -272,13 +272,13 @@ def _scan_audio(input_dir: Path) -> list[Path]:
     return sorted(result)
 
 
-def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_path: str | None = None):
+def probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_path: str | None = None):
     """统计素材：文件数、体积、总时长、采样率分布（超过 300 个只抽样后按比例外推）。"""
     from concurrent.futures import ThreadPoolExecutor
 
     total_bytes = sum(p.stat().st_size for p in files)
     log.log(f"素材目录    : {input_dir.resolve()}")
-    log.log(f"音频文件    : {len(files)} 个，共 {_human_size(total_bytes)}")
+    log.log(f"音频文件    : {len(files)} 个，共 {human_size(total_bytes)}")
 
     from rvc.io.wav_file import read_audio_metadata
 
@@ -304,7 +304,7 @@ def _probe_dataset(log: TrainLogger, input_dir: Path, files: list[Path], ffmpeg_
     if scanned:
         if scanned < len(files):
             seconds = seconds * len(files) / scanned
-        log.log(f"总时长      : 约 {_human_dur(seconds)}" + ("（抽样估算）" if scanned < len(files) else ""))
+        log.log(f"总时长      : 约 {human_dur(seconds)}" + ("（抽样估算）" if scanned < len(files) else ""))
         log.log("采样率分布  : " + ", ".join(f"{k}Hz×{v}" for k, v in sorted(sr_dist.items())))
     if len(files) < 10:
         log.log("素材文件偏少（<10 个），音质与稳定性会明显下降，建议 30 分钟以上干净人声", "WARN")
