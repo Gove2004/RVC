@@ -11,7 +11,6 @@ import threading
 from dataclasses import dataclass
 
 from rvc.core.config import InferenceParams
-from rvc.pipeline.cache import default_inference_cache
 from rvc.streaming.passthrough import PassthroughStream
 # 运行时遥测快照：View 层禁止穿透 engine._runner.pipeline.state 四层私有链，
 # 音高/延迟显示统一经 InferController.snapshot() 取本快照对象。
@@ -40,13 +39,22 @@ class InferController:
     def __init__(self, runtime_params: InferenceParams | None = None,
                  engine=None, inference_cache=None, on_runtime_error=None):
         self.runtime_params = runtime_params or InferenceParams()
-        self.inference_cache = inference_cache or default_inference_cache
+        # 惰性解析：default_inference_cache 所在模块拉起 torch（~9s），
+        # 不能在窗口构造期付这笔钱；引擎首次构造时反正要付。
+        self._inference_cache = inference_cache
         self._engine = engine  # None 时惰性构造（首次访问 self.engine 才加载 torch）
         self._engine_lock = threading.Lock()  # 防预热线程与主线程并发构造双实例
         self.on_runtime_error = on_runtime_error
         # 原声直通流（无 torch 依赖，窗口启动阶段即可用）
         self._passthrough = PassthroughStream()
         # 加载状态由 window 层持有（_loading + LoadThread），本类不存第二份
+
+    @property
+    def inference_cache(self):
+        if self._inference_cache is None:
+            from rvc.pipeline.cache import default_inference_cache
+            self._inference_cache = default_inference_cache
+        return self._inference_cache
 
     @property
     def engine(self):

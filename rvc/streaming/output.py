@@ -5,13 +5,16 @@
 - 主输出必须在本函数返回前落到硬件缓冲（同步 D2H），副输出则允许丢块。
 """
 import queue
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
+
+if TYPE_CHECKING:
+    import torch
 
 
-def write_main_output(block: torch.Tensor, outdata: np.ndarray, channels: int,
-                      out_pin: torch.Tensor) -> None:
+def write_main_output(block: "torch.Tensor", outdata: np.ndarray, channels: int,
+                      out_pin: "torch.Tensor") -> None:
     """把输出块写入硬件缓冲区。
 
     out_pin：预分配的 pinned 中转缓冲（init_processing 按 block_samples 分配，
