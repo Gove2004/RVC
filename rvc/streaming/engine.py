@@ -149,10 +149,10 @@ class VoiceEngine:
         F0 提取器与 pth 无关，其图跨重启复用是安全的——所有曾需清图的
         根因均已修复（阈值等 Python 标量已编进图缓存 key、inference_mode
         污染已隔离、purge 取锁+同步）。各场景兜底：换 F0 方法走
-        switch_f0_method→release 自清；换模型走 purge_cuda_graphs；
-        改阈值/块时长经签名 key 自动重捕获。「静音捕获的图异常」是当年
-        误诊——图只固化计算结构，数据经静态输入张量每块 copy_，本架构
-        一直是静音捕获+真实语音回放。
+        switch_f0_method→release 自清；换模型时旧模型在 InferenceCache 被
+        淘汰的那一刻回收图缓存；改阈值/块时长经签名 key 自动重捕获。
+        「静音捕获的图异常」是当年误诊——图只固化计算结构，数据经静态输入
+        张量每块 copy_，本架构一直是静音捕获+真实语音回放。
         """
         with self._load_lock:
             # 快路径必须同时比对 pth 与 hubert 变体：离线页有独立的特征器选择器，
