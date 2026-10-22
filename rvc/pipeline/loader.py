@@ -13,7 +13,7 @@ class SynthesizerBundle:
     """加载结果的轻量载体（避免字典字符串键）。"""
     synthesizer: object
     target_sr: int
-    use_f0: int
+    use_f0: bool
 
 
 class SynthesizerLoader:
@@ -49,10 +49,10 @@ class SynthesizerLoader:
         # 安全前提：用户自备或官方导出的 .pth 模型文件，来源可信，故 weights_only=False。
         ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
         target_sr = ckpt["config"][-1]
-        use_f0 = ckpt.get("f0", 1)
+        use_f0 = bool(ckpt.get("f0", 1))
 
         from rvc.models.synthesizer_model import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
-        if use_f0 == 1:
+        if use_f0:
             synthesizer = SynthesizerTrnMsNSFsid(*ckpt["config"], is_half=self.is_half)
         else:
             synthesizer = SynthesizerTrnMsNSFsid_nono(*ckpt["config"])

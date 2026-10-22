@@ -36,7 +36,7 @@ class EngineState:
     # ── 采样率（语义明确，不再互相覆盖）──
     model_sr: int | None = None   # 模型原生采样率，load() 时设置，只读
     work_sr: int | None = None    # 工作采样率，setup() 时设置
-    use_f0: int = 1
+    use_f0: bool = True
     device: str = "cuda"
     is_half: bool = True
     sid: int = 0
@@ -51,7 +51,7 @@ class EngineState:
     extra_samples: int = 0
     skip_head: int = 0
     return_length: int = 0
-    hz_centis: int = 0
+    samples_per_centis: int = 0  # 每厘秒（10ms）样本数 = sr//100
     channels: int = 1
 
     # ── 16kHz 滚动缓冲区（HuBERT / F0 用）──

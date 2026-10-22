@@ -78,7 +78,7 @@ class InferencePipeline:
         return self.state.model_sr
 
     @property
-    def use_f0(self) -> int:
+    def use_f0(self) -> bool:
         return self.state.use_f0
 
     @property
@@ -198,8 +198,8 @@ class InferencePipeline:
 
         Args:
             feats: 上采样后的特征 (1, p_len, C)，100fps
-            pitch: 离散 F0 (1, p_len)，use_f0=0 时为 None
-            pitchf: 连续 F0 (1, p_len)，use_f0=0 时为 None
+            pitch: 离散 F0 (1, p_len)，use_f0=False 时为 None
+            pitchf: 连续 F0 (1, p_len)，use_f0=False 时为 None
 
         Returns:
             合成音频张量（target_sr 采样率，未做 formant 后处理）
@@ -225,10 +225,10 @@ class InferencePipeline:
         （原因见 extract_features 与下方 wait_stream 处的注释）。F0 提取不需要 p_len，
         只在 _sync_f0_parallel 中截断到 p_len。
 
-        use_f0=0 时直接返回。
+        use_f0=False 时直接返回。
         """
         state = self.state
-        if state.use_f0 == 0:
+        if not state.use_f0:
             ctx.f0_raw = None
             return
 
@@ -269,10 +269,10 @@ class InferencePipeline:
     def _sync_f0_parallel(self, ctx: InferenceContext) -> None:
         """同步 F0 side stream，截断到 p_len，存入 ctx.f0_raw。
 
-        use_f0=0 时直接返回。
+        use_f0=False 时直接返回。
         """
         state = self.state
-        if state.use_f0 == 0:
+        if not state.use_f0:
             return
 
         # 等待 side stream 上的 F0 提取完成
@@ -304,10 +304,10 @@ class InferencePipeline:
 
         Returns:
             (pitch, pitchf): 离散 F0 (1, p_len)、连续 F0 (1, p_len)
-            use_f0=0 时返回 (None, None)
+            use_f0=False 时返回 (None, None)
         """
         state = self.state
-        if state.use_f0 == 0:
+        if not state.use_f0:
             return None, None
 
         # 输入音高统计（音域映射之前，非零帧平均，用于 GUI 显示）。
@@ -348,8 +348,8 @@ class InferencePipeline:
 
         Args:
             feats: 上采样后的特征 (1, p_len, C)，100fps
-            pitch: 离散 F0 (1, p_len)，use_f0=0 时为 None
-            pitchf: 连续 F0 (1, p_len)，use_f0=0 时为 None
+            pitch: 离散 F0 (1, p_len)，use_f0=False 时为 None
+            pitchf: 连续 F0 (1, p_len)，use_f0=False 时为 None
 
         Returns:
             合成音频张量（target_sr 采样率，未做 formant 后处理）

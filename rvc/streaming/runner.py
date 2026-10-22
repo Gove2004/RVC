@@ -70,7 +70,7 @@ class InferenceRunner:
         state.model_sr = sr_model
         state.channels = channels
         zc = sr // 100
-        state.hz_centis = zc
+        state.samples_per_centis = zc
 
         # 计算参数（对齐到 10ms 边界）
         state.block_samples = int(np.round(block_t * sr / zc)) * zc
@@ -293,8 +293,8 @@ class InferenceRunner:
         state.input_wav_48k, state.input_wav_48k_work = state.input_wav_48k_work, state.input_wav_48k
         state.input_wav_48k[-mono.shape[0]:] = mono
 
-        # 只重采样新块（带额外 2*hz_centis 上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
-        resampler_in = state.input_wav_48k[-mono.shape[0] - 2 * state.hz_centis:]
+        # 只重采样新块（带额外 2 厘秒样本上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
+        resampler_in = state.input_wav_48k[-mono.shape[0] - 2 * state.samples_per_centis:]
         resampler_out = state.resampler_48k_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
         # 只写当前块（最后 block_samples_16k 样本），不写修正帧（前 160 样本）。
         # 修正帧会覆盖上一块最后10ms，导致 HuBERT 看到的历史在每次推理中都被"修正"，

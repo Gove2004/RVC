@@ -32,7 +32,7 @@ class ModelSession:
     hubert: object
     synthesizer: object
     target_sr: int
-    use_f0: int
+    use_f0: bool
 
 
 class ModelSessions:

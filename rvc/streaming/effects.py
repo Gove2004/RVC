@@ -16,15 +16,15 @@ class RmsMixEffect:
     """RMS 响度包络混合 — 让转换后音量参考原始音量。"""
 
     def __init__(self):
-        self._hz_centis = 0
+        self._samples_per_centis = 0
 
     def setup(self, sr: int):
-        self._hz_centis = sr // 100
+        self._samples_per_centis = sr // 100
 
     def process(self, infer: torch.Tensor, ref: torch.Tensor, rms_mix: float) -> torch.Tensor:
         if rms_mix >= 1.0:
             return infer
-        return apply_rms_mix(ref, infer, rms_mix, self._hz_centis)
+        return apply_rms_mix(ref, infer, rms_mix, self._samples_per_centis)
 
 
 class SolaEffect:

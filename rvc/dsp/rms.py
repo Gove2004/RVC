@@ -46,7 +46,7 @@ def apply_rms_mix(
     reference: torch.Tensor,
     converted: torch.Tensor,
     rms_mix: float,
-    hz_per_centisecond: int,
+    samples_per_centis: int,
     ref_hz: int | None = None,
 ) -> torch.Tensor:
     """应用RMS音量包络混合（实时/离线共用）。
@@ -58,27 +58,27 @@ def apply_rms_mix(
         reference: 参考音频张量 [samples]
         converted: 转换后的音频张量 [samples]
         rms_mix: 混合比例 0~1，0表示完全跟随参考音量，1表示保持原始
-        hz_per_centisecond: 转换音频的厘秒 Hz（实时路径参考与转换同采样率，直接传 sr//100）
+        samples_per_centis: 每厘秒（10ms）样本数（实时路径参考与转换同采样率，直接传 sr//100）
         ref_hz: 参考音频的厘秒 Hz（离线路径源 16k ≠ 目标 sr 时传 160；None = 与转换侧相同）
 
     Returns:
         音量调整后的转换音频 [samples]
     """
-    r_hz = ref_hz if ref_hz is not None else hz_per_centisecond
+    r_spc = ref_hz if ref_hz is not None else samples_per_centis
     n = converted.shape[0]
 
     # 合并为 [2, N] 批处理：通道0=参考，通道1=转换
     # 参考截断到转换长度，与原逻辑 reference[:converted.shape[0]] 一致
     stacked = torch.stack([reference[:n], converted], dim=0)
-    # frame_length 用转换侧的 4*hz（参考侧 r_hz 可能不同，但实时路径 r_hz == hz_per_centisecond）
+    # frame_length 用转换侧的 4 厘秒样本（参考侧 r_spc 可能不同，但实时路径两侧相同）
     # 离线路径 ref_hz != hz 时，两侧帧长不同，不能合并——回退独立计算
-    if r_hz == hz_per_centisecond:
-        r = fast_rms(stacked, 4 * hz_per_centisecond, hz_per_centisecond)  # [2, M]
+    if r_spc == samples_per_centis:
+        r = fast_rms(stacked, 4 * samples_per_centis, samples_per_centis)  # [2, M]
         r1 = r[0]
         r2 = r[1]
     else:
-        r1 = fast_rms(reference[:n], 4 * r_hz, r_hz)
-        r2 = fast_rms(converted, 4 * hz_per_centisecond, hz_per_centisecond)
+        r1 = fast_rms(reference[:n], 4 * r_spc, r_spc)
+        r2 = fast_rms(converted, 4 * samples_per_centis, samples_per_centis)
 
     # size=N+1 再 [:-1]：linear 插值在 align_corners=True 下首尾锚定到端点，
     # 多取一帧再截断可让第 i 个采样点对应第 i 帧的中心，避免整体偏移半帧。

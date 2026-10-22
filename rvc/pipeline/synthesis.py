@@ -30,7 +30,7 @@ def infer_synth_audio(
     pitch,
     pitchf,
     sid,
-    use_f0: int,
+    use_f0: bool,
     is_half: bool,
     skip_head: int,
     return_length: int,
@@ -52,7 +52,7 @@ def infer_synth_audio(
     # feats 形状（经形状签名触发重捕获），但那是隐式不变量；显式入 key 后
     # 未来引入「不改变缓冲长度的 head 调整」也不会静默错误复用旧图。
     rl2_suffix = f"-rl2-{return_length2}-head-{skip_head}-len-{return_length}"
-    if use_f0 == 1:
+    if use_f0:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
         graph_key = f"synth-f0{rl2_suffix}"
         tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
