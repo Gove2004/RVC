@@ -1,17 +1,24 @@
-"""设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。"""
+"""设备目录 — 音频设备的枚举与查询（下拉框位置 ↔ PortAudio 全局索引映射）。
+
+分层契约：本类是 controller，唯一 UI 依赖是 `gui.view.contracts.DeviceViewHost`
+（MainWindow 实现）。本类提供枚举数据与「保留选择」的决策；下拉框重填、
+信号屏蔽、占位项等控件机械操作在 view 层的 device_populate 完成。
+"""
 import logging
-from typing import List
+from typing import TYPE_CHECKING, List
+
 from rvc.io.devices import get_audio_devices, rescan_audio_devices
 
-from gui.state.bindings import OUTPUT2_NONE_TEXT
+if TYPE_CHECKING:
+    from gui.view.contracts import DeviceViewHost
 
 logger = logging.getLogger(__name__)
 
 class DeviceCatalog:
     """枚举音频设备并维护「下拉框位置 → PortAudio 索引」映射。"""
 
-    def __init__(self, window: 'MainWindow'):
-        self.window = window
+    def __init__(self, host: "DeviceViewHost"):
+        self.host = host
         # PortAudio 全局设备索引映射（下拉框位置 → PortAudio 索引）
         # get_audio_devices 返回的 in_idx/out_idx 是 PortAudio 全局索引，
         # 下拉框 currentIndex() 只是过滤后的位置，必须通过映射转换。
@@ -35,50 +42,21 @@ class DeviceCatalog:
         if name:
             self._refresh_devices()
 
-    def _refresh_devices(self) -> None:
-        """内部：刷新所有设备相关下拉框，并尽量保留当前选择。"""
-        prev_ha = self.window.hostapi_combo.currentText()
-        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(prev_ha)
-        self._input_indices = list(in_idx)
-        self._output_indices = list(out_idx)
-        prev_in = self.window.input_combo.currentText()
-        prev_out = self.window.output_combo.currentText()
-        prev_out2 = self.window.output2_combo.currentText()
-        # 重填 hostapi 列表前屏蔽信号，避免触发 _ha_changed 递归刷新
-        self.window.hostapi_combo.blockSignals(True)
-        self.window.hostapi_combo.clear()
-        self.window.hostapi_combo.addItems(ha_names)
-        self._select(self.window.hostapi_combo, prev_ha)
-        self.window.hostapi_combo.blockSignals(False)
-        self._populate_device_combos(ins, outs)
-        self._select(self.window.input_combo, prev_in)
-        self._select(self.window.output_combo, prev_out)
-        self._select(self.window.output2_combo, prev_out2)
-
-    @staticmethod
-    def _select(combo, text):
-        """若 text 仍在列表中则恢复选中，否则保持默认首项。"""
-        idx = combo.findText(text)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-
     def load_hostapis(self) -> None:
         """加载可用的音频驱动（同步：PortAudio 加载 ~170ms，在窗口出现前完成）。
 
-        调用时 combo 全为空，_refresh_devices 的「保留当前选择」退化为
-        首项默认；blockSignals 已在其内部处理（启动时不触发递归刷新）。
+        调用时下拉框全为空，「保留当前选择」退化为首项默认；hostapi 重填
+        期间的信号屏蔽在 device_populate 内部处理（启动时不触发递归刷新）。
         """
         self._refresh_devices()
 
-    def _populate_device_combos(self, ins: List[str], outs: List[str]) -> None:
-        """填充设备下拉框"""
-        self.window.input_combo.clear()
-        self.window.input_combo.addItems(ins)
-        self.window.output_combo.clear()
-        self.window.output_combo.addItems(outs)
-        self.window.output2_combo.clear()
-        self.window.output2_combo.addItem(OUTPUT2_NONE_TEXT)  # 占位首项，单源于 bindings
-        self.window.output2_combo.addItems(outs)
+    def _refresh_devices(self) -> None:
+        """按当前 hostapi 过滤枚举设备，交宿主重填并恢复选择。"""
+        prev = self.host.device_current_selections()
+        ha_names, ins, outs, in_idx, out_idx = get_audio_devices(prev[0])
+        self._input_indices = list(in_idx)
+        self._output_indices = list(out_idx)
+        self.host.device_populate(ha_names, ins, outs, prev)
 
     def get_input_device_index(self, combo_idx: int) -> int:
         """下拉框位置 → PortAudio 全局设备索引。

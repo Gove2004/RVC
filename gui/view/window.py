@@ -51,6 +51,7 @@ from gui.controller.tool_controller import ModelToolController
 
 from gui.styles import Layout
 from gui.styles.colors import Colors
+from gui.state.bindings import OUTPUT2_NONE_TEXT
 
 from gui.view.widgets import ModeToggle
 
@@ -139,6 +140,99 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def _show_error(self, message: str) -> None:
         QMessageBox.critical(self, "错误", message)
+
+    # ── 控制器契约实现（离线 OfflineViewHost / 设备 DeviceViewHost）──
+    # controller 层禁止触碰控件；这里把「语义」归结为「控件机械操作」。
+    # 按钮文案恒 2 字（换长度会撑动整列宽度，刻意设计）。
+
+    def offline_input_path(self) -> str:
+        return self.offline_input_btn.path().strip()
+
+    def offline_model_path(self) -> str:
+        return self.model_path_btn.path().strip()
+
+    def offline_hubert_variant(self) -> str:
+        return self.hubert_combo.currentText()
+
+    def offline_confirm_delete(self, path: str) -> bool:
+        ans = QMessageBox.question(
+            self, "删除输出文件",
+            f"确定删除该输出文件吗？\n{path}\n\n文件将移入回收站。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return ans == QMessageBox.StandardButton.Yes
+
+    def offline_enter_converting(self) -> None:
+        self.offline_button.setText("取消")
+        self.offline_preview_btn.setEnabled(False)
+        self.offline_delete_btn.setEnabled(False)
+        self.offline_status.setText("初始化...")
+        self.offline_progress.setValue(0)
+
+    def offline_enter_cancelling(self) -> None:
+        self.offline_button.setEnabled(False)
+        self.offline_status.setText("正在取消...")
+
+    def offline_reset(self, status: str) -> None:
+        self.offline_button.setEnabled(True)
+        self.offline_button.setText("开始")
+        self.offline_preview_btn.setEnabled(True)
+        self.offline_delete_btn.setEnabled(True)
+        self.offline_status.setText(status)
+
+    def offline_set_progress(self, current: int, total: int) -> None:
+        self.offline_status.setText(f"进度: {current}/{total}")
+        if total > 0:
+            self.offline_progress.setValue(current)
+
+    def offline_set_status(self, text: str) -> None:
+        self.offline_status.setText(text)
+
+    def offline_set_previewing(self, on: bool, name: str = "") -> None:
+        self.offline_preview_btn.setText("停止" if on else "监听")
+        if on:
+            self.offline_status.setText(f"监听中: {name}")
+
+    def device_current_selections(self) -> tuple[str, str, str, str]:
+        return (
+            self.hostapi_combo.currentText(),
+            self.input_combo.currentText(),
+            self.output_combo.currentText(),
+            self.output2_combo.currentText(),
+        )
+
+    def device_populate(self, hostapis, ins, outs, sel) -> None:
+        """重填四个设备下拉框并恢复原选择。
+
+        重填 hostapi 前屏蔽信号：currentTextChanged 会触发 _ha_changed 递归刷新
+        （PortAudio 全量枚举跑两遍）。副输出首项恒为占位「不使用」（单源 bindings）。
+        """
+        ha, inp, outp, out2 = sel
+        self.hostapi_combo.blockSignals(True)
+        self.hostapi_combo.clear()
+        self.hostapi_combo.addItems(hostapis)
+        self._select_combo(self.hostapi_combo, ha)
+        self.hostapi_combo.blockSignals(False)
+
+        self.input_combo.clear()
+        self.input_combo.addItems(ins)
+        self.output_combo.clear()
+        self.output_combo.addItems(outs)
+        self.output2_combo.clear()
+        self.output2_combo.addItem(OUTPUT2_NONE_TEXT)
+        self.output2_combo.addItems(outs)
+        for combo, text in ((self.input_combo, inp),
+                            (self.output_combo, outp),
+                            (self.output2_combo, out2)):
+            self._select_combo(combo, text)
+
+    @staticmethod
+    def _select_combo(combo, text: str) -> None:
+        """若 text 仍在列表中则恢复选中，否则保持默认首项。"""
+        idx = combo.findText(text)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
 
     # ── 窗口装配 ──
 
