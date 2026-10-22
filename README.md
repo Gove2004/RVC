@@ -160,9 +160,9 @@ rvc/core                         # 配置/常量/异常（最底层）
 | 目录 | 职责 |
 |---|---|
 | `rvc/core/` | `config.py`（InferenceParams/OfflineParams/TrainConfig 等 dataclass）、`constants.py`（采样率、F0 阈值、训练预处理默认值等跨层常量）、`errors.py`（异常类型） |
-| `rvc/runtime/` | `device.py`（设备管理）、`graph.py`（CUDA Graph 捕获/重放）、`caches.py`（通用 LRU）、`paths.py`（路径配置） |
+| `rvc/runtime/` | `device.py`（设备管理）、`graph.py`（CUDA Graph 捕获/重放）、`lru.py`（通用 LRU）、`paths.py`（路径配置） |
 | `rvc/dsp/` | `sola.py`（SOLA 时长对齐拼接）、`rms.py`（RMS 音量混合）、`mel.py`（mel 频谱，numpy）、`hz_midi.py`（Hz↔MIDI，torch/numpy 双后端）——纯函数、无 IO 与模型依赖 |
-| `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询） |
+| `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询）、`atomic.py`（原子写 + 坏 JSON 备份回退，全仓单源） |
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化；torch 与 numpy 共用**一份**数学实现，后端差异经 `_Ops` 注入） |
 | `rvc/models/` | `synthesizer.py`（合成器基类 + v2 变体：带 F0 / 无 F0）、`synthesizer_encoder.py`/`synthesizer_decoder.py`/`synthesizer_flow.py`（子模块）、`hubert.py`（特征器，transformers 惰性导入）、`rmvpe/`（F0 模型子包） |
@@ -170,7 +170,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
 | `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（三级缓存 + 分桶采样 + collate）、`mel_processing.py`、`atomic_save.py`（中间产物原子写，避免半截文件被当成有效缓存） |
 | `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`defaults.py`（上次参数存档 → 下次默认值）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
-| `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具/回收站）+ `state/`（参数绑定）+ `configs/` + `styles/` |
+| `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、host_impl.py 控制器契约的控件实现、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具/回收站）+ `state/`（参数绑定）+ `configs/` + `styles/` |
 | `tests/` | 标准库 unittest（不用 pytest）。覆盖纯函数契约（Hz↔MIDI、音域映射、RMS、SOLA、F0 量化/分桶）、推理缓存与图缓存生命周期、训练链静默失败点、离线块循环与副输出队列、GUI 离屏构建与工具队列，以及**分层契约**（AST 单向无环）；全部无需 GPU/模型，秒级跑完 |
 | `tools/` | 离线调试小工具（`pitch_map_demo.html` 音域映射演示页），不参与构建、不被任何代码 import |
 

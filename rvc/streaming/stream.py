@@ -159,7 +159,7 @@ class AudioStreams:
         """创建并启动副输出流。
 
         幂等：重复调用先关掉旧流。不能直接在 self.out2_stream 上覆盖新流——
-        被覆盖的 OutputStream 再没人 abort/close，设备会一直处于占用状态
+        被覆盖的 OutputStream 没人 abort/close，设备会持续处于占用状态
         （下次打开或其它程序占用同一虚拟设备时表现为「设备不可用」）。
 
         Args:
