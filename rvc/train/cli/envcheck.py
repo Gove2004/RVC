@@ -113,7 +113,8 @@ def _probe_gpu(log: TrainLogger) -> tuple[str, bool, float]:
     import torch
 
     log.log(f"PyTorch     : {torch.__version__}")
-    log.log(f"CUDA 编译   : {torch.version.cuda or '无（CPU 版 torch）'}  |  cuDNN {torch.backends.cudnn.version()}")
+    cudnn_ver = torch.backends.cudnn.version()
+    log.log(f"CUDA 编译   : {torch.version.cuda or '无（CPU 版 torch）'}  |  cuDNN {cudnn_ver if cudnn_ver is not None else '无'}")
 
     if not torch.cuda.is_available():
         log.log("未检测到可用 CUDA GPU —— 训练会退化到 CPU，速度极慢（不推荐）", "WARN")

@@ -38,17 +38,22 @@ class ModelSession:
 class ModelSessions:
     """模型会话层 — 统一管理模型加载、缓存与 CUDA Graph 清除。"""
 
-    def __init__(self, device_config, inference_cache=None):
+    def __init__(self, device: str, is_half: bool, inference_cache=None):
         """
         Args:
-            device_config: 含 device / is_half 的配置对象
+            device: 目标设备（如 "cuda:0"）
+            is_half: 是否 FP16
             inference_cache: InferenceCache 实例（None 则用默认全局缓存）
         """
-        self.device = device_config.device
-        self.is_half = device_config.is_half
+        self.device = device
+        self.is_half = is_half
         self.inference_cache = inference_cache or default_inference_cache
         self._current_pth = None
         self._current_session = None
+
+    def _device_config(self) -> "_DeviceConfig":
+        """供 load_hubert / SynthesizerLoader 使用的轻量设备配置适配器。"""
+        return _DeviceConfig(self.device, self.is_half)
 
     def load(self, pth_path: str, hubert_variant: str = "chinese") -> ModelSession:
         """加载模型（HuBERT + Synthesizer），返回 ModelSession。
@@ -67,14 +72,11 @@ class ModelSessions:
             cache_key = (self.device, self.is_half, hubert_variant)
             hubert = self.inference_cache.get_hubert(cache_key)
             if hubert is None:
-                hubert = load_hubert(
-                    _DeviceConfig(self.device, self.is_half),
-                    variant=hubert_variant,
-                )
+                hubert = load_hubert(self._device_config(), variant=hubert_variant)
                 self.inference_cache.set_hubert(cache_key, hubert)
             else:
                 logger.info("  · HuBERT（缓存, %s）", hubert_variant)
-            loader = SynthesizerLoader(_DeviceConfig(self.device, self.is_half), self.inference_cache)
+            loader = SynthesizerLoader(self._device_config(), self.inference_cache)
             syn = loader.load(pth_path)
             synthesizer = syn.synthesizer
         except Exception as e:

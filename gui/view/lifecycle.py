@@ -166,6 +166,7 @@ class WindowLifecycle:
         从停止档进入；从变声档点击则先停引擎再开直通（同一路径逐级让位）。
         """
         if self._loading:
+            self._refresh_mode()
             return
         if self.controller.is_running:
             self._stop()
@@ -191,6 +192,9 @@ class WindowLifecycle:
     def _on_mode_convert(self):
         """变声档：停直通（若有）→ 校验模型 → 加载引擎并启动推理。"""
         if self._loading or self.controller.is_running:
+            # 加载中点「变声」：ModeToggle 已先勾上目标档，这里拒绝执行须回弹，
+            # 否则 UI 显示「变声」勾选而实际仍处加载态（要等 _on_load_done 才修正）
+            self._refresh_mode()
             return
         # 直通先让位：同一对输入/输出设备（_on_loaded setup 前还会再关一次，双保险）
         self.controller.stop_passthrough()

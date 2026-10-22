@@ -12,7 +12,6 @@
 """
 import logging
 import math
-from types import SimpleNamespace
 
 import torch
 
@@ -94,8 +93,7 @@ class InferencePipeline:
     def load(self) -> None:
         """加载模型（HuBERT + 合成器），通过 ModelSessions 缓存复用。"""
         sessions = ModelSessions(
-            SimpleNamespace(device=self.state.device, is_half=self.state.is_half),
-            self.state.inference_cache,
+            self.state.device, self.state.is_half, self.state.inference_cache,
         )
         session = sessions.load(self.pth_path, hubert_variant=self.hubert_variant)
         self.state.hubert_model = session.hubert
