@@ -3,6 +3,12 @@
 注意力实现走 transformers 的 sdpa（config._attn_implementation），本项目
 未安装 flash_attention_2，不要假设其存在。HuBERT 特征 8ms/帧（hop 160 @ 16k）
 是链路的硬成本：extra 上下文时长折算出的帧数直接决定推理耗时下限。
+
+**transformers 是延迟导入的**：它会把 sklearn / torch._dynamo / auto_factory
+一起拉起来（实测 ~20s），而这只在「真的要加载特征器」时才需要。放在模块顶层
+会让任何 `import rvc.pipeline.pipeline`（CLI、测试、离线初始化、甚至只是读取
+配置的代码路径）都白付这笔钱。延迟到 load_hubert 首次调用，代价落在本来就要
+等模型加载的地方，其余路径零成本。
 """
 import logging
 import os
@@ -11,35 +17,46 @@ from typing import Any
 
 import torch
 from torch import nn
-from transformers import HubertModel
-from transformers.utils.logging import disable_progress_bar
-
-# 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
-disable_progress_bar()
 
 from rvc.core.errors import FeatureExtractionError
 from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)
 
-
-class HubertModelWithFinalProj(HubertModel):
-    """Transformers HuBERT 加 RVC 需要的 final_proj 层。
-
-    forward 直接可调用（transformers 约定，return_dict=True 默认返回
-    BaseModelOutput），特征提取层用 outputs.last_hidden_state 取值，
-    不再需要包装层。final_proj 是 RVC 导出模型的固定结构。
-    """
-    def __init__(self, config: Any) -> None:
-        super().__init__(config)
-        self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
-
-
 # HuBERT 特征器按子目录管理：assets/hubert/base/（原始 hubert_base）
 # 与 assets/hubert/chinese/（腾讯 TencentGameMate/chinese-hubert-base，WenetSpeech 中文）。
 # 训练与推理必须用同一特征器；每张模型卡牌/每次训练可独立选择 variant。
 # HUBERT_ROOT 统一来自 rvc.runtime.paths（assets/hubert）
 HUBERT_VARIANTS = ("base", "chinese")
+
+# 延迟构造出的「HubertModel + final_proj」子类（构造一次后复用，保证类型唯一）
+_hubert_model_class = None
+
+
+def _model_class():
+    """返回 HubertModelWithFinalProj 类（首次调用时才 import transformers）。"""
+    global _hubert_model_class
+    if _hubert_model_class is None:
+        # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
+        from transformers import HubertModel
+        from transformers.utils.logging import disable_progress_bar
+
+        disable_progress_bar()
+
+        class HubertModelWithFinalProj(HubertModel):
+            """Transformers HuBERT 加 RVC 需要的 final_proj 层。
+
+            forward 直接可调用（transformers 约定，return_dict=True 默认返回
+            BaseModelOutput），特征提取层用 outputs.last_hidden_state 取值，
+            不再需要包装层。final_proj 是 RVC 导出模型的固定结构。
+            """
+
+            def __init__(self, config: Any) -> None:
+                super().__init__(config)
+                self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
+
+        _hubert_model_class = HubertModelWithFinalProj
+    return _hubert_model_class
 
 
 def hubert_path(variant: str = "chinese") -> str:
@@ -76,7 +93,7 @@ def load_hubert(config: Any, variant: str = "chinese") -> Any:
             sys.stdout = open(os.devnull, "w")
         if sys.stderr is None:
             sys.stderr = open(os.devnull, "w")
-        hubert_model = HubertModelWithFinalProj.from_pretrained(
+        hubert_model = _model_class().from_pretrained(
             model_path,
             local_files_only=True,
         ).to(device=config.device, dtype=dtype).eval()
