@@ -17,6 +17,7 @@ import logging
 import sounddevice as sd
 
 from rvc.core.errors import AudioDeviceError
+from rvc.streaming.stream import safe_close_stream
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,6 @@ class PassthroughStream:
         """安全中止并关闭直通流（幂等）。"""
         if self._stream is None:
             return
-        try:
-            self._stream.abort()
-        except Exception:
-            pass
-        try:
-            self._stream.close()
-        except Exception:
-            pass
+        safe_close_stream(self._stream)
         self._stream = None
         logger.info("原声直通已关闭")

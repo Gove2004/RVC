@@ -48,7 +48,6 @@ def _non_default() -> InferenceParams:
     p.buffer.crossfade_time = 0.03
     p.buffer.extra_time = 1.5
     p.audio.sr_mode = "device"
-    p.audio.hostapi = "MME"
     p.audio.input_device = "mic"
     p.audio.output_device = "spk"
     p.audio.output2_device = "不使用"

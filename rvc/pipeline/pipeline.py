@@ -102,7 +102,7 @@ class InferencePipeline:
         ctx = self.ctx
 
         ctx.return_length2, state.formant_ratio = formant_frames(
-            state.return_length, state.formant_factor)
+            state.formant_factor, state.return_length)
 
         # 只提取 HuBERT 特征（50fps）。
         #

@@ -15,11 +15,8 @@ import numpy as np
 import torch
 
 from rvc.dsp.hz_midi import hz_to_midi, midi_to_hz
-from rvc.models.rmvpe.constants import F0_MEL_MAX, F0_MEL_MIN
+from rvc.dsp.mel import F0_MEL_MAX, F0_MEL_MIN, hz_to_mel_htk
 
-# Mel 频率转换常数（HTK 公式：mel = 1127 * ln(1 + f/700)）
-MEL_SLOPE = 1127.0
-MEL_F0 = 700.0
 
 # 离散 pitch 范围：[1, 255]，0 保留为静音/UV
 PITCH_MIN = 1
@@ -194,7 +191,7 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
 
 def _f0_to_mel(f0, xp):
     """将 F0(Hz) 转换为 Mel 频率（xp = numpy 或 torch）。"""
-    return MEL_SLOPE * xp.log(1 + f0 / MEL_F0)
+    return hz_to_mel_htk(f0, xp)
 
 
 def median_filter_f0(f0, kernel=3):

@@ -63,14 +63,6 @@ class RMVPE:
             )
             return hidden[:, :n_frames, :]
 
-    def decode(self, hidden: Tensor,
-               thred: float = RMVPE_THRESHOLD_INFER) -> Tensor:
-        """设备端解码 → f0 (T,) tensor。全程无 CPU 同步。"""
-        cents_pred = self.to_local_average_cents(hidden, thred=thred)
-        f0 = 10 * torch.pow(2.0, cents_pred / 1200.0)
-        # cents==0 即被判为清音的帧（旧版靠 f0==10 反查置零）
-        return torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
-
     def decode_with_confidence(self, hidden: Tensor,
                                thred: float = RMVPE_THRESHOLD_INFER,
     ) -> tuple[Tensor, Tensor]:
@@ -86,34 +78,10 @@ class RMVPE:
         f0 = torch.where(cents_pred > 0, f0, torch.zeros_like(f0))
         return f0, confidence
 
-    def infer_from_audio(self, audio: Tensor | np.ndarray,
-                         thred: float = RMVPE_THRESHOLD_INFER) -> Tensor:
-        """返回设备端 f0 tensor (T,) float32。
-
-        调用方若需要 numpy（训练侧落盘）自行 .cpu().numpy()；推理侧全程留在 GPU。
-        """
-        if not torch.is_tensor(audio):
-            audio = torch.from_numpy(audio)
-        audio_t = audio.float().to(self.device).unsqueeze(0)
-        mel = run_cuda_graph(
-            self.mel_extractor, "rmvpe-mel-extractor",
-            lambda a: self.mel_extractor(a, center=True), audio_t
-        )
-        hidden = self.mel2hidden(mel).squeeze(0)
-        # 解码是十几个小张量 kernel，launch 开销（0.3ms）远大于计算，
-        # 单独包一层 CUDA Graph 后降到 0.06ms。thred 作为常量被捕获，故入 key。
-        return run_cuda_graph(
-            self.model, "rmvpe-decode-%s" % thred,
-            lambda h: self.decode(h, thred=thred), hidden,
-        )
-
     def infer_from_audio_with_confidence(self, audio: Tensor | np.ndarray,
                                          thred: float = RMVPE_THRESHOLD_INFER,
     ) -> tuple[Tensor, Tensor]:
-        """返回设备端 (f0 (T,), confidence (T,)) float32。
-
-        与 infer_from_audio 共用 mel/hidden，仅解码阶段多返回一个 confidence。
-        """
+        """RMVPE 推理：音频 → 设备端 (f0 (T,), confidence (T,)) float32。"""
         if not torch.is_tensor(audio):
             audio = torch.from_numpy(audio)
         audio_t = audio.float().to(self.device).unsqueeze(0)

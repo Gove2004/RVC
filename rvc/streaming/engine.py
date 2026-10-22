@@ -119,10 +119,6 @@ class VoiceEngine:
         """
         return self._driver_latency_compensation_ms
 
-    @driver_latency_compensation.setter
-    def driver_latency_compensation(self, value: float):
-        self._driver_latency_compensation_ms = max(0.0, float(value))
-
     @property
     def runtime_error_pending(self):
         return self._runner.state.runtime_error_pending if self._runner else False

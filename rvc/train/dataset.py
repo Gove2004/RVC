@@ -106,7 +106,6 @@ class TrainBatch(NamedTuple):
     spec: torch.Tensor
     spec_lengths: torch.Tensor
     wav: torch.Tensor
-    wav_lengths: torch.Tensor
     sid: torch.Tensor
 
 

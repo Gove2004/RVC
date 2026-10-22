@@ -416,7 +416,7 @@ class TestFormantPrewarmCoverage(unittest.TestCase):
     def test_quantized_frames_and_ratio_agree(self):
         from rvc.pipeline.synthesis import formant_frames
         for factor in (0.866, 1.0, 1.1547):
-            frames, ratio = formant_frames(31, factor)
+            frames, ratio = formant_frames(factor, 31)
             self.assertEqual(frames, max(1, math.ceil(31 * factor)))
             self.assertAlmostEqual(ratio, frames / 31, places=12)
 
@@ -428,7 +428,7 @@ class TestFormantPrewarmCoverage(unittest.TestCase):
         steps = 101  # 滑条 -2.5..2.5，步长 0.05
         positions = [FORMANT_MIN + i * (FORMANT_MAX - FORMANT_MIN) / (steps - 1)
                      for i in range(steps)]
-        needed = {formant_frames(return_length, 2 ** (f / 12))[0] for f in positions}
+        needed = {formant_frames(2 ** (f / 12), return_length)[0] for f in positions}
         lo = math.ceil(return_length * 2 ** (FORMANT_MIN / 12))
         hi = math.ceil(return_length * 2 ** (FORMANT_MAX / 12))
         self.assertLessEqual(needed, set(range(lo, hi + 1)),

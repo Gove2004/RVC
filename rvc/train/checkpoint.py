@@ -1,7 +1,6 @@
 import glob
 import json
 import logging
-import os
 import re
 import zipfile
 from collections import OrderedDict
@@ -10,24 +9,20 @@ from pathlib import Path
 import torch
 
 from rvc.runtime import train_config_path
+from rvc.train.atomic_save import save_torch_atomic
 
 logger = logging.getLogger(__name__)
 
 
 def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
-    """保存训练 checkpoint（{model, iteration, optimizer, learning_rate}），先写 .tmp 再原子替换。"""
+    """保存训练 checkpoint（{model, iteration, optimizer, learning_rate}），原子写。"""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path + ".tmp"
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "iteration": epoch,
-            "optimizer": optimizer.state_dict() if optimizer is not None else None,
-            "learning_rate": learning_rate,
-        },
-        tmp_path,
-    )
-    os.replace(tmp_path, path)
+    save_torch_atomic(path, {
+        "model": model.state_dict(),
+        "iteration": epoch,
+        "optimizer": optimizer.state_dict() if optimizer is not None else None,
+        "learning_rate": learning_rate,
+    })
 
 
 def save_checkpoint_pair(g_model, g_opt, d_model, d_opt, learning_rate: float,
@@ -194,9 +189,7 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
         "version": "v2",
     }
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path + ".tmp"
-    torch.save(ckpt, tmp_path)
-    os.replace(tmp_path, output_path)
+    save_torch_atomic(output_path, ckpt)
 
 
 def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
@@ -225,9 +218,7 @@ def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
         "version": ckpt_a.get("version", "v2"),
     }
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path + ".tmp"
-    torch.save(ckpt, tmp_path)
-    os.replace(tmp_path, output_path)
+    save_torch_atomic(output_path, ckpt)
 
 
 def _zip_archive_name(path: str):

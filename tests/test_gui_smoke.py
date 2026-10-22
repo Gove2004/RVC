@@ -70,6 +70,7 @@ class TestTimbreTabFormant(unittest.TestCase):
                 models_dir=".",
                 formant_range=(FORMANT_MIN, FORMANT_MAX),
                 volume_range=(VOLUME_MIN, VOLUME_MAX),
+                hubert_variants=("base", "chinese"),
             )
 
         win = _Win()
@@ -104,6 +105,18 @@ class TestTimbreTabFormant(unittest.TestCase):
 
         win.formant_slider = SimpleNamespace(setEnabled=_boom)
         win._refresh_mode()
+
+
+class TestAudioFilterCoversEngineExts(unittest.TestCase):
+    """文件对话框的扩展名过滤器必须覆盖引擎认识的所有音频格式。"""
+
+    def test_no_drift(self):
+        from rvc.core.constants import AUDIO_EXTS
+
+        from gui.view.tabs.offline_tab import AUDIO_FILTER
+        for ext in AUDIO_EXTS:
+            self.assertIn(f"*{ext}", AUDIO_FILTER,
+                          f"引擎支持 {ext}，但文件对话框选不了它")
 
 
 if __name__ == "__main__":

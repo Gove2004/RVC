@@ -25,12 +25,14 @@ from rvc.train.cli.envcheck import (
     _scan_audio,
     _suggest_batch,
 )
+from rvc.models.hubert import HUBERT_VARIANTS
+from rvc.runtime.paths import parse_sr
 from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import _as_float, _as_int, _as_sr, ask, ask_yes
 
-# 采样率 / 特征器 的可选项（同时作为 check 的白名单，避免两处各写一份）
+# 采样率可选项（同时作为 check 的白名单）；特征器清单单源在 rvc.models.hubert
 SR_OPTIONS = ("40k", "48k")
-HUBERT_OPTIONS = ("base", "chinese")
+HUBERT_OPTIONS = HUBERT_VARIANTS
 
 
 def _detect_ckpt_epoch(exp_dir: Path) -> int:
@@ -116,7 +118,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
 
     sr = ask("采样率", defaults["sr"], cast=_as_sr, check=_sr_ok, options=SR_OPTIONS,
              note="40k 更省显存、更快；48k 高频细节更多")
-    sr_hz = 48000 if sr == "48k" else 40000
+    sr_hz = parse_sr(sr)
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 

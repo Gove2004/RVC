@@ -25,7 +25,6 @@ from rvc.train.checkpoint import (
     prune_keep_latest,
     save_checkpoint_pair,
 )
-from rvc.runtime.paths import MODELS_DIR
 from rvc.train.dataset import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
@@ -176,8 +175,7 @@ class Trainer:
         for batch_idx, batch in enumerate(self.loader, 1):
             if self.stop_requested:
                 break
-            # TrainBatch 字段顺序即拷贝顺序（H2D 顺序冻结）；wav_lengths 现状即被
-            # 丢弃，但 .to() 的拷贝真实发生 —— 保持拷贝，不顺手优化掉
+            # TrainBatch 字段顺序即拷贝顺序（H2D 顺序冻结），勿调换
             phone = batch.phone.to(self.cfg.device, non_blocking=True)
             phone_lengths = batch.phone_lengths.to(self.cfg.device, non_blocking=True)
             pitch = batch.pitch.to(self.cfg.device, non_blocking=True)
@@ -185,7 +183,6 @@ class Trainer:
             spec = batch.spec.to(self.cfg.device, non_blocking=True)
             spec_lengths = batch.spec_lengths.to(self.cfg.device, non_blocking=True)
             wave = batch.wav.to(self.cfg.device, non_blocking=True)
-            _ = batch.wav_lengths.to(self.cfg.device, non_blocking=True)
             sid = batch.sid.to(self.cfg.device, non_blocking=True)
             wave = wave.unsqueeze(1)
             with torch.amp.autocast("cuda", enabled=self.cfg.fp16_run):

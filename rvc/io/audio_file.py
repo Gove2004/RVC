@@ -12,6 +12,8 @@ ffmpeg 定位单源在本文件 locate_ffmpeg（RVC_FFMPEG → 系统 PATH → a
 """
 import logging
 import os
+
+from rvc.io import CREATE_NO_WINDOW
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,8 +25,6 @@ from rvc.runtime.paths import FFMPEG_EXE
 
 logger = logging.getLogger(__name__)
 
-# pythonw（GUI）下启动子进程会闪控制台窗口，仅 Windows 需要抑制
-_SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 _FFMPEG_HINT = (
     "安装方式：winget install ffmpeg，或把 ffmpeg.exe 放到 assets/ffmpeg/ 目录下。"
@@ -116,7 +116,7 @@ def load_audio(
     ]
     proc = subprocess.run(
         cmd, capture_output=True, timeout=timeout,
-        creationflags=_SUBPROCESS_NO_WINDOW, stdin=subprocess.DEVNULL,
+        creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
     )
     if proc.returncode:
         err = proc.stderr.decode("utf-8", errors="replace")[-500:]

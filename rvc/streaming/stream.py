@@ -25,6 +25,20 @@ from rvc.streaming.output import Out2Queue
 logger = logging.getLogger(__name__)
 
 
+def safe_close_stream(stream) -> None:
+    """安全中止并关闭 sounddevice 流，忽略所有异常（主/副/直通流共用）。"""
+    if stream is None:
+        return
+    try:
+        stream.abort()
+    except Exception:
+        pass
+    try:
+        stream.close()
+    except Exception:
+        pass
+
+
 class AudioStreams:
     """音频流管理器 — 管理 sounddevice 输入/输出/副输出流。"""
 
@@ -154,7 +168,7 @@ class AudioStreams:
             channels: 通道数
             block_samples: 块大小（样本数）
         """
-        self._safe_close_stream(self.out2_stream)
+        safe_close_stream(self.out2_stream)
         self.out2_stream = None
         self.enable_out2 = False
 
@@ -183,22 +197,10 @@ class AudioStreams:
 
     def stop_all(self) -> None:
         """安全中止并关闭所有流（主流 + 副输出）。"""
-        self._safe_close_stream(self.out2_stream)
-        self._safe_close_stream(self.main_stream)
+        safe_close_stream(self.out2_stream)
+        safe_close_stream(self.main_stream)
         self.main_stream = None
         self.out2_stream = None
         self.enable_out2 = False
 
-    @staticmethod
-    def _safe_close_stream(stream) -> None:
-        """安全中止并关闭 sounddevice 流，忽略所有异常。"""
-        if stream is None:
-            return
-        try:
-            stream.abort()
-        except Exception:
-            pass
-        try:
-            stream.close()
-        except Exception:
-            pass
+

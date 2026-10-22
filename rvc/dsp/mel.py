@@ -7,6 +7,21 @@ from typing import Any
 
 import numpy as np
 
+# HTK mel 刻度（mel = 1127·ln(1 + f/700)）——全仓唯一字面量来源
+MEL_HTK_SLOPE = 1127.0
+MEL_HTK_F0 = 700.0
+
+# 人声 F0 量程（RMVPE 的输出范围；F0 → mel 归一化边界共用同一公式）
+F0_MIN = 50.0   # Hz
+F0_MAX = 1100.0  # Hz
+F0_MEL_MIN = MEL_HTK_SLOPE * np.log(1.0 + F0_MIN / MEL_HTK_F0)
+F0_MEL_MAX = MEL_HTK_SLOPE * np.log(1.0 + F0_MAX / MEL_HTK_F0)
+
+
+def hz_to_mel_htk(freq, xp=np):
+    """Hz → HTK mel。xp 参数接受 numpy 或 torch（两种后端共用同一公式）。"""
+    return MEL_HTK_SLOPE * xp.log(1.0 + freq / MEL_HTK_F0)
+
 
 def _hz_to_mel(freq: np.ndarray | float, htk: bool = False) -> Any:
     """Hz → mel 刻度。"""

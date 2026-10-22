@@ -31,20 +31,7 @@ PERSISTED_KEYS = (
 
 def _load_raw() -> dict:
     """读原始存档；缺失/损坏一律返回空 dict。"""
-    path = TRAIN_CLI_DEFAULTS_FILE
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as e:
-        backup = path.with_suffix(path.suffix + ".bak")
-        try:
-            os.replace(path, backup)
-            logger.warning("训练存档损坏，已备份到 %s：%s", backup, e)
-        except Exception:
-            logger.warning("训练存档损坏且备份失败：%s", e, exc_info=True)
-        return {}
-    return data if isinstance(data, dict) else {}
+    return load_json_or_default(TRAIN_CLI_DEFAULTS_FILE, {}, logger=logger)
 
 
 def _sanitize(saved: dict) -> dict:

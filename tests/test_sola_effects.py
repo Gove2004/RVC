@@ -22,7 +22,7 @@ SEARCH = 100
 
 def _make_sola_effect() -> SolaEffect:
     eff = SolaEffect()
-    eff.setup(sr=100, block_samples=BLOCK, sola_buffer_samples=BUF,
+    eff.setup(block_samples=BLOCK, sola_buffer_samples=BUF,
               sola_search_samples=SEARCH, device="cpu")
     return eff
 

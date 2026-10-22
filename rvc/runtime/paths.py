@@ -49,10 +49,6 @@ ICON_ACTIVE_PATH = RESOURCES_DIR / "icon_active.png"       # 绿：变声输出�
 ICON_PASS_THROUGH_PATH = RESOURCES_DIR / "icon_passthrough.png"  # 蓝：原声直通中
 
 
-def config_path() -> Path:
-    return STATE_FILE
-
-
 def parse_sr(sr: str | int) -> int:
     """把 '40k'/'48000' 等统一成 Hz 整数。
 

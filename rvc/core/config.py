@@ -63,7 +63,6 @@ class BufferParams:
 class AudioParams:
     """音频设备参数 — 采样率模式 + 设备选择。"""
     sr_mode: str = "model"  # model / device
-    hostapi: str = ""
     input_device: str = ""
     output_device: str = ""
     output2_device: str = ""
@@ -71,6 +70,10 @@ class AudioParams:
     # 推理所用 CUDA 设备编号（多卡机器选卡）。进程启动时经 RuntimeDeviceConfig
     # 生效一次；改动后需重启程序（模型与 CUDA Graph 已按旧设备捕获/驻留）。
     device_index: int = 0
+
+
+# InferenceParams 的嵌套分组清单（序列化 / 参数拷贝共用一份）
+PARAM_GROUPS = ("voice", "f0", "buffer", "audio")
 
 
 @dataclass
@@ -96,7 +99,7 @@ class InferenceParams:
         （engine/runner/pipeline）都会自动看到更新后的值，无需同步。
         """
         # 嵌套分组：复制每个分组的所有字段
-        for group_name in ("voice", "f0", "buffer", "audio"):
+        for group_name in PARAM_GROUPS:
             src_group = getattr(other, group_name)
             dst_group = getattr(self, group_name)
             for field_name in src_group.__dataclass_fields__:

@@ -48,7 +48,7 @@ def build_timbre_tab(win: "InferWindowHost"):
     )
 
     win.hubert_combo = QComboBox()
-    win.hubert_combo.addItems(["base", "chinese"])
+    win.hubert_combo.addItems(win.controller.hubert_variants)
     win.hubert_combo.setMinimumHeight(28)
     win.hubert_combo.setToolTip("此模型训练时用的特征器（base=原版 hubert_base，chinese=腾讯中文 hubert）。训练与推理必须一致。")
     win.hubert_combo.setMaximumWidth(90)

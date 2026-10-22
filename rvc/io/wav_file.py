@@ -8,6 +8,8 @@
 - audio_file.py: 任意格式解码到 numpy 数组（需要 ffmpeg）
 """
 import os
+
+from rvc.io import CREATE_NO_WINDOW
 import re
 import struct
 import subprocess
@@ -17,8 +19,6 @@ import numpy as np
 
 from rvc.io.audio_file import resolve_ffmpeg
 
-# pythonw（GUI）下启动子进程会闪控制台窗口，仅 Windows 需要抑制
-_SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 
 def write_wav(path: str | Path, samples: np.ndarray, samplerate: int,
@@ -159,7 +159,7 @@ def read_audio_metadata(path: str | Path, ffmpeg_path: str | None = None) -> dic
     result = subprocess.run(
         [ffmpeg_path, "-hide_banner", "-i", str(path), "-f", "null", "-"],
         capture_output=True, text=True, timeout=15,
-        creationflags=_SUBPROCESS_NO_WINDOW, stdin=subprocess.DEVNULL,
+        creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
     )
     stderr = result.stderr
 

@@ -30,17 +30,11 @@ class RuntimeDeviceConfig:
 
     def _init(self, device_index: int) -> None:
         self.is_half = True
-        self.use_cuda_graph = False
         self.gpu_name = None
-        # 显式运行时选项：取代旧版 RVC_CUDA_GRAPH* 环境变量通道
-        self.graph_options = RuntimeOptions()
         self._init_device(device_index)
 
-        if configure_cuda_graph(self.device, self.graph_options):
-            self.use_cuda_graph = True
+        if configure_cuda_graph(self.device):
             logger.info("CUDA Graph 已启用（GPU：%s）", self.gpu_name)
-        else:
-            self.use_cuda_graph = False
 
     def _init_device(self, device_index: int) -> None:
         # 现状契约：无 CUDA 环境直接失败，不做 CPU 回退。

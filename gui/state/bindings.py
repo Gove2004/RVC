@@ -13,7 +13,7 @@ params_from_dict 从「刚构造出的默认实例」取 fallback，不写第二
 """
 from typing import TYPE_CHECKING
 
-from rvc.core.config import InferenceParams
+from rvc.core.config import PARAM_GROUPS, InferenceParams
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -26,7 +26,7 @@ RADIO_F0 = "radio_f0"
 RADIO_SR = "radio_sr"
 
 # 序列化分组名与派生字段（params_from_dict / params_to_dict / 测试共用单源）
-GROUP_NAMES = ("voice", "f0", "buffer", "audio")
+GROUP_NAMES = PARAM_GROUPS  # 单源：rvc.core.config
 # 派生属性，不参与 dict 序列化（enable_out2 由 output2_device 计算）
 DERIVED_FIELDS = frozenset({"enable_out2"})
 # 顶层字段
@@ -47,7 +47,6 @@ BINDINGS = [
     ("buffer.extra_time", "extra_time_slider", FLOAT),
     # ── 音频设备参数（audio.*）──
     ("audio.sr_mode", "sr_model_radio", RADIO_SR),
-    ("audio.hostapi", "hostapi_combo", COMBO),
     ("audio.input_device", "input_combo", COMBO),
     ("audio.output_device", "output_combo", COMBO),
     ("audio.output2_device", "output2_combo", COMBO),

@@ -39,7 +39,7 @@ class SolaEffect:
         self._sola_buffer_samples = 0
         self._sola_search_samples = 0
 
-    def setup(self, sr: int, block_samples: int, sola_buffer_samples: int,
+    def setup(self, block_samples: int, sola_buffer_samples: int,
               sola_search_samples: int, device: str):
         self._block_samples = block_samples
         self._sola_buffer_samples = sola_buffer_samples
@@ -75,7 +75,7 @@ class AudioProcessor:
     def setup(self, sr: int, block_samples: int, sola_buffer_samples: int,
               sola_search_samples: int, device: str):
         self.rms_mix.setup(sr)
-        self.sola.setup(sr, block_samples, sola_buffer_samples, sola_search_samples, device)
+        self.sola.setup(block_samples, sola_buffer_samples, sola_search_samples, device)
 
     def reset(self):
         """重置所有有状态的效果器（warmup 后调用）。"""

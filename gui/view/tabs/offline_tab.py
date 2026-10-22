@@ -7,7 +7,7 @@ from gui.styles import ButtonStyles, Layout
 from gui.styles.colors import Colors
 from gui.view.widgets import ElidedLabel, PathPickerButton
 
-AUDIO_FILTER = "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus)"
+AUDIO_FILTER = "音频 (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wma)"
 
 # 未选输入文件时输出行的占位文案
 OUTPUT_PLACEHOLDER = "选择输入文件后自动确定"
