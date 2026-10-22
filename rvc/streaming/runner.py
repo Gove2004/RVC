@@ -194,10 +194,7 @@ class InferenceRunner:
             # 立刻 AttributeError 暴露，不做「静默直通」降级——那会把配置错误
             # 伪装成「能出声但没变声」，掩盖真正的故障。
             ctx.reset(self.runtime_params)
-            # 输入音频固定取自 state.input_wav_16k，本方法不需要块长参数
-            feats = self.pipeline.extract_features(
-                self.runtime_params, state.skip_head, state.return_length,
-            )
+            feats = self.pipeline.extract_features(self.runtime_params)
 
             # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
             pitch, pitchf, feats = self.pipeline.postprocess_features(feats)

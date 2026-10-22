@@ -34,7 +34,7 @@ class InferencePipeline:
     用法:
         pipeline = InferencePipeline(device_config, pth_path, hubert="chinese")
         pipeline.load()
-        feats = pipeline.extract_features(config, skip_head, ret_len)
+        feats = pipeline.extract_features(config)
         pitch, pitchf, feats = pipeline.postprocess_features(feats)
         output = pipeline.synthesize_audio(feats, pitch, pitchf)
     """
@@ -81,8 +81,7 @@ class InferencePipeline:
 
     # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
 
-    def extract_features(self, config: InferenceParams,
-                         skip_head: int, return_length: int) -> torch.Tensor:
+    def extract_features(self, config: InferenceParams) -> torch.Tensor:
         """stage_features：formant 因子 + HuBERT 特征提取 + F0 原始提取。
 
         注意：ctx.reset() 由 inference_runner 在调用本方法前执行（runner 管理 ctx 生命周期），
@@ -92,12 +91,11 @@ class InferencePipeline:
         避免 inference_runner 重复计算 pow(2, formant/12)。
 
         输入音频固定取自 state.input_wav_16k（16kHz 滚动缓冲区），它是本阶段
-        唯一的数据来源。
+        唯一的数据来源；`skip_head` / `return_length` 由 setup 阶段算好写入
+        state（init_processing），本方法只读——不再作为参数每块重复回写。
 
         Args:
             config: 推理参数
-            skip_head: 跳过的 10ms 帧数（上下文）
-            return_length: 需要返回的 10ms 帧数
 
         Returns:
             HuBERT 特征 (1, T, 768)，50fps
@@ -105,15 +103,11 @@ class InferencePipeline:
         state = self.state
         ctx = self.ctx
 
-        # skip_head / return_length 由 runner 传入，同步到 state 供后续阶段使用
-        state.skip_head = skip_head
-        state.return_length = return_length
-
         # formant 因子存到 ctx，输出侧复用，避免重复计算
         formant_factor = config.voice.formant
         factor = pow(2, formant_factor / 12)
         ctx.formant_factor = factor
-        ctx.return_length2 = int(math.ceil(return_length * factor))
+        ctx.return_length2 = int(math.ceil(state.return_length * factor))
 
         # 只提取 HuBERT 特征（50fps）。
         #
