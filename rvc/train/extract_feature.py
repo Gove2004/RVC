@@ -49,9 +49,11 @@ class HuBERTExtractor:
         feat_dir = exp / "3_feature768"
         feat_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
+        done = 0
         for i, path in enumerate(files, 1):
             if stop_check is not None and stop_check():
                 break
+            done = i
             out_path = feat_dir / f"{path.stem}.npy"
             if not out_path.exists():
                 feats = self.extract(path)
@@ -59,7 +61,8 @@ class HuBERTExtractor:
                 save_npy_atomic(out_path, feats)
             if progress_callback:
                 progress_callback(i, len(files))
-        return len(files)
+        # 返回实际完成的条数（中止时 ≠ 全量，调用方据此打准确的完成日志）
+        return done
 
     def extract(self, path: Path):
         wav, _ = load_audio(path, HUBERT_SAMPLE_RATE, ffmpeg_exe=self.ffmpeg_exe)

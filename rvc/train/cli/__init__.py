@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from rvc.core.config import HUBERT_DEFAULT, TrainConfig
-from rvc.core.constants import AUDIO_EXTS, SLICE_PERIOD_DEFAULT
+from rvc.core.constants import AUDIO_EXTS, NATIVE_EXTS, SLICE_PERIOD_DEFAULT
 from rvc.runtime.paths import PROJECT_ROOT
 
 # 环境检测用（纯元数据查询，不真正执行模块）
@@ -23,9 +23,8 @@ OPTIONAL_PACKAGES = [
     ("sounddevice", "sounddevice", "实时音频 IO（仅推理端需要）"),
 ]
 
-# 音频扩展名单源在 rvc.core.constants.AUDIO_EXTS，此处 re-export 供向导扫描使用
-# （与 preprocess 指纹核对同一口径，新增格式只改 constants）。
-NATIVE_EXTS = {".wav", ".flac", ".ogg"}
+# 音频扩展名单源在 rvc.core.constants（AUDIO_EXTS 全集 / NATIVE_EXTS 原生格式），
+# 此处 re-export 供向导扫描使用（与 preprocess 指纹核对同一口径，新增格式只改 constants）。
 
 EXIT_OK, EXIT_ENV, EXIT_RUNTIME = 0, 1, 2
 BAR = "─" * 66

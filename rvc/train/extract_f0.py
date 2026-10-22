@@ -33,9 +33,11 @@ class TrainF0Extractor:
         coarse_dir.mkdir(parents=True, exist_ok=True)
         continuous_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(wav_dir.glob("*.wav"))
+        done = 0
         for i, path in enumerate(files, 1):
             if stop_check is not None and stop_check():
                 break
+            done = i
             out_coarse = coarse_dir / f"{path.stem}.npy"
             out_cont = continuous_dir / f"{path.stem}.npy"
             if not out_coarse.exists() or not out_cont.exists():
@@ -50,5 +52,6 @@ class TrainF0Extractor:
                 save_npy_atomic(out_coarse, normalize_f0_to_coarse(f0))
             if progress_callback:
                 progress_callback(i, len(files))
-        return len(files)
+        # 返回实际完成的条数（中止时 ≠ 全量，调用方据此打准确的完成日志）
+        return done
 

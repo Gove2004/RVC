@@ -14,7 +14,7 @@ def _clean(raw: str) -> str:
     return raw.strip().strip('"').strip("'").strip()
 
 
-def _hint(default="", options=None, note="", allow_blank=False) -> str:
+def _hint(default="", options=None, note="") -> str:
     """问题旁的括号提示：补充说明 + 可选项 + 默认值（同括号内，分号分隔）。"""
     parts = []
     if note:
@@ -23,25 +23,23 @@ def _hint(default="", options=None, note="", allow_blank=False) -> str:
         parts.append("可选 " + " / ".join(str(o) for o in options))
     if default != "":
         parts.append(f"默认 {default}")
-    elif allow_blank:
-        parts.append("可留空")
     else:
         parts.append("必填")
     return f"（{'；'.join(parts)}）"
 
 
-def ask(prompt: str, default="", cast=None, check=None, allow_blank=False,
+def ask(prompt: str, default="", cast=None, check=None,
         options=None, note="") -> object:
-    """提问。default 为空串且 allow_blank=False 时视为必填；EOF（管道结束）自动取默认值。
+    """提问。default 为空串时视为必填；EOF（管道结束）自动取默认值。
 
     options 仅用于在问题旁提示可选项，校验仍由 check 负责（两者不要各写一份）。
     """
     while True:
         try:
-            raw = _clean(input(f"{prompt}{_hint(default, options, note, allow_blank)}: "))
+            raw = _clean(input(f"{prompt}{_hint(default, options, note)}: "))
         except EOFError:
             print(flush=True)
-            if allow_blank or default != "":
+            if default != "":
                 raw = ""
             else:
                 raise EnvFatal(
@@ -52,8 +50,6 @@ def ask(prompt: str, default="", cast=None, check=None, allow_blank=False,
             print(flush=True)
             raise Cancelled() from None
         if raw == "":
-            if allow_blank:
-                return ""
             if default != "":
                 raw = str(default)
             else:

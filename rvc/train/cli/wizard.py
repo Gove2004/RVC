@@ -46,12 +46,12 @@ def _detect_ckpt_epoch(exp_dir: Path) -> int:
 
 
 def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_dir: str,
-               ffmpeg_exe: str = "") -> dict:
+               ffmpeg_exe: str | None = None) -> dict:
     """交互收集训练参数。
 
     argv_dir: 命令行给出的数据集路径（第一个非选项参数），作为数据集提问的默认值。
     ffmpeg_exe: 环境体检阶段定位的 ffmpeg 路径，随 cfg 下发给后续所有解码调用；
-    空串表示未定位到（仅 wav/flac/ogg 素材可继续）。
+    None 表示未定位到（仅 wav/flac/ogg 素材可继续）。
 
     各提问项的默认值来自上次运行的存档（`rvc.train.cli.defaults`），
     问完后本次答案会被存回去，作为下次的默认值。
@@ -73,7 +73,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     input_dir = Path(ask("数据集路径", argv_dir or defaults["input_dir"],
                          check=_dir_ok)).expanduser()
     files = _scan_audio(input_dir)
-    _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe or None)
+    _probe_dataset(log, input_dir, files, ffmpeg_path=ffmpeg_exe)
     _require_ffmpeg(log, files)
 
     # 2) 产物根目录（实验目录与导出模型目录都在其下；默认按平台自适应）
@@ -100,7 +100,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     log.log(f"模型目录    : {model_dir}")
     log.log(f"日志文件    : {log.log_file}")
 
-    # 4) 续训检测（自动检测，不属 11 项提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
+    # 续训检测（自动进行，不属 11 项提问：检测到就续训；要重来请手动删掉 checkpoint 目录）
     ckpt_epoch = _detect_ckpt_epoch(exp_dir)
     if ckpt_epoch:
         log.log(f"检测到已有 checkpoint（已训练到 epoch {ckpt_epoch}）→ 自动续训")
@@ -108,7 +108,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     elif exp_existed:
         log.log("实验目录已存在但无 checkpoint，将复用其中已有的切片/特征")
 
-    # 5) 采样率
+    # 4) 采样率
     def _sr_ok(value):
         if value not in SR_OPTIONS:
             return False, "只能填 40k 或 48k"
@@ -120,7 +120,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    # 6) HuBERT 特征器（训练/推理必须一致，权重在 assets/hubert/{base,chinese}；
+    # 5) HuBERT 特征器（训练/推理必须一致，权重在 assets/hubert/{base,chinese}；
     #    不一致 → 音色发闷、咬字怪异）
     def _hubert_ok(value):
         if value not in HUBERT_OPTIONS:
@@ -132,14 +132,14 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if hubert == "chinese":
         log.log("chinese 特征器：推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
 
-    # 7) batch size（上次填过就用上次的，没填过按显存现算）
+    # 6) batch size（上次填过就用上次的，没填过按显存现算）
     suggested = _suggest_batch(vram_gb, sr_hz)
     batch_default = defaults["batch_size"] or suggested
     batch = ask("batch size", str(batch_default), cast=_as_int,
                 check=lambda v: (v >= 1, "至少 1"),
                 note=f"按 {vram_gb:.1f}GB 显存建议 {suggested}")
 
-    # 8) 学习率
+    # 7) 学习率
     lr = ask(
         "学习率",
         f"{defaults['lr']:g}",
@@ -152,7 +152,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     elif lr < 1e-5:
         log.log("学习率偏小，100 轮大概率训不出东西", "WARN")
 
-    # 9) 总轮次
+    # 8) 总轮次
     def _epochs_ok(value):
         if value < 1:
             return False, "至少 1 轮"
@@ -166,16 +166,16 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     epochs = ask("训练轮次", str(epochs_default), cast=_as_int, check=_epochs_ok,
                  note="填目标终点；已训到的轮次会自动续训")
 
-    # 10) 保存间隔
+    # 9) 保存间隔
     save_every = ask("每多少轮保存一次", str(defaults["save_every"]), cast=_as_int,
                      check=lambda v: (v >= 1, "至少 1"))
 
-    # 11) 保留 checkpoint 组数
+    # 10) 保留 checkpoint 组数
     keep_ckpts = ask("保留最近几组 checkpoint", str(defaults["keep_ckpts"]), cast=_as_int,
                      check=lambda v: (v >= 1, "至少 1"),
                      note="每组含优化器状态，是体积最大的产物")
 
-    # 12) 是否使用预训练底模
+    # 11) 是否使用预训练底模
     use_pretrained = ask_yes("是否使用预训练模型", defaults["use_pretrained"],
                              note="No = 随机初始化")
     if not use_pretrained:

@@ -34,6 +34,7 @@ from rvc.train.cli.steps import (
     STOP,
     _features_ready,
     _install_signal_handlers,
+    _variant_matches,
     step_f0,
     step_feature,
     step_preprocess,
@@ -112,10 +113,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 # 特征目录存在但变体不符（或无记录）→ 整目录删除重提。
                 # 不删的话 extract 会跳过已存在文件，新旧特征静默混用。
+                # （_features_ready 为 False 的原因无从区分，故这里再判一次变体）
                 feat_dir = exp_dir / "3_feature768"
-                variant_file = feat_dir / ".variant"
-                if feat_dir.is_dir() and (not variant_file.exists()
-                        or variant_file.read_text(encoding="utf-8").strip() != hubert):
+                if feat_dir.is_dir() and not _variant_matches(exp_dir, hubert):
                     import shutil
 
                     shutil.rmtree(feat_dir)

@@ -25,9 +25,13 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size):
     与 center=True 语义一致但避免双重 padding（本函数恒手动 pad，故不提供
     center 参数——传 center=True 会 pad 两次，属潜在陷阱，已移除）。
     """
-    key = f"{win_size}_{y.dtype}_{y.device}"
+    # STFT 实际以 fp32 执行（下方 fp16 输入会转 float，窗口也恒 .float()），
+    # 窗口缓存 key 按实际计算 dtype 取——若按转换前的 y.dtype 做 key，
+    # fp16 训练时每个 batch 都会从 fp16 窗口重新 .float() 造一份新张量，
+    # 缓存形同虚设。
+    key = f"{win_size}_fp32_{y.device}"
     if key not in hann_window:
-        hann_window[key] = torch.hann_window(win_size).to(dtype=y.dtype, device=y.device)
+        hann_window[key] = torch.hann_window(win_size, dtype=torch.float32, device=y.device)
 
     y = torch.nn.functional.pad(
         y.unsqueeze(1),
@@ -41,7 +45,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size):
         n_fft,
         hop_length=hop_size,
         win_length=win_size,
-        window=hann_window[key].float(),
+        window=hann_window[key],
         center=False,
         pad_mode="reflect",
         normalized=False,

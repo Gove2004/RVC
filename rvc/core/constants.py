@@ -19,6 +19,10 @@ TRAIN_FRAME_MAX = 900
 # 扫描（train/cli）必须同一口径，新增格式只改这里。
 AUDIO_EXTS = frozenset({".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"})
 
+# libsndfile 可直接读取的原生格式（无需 ffmpeg 解码）：训练向导据此判断
+# 「素材含非原生格式但没有 ffmpeg」是否放行。AUDIO_EXTS 的子集。
+NATIVE_EXTS = frozenset({".wav", ".flac", ".ogg"})
+
 # F0 置信度阈值（低于此值判为静音/UV）。
 # 训练与推理数值不同是有意为之（历史口径），单源定义防止双处漂移：
 # - 训练侧 0.03：RMVPE 官方推荐值，批量切片底噪干净；

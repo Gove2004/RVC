@@ -140,28 +140,30 @@ def _locate_ffmpeg() -> tuple[str, str]:
     return locate_ffmpeg()
 
 
-def _probe_ffmpeg(log: TrainLogger) -> str:
-    """定位 ffmpeg 并实际验证可执行，返回定位结果（空串 = 未找到）。
+def _probe_ffmpeg(log: TrainLogger) -> str | None:
+    """定位 ffmpeg 并实际验证可执行，返回定位结果（None = 未找到）。
 
     定位结果由调用方显式传参下发（cfg["ffmpeg"]），不改写任何模块全局。
+    哨兵统一为 None：下游 resolve_ffmpeg 对 None 走「未显式指定」查找链，
+    空串会被 Path("") 误判为当前目录引发脏崩溃，禁止用空串表示缺失。
     """
     chosen, source = _locate_ffmpeg()
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
         log.log("  素材若含 mp3/m4a/aac 会直接失败；安装：winget install ffmpeg / apt install -y ffmpeg", "WARN")
-        return ""
+        return None
     try:
         probe = subprocess.run([chosen, "-version"], capture_output=True, timeout=15)
         if probe.returncode != 0:
             log.log(
                 f"ffmpeg      : {chosen} 存在但执行失败（rc={probe.returncode}）"
-                " → 请安装系统 ffmpeg：apt install -y ffmpeg",
+                " → 请安装系统 ffmpeg：winget install ffmpeg / apt install -y ffmpeg",
                 "ERROR",
             )
-            return ""
+            return None
     except OSError as exc:
-        log.log(f"ffmpeg      : {chosen} 无法执行（{exc}）→ 请安装系统 ffmpeg：apt install -y ffmpeg", "ERROR")
-        return ""
+        log.log(f"ffmpeg      : {chosen} 无法执行（{exc}）→ 请安装系统 ffmpeg：winget install ffmpeg / apt install -y ffmpeg", "ERROR")
+        return None
     log.log(f"ffmpeg      : {chosen}（来自 {source}）")
     return chosen
 

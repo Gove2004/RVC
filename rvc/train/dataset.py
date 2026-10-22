@@ -16,7 +16,7 @@ from rvc.core.constants import TRAIN_FRAME_MAX, TRAIN_FRAME_MIN
 from rvc.io.audio_file import load_audio
 from torch.utils.data import Dataset, Sampler
 
-from rvc.train.atomic_save import save_npy_atomic
+from rvc.train.atomic_save import save_npy_atomic, save_torch_atomic
 from rvc.train.mel_processing import spectrogram_torch
 
 logger = logging.getLogger(__name__)
@@ -133,18 +133,20 @@ class TextAudioLoaderMultiNSFsid(Dataset):
         return spec, wav.squeeze(0)
 
     def _cached_wav(self, filename: str, mtime: float) -> torch.Tensor:
-        """解码并重采样 wav，结果缓存为 npy（key 含采样率，mtime 判失效）。"""
+        """解码并重采样 wav，结果缓存为 npy（key 含采样率，mtime 判失效）。
+
+        load_audio 的契约保证返回采样率恒等于 target_sr（ffmpeg -ar 强制重采样），
+        无需二次校验。
+        """
         cache_path = self.spec_cache_dir / f"{Path(filename).stem}.sr{self.sampling_rate}.wav.npy"
         if cache_path.exists() and cache_path.stat().st_mtime >= mtime:
             # 安全前提：wav 缓存由本进程 save_npy_atomic 就近写出，来源可信
             return torch.from_numpy(np.load(cache_path)).unsqueeze(0)
-        wav, sr = load_audio(filename, target_sr=self.sampling_rate, mono=True, ffmpeg_exe=self.ffmpeg_exe)
-        if sr != self.sampling_rate:
-            raise ValueError(f"采样率不匹配: {sr} != {self.sampling_rate}")
+        wav, _sr = load_audio(filename, target_sr=self.sampling_rate, mono=True, ffmpeg_exe=self.ffmpeg_exe)
         self.spec_cache_dir.mkdir(parents=True, exist_ok=True)
         # 原子写：多 worker 并发补缓存时不留半写文件
         save_npy_atomic(cache_path, wav.astype(np.float32))
-        return torch.FloatTensor(wav).unsqueeze(0)
+        return torch.from_numpy(wav).unsqueeze(0)
 
     def _cached_spec(self, filename: str, wav: torch.Tensor, mtime: float) -> torch.Tensor:
         """计算 STFT 频谱，缓存 key 包含全部 STFT 参数（重新预处理自动失效）。"""
@@ -158,7 +160,7 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             and spec_path.stat().st_mtime >= mtime
         )
         if cache_valid:
-            # 安全前提：spec 缓存由本进程 torch.save 就近写出，来源可信，故 weights_only=False。
+            # 安全前提：spec 缓存由本进程 save_torch_atomic 就近写出，来源可信，故 weights_only=False。
             return torch.load(spec_path, map_location="cpu", weights_only=False)
         spec = spectrogram_torch(
             wav,
@@ -168,7 +170,9 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             self.win_length,
         ).squeeze(0)
         self.spec_cache_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(spec, spec_path)
+        # 原子写：与 wav 缓存同防护等级——中途强杀不留截断 .spec.pt
+        # （非原子写会让损坏文件通过 mtime 判定静默复用，torch.load 直接崩）
+        save_torch_atomic(spec_path, spec)
         return spec
 
 
@@ -209,13 +213,12 @@ class TextAudioCollateMultiNSFsid:
 
 
 class BucketSampler(Sampler):
-    def __init__(self, dataset: TextAudioLoaderMultiNSFsid, batch_size: int, boundaries=None, shuffle: bool = True):
+    def __init__(self, dataset: TextAudioLoaderMultiNSFsid, batch_size: int):
         self.dataset = dataset
         self.batch_size = batch_size
         # 边界表从有效长度范围单源推导（步长 100）：_filter 放进来的样本
         # 必然落入某个桶，不会出现「进了数据集却被 sampler 全部跳过」的漂移
-        self.boundaries = boundaries or list(range(TRAIN_FRAME_MIN, TRAIN_FRAME_MAX + 1, 100))
-        self.shuffle = shuffle
+        self.boundaries = list(range(TRAIN_FRAME_MIN, TRAIN_FRAME_MAX + 1, 100))
         self.buckets = self._create_buckets()
 
     def _create_buckets(self):
@@ -241,12 +244,10 @@ class BucketSampler(Sampler):
         batches = []
         for bucket in self.buckets:
             ids = bucket.copy()
-            if self.shuffle:
-                random.shuffle(ids)
+            random.shuffle(ids)
             for i in range(0, len(ids) - len(ids) % self.batch_size, self.batch_size):
                 batches.append(ids[i : i + self.batch_size])
-        if self.shuffle:
-            random.shuffle(batches)
+        random.shuffle(batches)
         return iter(batches)
 
     def __len__(self):

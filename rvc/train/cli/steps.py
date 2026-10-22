@@ -85,6 +85,8 @@ def _run_extraction_step(log: TrainLogger, cfg: dict, title: str, label: str,
     extractor = make_extractor(cfg)
     n = extractor.run(str(cfg["exp_dir"]), _make_progress(log, label), stop_check=lambda: STOP.requested)
     secs = time.time() - t0
+    if STOP.requested:
+        log.log(f"{label}提取被中止：实际完成 {n} 条（已完成的 npy 保留，续跑自动跳过）", "WARN")
     log.log(f"{label}提取完成：{n} 条，用时 {_human_dur(secs)}（{n / max(secs, 1e-6):.1f} 条/s）")
     return n
 
@@ -119,19 +121,26 @@ def step_feature(log: TrainLogger, cfg: dict):
     log.log("已释放 HuBERT 提取模型显存")
 
 
+def _variant_matches(exp_dir: Path, hubert: str) -> bool:
+    """3_feature768/.variant 是否记录了指定特征器变体（缺失或不同 → False）。
+
+    切换 base/chinese 后不会静默复用旧特征（两者同为 768 维，训练零报错但音色发闷）。
+    """
+    variant_file = exp_dir / "3_feature768" / ".variant"
+    return variant_file.exists() and variant_file.read_text(encoding="utf-8").strip() == hubert
+
+
 def _features_ready(exp_dir: Path, hubert: str | None = None) -> bool:
     """检查 F0 与 HuBERT 特征是否完整：每个音频文件都有对应特征。
 
-    hubert 给定时还校验 3_feature768/.variant——变体不符（或无记录的旧目录）
-    视为不完整，由调用方删除后重新提取。
+    hubert 给定时还校验变体记录——不符（或无记录的旧目录）视为不完整，
+    由调用方删除后重新提取。
     """
     gt_wavs = sorted(exp_dir.glob("0_gt_wavs/*.wav"))
     if not gt_wavs:
         return False
-    if hubert is not None:
-        variant_file = exp_dir / "3_feature768" / ".variant"
-        if not variant_file.exists() or variant_file.read_text(encoding="utf-8").strip() != hubert:
-            return False
+    if hubert is not None and not _variant_matches(exp_dir, hubert):
+        return False
     stems = {p.stem for p in gt_wavs}
     f0_stems = {p.stem for p in exp_dir.glob("2a_f0/*.npy")}
     f0nsf_stems = {p.stem for p in exp_dir.glob("2b-f0nsf/*.npy")}
@@ -205,7 +214,7 @@ def step_train(log: TrainLogger, cfg: dict):
 
     _reset_epoch()
 
-    def on_batch(epoch, batch, total):
+    def on_batch(epoch, batch_idx, total):
         state["batches"] += 1
 
     def on_loss(loss_report):
