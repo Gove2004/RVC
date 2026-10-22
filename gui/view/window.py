@@ -459,7 +459,7 @@ class MainWindow(WindowLifecycle, QMainWindow):
             return
         self.device_catalog.on_hostapi_changed(name)
 
-    def _off_toggle(self):
+    def _toggle_offline(self):
         """离线 tab 的开始/取消单按钮调度（空闲时保存配置并开始）。"""
         if self.offline_conversion.is_converting:
             self.offline_conversion.cancel_conversion()
@@ -500,12 +500,20 @@ class MainWindow(WindowLifecycle, QMainWindow):
 
     def _reset_runtime_ui(self):
         self._timer.stop()
+        # 文本与「上次写过的文本」必须一起复位：_update_timer 的变更守卫会
+        # 比较这两个值，只改文本不清缓存的话，停止→再启动后首个 tick 若算出
+        # 与停止前相同的值就会被判「没变」而跳过写盘，界面永久停在「-」。
+        self._last_delay_tooltip = None
+        self._last_pitch_text = "音高: -"
+        self._last_error_count = 0
         self.delay_lbl.setText("延迟: -")
         self.pitch_lbl.setText("音高: -")
         self.error_lbl.hide()
         self._refresh_mode()
 
     def _mark_loading(self):
+        """加载中：三档 toggle 落到加载态；遥测定时器停掉（流还没起）。"""
+        self._timer.stop()
         self._refresh_mode()
 
     def _mark_running(self):

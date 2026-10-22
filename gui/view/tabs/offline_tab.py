@@ -75,7 +75,7 @@ def build_offline_tab(win):
     win.offline_button.setMinimumHeight(32)
     win.offline_button.setToolTip("开始离线转换（输入 → <原名>_converted.wav）；转换中点击取消")
     win.offline_button.setStyleSheet(ButtonStyles.primary())
-    win.offline_button.clicked.connect(win._off_toggle)
+    win.offline_button.clicked.connect(win._toggle_offline)
     _pin_button_width(win.offline_button)
     g.addWidget(win.offline_button, r, 0, 1, 4)
     r += 1
