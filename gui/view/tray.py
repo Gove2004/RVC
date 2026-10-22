@@ -37,11 +37,17 @@ def _draw_icon(base_color: QColor) -> QIcon:
     return QIcon(pm)
 
 
-def _load_or_make_icon(path: Path, base_color: QColor) -> QIcon:
-    """优先加载缓存图标文件；不存在则绘制并保存（仅首次有绘制开销）。"""
-    if path.exists():
+def _load_or_make_icon(path: Path | None, base_color: QColor) -> QIcon:
+    """优先加载缓存图标文件；不存在则绘制并保存（仅首次有绘制开销）。
+
+    path 为 None（调用方没给图标路径）时只绘制、不缓存：托盘是窗口可用性的
+    前置条件，不能因为少一个路径就 AttributeError 崩在启动阶段。
+    """
+    if path is not None and path.exists():
         return QIcon(str(path))
     icon = _draw_icon(base_color)
+    if path is None:
+        return icon
     try:
         icon.pixmap(64, 64).save(str(path))
         logger.info("托盘图标已生成并缓存：%s", path)

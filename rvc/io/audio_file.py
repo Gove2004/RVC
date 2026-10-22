@@ -32,6 +32,10 @@ _FFMPEG_HINT = (
     else "安装方式：apt install -y ffmpeg（或 conda install -c conda-forge ffmpeg）。"
 )
 
+# resolve_ffmpeg 的默认路径缓存：{RVC_FFMPEG 取值: 解析结果}。只缓存一条
+# （环境变量变了就换键），避免「改了环境变量还拿到旧 exe」的陷阱。
+_resolved_default: dict[str, Path] = {}
+
 
 def locate_ffmpeg() -> tuple[str, str]:
     """按固定顺序定位 ffmpeg，返回 (路径, 来源)；未找到返回 ("", "")。
@@ -61,16 +65,30 @@ def resolve_ffmpeg(ffmpeg_exe: str | Path | None = None) -> Path:
 
     默认（ffmpeg_exe=None）走 locate_ffmpeg 查找链；显式传 ffmpeg_exe 是
     唯一的路径覆盖方式——不存在进程内改写模块全局的通道。
+
+    默认路径结果按 RVC_FFMPEG 取值缓存：locate_ffmpeg 内部的 shutil.which
+    要扫一遍 PATH，而 load_audio 在训练预处理阶段是「每个文件一次」——
+    素材上千条时这是白跑的目录遍历。缓存键带上环境变量值，改了环境变量
+    立即失效；命中时仍校验文件存在，被删了会自动重新定位。
     """
     if ffmpeg_exe is not None:
         exe = Path(ffmpeg_exe)
         if not exe.exists():
             raise FileNotFoundError(f"找不到 ffmpeg: {exe}\n{_FFMPEG_HINT}")
         return exe
+
+    env_key = os.environ.get("RVC_FFMPEG", "").strip()
+    cached = _resolved_default.get(env_key)
+    if cached is not None and cached.exists():
+        return cached
+
     found, _source = locate_ffmpeg()
     if not found:
         raise FileNotFoundError(f"找不到 ffmpeg（系统 PATH / assets/ffmpeg 都没有）\n{_FFMPEG_HINT}")
-    return Path(found)
+    resolved = Path(found)
+    _resolved_default.clear()
+    _resolved_default[env_key] = resolved
+    return resolved
 
 
 def load_audio(

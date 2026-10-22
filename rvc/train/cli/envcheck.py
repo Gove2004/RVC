@@ -136,11 +136,6 @@ def _probe_gpu(log: TrainLogger) -> tuple[str, bool, float]:
     return f"cuda:{idx}", use_fp16, total
 
 
-def _locate_ffmpeg() -> tuple[str, str]:
-    """ffmpeg 定位（单源 rvc.io.audio_file.locate_ffmpeg，此处只透传供报告）。"""
-    return locate_ffmpeg()
-
-
 def _probe_ffmpeg(log: TrainLogger) -> str | None:
     """定位 ffmpeg 并实际验证可执行，返回定位结果（None = 未找到）。
 
@@ -148,7 +143,7 @@ def _probe_ffmpeg(log: TrainLogger) -> str | None:
     哨兵统一为 None：下游 resolve_ffmpeg 对 None 走「未显式指定」查找链，
     空串会被 Path("") 误判为当前目录引发脏崩溃，禁止用空串表示缺失。
     """
-    chosen, source = _locate_ffmpeg()
+    chosen, source = locate_ffmpeg()
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
         log.log("  素材若含 mp3/m4a/aac 会直接失败；安装：winget install ffmpeg / apt install -y ffmpeg", "WARN")

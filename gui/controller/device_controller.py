@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 class DeviceCatalog:
     """枚举音频设备并维护「下拉框位置 → PortAudio 索引」映射。"""
 
