@@ -63,6 +63,7 @@ class BufferParams:
 class AudioParams:
     """音频设备参数 — 采样率模式 + 设备选择。"""
     sr_mode: str = "model"  # model / device
+    hostapi: str = ""
     input_device: str = ""
     output_device: str = ""
     output2_device: str = ""
