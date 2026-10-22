@@ -165,7 +165,7 @@ def _set(win: "InferWindowHost", widget, kind, value):
         slider = getattr(win, widget)
         slider.setValue(float(value))
         # 手动刷新标签：控件未显示时 setValue 可能不触发 valueChanged
-        slider._update_label()
+        slider.update_label()
     elif kind == COMBO:
         combo = getattr(win, widget)
         # 优先按 userData 匹配，无 userData 时回退到文本匹配
@@ -200,14 +200,14 @@ def apply_params(win: "InferWindowHost", params: InferenceParams) -> None:
     # F0 阈值滑动条
     slider = win.f0_threshold_slider
     slider.setValue(f0_active_threshold(params))
-    slider._update_label()
+    slider.update_label()
     win.f0_threshold_name.setText(f0_threshold_label(params.f0.method))
 
     # 音域映射 RangeSlider
-    win.pitch_map_src_range.setRange(
+    win.pitch_map_src_range.set_selected_range(
         float(params.voice.pitch_map_src_min), float(params.voice.pitch_map_src_max)
     )
-    win.pitch_map_dst_range.setRange(
+    win.pitch_map_dst_range.set_selected_range(
         float(params.voice.pitch_map_dst_min), float(params.voice.pitch_map_dst_max)
     )
 

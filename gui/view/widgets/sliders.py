@@ -44,7 +44,7 @@ class DoubleSlider(QSlider):
     def _fmt(self, v: float) -> str:
         return f"{v:{self._label_fmt}}{self._label_unit}"
 
-    def _update_label(self) -> None:
+    def update_label(self) -> None:
         """刷新值标签：拖动经 valueChanged 自动触发；程序化 setValue 不触发
         valueChanged 时（如控件未显示）由调用方手动调用。"""
         if self._value_label is not None:
@@ -66,8 +66,8 @@ def create_slider_row(mn: float, mx: float, st: float, dv: float,
     s = DoubleSlider(mn, mx, st, value_label=lbl, label_fmt=fmt, label_unit=unit)
     s.setFixedHeight(Layout.SLIDER_HEIGHT)
     s.setValue(dv)
-    s._update_label()
-    s.valueChanged.connect(s._update_label)
+    s.update_label()
+    s.valueChanged.connect(s.update_label)
     return s, lbl
 
 
@@ -97,8 +97,12 @@ class RangeSlider(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._update_tooltip()
 
-    def setRange(self, low_val: float, high_val: float) -> None:
-        """设置当前范围（物理值），并发射 rangeChanged 信号。"""
+    def set_selected_range(self, low_val: float, high_val: float) -> None:
+        """设置当前选中区间（物理值），并发射 rangeChanged 信号。
+
+        刻意**不叫** setRange：QAbstractSlider 家族里 setRange 是「改上下限」，
+        这里改的是选中区间，同名会被误读成改量程。
+        """
         self._low = max(self._min, float(low_val))
         self._high = min(self._max, float(high_val))
         if self._low > self._high:

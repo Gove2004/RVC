@@ -82,8 +82,9 @@ checkpoint 则自动续训）。重新预处理会连同旧 checkpoint 一起清
 .venv\Scripts\python.exe -m unittest discover tests -v
 ```
 
-快、稳、无需 GPU/模型（dsp 换算、音域映射契约、RMS 边界、GUI 离屏构建冒烟），秒级跑完；
-需要真实模型/设备的端到端验证不走这里，靠实机确认。
+快、稳、无需 GPU/模型（dsp 换算、音域映射双后端等价性、F0 量化与分桶边界、
+推理缓存与 CUDA Graph 缓存的淘汰时机、训练链的静默失败点、离线块循环、GUI 离屏
+构建与工具队列），秒级跑完；需要真实模型/设备的端到端验证不走这里，靠实机确认。
 
 ## 架构概览
 
@@ -99,6 +100,7 @@ app.py                    # 入口：--infer 启动推理 GUI；--train 启动�
 │   ├── pipeline/         # 推理管线：F0 提取/后处理、特征提取、合成、模型会话与缓存
 │   │   └── pitch/        # 音高子模块：提取器、后处理（音域映射/中值滤波）
 │   ├── streaming/        # 流处理：VoiceEngine 门面、运行器、音频流、输出路由、RMS/SOLA 效果处理
+│   │   └── offline.py    # 离线文件的纯步骤：读音频 / 逐块喂实时管线 / 写 wav
 │   └── train/            # 训练管线：预处理、F0/特征提取、训练器、checkpoint、损失
 │       └── cli/          # 训练命令行向导（Windows/Linux 共用）：体检、参数向导、步骤执行
 ├── gui/                  # PySide6 GUI 层（View 不得 import rvc——依赖单向约束）
@@ -154,23 +156,29 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/dsp/` | `sola.py`（SOLA 时长对齐拼接）、`rms.py`（RMS 音量混合）、`mel.py`（mel 频谱）、`hz_midi.py`（Hz↔MIDI 换算）——纯函数、无 torch/IO 依赖 |
 | `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询） |
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
-| `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化） |
-| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`effects.py`（RMS 响度混合 / SOLA） |
+| `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化；torch 与 numpy 共用**一份**数学实现，后端差异经 `_Ops` 注入） |
+| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（输出路由）、`effects.py`（RMS 响度混合 / SOLA）、`offline.py`（离线文件的读/pad 切块/写，纯步骤可单测） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
-| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（TrainSample/TrainBatch 数据集与 collate）、`mel_processing.py` |
+| `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（三级缓存 + 分桶采样 + collate）、`mel_processing.py` |
 | `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`defaults.py`（上次参数存档 → 下次默认值）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
-| `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具）+ `state/`（参数绑定）+ `configs/` + `styles/` |
+| `gui/` | 推理 GUI：`view/`（window.py 装配、lifecycle.py 生命周期、tabs/ 六页签：设备/音色/参数/离线/融合/详情）+ `controller/`（引擎控制/设备目录/离线转换/模型工具/回收站）+ `state/`（参数绑定）+ `configs/` + `styles/` |
+| `tests/` | 标准库 unittest（不用 pytest）。覆盖纯函数契约（Hz↔MIDI、音域映射、RMS、SOLA、F0 量化/分桶）、推理缓存与图缓存生命周期、训练链静默失败点、GUI 离屏构建与工具队列；全部无需 GPU/模型，秒级跑完 |
 
 ## 设计决策（为什么）
 
 - **训练 = 纯命令行，推理 = GUI** — 训练是长时无人值守任务，问答式向导 + 逐步跳过已完成阶段，天然适合脚本化与远程（SSH）运行；需要图形交互的只有推理与模型工具，故留在 GUI。
 - **训练数据集用 `NamedTuple` 而非 dataclass** — DataLoader 的 `pin_memory=True` 只对 namedtuple 逐元素重建并钉页（torch 内部按 `_fields` 识别）；dataclass 会被原样返回导致钉页**静默失效**，`non_blocking` 拷贝语义随之漂移。
-- **`load_model` 刻意不清 F0 提取器的 CUDA Graph**（历史行为已移除）— F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走 `purge_cuda_graphs`，改阈值/块时长经签名 key 自动重捕获。
+- **`load_model` 刻意不清 F0 提取器的 CUDA Graph**（历史行为已移除）— F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走淘汰侧回收，改阈值/块时长经签名 key 自动重捕获。
 - **CUDA Graph：张量走参数、标量走闭包** — 捕获/回放要求张量地址静态，标量（`skip_head` 等）若作为参数传入会用外部变量地址而非静态地址，导致声音沙哑/失真；`return_length2` 随 formant 变化、经闭包编译进图，故必须进 `graph_key`，否则错误命中旧图（输出长度错误、爆音）。
+- **GUI 侧不留长时主线程等待** — 模型工具（合并/检视）是入队 + 队列泵：正在跑就排队、调用立刻返回，由 `finished` 拉起下一项；只有退出路径允许 `wait()`（否则进程挂死）。
 - **F0 每块从完整缓冲区重提取（取前 p_len 帧）** — 旧滚动缓存方案的 F0 窗口与 HuBERT 输入窗口长度不同会错位；现在两路输入完全一致、帧天然对齐，取前 p_len 帧是特征侧（upsample 后取前 p_len 帧）的对齐要求。
-- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。
+- **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。
+- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 把 transformers 也改成惰性导入：`import rvc.pipeline.pipeline` 从 21s（transformers→sklearn→torch._dynamo）降到 0.11s，训练 CLI 与单测都直接受益。
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
 - **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，改成实例归属会破坏跨管线复用。
+- **模型缓存的回收点在「淘汰」，不在「加载」** — 命中缓存时拿到的就是上次那个对象，它的图仍然有效；在那里 purge 等于每次切回旧模型都重捕获一遍。`LRUCache.set` 把被淘汰的值回报给调用方，由 `InferenceCache` 显式回收（模型清图、提取器 `release()`）。
+- **训练分桶采样不丢桶尾** — 语料量不是 `batch_size` 整数倍时，旧的 `range(0, len - len % bs, bs)` 会让桶尾样本每轮都被跳过且无提示；现在把各桶尾部合并成尾批，`__len__` 与批次数严格相等（`ceil(total/bs)`）。
+- **样本读盘三级缓存** — ffmpeg 解码 → `wav.npy`；STFT → `.spec.pt`；每轮重复读取 → 进程内按字节预算的样本 LRU（默认 256MB/worker，`0` 关闭）。单样本省约 4ms，代价是显存之外的内存占用需显式预算。
 - **八层单向依赖（`gui | rvc/train/cli → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
 - **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.04` 是 dataclass 字段默认值而非算法常数，故不具名化。
 
