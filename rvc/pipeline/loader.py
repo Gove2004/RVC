@@ -41,7 +41,7 @@ class SynthesizerLoader:
         target_sr = ckpt["config"][-1]
         use_f0 = bool(ckpt.get("f0", 1))
 
-        from rvc.models.synthesizer_model import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
+        from rvc.models.synthesizer import SynthesizerTrnMsNSFsid, SynthesizerTrnMsNSFsid_nono
         if use_f0:
             synthesizer = SynthesizerTrnMsNSFsid(*ckpt["config"], is_half=self.is_half)
         else:

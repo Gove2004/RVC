@@ -1,8 +1,32 @@
+# ══════════════════════════════════════════════════════════════════════
+#  torch / torchaudio 必须从 CUDA 12.8 专用索引安装
+# ══════════════════════════════════════════════════════════════════════
+# PyPI 上的 torch 默认 wheel 是 CPU 版：直接 `pip install -r requirements.txt`
+# 装到的 torch 带不了 CUDA，推理/训练会在第一次 .cuda() 处才炸（甚至静默跑成
+# CPU 速度）。正确做法是先单独按 CUDA 索引装 torch，再装其余依赖：
+#
+#   .venv\Scripts\pip.exe install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   .venv\Scripts\pip.exe install -r requirements.txt
+#
+# 第二条不会覆盖第一条：torch/torchaudio 已满足 `>=2.11.0`，pip 直接跳过。
+#
+# 为什么不把 `--index-url` 写进本文件：它是**替换**整个索引而非追加，
+# 一旦生效，PySide6 / numpy / scipy 等会去 pytorch 索引里找（该索引只有
+# torch 自家包），解析直接失败。也不建议改用 `--extra-index-url` 折中：
+# 两个索引都有 torch 2.11.0，pip 可能挑到 PyPI 的 CPU 版，比报错更难查。
+# 校验是否装对：`python -c "import torch; print(torch.version.cuda)"`
+# 应输出 12.8（不是 None）。
 torch>=2.11.0
 torchaudio>=2.11.0
+
+# GUI（PySide6 自带 Qt6 运行库，无需另装 Qt）
 PySide6>=6.8.0
+
+# 数值与音频
 numpy>=2.0.0
 scipy>=1.14.0
 sounddevice>=0.5.0
+
+# 特征 / F0 模型运行时
 torchfcpe>=0.0.4
 transformers>=5.9.0

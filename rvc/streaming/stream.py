@@ -11,12 +11,12 @@
 VoiceEngine 保留对外接口，内部委托给本组件处理音频流。
 """
 import logging
-import queue
 import threading
 
 import sounddevice as sd
 
 from rvc.core.errors import AudioDeviceError
+from rvc.streaming.output import Out2Queue
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class AudioStreams:
     def __init__(self):
         self.stream = None
         self.stream2 = None
-        self.out2_q = queue.Queue(maxsize=10)
+        self.out2_q = Out2Queue()
         self.enable_out2 = False
         self.sr = None
         self.channels = 1
@@ -150,6 +150,14 @@ class AudioStreams:
         )
         self.stream.start()
 
+    def push_secondary_output(self, outdata) -> None:
+        """把已写进主输出的块投递给副输出（调用方已判断 enable_out2）。
+
+        只拷一块进队列，不分配新内存——见 Out2Queue.push。
+        """
+        if self.stream2 is not None:
+            self.out2_q.push(outdata)
+
     def start_secondary_output(self, dev_idx: int, sr: int, channels: int, block_samples: int) -> None:
         """创建并启动副输出流。
 
@@ -170,16 +178,12 @@ class AudioStreams:
         self.validate_secondary_output(dev_idx, channels)
 
         # 清空上次残留的数据（在启动前做：启动后回调线程会开始消费）
-        while not self.out2_q.empty():
-            self.out2_q.get_nowait()
+        self.out2_q.clear()
 
         def out2_callback(outdata, frames, audio_clock, status):
             if status:
                 self._handle_stream_error(status, prefix="out2")
-            if not self.out2_q.empty():
-                data = self.out2_q.get_nowait()
-                outdata[:] = data[:frames]
-            else:
+            if not self.out2_q.take_into(outdata, frames):
                 outdata[:] = 0
 
         self.stream2 = sd.OutputStream(

@@ -299,9 +299,7 @@ class VoiceEngine:
 
             # 副输出路由
             if self._streams.enable_out2:
-                self._runner.route_secondary_output(
-                    outdata, self._streams.stream2, self._streams.out2_q,
-                )
+                self._streams.push_secondary_output(outdata)
 
             self._runner.acknowledge_success()
         except Exception as e:

@@ -5,6 +5,13 @@ __pycache__/
 *.pyc
 *.pyo
 
+# 工具缓存（mypy 会自己往目录里放 .gitignore，但仍显式登记，避免被误提交）
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 # IDE
 .vscode/
 .idea/

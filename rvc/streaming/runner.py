@@ -13,7 +13,6 @@
 - formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取
 """
 import logging
-import queue
 import time
 
 import numpy as np
@@ -23,9 +22,9 @@ from torchaudio.transforms import Resample as TatResample
 
 from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
-from rvc.streaming.output import route_secondary_output, write_main_output
-from rvc.streaming.effects import AudioProcessor
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
+from rvc.streaming.effects import AudioProcessor
+from rvc.streaming.output import write_main_output
 
 logger = logging.getLogger(__name__)
 
@@ -227,10 +226,6 @@ class InferenceRunner:
             write_main_output(chunk, outdata, state.channels, state.out_pin)
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
-
-    def route_secondary_output(self, outdata: np.ndarray, stream2, out2_q: queue.Queue) -> None:
-        """副输出路由（调用方已判断 enable_out2，这里不再重复检查）。"""
-        route_secondary_output(outdata, stream2, out2_q)
 
     # ── stage_input：硬件输入 ──
 

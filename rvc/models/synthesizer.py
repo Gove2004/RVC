@@ -1,19 +1,22 @@
-"""合成器模型 — 统一基类 + v2 768 维变体（带 F0 / 无 F0）"""
+"""合成器模型 — 统一基类 + v2 变体（带 F0 / 无 F0）。
+
+权重文件（`*.pth`）由 `rvc.pipeline.loader` 装配，本模块只描述网络结构。
+"""
 import logging
 from typing import Final, Optional
 
+import torch
+from torch import Tensor, nn
+
+from rvc.models.synthesizer_decoder import Generator, GeneratorNSF
+from rvc.models.synthesizer_encoder import PosteriorEncoder, TextEncoder
+from rvc.models.synthesizer_flow import ResidualCouplingBlock
+from rvc.nn import vits_blocks
+
 logger = logging.getLogger(__name__)
 
-import torch
-from torch import Tensor
-from torch import nn
-
-from rvc.nn import vits_blocks
-from rvc.models.synthesizer_encoder import TextEncoder, PosteriorEncoder
-from rvc.models.synthesizer_decoder import Generator, GeneratorNSF
-from rvc.models.synthesizer_flow import ResidualCouplingBlock
-
-sr2sr = {
+# checkpoint 的 sr 字段可能是字符串别名（"48k"）或整数（48000）
+_SR_BY_KEY = {
     "32k": 32000,
     "40k": 40000,
     "48k": 48000,
@@ -66,7 +69,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         """
         super(_SynthesizerTrnMsBase, self).__init__()
         if isinstance(sr, str):
-            sr = sr2sr.get(sr, 48000)
+            sr = _SR_BY_KEY.get(sr, 48000)
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
         self.hidden_channels = hidden_channels

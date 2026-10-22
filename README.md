@@ -29,7 +29,12 @@
 git clone <repo-url>
 cd RVC
 python -m venv .venv
+# torch 必须先按 CUDA 12.8 索引安装：PyPI 上的默认 wheel 是 CPU 版，
+# 直接装 requirements.txt 会得到无 CUDA 的 torch（详见 requirements.txt 顶部）
+.venv\Scripts\pip.exe install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 .venv\Scripts\pip.exe install -r requirements.txt
+# 校验：应输出 12.8，若为 None 说明装成了 CPU 版
+.venv\Scripts\python.exe -c "import torch; print(torch.version.cuda)"
 ```
 
 训练功能需要以下预训练权重（放在 `assets/` 对应目录）：

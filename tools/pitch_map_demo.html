@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音域映射计算器</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', 'PingFang SC', sans-serif; background: #f4f3ee; color: #1a1b1c; padding: 20px; }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+  .panel { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #e4e3dd; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; }
+  .control { display: flex; flex-direction: column; gap: 6px; }
+  .control label { font-size: 13px; color: #6b7280; display: flex; justify-content: space-between; }
+  .control label span { color: #1a1b1c; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .control input[type=range] { width: 100%; accent-color: #8bc8ea; }
+  .stats { display: flex; gap: 24px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e4e3dd; }
+  .stat { flex: 1; }
+  .stat .label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+  .stat .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .value small { font-size: 13px; font-weight: 400; color: #6b7280; }
+  #chart { width: 100%; height: 400px; }
+  .preset-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .preset-btn { padding: 6px 14px; border: 1px solid #d4d3cc; border-radius: 8px; background: #fff; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .preset-btn:hover { background: #8bc8ea; border-color: #8bc8ea; color: #fff; }
+  .preset-btn.active { background: #8bc8ea; border-color: #8bc8ea; color: #fff; }
+  .drag-hint { font-size: 11px; color: #9ca3af; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>音域映射计算器</h1>
+
+  <div class="panel">
+    <div class="preset-row">
+      <button class="preset-btn active" onclick="applyPreset(60,720,160,720,this)">当前 60-720→160-720</button>
+      <button class="preset-btn" onclick="applyPreset(70,720,180,720,this)">70-720→180-720</button>
+      <button class="preset-btn" onclick="applyPreset(80,640,180,720,this)">80-640→180-720</button>
+      <button class="preset-btn" onclick="applyPreset(80,560,180,720,this)">80-560→180-720</button>
+      <button class="preset-btn" onclick="applyPreset(40,685,120,720,this)">40-685→120-720</button>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>A 原声下限 <span id="valA">60</span> Hz</label>
+        <input type="range" id="A" min="10" max="1000" step="10" value="60" oninput="update()">
+      </div>
+      <div class="control">
+        <label>B 原声上限 <span id="valB">720</span> Hz</label>
+        <input type="range" id="B" min="10" max="1000" step="10" value="720" oninput="update()">
+      </div>
+      <div class="control">
+        <label>C 模型下限 <span id="valC">160</span> Hz</label>
+        <input type="range" id="C" min="10" max="1000" step="10" value="160" oninput="update()">
+      </div>
+      <div class="control">
+        <label>D 模型上限 <span id="valD">720</span> Hz</label>
+        <input type="range" id="D" min="10" max="1000" step="10" value="720" oninput="update()">
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="label">斜率（MIDI尺度）</div>
+        <div class="value" id="slope">0.605</div>
+      </div>
+      <div class="stat">
+        <div class="label">120Hz 输入 →</div>
+        <div class="value" id="out120">243 <small>Hz</small></div>
+      </div>
+      <div class="stat">
+        <div class="label">120Hz 偏移</div>
+        <div class="value" id="delta120">+12.2 <small>半音</small></div>
+      </div>
+      <div class="stat">
+        <div class="label">原声/模型范围</div>
+        <div class="value" id="ranges">43.0 / 26.0 <small>半音</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="chart"></div>
+    <div class="drag-hint">提示：可直接拖动图中蓝色端点调整参数（步长10Hz）</div>
+  </div>
+</div>
+
+<script>
+const chart = echarts.init(document.getElementById('chart'));
+
+function hz2midi(f) { return 69 + 12 * Math.log2(f / 440); }
+function midi2hz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function round10(v) { return Math.round(v / 10) * 10; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+const LIMITS = { A: [10, 1000], B: [10, 1000], C: [10, 1000], D: [10, 1000] };
+
+function getVals() {
+  return {
+    A: +document.getElementById('A').value,
+    B: +document.getElementById('B').value,
+    C: +document.getElementById('C').value,
+    D: +document.getElementById('D').value,
+  };
+}
+
+function setVal(id, hz) {
+  const [lo, hi] = LIMITS[id];
+  const v = clamp(round10(hz), lo, hi);
+  document.getElementById(id).value = v;
+}
+
+let dragging = null; // 'left' | 'right' | null
+
+function update() {
+  const { A, B, C, D } = getVals();
+  document.getElementById('valA').textContent = A;
+  document.getElementById('valB').textContent = B;
+  document.getElementById('valC').textContent = C;
+  document.getElementById('valD').textContent = D;
+
+  const mA = hz2midi(A), mB = hz2midi(B), mC = hz2midi(C), mD = hz2midi(D);
+  const inRange = mB - mA, outRange = mD - mC;
+  const slope = outRange / inRange;
+  const offset = mC - slope * mA;
+
+  const m120 = hz2midi(120);
+  let outMidi120;
+  if (m120 < mA) outMidi120 = mC;
+  else if (m120 > mB) outMidi120 = mD;
+  else outMidi120 = slope * m120 + offset;
+  const outHz120 = midi2hz(outMidi120);
+  const deltaSemi = 12 * Math.log2(outHz120 / 120);
+
+  document.getElementById('slope').textContent = slope.toFixed(3);
+  document.getElementById('out120').innerHTML = outHz120.toFixed(1) + ' <small>Hz</small>';
+  document.getElementById('delta120').innerHTML = (deltaSemi >= 0 ? '+' : '') + deltaSemi.toFixed(1) + ' <small>半音</small>';
+  document.getElementById('ranges').innerHTML = inRange.toFixed(1) + ' / ' + outRange.toFixed(1) + ' <small>半音</small>';
+
+  const lineData = [];
+  const steps = 50;
+  for (let i = 0; i <= steps; i++) {
+    const mIn = mA + (mB - mA) * i / steps;
+    const mOut = slope * mIn + offset;
+    lineData.push([+mIn.toFixed(2), +mOut.toFixed(2), midi2hz(mIn).toFixed(0), midi2hz(mOut).toFixed(0)]);
+  }
+
+  const refData = [];
+  const refMin = Math.min(mA, mC) - 2, refMax = Math.max(mB, mD) + 2;
+  for (let i = 0; i <= 20; i++) {
+    const v = refMin + (refMax - refMin) * i / 20;
+    refData.push([+v.toFixed(2), +v.toFixed(2)]);
+  }
+
+  chart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      formatter: function(params) {
+        const p = params[0];
+        if (p.seriesName === '映射直线') {
+          return `输入 ${p.data[2]}Hz (MIDI ${p.data[0]})<br/>输出 ${p.data[3]}Hz (MIDI ${p.data[1]})`;
+        }
+        if (p.seriesName === '120Hz点') {
+          return `输入 120Hz (MIDI ${p.data[0]})<br/>输出 ${p.data[3]}Hz (MIDI ${p.data[1]})`;
+        }
+        return '';
+      }
+    },
+    grid: { left: 60, right: 30, top: 30, bottom: 50 },
+    xAxis: {
+      type: 'value', name: '输入 MIDI', nameLocation: 'middle', nameGap: 30,
+      min: v => Math.floor(v.min - 2), max: v => Math.ceil(v.max + 2),
+      axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#eee' } }
+    },
+    yAxis: {
+      type: 'value', name: '输出 MIDI', nameLocation: 'middle', nameGap: 40,
+      min: v => Math.floor(v.min - 2), max: v => Math.ceil(v.max + 2),
+      axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#eee' } }
+    },
+    series: [
+      {
+        name: '1:1参考', type: 'line', data: refData,
+        lineStyle: { color: '#ccc', type: 'dashed', width: 1 }, symbol: 'none', silent: true
+      },
+      {
+        name: '映射直线', type: 'line', data: lineData,
+        lineStyle: { color: '#8bc8ea', width: 3 }, symbol: 'none', silent: true, z: 2
+      },
+      {
+        name: '端点', type: 'scatter',
+        data: [
+          { value: [+mA.toFixed(2), +mC.toFixed(2)], name: 'left', itemStyle: { color: '#5ba3d9' } },
+          { value: [+mB.toFixed(2), +mD.toFixed(2)], name: 'right', itemStyle: { color: '#5ba3d9' } }
+        ],
+        symbolSize: 18,
+        label: {
+          show: true, position: 'top', fontSize: 11, fontWeight: 600, color: '#333',
+          formatter: p => p.data.name === 'left' ? `${A}→${C}` : `${B}→${D}`
+        },
+        z: 3
+      },
+      {
+        name: '120Hz点', type: 'scatter',
+        data: [[+m120.toFixed(2), +outMidi120.toFixed(2), '120', outHz120.toFixed(0)]],
+        symbolSize: 12, itemStyle: { color: '#ea6668', borderColor: '#fff', borderWidth: 2 },
+        label: {
+          show: true, formatter: p => `120→${p.data[3]}Hz`, position: 'top',
+          fontSize: 11, color: '#ea6668', fontWeight: 600
+        },
+        silent: true, z: 4
+      }
+    ]
+  });
+}
+
+// 拖拽逻辑
+const zr = chart.getZr();
+zr.on('mousedown', e => {
+  const point = [e.offsetX, e.offsetY];
+  const { A, B, C, D } = getVals();
+  const mA = hz2midi(A), mB = hz2midi(B), mC = hz2midi(C), mD = hz2midi(D);
+  const leftPx = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [mA, mC]);
+  const rightPx = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [mB, mD]);
+  const dist = (p1, p2) => Math.hypot(p1[0]-p2[0], p1[1]-p2[1]);
+  if (dist(point, leftPx) < 20) dragging = 'left';
+  else if (dist(point, rightPx) < 20) dragging = 'right';
+});
+
+zr.on('mousemove', e => {
+  if (!dragging) return;
+  const midiCoord = chart.convertFromPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [e.offsetX, e.offsetY]);
+  if (!midiCoord) return;
+  const inHz = midi2hz(midiCoord[0]);
+  const outHz = midi2hz(midiCoord[1]);
+  if (dragging === 'left') {
+    setVal('A', inHz);
+    setVal('C', outHz);
+  } else {
+    setVal('B', inHz);
+    setVal('D', outHz);
+  }
+  update();
+});
+
+zr.on('mouseup', () => { dragging = null; });
+chart.getDom().addEventListener('mouseleave', () => { dragging = null; });
+
+function applyPreset(A, B, C, D, btn) {
+  document.getElementById('A').value = A;
+  document.getElementById('B').value = B;
+  document.getElementById('C').value = C;
+  document.getElementById('D').value = D;
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  update();
+}
+
+window.addEventListener('resize', () => chart.resize());
+update();
+</script>
+</body>
+</html>

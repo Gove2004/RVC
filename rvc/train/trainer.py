@@ -11,9 +11,10 @@ from torch.utils.data import DataLoader
 
 from rvc.core.config import TrainConfig
 from rvc.core.constants import TRAIN_NUM_WORKERS_DEFAULT
+from rvc.models.synthesizer import SynthesizerTrnMsNSFsid
 from rvc.nn import vits_blocks
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
-from rvc.models.synthesizer_model import SynthesizerTrnMsNSFsid
+from rvc.runtime.paths import MODELS_DIR
 from rvc.train.checkpoint import (
     checkpoints_dir,
     exported_epoch,
