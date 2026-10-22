@@ -18,7 +18,7 @@ class InferenceCache:
         self._hubert = LRUCache(2)
         self._rmvpe = LRUCache(1)
         self._fcpe = LRUCache(1)
-        self._synthesizer = LRUCache(2)  # key: pth_path
+        self._synthesizer = LRUCache(2)  # key: (device, is_half, pth_path)
         # 当前活跃的 F0 方法（"rmvpe"/"fcpe"/None），用于避免每块重复调用 release
         self._active_f0_method = None
 
@@ -43,6 +43,9 @@ class InferenceCache:
     def get_synthesizer(self, key):
         """获取缓存的 Synthesizer（LRU 命中即刷新）。
 
+        key 由会话层构造为 (device, is_half, pth_path)——权重是按加载时
+        的 dtype/device 落地的，只按路径缓存会在切换后复用错误副本。
+
         Returns:
             SynthesizerBundle or None
         """
@@ -55,20 +58,6 @@ class InferenceCache:
             value: SynthesizerBundle
         """
         self._synthesizer.set(key, value)
-
-    def clear_f0_cuda_graph_caches(self):
-        """清除所有缓存的 f0 提取器（RMVPE/FCPE）的 CUDA Graph 缓存。
-
-        模型重加载时调用：synthesizer/hubert 的 CUDA Graph 在 ModelSessions 中清除，
-        但 f0 提取器通过 inference_cache 独立缓存，旧 CUDA Graph 残留可能导致
-        快速 stop/start 后 f0 提取异常（声音沙哑）。
-        """
-        # 调用各提取器的抽象基类方法 clear_cuda_graph()，
-        # 不直接访问 model.mel_extractor / model.model 等内部属性
-        for extractor in self._rmvpe.values():
-            extractor.clear_cuda_graph()
-        for extractor in self._fcpe.values():
-            extractor.clear_cuda_graph()
 
     def release_rmvpe(self) -> None:
         """释放缓存中的 RMVPE 提取器（clear_cuda_graph + del model + gc + empty_cache）。
@@ -102,10 +91,6 @@ class InferenceCache:
         elif self._active_f0_method == "fcpe":
             self.release_fcpe()
         self._active_f0_method = method
-
-    def synthesizer_bundles(self) -> tuple:
-        """当前缓存的全部 synthesizer bundle 快照（LRU 最新→最旧）。"""
-        return tuple(self._synthesizer.values())
 
 
 # 全局单例是有意设计：pipeline 未显式传入 inference_cache 时共享同一份缓存

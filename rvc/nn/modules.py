@@ -6,11 +6,7 @@ from typing import Optional, Tuple
 from collections.abc import Sequence
 
 import torch
-from torch import nn
-from torch import Tensor
-
-import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import Conv1d
 from torch.nn import functional as F
 from torch.nn.utils import parametrize, parametrizations

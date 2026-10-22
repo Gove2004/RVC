@@ -178,8 +178,13 @@ class VoiceEngine:
 
     # ── 引擎启动/停止 ──
 
-    def setup(self, sr_type, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
-        """启动实时变声引擎。"""
+    def setup(self, sr_mode, in_dev, out_dev, block_t, cf_t, extra_t, out2_dev_idx=None):
+        """启动实时变声引擎。
+
+        Args:
+            sr_mode: "model"（流按模型采样率跑）或 "device"（按设备默认采样率跑）；
+                与配置层 InferenceParams.audio.sr_mode 同一套词表，不做二次翻译。
+        """
         if self._streams.stream is not None:
             self.stop()
         # 仅首次保存系统默认设备（重启引擎时 stop 已恢复为系统默认，保存值不变）
@@ -188,7 +193,7 @@ class VoiceEngine:
         sd.default.device = [in_dev, out_dev]
         self.sr_dev = int(sd.query_devices(in_dev)["default_samplerate"])
         self.sr_model = self.pipeline.target_sr
-        sr = self.pipeline.target_sr if sr_type == "sr_model" else self.sr_dev
+        sr = self.pipeline.target_sr if sr_mode == "model" else self.sr_dev
 
         # 设备校验与日志
         self._streams.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)

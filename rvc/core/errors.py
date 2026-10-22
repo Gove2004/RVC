@@ -1,9 +1,12 @@
 """RVC 统一异常体系。
 
-所有核心模块抛出自定义异常，GUI 层按类型做差异化处理：
+所有核心模块抛出自定义异常，GUI 层按「是否属推理期」做差异化处理：
 - ModelLoadError → 弹窗提示 + 保留旧模型
 - AudioDeviceError → 提示切换设备
-- InferenceError → 停止推理 + 显示错误
+- InferenceError 及其子类 → 停止推理 + 显示错误
+
+注意：GUI 目前按 ModelLoadError/AudioDeviceError 与其余（含 InferenceError）
+分流，并不逐类匹配——新增异常类型时要么继承到既有分支，要么补上处理。
 """
 
 

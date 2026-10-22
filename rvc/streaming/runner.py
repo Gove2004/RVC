@@ -5,9 +5,9 @@
 - InferenceRunner 只持有 pipeline/runtime_params 引用，不重复持有状态字段
 - 每块复用 InferenceContext（单块临时状态）
 - process_block 按阶段执行：
-    stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样
-    stage_features：HuBERT 特征提取（pipeline.extract_features）
-    stage_f0：F0 提取与后处理（postprocess_features）
+    stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样
+    stage_features：HuBERT 特征提取（pipeline.extract_features，F0 原始提取也在此启动）
+    stage_f0：F0 同步/截断 + 后处理 + 特征上采样（pipeline.postprocess_features）
     stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
     stage_output：RMS 混合 + SOLA + 硬件输出
 - formant 因子在 pipeline.extract_features 中计算并存到 ctx.formant_factor，本类直接读取
@@ -85,14 +85,14 @@ class InferenceRunner:
         # 按 block_samples + sola_buffer + sola_search 截齐（见 _stage_formant）。
         state.return_length = (state.block_samples + state.sola_buffer_samples + state.sola_search_samples) // zc
 
-        # 48k 滚动缓冲区
+        # work_sr 滚动缓冲区
         n = state.extra_samples + state.crossfade_samples + state.sola_search_samples + state.block_samples
-        state.input_wav_48k = torch.zeros(n, device=state.device)
-        state.input_wav_48k_work = torch.empty_like(state.input_wav_48k)
+        state.input_wav_work = torch.zeros(n, device=state.device)
+        state.input_wav_work_swap = torch.empty_like(state.input_wav_work)
 
         # 16k 滚动缓冲区（HuBERT / F0 用）
         state.input_wav_16k = torch.zeros(HUBERT_FRAME_SIZE * n // zc, device=state.device)
-        state.input_wav_16k_work = torch.empty_like(state.input_wav_16k)
+        state.input_wav_16k_swap = torch.empty_like(state.input_wav_16k)
 
         # pinned memory 双缓冲（异步 DMA 交替使用，避免下一块覆写时上一块 DMA 未完成）
         state.in_pin = [
@@ -106,14 +106,14 @@ class InferenceRunner:
         # 长度异常块由 write_main_output 回退 chunk.cpu().numpy() 兜底。
         state.out_pin = torch.empty(state.block_samples, dtype=torch.float32, pin_memory=True)
 
-        # 重采样器（48k → 16k）
-        state.resampler_48k_to_16k = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(state.device)
+        # 重采样器（work_sr → 16k）
+        state.resampler_work_to_16k = TatResample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32).to(state.device)
 
-        # 重采样器（模型采样率 → 48k）
+        # 重采样器（模型采样率 → work_sr）
         if sr_model != sr:
-            state.resampler_model_to_48k = TatResample(sr_model, sr, dtype=torch.float32).to(state.device)
+            state.resampler_model_to_work = TatResample(sr_model, sr, dtype=torch.float32).to(state.device)
         else:
-            state.resampler_model_to_48k = None
+            state.resampler_model_to_work = None
 
         # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（A2 单源）
         self.effects.setup(
@@ -145,8 +145,8 @@ class InferenceRunner:
         """重置所有缓冲区（warmup 后调用，避免静音数据污染）。"""
         state = self.state
         self.effects.reset()
-        if state.input_wav_48k is not None:
-            state.input_wav_48k.zero_()
+        if state.input_wav_work is not None:
+            state.input_wav_work.zero_()
         if state.input_wav_16k is not None:
             state.input_wav_16k.zero_()
 
@@ -165,7 +165,7 @@ class InferenceRunner:
     def process_block(self, indata: np.ndarray, outdata: np.ndarray, frames: int) -> None:
         """处理一块音频，执行完整的五阶段闭环，直接写入 outdata。
 
-        stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样
+        stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样
         stage_features / stage_f0：HuBERT 特征 + F0 原始提取
         （F0 后处理 + 特征上采样在 postprocess_features）
         stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
@@ -184,44 +184,35 @@ class InferenceRunner:
         p_rms_mix = self.runtime_params.rms_mix
 
         with torch.inference_mode():
-            # ── stage_input：硬件输入 + 缓冲区滚动 + 48k→16k 重采样 ──
-            t_in = time.perf_counter()
+            # ── stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样 ──
             mono = self._stage_input(indata)
             self._stage_preprocess(mono)
-            state.t_input_ms = (time.perf_counter() - t_in) * 1000
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──
             # self.pipeline 由 VoiceEngine._create_runner 构造时注入，恒非 None
             # （离线/实时都必经 load_model → pipeline 已就绪）；若为 None 会在这里
             # 立刻 AttributeError 暴露，不做「静默直通」降级——那会把配置错误
             # 伪装成「能出声但没变声」，掩盖真正的故障。
-            t_feat = time.perf_counter()
             ctx.reset(self.runtime_params)
             # 输入音频固定取自 state.input_wav_16k，本方法不需要块长参数
             feats = self.pipeline.extract_features(
                 self.runtime_params, state.skip_head, state.return_length,
             )
-            state.t_hubert_ms = (time.perf_counter() - t_feat) * 1000
 
             # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
-            t_f0 = time.perf_counter()
             pitch, pitchf, feats = self.pipeline.postprocess_features(feats)
-            state.t_f0_ms = (time.perf_counter() - t_f0) * 1000
 
             # ── stage_synthesis：合成器推理 + 模型→工作采样率重采样 ──
-            t_synth = time.perf_counter()
             infer = self.pipeline.synthesize_audio(feats, pitch, pitchf)
             # 模型采样率 → 工作采样率 重采样（如果需要）
-            if state.resampler_model_to_48k:
-                infer = state.resampler_model_to_48k(infer)
-            state.t_synth_ms = (time.perf_counter() - t_synth) * 1000
+            if state.resampler_model_to_work:
+                infer = state.resampler_model_to_work(infer)
 
             # formant 重采样 + 长度对齐（formant 因子从 ctx.formant_factor 读取，避免重复计算）
             infer = self._stage_formant(infer)
 
             # ── stage_output：RMS + SOLA + 硬件输出 ──
-            t_out = time.perf_counter()
-            ref = state.input_wav_48k[state.extra_samples:]
+            ref = state.input_wav_work[state.extra_samples:]
             chunk = self.effects.process_output(infer, ref, p_rms_mix)
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
@@ -237,7 +228,6 @@ class InferenceRunner:
 
             # 硬件输出（写入 outdata；out_pin 走 pinned DMA，避免每块分配 pageable 临时内存）
             write_main_output(chunk, outdata, state.channels, state.out_pin)
-            state.t_output_ms = (time.perf_counter() - t_out) * 1000
 
         state.infer_ms = (time.perf_counter() - t0) * 1000
 
@@ -274,27 +264,27 @@ class InferenceRunner:
         """stage_input：硬件输入 → GPU（复用 _upload_input）。"""
         return self._upload_input(indata)
 
-    # ── stage_input：输入预处理（缓冲区滚动 + 48k→16k 重采样） ──
+    # ── stage_input：输入预处理（缓冲区滚动 + work_sr→16k 重采样） ──
 
     def _stage_preprocess(self, mono: torch.Tensor) -> None:
-        """缓冲区滚动 + 48k→16k 重采样。
+        """缓冲区滚动 + work_sr→16k 重采样。
 
         使用双缓冲交换避免额外拷贝。16k 重采样只处理新块（带额外上下文抵消重采样延迟）。
         """
         state = self.state
 
         # 16k 缓冲区左移（双缓冲交换）— 末尾块随后被重采样输出覆盖，无需 zero_
-        state.input_wav_16k_work[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
-        state.input_wav_16k, state.input_wav_16k_work = state.input_wav_16k_work, state.input_wav_16k
+        state.input_wav_16k_swap[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
+        state.input_wav_16k, state.input_wav_16k_swap = state.input_wav_16k_swap, state.input_wav_16k
 
-        # 48k 缓冲区左移（双缓冲交换）— 末尾块随后被 mono 覆盖，无需 zero_
-        state.input_wav_48k_work[:-state.block_samples].copy_(state.input_wav_48k[state.block_samples:])
-        state.input_wav_48k, state.input_wav_48k_work = state.input_wav_48k_work, state.input_wav_48k
-        state.input_wav_48k[-mono.shape[0]:] = mono
+        # work_sr 缓冲区左移（双缓冲交换）— 末尾块随后被 mono 覆盖，无需 zero_
+        state.input_wav_work_swap[:-state.block_samples].copy_(state.input_wav_work[state.block_samples:])
+        state.input_wav_work, state.input_wav_work_swap = state.input_wav_work_swap, state.input_wav_work
+        state.input_wav_work[-mono.shape[0]:] = mono
 
         # 只重采样新块（带额外 2 厘秒样本上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
-        resampler_in = state.input_wav_48k[-mono.shape[0] - 2 * state.samples_per_centis:]
-        resampler_out = state.resampler_48k_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
+        resampler_in = state.input_wav_work[-mono.shape[0] - 2 * state.samples_per_centis:]
+        resampler_out = state.resampler_work_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
         # 只写当前块（最后 block_samples_16k 样本），不写修正帧（前 160 样本）。
         # 修正帧会覆盖上一块最后10ms，导致 HuBERT 看到的历史在每次推理中都被"修正"，
         # 连续累积后特征漂移（如"凤凰"连续读越读越飘成"废黄"）。

@@ -3,8 +3,8 @@
 架构：
 - 持有 EngineState（跨块持续状态：模型引用、缓冲区、合成器缓存等）
 - 每块复用 InferenceContext（单块临时状态）
-- extract_features（stage_features：HuBERT 特征提取）
-  → postprocess_features（F0 提取 + 后处理 + 特征上采样）
+- extract_features（stage_features：HuBERT 特征提取；F0 原始提取也在本方法末尾启动）
+  → postprocess_features（stage_f0：F0 同步/截断 + 后处理 + 特征上采样）
   → synthesize_audio（stage_synthesis）
 - formant 因子在 extract_features 中计算并存到 ctx.formant_factor，输出侧复用避免重复计算
 
@@ -60,31 +60,11 @@ class InferencePipeline:
         # 单块上下文（复用实例，每块 reset()）
         self.ctx = InferenceContext()
 
-    # ── 便捷属性（对外接口保持不变） ──
-
-    @property
-    def device(self) -> str:
-        return self.state.device
-
-    @property
-    def is_half(self) -> bool:
-        return self.state.is_half
+    # ── 便捷属性 ──
 
     @property
     def target_sr(self) -> int:
         return self.state.model_sr
-
-    @property
-    def use_f0(self) -> bool:
-        return self.state.use_f0
-
-    @property
-    def hubert_model(self):
-        return self.state.hubert_model
-
-    @property
-    def synthesizer(self):
-        return self.state.synthesizer
 
     # ── 模型加载 ──
 
@@ -148,7 +128,7 @@ class InferencePipeline:
         # 仅恢复 F0 先启动，~6s 即复现（fcpe-core replay=56 后挂死）。
         # 旧顺序（HuBERT 先入队、F0 等它算完）虽然名义上没并行，但它保证了侧流图
         # 回放不与主流图回放重叠——这个"免费"的串行约束必须保留。
-        feats = self._stage_extract_hubert(ctx)
+        feats = self._stage_extract_hubert()
 
         # F0 提取（side stream）必须等主流上的 HuBERT 入队之后再启动（见上）。
         self._start_f0_parallel(ctx)
@@ -158,9 +138,10 @@ class InferencePipeline:
     # ── stage_f0 后处理（F0 后处理 + 特征上采样） ──
 
     def postprocess_features(self, feats: torch.Tensor):
-        """postprocess：F0 提取 + 后处理 + 特征上采样。
+        """stage_f0：F0 同步/截断 + 后处理 + 特征上采样。
 
-        先 upsample HuBERT 特征得到实际长度，再让 F0 对齐到这个长度。
+        先 upsample HuBERT 特征得到实际长度，再让 F0 对齐到这个长度（F0 的
+        原始提取已在 extract_features 末尾于 side stream 上启动，这里只等它完成）。
         F0 后处理（音域映射 + 中值滤波 + 离散化）。
 
         Args:
@@ -174,7 +155,7 @@ class InferencePipeline:
 
         # 先 upsample HuBERT 特征，得到实际长度 actual_len
         # 然后 F0 对齐到 actual_len，确保两者长度完全一致
-        feats = self._stage_upsample_features(ctx, feats)
+        feats = self._stage_upsample_features(feats)
         ctx.p_len = feats.shape[1]  # 用 upsample 后的实际长度作为 p_len
 
         # 同步 F0 side stream，截断到 p_len
@@ -204,7 +185,7 @@ class InferencePipeline:
 
     # ── 内部阶段方法 ──
 
-    def _stage_extract_hubert(self, ctx: InferenceContext) -> torch.Tensor:
+    def _stage_extract_hubert(self) -> torch.Tensor:
         """从 16k 滚动缓冲区提取 HuBERT 特征（50fps）。"""
         return extract_hubert_features(
             self.state.hubert_model,
@@ -304,6 +285,9 @@ class InferencePipeline:
         """
         state = self.state
         if not state.use_f0:
+            # 无 F0 模型：本阶段不产出音高，必须清掉上一次（有 F0 模型时）的统计，
+            # 否则 GUI 会永久显示切换前的陈旧音高。engine.input_pitch 对 None 返回 0。
+            state.last_input_pitch_gpu = None
             return None, None
 
         # 输入音高统计（音域映射之前，非零帧平均，用于 GUI 显示）。
@@ -327,7 +311,7 @@ class InferencePipeline:
 
         return pitch[None, :], pitchf[None, :]
 
-    def _stage_upsample_features(self, ctx: InferenceContext, feats: torch.Tensor) -> torch.Tensor:
+    def _stage_upsample_features(self, feats: torch.Tensor) -> torch.Tensor:
         """特征上采样（50fps → 100fps，最近邻插值 + 末帧 padding）。"""
         return upsample_features(feats, self.state.is_half)
 

@@ -1,4 +1,4 @@
-"""Synthesizer 模型加载器 — PyTorch 权重加载 + 缓存"""
+"""Synthesizer 模型加载器 — 纯权重加载（缓存由 ModelSessions 负责）。"""
 import logging
 from dataclasses import dataclass
 
@@ -17,16 +17,14 @@ class SynthesizerBundle:
 
 
 class SynthesizerLoader:
-    """Synthesizer 加载器 — 封装加载和缓存逻辑。"""
+    """Synthesizer 加载器 — 纯加载（缓存由 ModelSessions 统一负责）。"""
 
-    def __init__(self, config, inference_cache):
-        self.config = config
+    def __init__(self, config):
         self.device = config.device
         self.is_half = config.is_half
-        self.inference_cache = inference_cache
 
     def load(self, pth_path):
-        """加载 Synthesizer。
+        """加载 Synthesizer（无缓存，每次都是一次真实加载）。
 
         Args:
             pth_path: .pth 模型路径
@@ -34,15 +32,7 @@ class SynthesizerLoader:
         Returns:
             SynthesizerBundle
         """
-        cached = self.inference_cache.get_synthesizer(pth_path)
-        if cached:
-            logger.info("  · Synthesizer（缓存）")
-            return cached
-
-        logger.info("  · Synthesizer")
-        result = self._load_pytorch(pth_path)
-        self.inference_cache.set_synthesizer(pth_path, result)
-        return result
+        return self._load_pytorch(pth_path)
 
     def _load_pytorch(self, pth_path):
         """加载标准 PyTorch Synthesizer。"""

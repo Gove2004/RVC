@@ -136,9 +136,11 @@ class RMVPE:
         Args:
             salience: (T, 360) 网络输出（可 half/float）
             thred: 置信度阈值，峰值 ≤ 该值的帧判为清音
+            return_confidence: True 时额外返回每帧峰值（供调用方自行判断可信度）
 
         Returns:
-            cents: (T,) float32
+            return_confidence=False: cents (T,) float32
+            return_confidence=True:  (cents, maxx) 二元组，maxx 为 (T,) float32 峰值
         """
         if not torch.is_tensor(salience):
             salience = torch.from_numpy(salience)

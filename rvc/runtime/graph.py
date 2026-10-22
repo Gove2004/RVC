@@ -17,7 +17,6 @@ RVC_CUDA_GRAPH_MAX_CACHE 环境变量做进程内通信，模块 import 顺序�
 """
 import gc
 import threading
-import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -129,7 +128,6 @@ class _CapturedCall:
 
     def __init__(self, function: Callable[..., Any],
                  inputs: tuple[torch.Tensor, ...]) -> None:
-        started = time.perf_counter()
         self.lock = threading.RLock()
         # inference_mode 是线程上下文状态，与创建算子无关——在 inference_mode 内
         # 调用 torch.empty/empty_like 仍产出 inference tensor，导致模式外 replay 时
@@ -151,7 +149,6 @@ class _CapturedCall:
             self.graph = torch.cuda.CUDAGraph()
             with torch.cuda.graph(self.graph), torch.no_grad():
                 self.output = function(*self.inputs)
-        self.capture_ms = (time.perf_counter() - started) * 1000.0
         self.done_event: torch.cuda.Event | None = None
         del output
 
@@ -177,10 +174,6 @@ class _GraphCache:
     def __init__(self) -> None:
         self.entries: OrderedDict[tuple, _CapturedCall] = OrderedDict()
         self.lock = threading.RLock()
-        self.capture_count = 0
-        self.replay_count = 0
-        self.eviction_count = 0
-        self.capture_ms = 0.0
         opts = _active_options.get()
         self.max_entries = (
             opts.graph_cache_size if opts is not None
@@ -195,17 +188,17 @@ class _GraphCache:
             if entry is None:
                 entry = _CapturedCall(function, inputs)
                 self.entries[signature] = entry
-                self.capture_count += 1
-                self.capture_ms += entry.capture_ms
                 while len(self.entries) > self.max_entries:
-                    self.entries.popitem(last=False)
-                    self.eviction_count += 1
+                    _, evicted = self.entries.popitem(last=False)
+                    # 与 _release_caches 同标准：淘汰前取一次 entry 锁，等待在途
+                    # 回放结束。当前单推理线程下不可触发，但不能把正确性寄托在
+                    # 调用方纪律上（多线程回放时 popitem 会让 CUDAGraph 与仍在
+                    # 执行的 kernel 同时存在）。
+                    with evicted.lock:
+                        pass
             else:
                 self.entries.move_to_end(signature)
-        output = entry.replay(inputs)
-        with self.lock:
-            self.replay_count += 1
-        return output
+        return entry.replay(inputs)
 
 
 def run_cuda_graph(owner: Any, namespace: str, function: Callable[..., Any],

@@ -32,7 +32,6 @@ class RuntimeDeviceConfig:
         self.is_half = True
         self.use_cuda_graph = False
         self.gpu_name = None
-        self.gpu_mem = None
         # 显式运行时选项：取代旧版 RVC_CUDA_GRAPH* 环境变量通道
         self.graph_options = RuntimeOptions()
         self._init_device(device_index)
@@ -63,7 +62,3 @@ class RuntimeDeviceConfig:
         self.device = f"cuda:{index}"
         self.gpu_name = torch.cuda.get_device_name(index)
         logger.info("GPU：%s", self.gpu_name)
-
-        # 物理显存容量（GiB，非营销标称 GB）：total_memory 是字节数，
-        # 直接整除 1024³ 取整即为 GiB（旧实现的 `+ 0.4` 魔数无依据，反而会错进位）。
-        self.gpu_mem = int(torch.cuda.get_device_properties(index).total_memory / 1024**3)

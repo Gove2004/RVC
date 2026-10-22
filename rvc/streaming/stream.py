@@ -207,8 +207,3 @@ class AudioStreams:
             stream.close()
         except Exception:
             pass
-
-    @property
-    def running(self) -> bool:
-        """主流是否在运行。"""
-        return self.stream is not None and self.stream.active

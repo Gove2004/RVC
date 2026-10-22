@@ -1,11 +1,11 @@
-"""推理模型会话管理 — 统一管理 HuBERT/F0/Synthesizer 的加载与缓存。
+"""推理模型会话管理 — 统一管理 HuBERT/Synthesizer 的加载与缓存。
 
 ModelSessions 是模型生命周期的唯一入口：
-- load(): 加载模型（HuBERT + Synthesizer），返回 ModelSession
-- clear_all(): 清除所有模型缓存和 CUDA Graph（停止/切换模型时调用）
+- load(): 查缓存 → 未命中调纯加载器 → 回填缓存，返回 ModelSession
 
-realtime_engine 和 offline_converter 都通过本会话层获取模型，
-避免缓存清除逻辑分散在多处导致遗漏（如之前的 FCPE CUDA Graph 未清除 bug）。
+缓存策略单源在本层（两个模型同一套流程），加载器（load_hubert /
+SynthesizerLoader）保持无状态、只负责「把文件变成对象」——避免出现
+「一个模型在加载器里缓存、另一个在会话层缓存」的分裂。
 
 F0 提取器（RMVPE/FCPE）不在此层管理：提取器带阈值等运行时参数，
 由 pipeline 在推理时经 create_f0_extractor 工厂直接创建/复用。
@@ -18,10 +18,10 @@ from dataclasses import dataclass
 import torch
 
 from rvc.core.errors import ModelLoadError
-from rvc.pipeline.loader import SynthesizerLoader
 from rvc.models.hubert import load_hubert
-from rvc.runtime.graph import purge_cuda_graphs
 from rvc.pipeline.cache import default_inference_cache
+from rvc.pipeline.loader import SynthesizerLoader
+from rvc.runtime.graph import purge_cuda_graphs
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class ModelSession:
 
 
 class ModelSessions:
-    """模型会话层 — 统一管理模型加载、缓存与 CUDA Graph 清除。"""
+    """模型会话层 — 统一管理模型加载与缓存。"""
 
     def __init__(self, device: str, is_half: bool, inference_cache=None):
         """
@@ -48,8 +48,6 @@ class ModelSessions:
         self.device = device
         self.is_half = is_half
         self.inference_cache = inference_cache or default_inference_cache
-        self._current_pth = None
-        self._current_session = None
 
     def _device_config(self) -> "_DeviceConfig":
         """供 load_hubert / SynthesizerLoader 使用的轻量设备配置适配器。"""
@@ -58,26 +56,32 @@ class ModelSessions:
     def load(self, pth_path: str, hubert_variant: str = "chinese") -> ModelSession:
         """加载模型（HuBERT + Synthesizer），返回 ModelSession。
 
-        同一 pth 重复加载时直接返回缓存的 session。
+        两个模型都先查 InferenceCache：命中直接复用（切回旧模型秒开），
+        未命中才调加载器并回填。
         """
-        if self._current_pth == pth_path and self._current_session is not None:
-            return self._current_session
-
         logger.info("加载 %s", os.path.basename(pth_path))
         # 加载前先回收 CUDA 缓存碎片，确保最大可用显存（避免碎片导致 OOM）
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         try:
-            # HuBERT 缓存查/存由本组装层负责：模型层 load_hubert 是纯加载器
-            cache_key = (self.device, self.is_half, hubert_variant)
-            hubert = self.inference_cache.get_hubert(cache_key)
+            # HuBERT 的 key 含变体：base 与 chinese 是两套不同权重的特征器
+            hubert_key = (self.device, self.is_half, hubert_variant)
+            hubert = self.inference_cache.get_hubert(hubert_key)
             if hubert is None:
                 hubert = load_hubert(self._device_config(), variant=hubert_variant)
-                self.inference_cache.set_hubert(cache_key, hubert)
+                self.inference_cache.set_hubert(hubert_key, hubert)
             else:
                 logger.info("  · HuBERT（缓存, %s）", hubert_variant)
-            loader = SynthesizerLoader(self._device_config(), self.inference_cache)
-            syn = loader.load(pth_path)
+
+            # Synthesizer 的 key 必须含设备与精度：权重是按加载时的 dtype/device
+            # 落地的，只按路径缓存会在设备/精度切换后复用错误副本。
+            syn_key = (self.device, self.is_half, pth_path)
+            syn = self.inference_cache.get_synthesizer(syn_key)
+            if syn is None:
+                syn = SynthesizerLoader(self._device_config()).load(pth_path)
+                self.inference_cache.set_synthesizer(syn_key, syn)
+            else:
+                logger.info("  · Synthesizer（缓存）")
             synthesizer = syn.synthesizer
         except Exception as e:
             raise ModelLoadError(f"模型加载失败 [{os.path.basename(pth_path)}]: {e}") from e
@@ -96,40 +100,12 @@ class ModelSessions:
         # 未立即归还 OS；gc.collect() 触发引用计数清理，省 ~500-700MB 系统内存）
         gc.collect()
 
-        session = ModelSession(
+        return ModelSession(
             hubert=hubert,
             synthesizer=synthesizer,
             target_sr=syn.target_sr,
             use_f0=syn.use_f0,
         )
-        self._current_pth = pth_path
-        self._current_session = session
-        return session
-
-    def clear_all(self) -> None:
-        """清除所有模型缓存和 CUDA Graph（停止/切换模型时调用）。
-
-        清除范围：
-        - F0 提取器（RMVPE/FCPE）的 CUDA Graph
-        - 当前 session 的 synthesizer/hubert 的 CUDA Graph
-        - LRU 中全部 synthesizer 的 CUDA Graph
-        """
-        # F0 提取器 CUDA Graph
-        self.inference_cache.clear_f0_cuda_graph_caches()
-
-        # LRU 中全部 synthesizer + 当前 session（synthesizer 可能重叠，purge 幂等）
-        synthesizers = [
-            bundle.synthesizer
-            for bundle in self.inference_cache.synthesizer_bundles()
-        ]
-        if self._current_session is not None:
-            synthesizers.extend(
-                [self._current_session.synthesizer, self._current_session.hubert]
-            )
-        purge_cuda_graphs(*synthesizers)
-
-        self._current_pth = None
-        self._current_session = None
 
 
 class _DeviceConfig:
