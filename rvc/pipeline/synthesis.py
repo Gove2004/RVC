@@ -37,12 +37,13 @@ def infer_synth_audio(
     skip_head: int,
     return_length: int,
     return_length2: int,
+    z_noise=None,
 ) -> torch.Tensor:
     """Synthesizer 推理调用，走 CUDA Graph（如果启用）。返回合成音频。
 
     skip_head/return_length/return_length2 是标量参数，不是张量，
     不能作为 CUDA Graph 输入，必须通过闭包捕获。
-    但 feats/p_len_t/pitch/pitchf/sid 是张量，必须作为参数传入，
+    但 feats/p_len_t/pitch/pitchf/sid/z_noise 是张量，必须作为参数传入，
     否则 CUDA Graph 捕获/回放时用的是外部变量地址而非静态张量地址，
     重开时外部变量地址变化导致 CUDA Graph 使用错误数据（声音沙哑/失真）。
     """
@@ -54,17 +55,32 @@ def infer_synth_audio(
     # feats 形状（经形状签名触发重捕获），但那是隐式不变量；显式入 key 后
     # 未来引入「不改变缓冲长度的 head 调整」也不会静默错误复用旧图。
     rl2_suffix = f"-rl2-{return_length2}-head-{skip_head}-len-{return_length}"
+    if z_noise is not None:
+        # 固定噪声场进图：作为图输入张量，回放复用同一份值（确定性渲染）
+        rl2_suffix += "-dz"
     if use_f0:
         pitch, pitchf = cast_pitch_tensors(pitch, pitchf, is_half)
         graph_key = f"synth-f0{rl2_suffix}"
-        tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
-        def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
-            return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)[0]
+        if z_noise is not None:
+            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid, z_noise)
+            def call(feats_, p_len_t_, pitch_, pitchf_, sid_, z_noise_):
+                return synthesizer.infer(
+                    feats_, p_len_t_, pitch_, pitchf_, sid_, *tail, z_noise=z_noise_)[0]
+        else:
+            tensor_inputs = (feats, p_len_t, pitch, pitchf, sid)
+            def call(feats_, p_len_t_, pitch_, pitchf_, sid_):
+                return synthesizer.infer(feats_, p_len_t_, pitch_, pitchf_, sid_, *tail)[0]
     else:
         graph_key = f"synth-no-f0{rl2_suffix}"
-        tensor_inputs = (feats, p_len_t, sid)
-        def call(feats_, p_len_t_, sid_):
-            return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)[0]
+        if z_noise is not None:
+            tensor_inputs = (feats, p_len_t, sid, z_noise)
+            def call(feats_, p_len_t_, sid_, z_noise_):
+                return synthesizer.infer(
+                    feats_, p_len_t_, None, None, sid_, *tail, z_noise=z_noise_)[0]
+        else:
+            tensor_inputs = (feats, p_len_t, sid)
+            def call(feats_, p_len_t_, sid_):
+                return synthesizer.infer(feats_, p_len_t_, None, None, sid_, *tail)[0]
     # 只回传音频：infer 的 (x_mask, (z, z_p, m_p, logs_p)) 全部是块内中间量。
     # 图回放必须 clone 输出（静态缓冲下一块就被覆写），若把整个 tuple 交出去，
     # 每块会多拷 4 个 (1,192,T) 张量（约 1MB）——拷完立刻变垃圾。

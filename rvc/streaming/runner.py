@@ -124,6 +124,22 @@ class InferenceRunner:
         else:
             state.resampler_model_to_work = None
 
+        # z_p 固定噪声场：必须在任何 CUDA Graph 捕获**之前**预生成（捕获期间
+        # 建张量会落进图的私有内存池，跨图复用直接报错）。形状 = m_p 的形状：
+        # use_f0 路径 enc_p 会切掉 flow_head（FLOW_CONTEXT_COMPENSATION_FRAMES），
+        # no-f0 路径不切，两者长度不同。每次 init_processing 重建（块参数可能变了）。
+        if state.synthesizer is not None:
+            from rvc.models.synthesizer import FLOW_CONTEXT_COMPENSATION_FRAMES
+            p_len = state.skip_head + state.return_length
+            if state.use_f0:
+                length = p_len - max(state.skip_head - FLOW_CONTEXT_COMPENSATION_FRAMES, 0)
+            else:
+                length = p_len
+            dtype = torch.float16 if state.is_half else torch.float32
+            state.noise_z = torch.randn(
+                1, state.synthesizer.inter_channels, length,
+                device=state.device, dtype=dtype)
+
         # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（单源）
         self.effects.setup(
             work_sr, state.block_samples, state.sola_buffer_samples,

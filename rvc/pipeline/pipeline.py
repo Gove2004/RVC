@@ -301,6 +301,7 @@ class InferencePipeline:
             state.device,
             config=ctx.config,
         )
+
         # **不要在这里乘 formant 比例**：合成器按 return_length2 帧合成时，会把
         # 谐波源和隐变量一起 interpolate 到 n*upp（见 decoder.Generator.forward），
         # 这一步对时长做了 L→n_res 的拉伸，恰好把重采样回 return_length 帧时的
@@ -345,6 +346,7 @@ class InferencePipeline:
             skip_head=state.skip_head,
             return_length=state.return_length,
             return_length2=ctx.return_length2,
+            z_noise=state.noise_z,
         )
         return inferred_audio.squeeze(1).float().squeeze()
 

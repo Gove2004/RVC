@@ -181,6 +181,13 @@ class _SynthesizerTrnMsBase(nn.Module):
         o = self.dec(z_slice, pitchf, g=g)
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
+    def _z_sample(self, m_p: Tensor, z_noise: Tensor | None) -> Tensor:
+        """z_p 采样噪声：传入预生成固定噪声场（形状须与 m_p 一致）则确定性
+        采样，否则逐次随机（randn_like，训练与未注入噪声场时的行为）。"""
+        if z_noise is not None and z_noise.shape == m_p.shape:
+            return z_noise
+        return torch.randn_like(m_p)
+
     def infer(
         self,
         phone: Tensor,
@@ -191,13 +198,17 @@ class _SynthesizerTrnMsBase(nn.Module):
         skip_head: int = 0,
         return_length: int = 0,
         return_length2: int | Tensor | None = None,
+        z_noise: Tensor | None = None,
     ) -> tuple:
         """推理 — 统一接口，根据 use_f0 自动处理 pitch/nsff0 参数。
 
         f0 契约：nsff0 必须是 2D (B, L)——SineGen.forward 内部会 unsqueeze(-1)
         升成 3D；传 3D 会在 _f02sine 里报 a(40) vs b(39) 形状错。
-        随机性：z_p 用 randn_like 采样、SineGen 的 rand_ini 初相随机，
+        随机性：z_p 默认用 randn_like 采样、SineGen 的 rand_ini 初相随机，
         因此每次调用（含逐块调用）输出都不同，属刻意行为非 bug。
+        实时链路传 z_noise（预生成的固定噪声场）时 z_p 采样改为确定性：
+        逐块独立采样会让持续/重复内容的渲染咬字随机漂移，固定后内容不变
+        则渲染不变。z_noise 形状必须与 m_p 一致，不匹配时自动退回随机采样。
         """
         g = self.emb_g(sid).unsqueeze(-1)
 
@@ -212,7 +223,7 @@ class _SynthesizerTrnMsBase(nn.Module):
                 m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
             else:
                 m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths, flow_head)
-            z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+            z_p = (m_p + torch.exp(logs_p) * self._z_sample(m_p, z_noise) * 0.66666) * x_mask
             z = self.flow(z_p, x_mask, g=g, reverse=True)
             z = z[:, :, dec_head : dec_head + length]
             x_mask = x_mask[:, :, dec_head : dec_head + length]
@@ -225,7 +236,7 @@ class _SynthesizerTrnMsBase(nn.Module):
                 m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
             else:
                 m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
-            z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+            z_p = (m_p + torch.exp(logs_p) * self._z_sample(m_p, z_noise) * 0.66666) * x_mask
             z = self.flow(z_p, x_mask, g=g, reverse=True)
 
         # Decoder — 根据 use_f0 传递参数

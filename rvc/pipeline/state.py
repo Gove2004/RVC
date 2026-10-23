@@ -79,6 +79,13 @@ class EngineState:
     resample_kernel: dict = field(default_factory=dict)
     long_tensor_cache: dict = field(default_factory=dict)
 
+    # z_p 固定噪声场 (1, inter_channels, L)，init_processing 时预生成。
+    # 逐块独立采样（randn_like）会让持续/重复内容的每次渲染咬字随机漂移
+    # （实测：比特级重复输入下 凤凰→粉王→安安，固定噪声后稳定期 2.5s→9s+）。
+    # 固定后 z_p = m_p + exp(logs_p)·ε_fixed：内容不变则渲染不变，内容变化
+    # 照常经 m_p/logs_p 体现。作为张量图输入传入，回放复用同一份值。
+    noise_z: torch.Tensor | None = None
+
     # 本块的输入音高（Hz，音域映射前；全清音/无 F0 模型时为 0）。
     # 由 runner 在「同步 D2H 写完主输出之后」取回成 Python float——
     # 那一刻本块的 GPU 队列已经排空，.item() 几乎零等待。所以 GUI 想多快刷
