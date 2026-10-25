@@ -7,16 +7,6 @@ import torch.nn.functional as F
 
 from rvc.runtime.graph import run_cuda_graph
 
-# 推理时在 16k 窗口右端补的静音长度（0.5s）。HuBERT 是非因果模型，同一帧
-# 的特征取决于它右边的未来上下文；滑窗消费区贴着窗口右边缘，同一帧内容
-# 在不同块里「未来帧数」不同，特征随之跳变，持续/重复发声时输出在两个
-# 渲染吸引态之间翻转（字漂移）。补足右端固定静音后，每帧特征只依赖
-# <=t 的音频，逐块一致。代价：消费帧的特征带「未来是静音」偏置（训练侧
-# 提取时未来是真实语音的分布偏移），实测对正常语音无损、对持续音大幅
-# 变稳；训练侧 hubert_forward 不补零，两边语义各自成立。
-HUBERT_RIGHT_PAD = 8000
-_HUBERT_PAD_FRAMES = HUBERT_RIGHT_PAD // 320   # 补零折合的特征帧数
-
 
 def hubert_forward(model, x: torch.Tensor) -> torch.Tensor:
     """HuBERT 模型前向传播 — 训练侧和推理侧共享。
@@ -35,12 +25,8 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
     """提取 HuBERT 特征，走 CUDA Graph 加速。
 
     固定形状块不需要 padding mask：attention_mask=None（全 1）即为正确语义。
-    预处理（dtype/shape 转换、右端补零）放在 CUDA Graph 外，只捕获模型前向传播。
+    预处理（dtype/shape 转换）放在 CUDA Graph 外，只捕获模型前向传播。
     末帧 padding 已移到 upsample_features 中做，本函数只负责提取。
-
-    右端补 HUBERT_RIGHT_PAD 静音再提取、再切掉补零折合的帧数：输出形状与
-    不补零时完全一致（同一帧始终是同一帧），但消费区特征因果化、逐块一致
-    ——机制见 HUBERT_RIGHT_PAD 注释。
 
     Args:
         model: HuBERT 模型
@@ -56,15 +42,12 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
     feats = input_wav.to(device)
     feats = feats.half() if is_half else feats.float()
     feats = feats.view(1, -1)
-    pad = torch.zeros(1, HUBERT_RIGHT_PAD, dtype=feats.dtype, device=feats.device)
-    feats = torch.cat([feats, pad], dim=1)
 
     # hubert_forward 是共享函数（训练侧直接调用），推理侧用闭包绑定 model 以适配 CUDA Graph
     def _forward(x):
         return hubert_forward(model, x)
 
-    out = run_cuda_graph(model, "hubert", _forward, feats)
-    return out[:, :out.shape[1] - _HUBERT_PAD_FRAMES, :]
+    return run_cuda_graph(model, "hubert", _forward, feats)
 
 
 def upsample_features(
