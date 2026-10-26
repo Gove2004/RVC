@@ -52,6 +52,10 @@ def _non_default() -> InferenceParams:
     p.audio.output_device = "spk"
     p.audio.output2_device = "不使用"
     p.audio.enable_out2 = True
+    p.realism.breath = 0.42
+    p.realism.residual = 0.51
+    p.realism.rumble = 0.33
+    p.realism.distance = 0.17
     p.audio.device_index = 1
     p.rms_mix = 0.6
     p.volume = 1.7
@@ -107,6 +111,36 @@ class TestParamsCopy(unittest.TestCase):
         self.assertEqual(p.f0.method, d.f0.method)
         self.assertEqual(p.buffer.block_time, d.buffer.block_time)
         self.assertEqual(p.hubert, d.hubert)
+
+
+class TestRealismStrength(unittest.TestCase):
+    """真实感单滑条（realism.strength）与四级字段的换算。
+
+    GUI 只暴露一根滑条，BINDINGS 走 `realism.strength` 这个属性路径；它必须
+    与四个真实字段严格往返一致，否则「存盘再读」滑条会自己跳位置。
+    """
+
+    def test_strength_round_trips_through_dict(self):
+        from rvc.core.config import REALISM_MIX, InferenceParams
+        from gui.state.bindings import params_from_dict, params_to_dict
+
+        p = InferenceParams()
+        p.realism.strength = 0.4
+        restored = params_from_dict(params_to_dict(p))
+        self.assertAlmostEqual(restored.realism.strength, 0.4, places=6)
+        # 四级都按配比同开，而不是只动一个
+        for name, weight in REALISM_MIX:
+            self.assertAlmostEqual(getattr(restored.realism, name), 0.4 * weight, places=6)
+
+    def test_strength_is_clamped_and_zero_is_bypass(self):
+        from rvc.core.config import RealismParams
+
+        p = RealismParams()
+        p.strength = 5.0
+        self.assertAlmostEqual(p.strength, 1.0, places=6)
+        p.strength = -3.0
+        self.assertEqual((p.breath, p.residual, p.rumble, p.distance), (0.0, 0.0, 0.0, 0.0))
+        self.assertAlmostEqual(p.strength, 0.0, places=6)
 
 
 class TestF0ThresholdHelpers(unittest.TestCase):

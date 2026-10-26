@@ -22,6 +22,7 @@ import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.core.config import VOLUME_MAX, VOLUME_MIN
+from rvc.dsp.realism import RealismChain
 from rvc.core.constants import (
     HUBERT_FRAME_SIZE,
     HUBERT_LOOKAHEAD_BLOCKS,
@@ -55,6 +56,10 @@ class InferenceRunner:
         # 输出效果器（RMS 混合 + SOLA）由 runner 直接持有：
         # 它们是输出侧效果，不属于推理状态（pipeline 产物止于合成音频块）
         self.effects = AudioProcessor()
+
+        # 真实感搬运链：同样属于输出侧效果，但需要参考输入块做统计量来源。
+        # 传 runtime_params.realism 这个活对象（不拷贝），滑条改动下一块即生效。
+        self.realism = RealismChain(runtime_params.realism)
 
     def init_processing(self, work_sr: int, block_time: float, crossfade_time: float,
                         extra_time: float, channels: int, model_sr: int) -> None:
@@ -168,6 +173,10 @@ class InferenceRunner:
             state.sola_search_samples, state.device,
         )
 
+        # 真实感链的频带滤波器按 sr 设计、工作缓冲按块长分配。必须在 warmup()
+        # 之前 setup：否则首次块长变化会在音频回调线程里分配一次。
+        self.realism.setup(work_sr, state.block_samples, state.device)
+
     def warmup(self, n: int = 2) -> None:
         """预热推理引擎：用静音数据跑 n 个完整块。
 
@@ -241,6 +250,8 @@ class InferenceRunner:
         """重置所有缓冲区（warmup 后调用，避免静音数据污染）。"""
         state = self.state
         self.effects.reset()
+        # 必须在 warmup 之后：预热跑的静音块会写进 FIR 尾部、把距离游走拉偏
+        self.realism.reset()
         if state.input_wav_work is not None:
             state.input_wav_work.zero_()
         if state.input_wav_16k is not None:
@@ -304,9 +315,14 @@ class InferenceRunner:
             # formant 重采样 + 长度对齐（因子取自 state.formant_factor 快照）
             infer = self._stage_formant(infer)
 
-            # ── stage_output：RMS + SOLA + 硬件输出 ──
+            # ── stage_output：RMS + SOLA + 真实感 + 硬件输出 ──
             ref = state.input_wav_work[state.extra_samples:]
             block = self.effects.process_output(infer, ref, p_rms_mix)
+
+            # 真实感搬运：必须在 SOLA 之后（否则注入的气息会被块间拼接切碎）、
+            # 在 volume 之前（音量滑条要同时缩放底噪，否则调小音量后底噪相对变大）。
+            # 返回新张量，不能写成 in-place——模块入口要做 NaN 消毒，必然拷贝。
+            block = self.realism.process(block, ref)
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
             # 范围钳制放在消费点：配置文件可被外部改写，滑块量程不构成保证。

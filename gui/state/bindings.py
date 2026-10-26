@@ -37,6 +37,9 @@ TOP_LEVEL_FIELDS = ("rms_mix", "volume", "model_path", "hubert")
 BINDINGS = [
     # ── 音色参数（voice.*）──
     ("voice.formant", "formant_slider", FLOAT),
+    # 真实感：单滑条写 realism.strength，由 RealismParams 的属性 setter 按配比
+    # 分解到四级；读回时取 max(级/权重)，因此存取往返一致。
+    ("realism.strength", "realism_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
     # ── F0 参数（f0.*）──

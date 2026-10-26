@@ -5,6 +5,7 @@
 - f0: 基频提取相关（方法、阈值）
 - buffer: 缓冲区相关（block/crossfade/extra）
 - audio: 音频设备相关（采样率、设备）
+- realism: 真实感（参考输入的底噪/气息/近讲/距离搬运强度）
 - 顶层: rms_mix、model_path、hubert
 """
 from dataclasses import dataclass, field
@@ -59,6 +60,37 @@ class BufferParams:
     extra_time: float = 2.5        # 额外上下文（秒）
 
 
+# 真实感四级到单滑条的配比（权重递减）。顺序即「先开哪个」：
+# residual/breath 只在输入本身有底噪/齿音时才注入，最安全；distance 让电平
+# 自己起伏，最容易被误当成 bug，所以排在最后、权重最小。
+REALISM_MIX = (("residual", 1.0), ("breath", 0.85), ("rumble", 0.7), ("distance", 0.55))
+
+
+@dataclass
+class RealismParams:
+    """真实感参数 — 把参考输入的录音痕迹搬到输出上的四级强度（0 = 逐位旁路）。
+
+    四级互相不可替代，逐级对应一种「不像录音」：residual（非谐波底噪）、
+    breath（>4kHz 气息/齿音）、rumble（近讲低频）、distance（慢速远近起伏）。
+    默认全 0：每一级都是叠加型染色，开大就从「更真实」变成「加特效」。
+    """
+    breath: float = 0.0
+    residual: float = 0.0
+    rumble: float = 0.0
+    distance: float = 0.0
+
+    @property
+    def strength(self) -> float:
+        """单滑条强度（0~1）— 按配比折算后取最大值，保证 set/get 往返一致。"""
+        return max(getattr(self, name) / w for name, w in REALISM_MIX)
+
+    @strength.setter
+    def strength(self, value: float) -> None:
+        s = min(max(float(value), 0.0), 1.0)
+        for name, w in REALISM_MIX:
+            setattr(self, name, s * w)
+
+
 @dataclass
 class AudioParams:
     """音频设备参数 — 采样率模式 + 设备选择。"""
@@ -74,7 +106,7 @@ class AudioParams:
 
 
 # InferenceParams 的嵌套分组清单（序列化 / 参数拷贝共用一份）
-PARAM_GROUPS = ("voice", "f0", "buffer", "audio")
+PARAM_GROUPS = ("voice", "f0", "buffer", "audio", "realism")
 
 
 @dataclass
@@ -88,6 +120,7 @@ class InferenceParams:
     f0: F0Params = field(default_factory=F0Params)
     buffer: BufferParams = field(default_factory=BufferParams)
     audio: AudioParams = field(default_factory=AudioParams)
+    realism: RealismParams = field(default_factory=RealismParams)
     rms_mix: float = 0.0
     volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
     model_path: str = ""
