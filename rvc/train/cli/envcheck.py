@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rvc.io import CREATE_NO_WINDOW
 from rvc.io.audio_file import locate_ffmpeg
 from rvc.runtime.paths import (
     CONFIG_ROOT,
@@ -149,7 +150,12 @@ def _probe_ffmpeg(log: TrainLogger) -> str | None:
         log.log("  素材若含 mp3/m4a/aac 会直接失败；安装：winget install ffmpeg / apt install -y ffmpeg", "WARN")
         return None
     try:
-        probe = subprocess.run([chosen, "-version"], capture_output=True, timeout=15)
+        # CREATE_NO_WINDOW：GUI/无控制台启动时不弹黑色命令行窗口（Windows 上
+        # 每个 subprocess 都会闪一个，本函数是训练开始前的第一次调用）。
+        probe = subprocess.run(
+            [chosen, "-version"], capture_output=True, timeout=15,
+            creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
+        )
         if probe.returncode != 0:
             log.log(
                 f"ffmpeg      : {chosen} 存在但执行失败（rc={probe.returncode}）"

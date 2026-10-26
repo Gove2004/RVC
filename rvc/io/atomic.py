@@ -11,9 +11,35 @@ replace 是同文件系统原子操作，写完后目标要么是旧内容要么
 import json
 import logging
 import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# os.replace 的重试次数与退避基数（秒）。Windows 上目标文件被短暂占用时
+# replace 抛 PermissionError，退避总时长约 0.05+0.10+0.15+0.20 = 0.5s。
+_REPLACE_ATTEMPTS = 5
+_REPLACE_BACKOFF = 0.05
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    """os.replace，Windows 上对 PermissionError 做有限重试。
+
+    两个平台语义不同：POSIX 的 rename 只改目录项，目标被打开也能成功；Windows
+    的 MoveFileEx 在目标被任何进程以不共享删除的方式打开时会失败。训练产物
+    （.pth/.pt）正是杀毒软件、Everything 索引器、资源管理器预览最常扫描的
+    文件——长训练里偶发一次 save 失败就会丢掉整轮权重。
+
+    只重试 PermissionError：ENOSPC/EROFS 之类的真实错误必须立刻抛出。
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_BACKOFF * (attempt + 1))
 
 
 def atomic_write(path: str | Path, writer: Callable[[Any], None]) -> None:
@@ -22,7 +48,7 @@ def atomic_write(path: str | Path, writer: Callable[[Any], None]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "wb") as f:
         writer(f)
-    os.replace(tmp, path)
+    _replace_with_retry(tmp, path)
 
 
 def atomic_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> None:
