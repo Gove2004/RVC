@@ -50,6 +50,27 @@ def extract_hubert_features(model, input_wav, device: str, is_half: bool) -> tor
     return run_cuda_graph(model, "hubert", _forward, feats)
 
 
+def hubert_frame_count(hubert_model, n_samples: int) -> int:
+    """HuBERT 对长 n_samples 的 16k 波形输出多少帧（50fps）。
+
+    特征提取器是纯卷积栈，`padding=0`，逐层 `(L - k) // s + 1`。用它而不是
+    「按 block_samples 比例估算」：后者与实际帧数差一帧会让预生成的 z 噪声场
+    形状对不上 m_p，被形状校验静默拒绝，固定噪声场完全失效且不报错。
+
+    Args:
+        hubert_model: 已加载的 HuBERT（读 conv_kernel / conv_stride）
+        n_samples: 16k 输入样本数
+
+    Returns:
+        输出帧数
+    """
+    cfg = hubert_model.config
+    length = int(n_samples)
+    for kernel, stride in zip(cfg.conv_kernel, cfg.conv_stride):
+        length = (length - kernel) // stride + 1
+    return length
+
+
 def upsample_features(
     feats: torch.Tensor,
     is_half: bool,

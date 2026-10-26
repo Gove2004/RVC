@@ -39,7 +39,8 @@ _WARMUP_ITERATIONS = 10
 
 # 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
 # 驱动缓冲」的真实深度（硬件时间戳偏小、stream.latency 偏大），只能靠校准值补。
-# 默认 0.0 = 只显示算法延迟（2×块时长 + 推理），不猜驱动层；要用实测校准过的值
+# 默认 0.0 = 只显示算法延迟（2×块时长 + HuBERT lookahead + 推理），不猜驱动层；
+# 要用实测校准过的值
 # 覆盖时经 VoiceEngine.driver_latency_compensation 写入。
 _DRIVER_LATENCY_COMPENSATION_MS = 0.0
 
@@ -60,11 +61,12 @@ class VoiceEngine:
 
         # 性能统计（GUI 读取）
         self.infer_ms = 0.0
-        self.measure_ms = 0.0  # 端到端延迟（算法延迟 + 驱动补偿，瞬时值）
+        self.measure_ms = 0.0  # 端到端延迟（算法 + HuBERT lookahead + 驱动补偿）
         self.driver_in_ms = 0.0  # 输入延迟（块收集 + 驱动补偿）
+        self.lookahead_ms = 0.0  # HuBERT 未来上下文延迟
         self.driver_out_ms = 0.0  # 输出延迟（块缓冲 + 驱动补偿）
         # 驱动层延迟补偿（毫秒）。默认 0.0 → measure_ms 只反映算法延迟
-        # （2×块时长 + 推理）。取值依据见 _DRIVER_LATENCY_COMPENSATION_MS。
+        # （2×块时长 + HuBERT lookahead + 推理）。取值依据见 _DRIVER_LATENCY_COMPENSATION_MS。
         self._driver_latency_compensation_ms = _DRIVER_LATENCY_COMPENSATION_MS
 
         # 错误状态由 InferenceRunner 管理（通过属性代理访问）
@@ -298,7 +300,7 @@ class VoiceEngine:
             self.infer_ms = self._runner.state.infer_ms
             state = self._runner.state
 
-            # 端到端延迟 = 算法延迟 + 驱动延迟补偿
+            # 端到端延迟 = 算法延迟 + HuBERT lookahead + 驱动延迟补偿
             #   算法延迟 = 2×块时长 + 推理（输入块收集 + 输出块缓冲 + GPU推理）
             #   驱动延迟 = WASAPI系统混音器 + 麦克风/声卡驱动缓冲，PortAudio 无法准确获取：
             #     - times 硬件时间戳偏小（不含系统混音器完整缓冲）
@@ -306,10 +308,17 @@ class VoiceEngine:
             #   故驱动延迟只用校准值补偿（默认 0 = 不补，见 _DRIVER_LATENCY_COMPENSATION_MS）。
             #   0.4 / 0.6 是「输入侧 / 输出侧」的分配比例，仅在补偿值非 0 时有意义。
             block_ms = state.block_samples / state.work_sr * 1000.0 if state.work_sr else 0.0
+            lookahead_ms = (
+                state.lookahead_samples / state.work_sr * 1000.0
+                if state.work_sr else 0.0
+            )
+            self.lookahead_ms = lookahead_ms
             drv_ms = self._driver_latency_compensation_ms
             self.driver_in_ms = block_ms + drv_ms * 0.4
             self.driver_out_ms = block_ms + drv_ms * 0.6
-            self.measure_ms = self.driver_in_ms + self.infer_ms + self.driver_out_ms
+            self.measure_ms = (
+                self.driver_in_ms + lookahead_ms + self.infer_ms + self.driver_out_ms
+            )
 
             # 副输出路由
             if self._streams.enable_out2:

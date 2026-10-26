@@ -299,6 +299,32 @@ class TestFormantRuntimeAdjust(unittest.TestCase):
         runner.init_processing(40000, 0.25, 0.05, 0.05, 1, 40000)
         return runner, params
 
+    def test_hubert_lookahead_is_one_input_block(self):
+        """HuBERT 滚动窗口在消费区后保留一个完整输入块。"""
+        runner, _ = self._runner(0.0)
+        state = runner.state
+        old_window = (
+            state.extra_samples
+            + state.crossfade_samples
+            + state.sola_search_samples
+            + state.block_samples
+        )
+        self.assertEqual(state.lookahead_samples, state.block_samples)
+        self.assertEqual(state.input_wav_work.numel(), old_window + state.block_samples)
+
+    def test_hubert_lookahead_tracks_shorter_block(self):
+        runner, _ = self._runner(0.0)
+        runner.init_processing(40000, 0.10, 0.05, 0.05, 1, 40000)
+        self.assertEqual(runner.state.block_samples, 4000)
+        self.assertEqual(runner.state.lookahead_samples, 4000)
+
+    def test_engine_lookahead_telemetry_is_initialized(self):
+        from rvc.core.config import InferenceParams
+        from rvc.streaming.engine import VoiceEngine
+
+        engine = VoiceEngine(InferenceParams())
+        self.assertEqual(engine.lookahead_ms, 0.0)
+
     def test_factor_initialized_from_config(self):
         runner, _ = self._runner(1.5)
         self.assertAlmostEqual(runner.state.formant_factor, 2 ** (1.5 / 12), places=6)

@@ -53,6 +53,7 @@ class EngineState:
     sola_buffer_samples: int = 0
     sola_search_samples: int = 0
     extra_samples: int = 0
+    lookahead_samples: int = 0
     skip_head: int = 0
     return_length: int = 0
     samples_per_centis: int = 0  # 每厘秒（10ms）样本数 = sr//100

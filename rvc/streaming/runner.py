@@ -22,7 +22,11 @@ import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
 from rvc.core.config import VOLUME_MAX, VOLUME_MIN
-from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import (
+    HUBERT_FRAME_SIZE,
+    HUBERT_LOOKAHEAD_BLOCKS,
+    HUBERT_SAMPLE_RATE,
+)
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
 from rvc.streaming.effects import AudioProcessor
 from rvc.streaming.output import write_main_output
@@ -77,6 +81,9 @@ class InferenceRunner:
         state.sola_buffer_samples = min(state.crossfade_samples, 5 * zc)
         state.sola_search_samples = zc
         state.extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
+        # 使用一个完整输入块的真实后续音频作为 HuBERT lookahead，而不是右端
+        # 补零。按块长延迟输出，使消费区在每个滚动窗口中的相对位置固定。
+        state.lookahead_samples = HUBERT_LOOKAHEAD_BLOCKS * state.block_samples
 
         state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
         state.skip_head = state.extra_samples // zc
@@ -92,7 +99,13 @@ class InferenceRunner:
         state.formant_ratio = 1.0
 
         # work_sr 滚动缓冲区
-        n = state.extra_samples + state.crossfade_samples + state.sola_search_samples + state.block_samples
+        n = (
+            state.extra_samples
+            + state.crossfade_samples
+            + state.sola_search_samples
+            + state.block_samples
+            + state.lookahead_samples
+        )
         state.input_wav_work = torch.zeros(n, device=state.device)
         state.input_wav_work_swap = torch.empty_like(state.input_wav_work)
 
@@ -128,9 +141,16 @@ class InferenceRunner:
         # 建张量会落进图的私有内存池，跨图复用直接报错）。形状 = m_p 的形状：
         # use_f0 路径 enc_p 会切掉 flow_head（FLOW_CONTEXT_COMPENSATION_FRAMES），
         # no-f0 路径不切，两者长度不同。每次 init_processing 重建（块参数可能变了）。
-        if state.synthesizer is not None:
+        #
+        # 长度按 HuBERT 卷积栈精确算出，不能用 skip_head + return_length 估：
+        # feats_up 的实际长度是 (hubert_frames + 1) * 2（+1 是上采样的末帧重复），
+        # 与 skip_head + return_length 恒差一帧。差一帧时 _z_sample 的形状校验
+        # 判为不匹配、静默退回 randn_like，固定噪声场等于没接。
+        if state.synthesizer is not None and state.hubert_model is not None:
             from rvc.models.synthesizer import FLOW_CONTEXT_COMPENSATION_FRAMES
-            p_len = state.skip_head + state.return_length
+            from rvc.pipeline.features import hubert_frame_count
+
+            p_len = 2 * (hubert_frame_count(state.hubert_model, state.input_wav_16k.numel()) + 1)
             if state.use_f0:
                 length = p_len - max(state.skip_head - FLOW_CONTEXT_COMPENSATION_FRAMES, 0)
             else:
@@ -139,6 +159,8 @@ class InferenceRunner:
             state.noise_z = torch.randn(
                 1, state.synthesizer.inter_channels, length,
                 device=state.device, dtype=dtype)
+        else:
+            state.noise_z = None
 
         # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（单源）
         self.effects.setup(
