@@ -14,6 +14,7 @@ from unittest import mock
 import numpy as np
 import torch
 
+from rvc.core.constants import HUBERT_LOOKAHEAD_BLOCKS, HUBERT_LOOKAHEAD_DEFAULT
 from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
 from rvc.streaming.engine import VoiceEngine
@@ -299,24 +300,38 @@ class TestFormantRuntimeAdjust(unittest.TestCase):
         runner.init_processing(40000, 0.25, 0.05, 0.05, 1, 40000)
         return runner, params
 
-    def test_hubert_lookahead_is_one_input_block(self):
-        """HuBERT 滚动窗口在消费区后保留一个完整输入块。"""
+    def test_hubert_lookahead_matches_configured_blocks(self):
+        """滚动窗口在消费区后保留 `HUBERT_LOOKAHEAD_BLOCKS` 个完整输入块。"""
         runner, _ = self._runner(0.0)
         state = runner.state
-        old_window = (
+        base_window = (
             state.extra_samples
             + state.crossfade_samples
             + state.sola_search_samples
             + state.block_samples
         )
-        self.assertEqual(state.lookahead_samples, state.block_samples)
-        self.assertEqual(state.input_wav_work.numel(), old_window + state.block_samples)
+        self.assertEqual(state.lookahead_samples, HUBERT_LOOKAHEAD_BLOCKS * state.block_samples)
+        self.assertEqual(state.input_wav_work.numel(), base_window + state.lookahead_samples)
 
     def test_hubert_lookahead_tracks_shorter_block(self):
         runner, _ = self._runner(0.0)
         runner.init_processing(40000, 0.10, 0.05, 0.05, 1, 40000)
         self.assertEqual(runner.state.block_samples, 4000)
-        self.assertEqual(runner.state.lookahead_samples, 4000)
+        self.assertEqual(runner.state.lookahead_samples, HUBERT_LOOKAHEAD_BLOCKS * 4000)
+
+    def test_lookahead_defaults_to_off(self):
+        """默认不加延迟：前瞻收益只在特征层，听感层没兑现，不值得 +1 块延迟。"""
+        self.assertEqual(HUBERT_LOOKAHEAD_DEFAULT, 0)
+
+    def test_lookahead_env_override_is_bounded(self):
+        from rvc.core.constants import _env_nonnegative_int
+
+        name = "RVC_HUBERT_LOOKAHEAD_BLOCKS"
+        with mock.patch.dict("os.environ", {name: "2"}):
+            self.assertEqual(_env_nonnegative_int(name, 0), 2)
+        for bad in ("-3", "abc", "", "  "):
+            with mock.patch.dict("os.environ", {name: bad}):
+                self.assertEqual(_env_nonnegative_int(name, 0), 0)
 
     def test_engine_lookahead_telemetry_is_initialized(self):
         from rvc.core.config import InferenceParams

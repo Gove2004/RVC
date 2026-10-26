@@ -5,17 +5,36 @@
 `rvc/train/cli/`（切片时长默认值）。默认值只在这里声明一次，
 各处引用常量而非字面量 —— 改一处即全链路生效。
 """
+import os
+
+
+def _env_nonnegative_int(name: str, default: int) -> int:
+    """读非负整数环境变量，缺失/非法/负数一律回退 default。"""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return int(default)
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return int(default)
+
 
 HUBERT_SAMPLE_RATE = 16000
 HUBERT_FRAME_SIZE = 160
 
-# HuBERT 是带全局注意力的非因果特征器。实时滚动窗口如果把消费区贴在
-# 窗口右边缘，同一段音频在每个块里的未来上下文都会改变，连续重复发声时
-# 特征会发生位置相关的漂移。推理窗口在消费区后保留一个固定的真实音频块，
-# 让消费帧处在稳定的相对位置。训练特征提取仍保持原始全段语义。
-# 保留一个完整的输入块作为 lookahead；块长由运行时决定。当前音频回调一次交付
-# 一个完整块，因此只有完整块才能保证消费区不与“当前输入”重叠，并让时间语义严格成立。
-HUBERT_LOOKAHEAD_BLOCKS = 1
+# HuBERT 是带全局注意力的非因果特征器。实时滚动窗口如果把消费区贴在窗口右边缘，
+# 同一段音频在每个块里的未来上下文都会随窗口滑动改变，连续重复发声时特征会出现
+# 位置相关的漂移。在消费区右侧保留 N 个完整输入块的真实后续音频，能让消费帧处在
+# 稳定的相对位置——代价是输出整体延后同样时长，块长 100ms 时就是 +100ms 算法延迟。
+#
+# 默认 0（关闭）。实测收益只出现在特征层：窗口相位余弦 0.52→0.80、最差帧 0.43→0.64；
+# 听感层的漂移时间点没有变化（0/300/1000ms 前瞻都在同一时刻起漂，只是漂到不同的字）。
+# 拿 100ms 延迟换一个没在听感上兑现的改善不划算，所以默认关。
+# 要自己听 A/B 就设 RVC_HUBERT_LOOKAHEAD_BLOCKS=1，别直接改默认值。
+HUBERT_LOOKAHEAD_DEFAULT = 0
+HUBERT_LOOKAHEAD_BLOCKS = _env_nonnegative_int(
+    "RVC_HUBERT_LOOKAHEAD_BLOCKS", HUBERT_LOOKAHEAD_DEFAULT)
+
 
 # 训练样本有效帧数范围（phone 帧数 = 特征帧数 ×2）。
 # 单源定义防止双处漂移：_filter 用它过滤样本，BucketSampler 用它生成分桶边界——
