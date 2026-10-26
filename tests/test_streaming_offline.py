@@ -23,51 +23,17 @@ class _EchoRunner:
         outdata[:, 0] = indata[:frames]
 
 
-class _DelayedEchoRunner(_EchoRunner):
-    """模拟带固定未来上下文的 runner，离线端应移除该时间偏移。"""
-
-    def __init__(self, lookahead_samples):
-        super().__init__()
-        self.state = type("State", (), {"lookahead_samples": lookahead_samples})()
-        self._queue = np.zeros(lookahead_samples, dtype=np.float32)
-
-    def process_block(self, indata, outdata, frames):
-        self.calls += 1
-        joined = np.concatenate((self._queue, np.asarray(indata[:frames])))
-        outdata[:, 0] = joined[:frames]
-        self._queue = joined[frames:]
-
-
 class TestRunStream(unittest.TestCase):
     def test_output_length_matches_input(self):
         wav = np.arange(5000, dtype=np.float32)
         out = offline.run_stream(wav, _EchoRunner(), block=1000, pad=300)
         self.assertEqual(out.shape, wav.shape)
 
-    def test_lookahead_is_trimmed_from_offline_timeline(self):
+    def test_pad_is_trimmed_from_timeline(self):
+        """两端 pad 只是给 SOLA/上下文留边，输出必须与原文件逐样本对齐。"""
         wav = np.arange(10, dtype=np.float32)
-        out = offline.run_stream(wav, _DelayedEchoRunner(2), block=4, pad=3)
-        self.assertEqual(out.shape, wav.shape)
+        out = offline.run_stream(wav, _EchoRunner(), block=4, pad=3)
         np.testing.assert_allclose(out, wav)
-
-    def test_small_pad_still_returns_full_lookahead_output(self):
-        wav = np.arange(10, dtype=np.float32)
-        runner = _DelayedEchoRunner(2)
-        out = offline.run_stream(wav, runner, block=4, pad=0)
-        self.assertEqual(out.shape, wav.shape)
-        np.testing.assert_allclose(out, wav)
-
-    def test_large_pad_does_not_add_redundant_tail_blocks(self):
-        runner = _DelayedEchoRunner(2)
-        offline.run_stream(np.arange(10, dtype=np.float32), runner, block=4, pad=3)
-        # 10 + 2*3 = 16 samples already cover the 2-sample lookahead; no extra block.
-        self.assertEqual(runner.calls, 4)
-
-    def test_invalid_lookahead_metadata_falls_back_to_zero(self):
-        runner = _EchoRunner()
-        runner.state = type("State", (), {"lookahead_samples": object()})()
-        out = offline.run_stream(np.arange(10, dtype=np.float32), runner, block=4, pad=0)
-        self.assertEqual(out.shape, (10,))
 
     def test_blocks_are_padded_to_whole_count(self):
         """pad 后不足整块要补零，否则尾部样本会被丢掉。"""

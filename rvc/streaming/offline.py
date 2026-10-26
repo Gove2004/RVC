@@ -38,24 +38,11 @@ def run_stream(wav: np.ndarray, runner, block: int, pad: int,
         progress_cb: 可选 (done, total) 回调
         cancel_cb: 可选回调，返回 True 时抛 CancelledError 中止
     """
-    # lookahead 是输出时间轴上的固定延迟；右端需要额外喂入一段尾部数据，
-    # 否则 pad 较小时，最后一个输入块虽然完成推理，裁剪时却拿不到完整结果。
-    try:
-        lookahead = max(
-            0, int(getattr(getattr(runner, "state", None), "lookahead_samples", 0)))
-    except (TypeError, ValueError):
-        lookahead = 0
     padded = np.pad(
         wav, (pad, pad),
         # reflect 要求 pad < len；超短音频（<3s pad）退回常数 pad
         mode="reflect" if len(wav) > pad else "constant",
     )
-    # 右侧已有 pad 样本也可承担一部分未来上下文，只补不足的部分，避免默认
-    # 3 秒 pad 场景额外多跑一个完整块。
-    extra_tail = max(lookahead - pad, 0)
-    if extra_tail:
-        padded = np.concatenate(
-            [padded, np.zeros(extra_tail, dtype=np.float32)])
     if len(padded) % block:
         padded = np.concatenate(
             [padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
@@ -72,11 +59,8 @@ def run_stream(wav: np.ndarray, runner, block: int, pad: int,
         if progress_cb:
             progress_cb(i + 1, total_blocks)
     rendered = np.concatenate(out_blocks)
-    # 实时链路为稳定 HuBERT 未来上下文会延迟一个输入块；离线结果需要移除
-    # 这段算法延迟，才能与原始文件时间轴对齐。测试用的轻量 runner 没有该
-    # 字段时保持旧行为。
-    start = pad + lookahead
-    return rendered[start: start + len(wav)]
+    # 两端 pad 是为 SOLA/上下文留的边，裁掉后与原始文件时间轴对齐。
+    return rendered[pad: pad + len(wav)]
 
 
 def write_output(result: np.ndarray, output_path: str, sr: int) -> None:

@@ -146,9 +146,8 @@ class WindowLifecycle:
             # 动态 tooltip：显示延迟分解（内容未变不重写——定时器每 tick 都会
             # 走到这里，重写 tooltip 会触发一次无效的 Qt 属性变更/重绘）
             tooltip = (
-                f"算法延迟 = 2×采样长度 + HuBERT未来上下文 + 推理\n"
+                f"算法延迟 = 2×采样长度 + 推理\n"
                 f"  输入块收集: {snap.driver_in_ms:.0f}ms\n"
-                f"  HuBERT未来上下文: {snap.lookahead_ms:.0f}ms\n"
                 f"  推理耗时: {snap.infer_ms:.0f}ms（GPU 端到端）\n"
                 f"  输出块缓冲: {snap.driver_out_ms:.0f}ms\n"
                 f"  合计: {snap.measure_ms:.0f}ms\n"

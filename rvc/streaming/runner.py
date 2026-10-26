@@ -25,7 +25,6 @@ from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 from rvc.dsp.realism import RealismChain
 from rvc.core.constants import (
     HUBERT_FRAME_SIZE,
-    HUBERT_LOOKAHEAD_BLOCKS,
     HUBERT_SAMPLE_RATE,
 )
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
@@ -86,10 +85,6 @@ class InferenceRunner:
         state.sola_buffer_samples = min(state.crossfade_samples, 5 * zc)
         state.sola_search_samples = zc
         state.extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
-        # 使用一个完整输入块的真实后续音频作为 HuBERT lookahead，而不是右端
-        # 补零。按块长延迟输出，使消费区在每个滚动窗口中的相对位置固定。
-        state.lookahead_samples = HUBERT_LOOKAHEAD_BLOCKS * state.block_samples
-
         state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
         state.skip_head = state.extra_samples // zc
         # 传给合成器的帧数 = 当前块 + SOLA 缓冲 + SOLA 搜索（10ms 帧对齐）。
@@ -109,7 +104,6 @@ class InferenceRunner:
             + state.crossfade_samples
             + state.sola_search_samples
             + state.block_samples
-            + state.lookahead_samples
         )
         state.input_wav_work = torch.zeros(n, device=state.device)
         state.input_wav_work_swap = torch.empty_like(state.input_wav_work)

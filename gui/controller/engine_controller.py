@@ -22,7 +22,6 @@ class RuntimeTelemetry:
     input_pitch: float  # 当前输入音高（Hz，音域映射前；无声为 0）
     error_count: int = 0  # 实时链路音频回调累计错误数（0 = 无错误）
     driver_in_ms: float = 0.0  # 输入驱动延迟（ADC→回调，含块缓冲）
-    lookahead_ms: float = 0.0  # HuBERT 未来上下文延迟
     driver_out_ms: float = 0.0  # 输出驱动延迟（回调→DAC，含系统混音器）
     infer_ms: float = 0.0  # 推理耗时（GPU 端到端）
 
@@ -153,7 +152,6 @@ class InferController:
             input_pitch=eng.input_pitch,
             error_count=eng.error_count,
             driver_in_ms=eng.driver_in_ms,
-            lookahead_ms=eng.lookahead_ms,
             driver_out_ms=eng.driver_out_ms,
             infer_ms=eng.infer_ms,
         )
