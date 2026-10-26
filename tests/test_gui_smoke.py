@@ -18,8 +18,13 @@ class _F0:
     fcpe_confidence_threshold = 0.03
 
 
+class _Realism:
+    strength = 0.0
+
+
 class _P:
     f0 = _F0()
+    realism = _Realism()
 
 
 class _Win:
@@ -117,6 +122,41 @@ class TestAudioFilterCoversEngineExts(unittest.TestCase):
         for ext in AUDIO_EXTS:
             self.assertIn(f"*{ext}", AUDIO_FILTER,
                           f"引擎支持 {ext}，但文件对话框选不了它")
+
+
+class TestRealismSliderHome(unittest.TestCase):
+    """真实感滑条归参数页——两页各 6 行平衡，别再挪回音色页。"""
+
+    def test_params_tab_owns_realism_slider(self):
+        from gui.view.tabs.params_tab import build_params_tab
+
+        class _Win:
+            runtime_params = _P()
+
+        win = _Win()
+        win._page = build_params_tab(win)
+        self.assertTrue(hasattr(win, "realism_slider"))
+
+    def test_timbre_tab_does_not_own_realism_slider(self):
+        from types import SimpleNamespace
+
+        from rvc.core.config import (
+            FORMANT_MAX, FORMANT_MIN, VOLUME_MAX, VOLUME_MIN, InferenceParams,
+        )
+        from gui.view.tabs.timbre_tab import build_timbre_tab
+
+        class _Win(QWidget):
+            runtime_params = InferenceParams()
+            controller = SimpleNamespace(
+                models_dir=".",
+                formant_range=(FORMANT_MIN, FORMANT_MAX),
+                volume_range=(VOLUME_MIN, VOLUME_MAX),
+                hubert_variants=("base", "chinese"),
+            )
+
+        win = _Win()
+        win._page = build_timbre_tab(win)
+        self.assertFalse(hasattr(win, "realism_slider"))
 
 
 if __name__ == "__main__":
