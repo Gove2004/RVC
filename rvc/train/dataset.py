@@ -17,7 +17,11 @@ from typing import NamedTuple
 import numpy as np
 import torch
 
-from rvc.core.constants import TRAIN_FRAME_MAX, TRAIN_FRAME_MIN
+from rvc.core.constants import (
+    TRAIN_FRAME_MAX,
+    TRAIN_FRAME_MIN,
+    TRAIN_SAMPLE_CACHE_BYTES_DEFAULT,
+)
 from rvc.io.audio_file import load_audio
 from torch.utils.data import Dataset, Sampler
 
@@ -29,9 +33,9 @@ logger = logging.getLogger(__name__)
 # 进程内样本缓存预算（字节）。单个样本以 spec 为主，约 4MB（1029×1000 float32），
 # 256MB ≈ 60 个样本——够覆盖小数据集整轮，大语料退化成 LRU 但仍命中相邻 epoch
 # 的同一批样本（分桶采样让同一桶的样本在相邻轮次被连续取用）。
-# 每个 DataLoader worker 各持一份（spawn 从头建、fork 走 COW），故总量 ≈
-# 预算 × worker 数，默认 2 worker 即上限 512MB。
-_SAMPLE_CACHE_BYTES = 256 * 1024 * 1024
+# 每个 DataLoader worker 各持一份（spawn 从头建、fork 走 COW）。Trainer 会把
+# 总预算按 worker 数均分；直接构造 Dataset 时仍可用此默认值作为单进程预算。
+_SAMPLE_CACHE_BYTES = TRAIN_SAMPLE_CACHE_BYTES_DEFAULT
 
 
 class _SampleMemoryCache:

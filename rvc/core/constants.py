@@ -9,6 +9,14 @@
 HUBERT_SAMPLE_RATE = 16000
 HUBERT_FRAME_SIZE = 160
 
+# HuBERT 是带全局注意力的非因果特征器。实时滚动窗口如果把消费区贴在
+# 窗口右边缘，同一段音频在每个块里的未来上下文都会改变，连续重复发声时
+# 特征会发生位置相关的漂移。推理窗口在消费区后保留一个固定的真实音频块，
+# 让消费帧处在稳定的相对位置。训练特征提取仍保持原始全段语义。
+# 保留一个完整的输入块作为 lookahead；块长由运行时决定。当前音频回调一次交付
+# 一个完整块，因此只有完整块才能保证消费区不与“当前输入”重叠，并让时间语义严格成立。
+HUBERT_LOOKAHEAD_BLOCKS = 1
+
 # 训练样本有效帧数范围（phone 帧数 = 特征帧数 ×2）。
 # 单源定义防止双处漂移：_filter 用它过滤样本，BucketSampler 用它生成分桶边界——
 # 上限改了但边界表没跟上时，末段样本会进数据集却全部被 sampler 跳过并刷警告。
@@ -63,6 +71,11 @@ SLICE_MAX_SIL_KEPT_DEFAULT = 500
 
 # DataLoader 取数进程数（0 = 主进程单线程取数，排查卡死时可用）
 TRAIN_NUM_WORKERS_DEFAULT = 2
+# 样本 LRU 的默认总预算；Trainer 会按 worker 数均分，直接构造 Dataset 时作为
+# 单进程预算使用。
+TRAIN_SAMPLE_CACHE_BYTES_DEFAULT = 256 * 1024 * 1024
+# 每个 worker 预取 batch 数；训练侧默认限制为 1，避免排队 batch 放大峰值。
+TRAIN_PREFETCH_FACTOR_DEFAULT = 1
 
 # ── 切片归一化（preprocess.normalize_audio）──
 # 目标峰值（归一化到满幅的 90%，留 10% 余量防爆音）

@@ -2,6 +2,7 @@
 
 支持进度/日志/loss 回调，供训练命令行向导（rvc.train.cli）调用。
 """
+import os
 import random
 from pathlib import Path
 
@@ -10,7 +11,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from rvc.core.config import TrainConfig
-from rvc.core.constants import TRAIN_NUM_WORKERS_DEFAULT
+from rvc.core.constants import (
+    TRAIN_NUM_WORKERS_DEFAULT,
+    TRAIN_PREFETCH_FACTOR_DEFAULT,
+    TRAIN_SAMPLE_CACHE_BYTES_DEFAULT,
+)
 from rvc.models.synthesizer import SynthesizerTrnMsNSFsid
 from rvc.nn import vits_blocks
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
@@ -28,6 +33,41 @@ from rvc.train.checkpoint import (
 from rvc.train.dataset import BucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
+
+
+def _env_nonnegative_int(name: str, default: int) -> int:
+    """读取训练侧整数环境变量；空值/非法值回退默认。"""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return int(default)
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return int(default)
+
+
+def training_dataloader_options(device: str) -> dict:
+    """返回 DataLoader 的低内存选项。
+
+    `RVC_TRAIN_WORKERS=0` 可在 Windows/低内存机器上关闭 worker；默认保留两个
+    worker。持久 worker 避免每个 epoch 重新 spawn，prefetch=1 限制排队 batch 的
+    峰值内存。`RVC_TRAIN_CACHE_MB` 是整个训练进程的预算，会按 worker 数均分，
+    设为 0 可关闭样本内存缓存。
+    """
+    workers = _env_nonnegative_int("RVC_TRAIN_WORKERS", TRAIN_NUM_WORKERS_DEFAULT)
+    cache_mb = _env_nonnegative_int(
+        "RVC_TRAIN_CACHE_MB", TRAIN_SAMPLE_CACHE_BYTES_DEFAULT // (1024 * 1024))
+    total_cache_bytes = cache_mb * 1024 * 1024
+    options = {
+        "num_workers": workers,
+        "pin_memory": str(device).startswith("cuda") and torch.cuda.is_available(),
+        "mem_cache_bytes": total_cache_bytes // max(workers, 1),
+    }
+    if workers:
+        options["persistent_workers"] = True
+        options["prefetch_factor"] = _env_nonnegative_int(
+            "RVC_TRAIN_PREFETCH", TRAIN_PREFETCH_FACTOR_DEFAULT) or 1
+    return options
 
 
 class Trainer:
@@ -65,10 +105,22 @@ class Trainer:
 
     def cleanup(self):
         """释放 GPU 资源（用于训练停止后回收显存）"""
+        loader = getattr(self, "loader", None)
+        iterator = getattr(loader, "_iterator", None)
+        if iterator is not None:
+            # persistent_workers 不会在最后一个 epoch 自动退出；显式关闭，避免
+            # 训练结束后 Python 进程仍被 worker 持有（Windows spawn 尤其明显）。
+            shutdown = getattr(iterator, "_shutdown_workers", None)
+            if shutdown is not None:
+                shutdown()
+            loader._iterator = None
+        if loader is not None:
+            self.loader = None
         for attr in ("synthesizer", "net_d", "optim_g", "optim_d", "scheduler_g", "scheduler_d"):
             if hasattr(self, attr):
                 setattr(self, attr, None)
         torch.cuda.empty_cache()
+
 
     def _checkpoint_dir(self) -> Path:
         """本实验的 checkpoint 目录（避免与模块函数 checkpoint.checkpoints_dir 同名遮蔽）。"""
@@ -125,13 +177,18 @@ class Trainer:
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.fp16_run)
 
         filelist = str(Path(self.cfg.exp_dir) / "filelist.txt")
+        loader_options = training_dataloader_options(self.cfg.device)
         dataset = TextAudioLoaderMultiNSFsid(
             filelist, self.mel_config,
             spec_cache_dir=Path(self.cfg.exp_dir) / "spec_cache",
             ffmpeg_exe=self.ffmpeg_exe,
+            mem_cache_bytes=loader_options.pop("mem_cache_bytes"),
         )
         sampler = BucketSampler(dataset, self.cfg.batch_size)
-        self.loader = DataLoader(dataset, batch_sampler=sampler, num_workers=TRAIN_NUM_WORKERS_DEFAULT, collate_fn=TextAudioCollateMultiNSFsid(), pin_memory=True)
+        self.loader = DataLoader(
+            dataset, batch_sampler=sampler,
+            collate_fn=TextAudioCollateMultiNSFsid(), **loader_options,
+        )
         if len(self.loader) == 0:
             raise RuntimeError("训练样本不足，无法组成 batch")
 

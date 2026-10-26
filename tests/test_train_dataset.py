@@ -109,5 +109,56 @@ class TestDatasetCacheWiring(unittest.TestCase):
         self.assertEqual(load.call_count, 2)
 
 
+class TestTrainingDataLoaderOptions(unittest.TestCase):
+    def test_defaults_use_bounded_prefetch_and_persistent_workers(self):
+        from rvc.train.trainer import training_dataloader_options
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            options = training_dataloader_options("cuda:0")
+        self.assertEqual(options["num_workers"], 2)
+        self.assertEqual(options["prefetch_factor"], 1)
+        self.assertTrue(options["persistent_workers"])
+        self.assertEqual(options["mem_cache_bytes"], 128 * 1024 * 1024)
+
+    def test_cleanup_shuts_down_persistent_workers(self):
+        from rvc.train.trainer import Trainer
+
+        iterator = mock.Mock()
+        loader = mock.Mock(_iterator=iterator)
+        trainer = Trainer.__new__(Trainer)
+        trainer.loader = loader
+        with mock.patch("torch.cuda.empty_cache"):
+            trainer.cleanup()
+        iterator._shutdown_workers.assert_called_once_with()
+        self.assertIsNone(trainer.loader)
+
+    def test_zero_workers_disable_worker_only_options(self):
+        from rvc.train.trainer import training_dataloader_options
+
+        with mock.patch.dict("os.environ", {
+            "RVC_TRAIN_WORKERS": "0",
+            "RVC_TRAIN_CACHE_MB": "0",
+        }, clear=True):
+            options = training_dataloader_options("cpu")
+        self.assertEqual(options, {
+            "num_workers": 0,
+            "pin_memory": False,
+            "mem_cache_bytes": 0,
+        })
+
+    def test_invalid_environment_values_fall_back(self):
+        from rvc.train.trainer import training_dataloader_options
+
+        with mock.patch.dict("os.environ", {
+            "RVC_TRAIN_WORKERS": "bad",
+            "RVC_TRAIN_PREFETCH": "bad",
+            "RVC_TRAIN_CACHE_MB": "bad",
+        }, clear=True):
+            options = training_dataloader_options("cpu")
+        self.assertEqual(options["num_workers"], 2)
+        self.assertEqual(options["prefetch_factor"], 1)
+        self.assertEqual(options["mem_cache_bytes"], 128 * 1024 * 1024)
+
+
 if __name__ == "__main__":
     unittest.main()
