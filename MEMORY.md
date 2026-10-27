@@ -428,6 +428,24 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   结论：**目标 2 在代码侧维持封死**。要更快只能减 `extra_time`，那是听感换延迟的
   用户取舍，不是本项目该替他决定的事。
 
+**切换模型不泄漏显存（2026-10-27 实测）**：合成器缓存容量 2，HuBERT 2 / RMVPE 1 /
+FCPE 1。`LRUCache.insert` 把被淘汰的值作为返回值交给调用方作为**回收钩子**
+（其注释明确：值可能持有 CUDA Graph 资源，必须在被遗忘那一刻显式回收，不能指望
+GC 时机）。实测 21 次连续切换（3 个模型轮转，每次 `gc.collect()` 后采样）：
+
+| 次数 | allocated | reserved |
+|---|---|---|
+| 1（首个模型） | 240.4 MB | 306.0 MB |
+| 2（缓存已满） | 294.3 MB | 346.0 MB |
+| 21（轮转 7 圈后） | 294.0 MB | 382.0 MB |
+
+- allocated 稳在 ~294 MB（= HuBERT fp16 189MB + 2 个合成器各 ~54MB），
+  漂移 −0.2 MB → **无泄漏，回收钩子生效**
+- reserved 在 346–422 MB 间来回波动，20 次里仅 10 次上升，**非单调** → 是
+  PyTorch 分配器复用空闲块（空闲池 51–127 MB 有界），不是碎片累积
+- 结论：**别去加"切换模型后 empty_cache"之类的清理**，`engine.py:86-88` 已明确
+  记录"不做周期性 empty_cache：稳态下分配模式固定、缓存池不再增长"
+
 **设备层已调**：AudioStreams 用 `latency="low"` + 显式 `blocksize`。WASAPI 共享模式下
 设备缓冲只有 10–30ms（实测 1056 帧 @48k），**远小于块长**——任何"整块塞得下才写"的判据
 在 Windows 上永远不成立，必须用待写队列（`pending` + `pending_pos`，上界 3 块，超出丢最旧）。
