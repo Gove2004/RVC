@@ -1,10 +1,16 @@
-"""权重键名归一化契约 — weight_norm 两套命名必须能互通。
+"""权重键名契约 — weight_norm 两套命名的边界。
 
-背景：上游导出的模型与官方预训练资产用旧版 weight_norm 命名
-（``weight_g``/``weight_v``），本项目模块用 ``torch.nn.utils.parametrize``
-（``parametrizations.weight.original0/1``）。``load_state_dict(strict=False)``
-对键名不匹配是静默的，不做归一化就整层跳过：输出照样能听，但解码器上采样
-等参数停在随机初始化。这里锁的是「键名必须能对上」这个最低契约。
+背景：上游模型与官方预训练资产用旧版 weight_norm 键名
+（``weight_g``/``weight_v``），本项目模块用 ``parametrizations.weight_norm``
+（``parametrizations.weight.original0/1``）。
+
+两条边界要分开看：
+
+- **加载**：torch 的 ``ParametrizationList`` 自带旧键名兼容层，旧命名模型
+  能直接正确加载，不需要手写改写。这里锁住这个前提——一旦哪天不成立，
+  用户手上的模型会静默变成随机权重
+- **两份字典互相比对**（``merge_models``）：没有兼容层，必须先归一化，
+  否则同一层被当成两个键，权重不参与平均
 """
 import tempfile
 import unittest
@@ -12,6 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from torch.nn.utils import parametrizations
 
 from rvc.models.state_dict_keys import to_legacy, to_parametrized, weight_norm_style
 
@@ -78,6 +85,40 @@ class TestWeightNormStyle(unittest.TestCase):
         self.assertEqual(weight_norm_style({"a.weight": torch.zeros(1)}), "none")
         self.assertEqual(
             weight_norm_style({**_legacy_state(), **to_parametrized(_legacy_state())}), "mixed")
+
+
+class TestLegacyKeysAcceptedOnLoad(unittest.TestCase):
+    """加载侧不需要改写：torch 自带旧键名兼容层。
+
+    这条是整个「旧命名模型能否用」的前提。若哪天 torch 去掉兼容层，
+    用户手上的模型会静默变成随机权重（strict=False 不报错），
+    所以必须显式锁住，而不是依赖 state_dict() 键名比对去推断。
+    """
+
+    def test_parametrization_list_accepts_weight_g_and_v(self):
+        source = torch.nn.Conv1d(4, 6, 3)
+        parametrizations.weight_norm(source, name="weight")
+        with torch.no_grad():
+            source.parametrizations.weight.original0.fill_(2.5)
+            source.parametrizations.weight.original1.normal_()
+
+        legacy = {
+            "weight_g": source.parametrizations.weight.original0.detach().clone(),
+            "weight_v": source.parametrizations.weight.original1.detach().clone(),
+            "bias": source.bias.detach().clone(),
+        }
+
+        target = torch.nn.Conv1d(4, 6, 3)
+        parametrizations.weight_norm(target, name="weight")
+        result = target.load_state_dict(legacy, strict=False)
+
+        self.assertEqual(list(result.missing_keys), [])
+        self.assertEqual(list(result.unexpected_keys), [])
+        self.assertTrue(torch.equal(
+            target.parametrizations.weight.original0, legacy["weight_g"]))
+        self.assertTrue(torch.equal(
+            target.parametrizations.weight.original1, legacy["weight_v"]))
+        self.assertTrue(torch.equal(target.weight, source.weight))
 
 
 class TestInferenceLoaderLoadsLegacyState(unittest.TestCase):

@@ -16,7 +16,6 @@ from rvc.core.constants import (
     TRAIN_PREFETCH_FACTOR_DEFAULT,
     TRAIN_SAMPLE_CACHE_BYTES_DEFAULT,
 )
-from rvc.models.state_dict_keys import to_parametrized
 from rvc.models.synthesizer import SynthesizerTrnMsNSFsid
 from rvc.nn import vits_blocks
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
@@ -190,14 +189,15 @@ class Trainer:
     def _load_pretrained(self, model, path: str, label: str) -> None:
         """加载预训练权重并报告未落地的键。
 
-        官方资产用旧版 weight_norm 命名（weight_g/weight_v），本项目模块用
-        parametrize（parametrizations.weight.original0/1）；不归一化就会被
-        strict=False 静默跳过整层解码器，训出来的模型音色与细节全错。
+        官方资产用旧版 weight_norm 键名（weight_g/weight_v），本项目模块用
+        parametrizations.weight_norm（parametrizations.weight.original0/1）；
+        两者可直接互认，ParametrizationList 自带旧键名兼容层，无需手写改写。
+        strict=False 会静默吞掉其余不匹配，所以这里必须把结果报出来——
+        否则半随机模型训完才发现，排查成本极高。
         """
         # 安全前提：预训练权重为随仓库分发的官方资产，来源可信，故 weights_only=False。
         state = torch.load(path, map_location="cpu", weights_only=False)
-        weights = to_parametrized(state["model"])
-        result = model.load_state_dict(weights, strict=False)
+        result = model.load_state_dict(state["model"], strict=False)
         # enc_q 只在训练侧存在；用导出的模型当预训练时会缺这一批，属预期。
         missing = [k for k in result.missing_keys if not k.startswith("enc_q.")]
         if missing or result.unexpected_keys:

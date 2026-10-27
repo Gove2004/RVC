@@ -407,26 +407,29 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   每次重启都会重新走一遍预热（约 7 个 batch），这是刻意不动上游行为的取舍
 - checkpoint 目录名是 `4_checkpoints`，取路径用 `checkpoints_dir()`，别手拼字符串
   （e2e 脚本曾按 `exp/checkpoints` 数文件，于是"checkpoint 0 个"是假警报）
-- **weight_norm 键名分裂是全局性问题，不止训练侧**（修复见 `rvc/models/state_dict_keys.py`）：
-  上游导出的模型与官方预训练资产用旧版 `torch.nn.utils.weight_norm` 命名
-  （`<layer>.weight_g`/`weight_v`），本项目模块用 `torch.nn.utils.parametrize`
-  （`<layer>.parametrizations.weight.original0/1`）。`load_state_dict(strict=False)`
-  对键名不匹配完全静默，于是：
-  - 推理侧加载用户模型 `assets/models/xd80+ay20.pth`：457 张量只落地 249，
-    **208 个 weight_norm 参数（整条解码器上采样 + resblock）停在随机初始化**，
-    输出照样能听、只是音色与细节全错。用户手上的模型全是这个命名
-  - 训练侧加载 `f0G40k.pth`：560 张量漏 274（G）、165 张量漏（D 同源问题）
-  - `export_model` 原样写 `state_dict` 键（即 parametrize 命名），与用户已有文件不一致；
-    `merge_models` 按裸键名比对，跨命名合并会把同一层当成两个键各留一份，**静默产出坏模型**
-  修法：`to_parametrized()` 在所有**入**边界（`pipeline/loader.py`、`trainer._load_pretrained`、
-  `merge_models` 的两个输入）归一化，`to_legacy()` 在所有**出**边界（`export_model`、
-  `merge_models` 输出）落旧版命名。四个边界实测：推理 457/457 落地、G 560/560、D 165/165、
-  导出后回读 457/457、同源合并丢层 0 偏离 0；`remove_weight_norm` 烘焙出的 104 层
-  与文件 `g*v/||v||` 重建值逐层一致（`$env:TEMP\infer_load_probe.py`、`train_boundaries_probe.py`、
-  `bake_probe.py`）。回归锁在 `tests/test_state_dict_keys.py`
-  教训：**比对权重必须比"值"而不是"键"**。第一版探针拿未归一化的文件键去比对，
-  改写后的张量永远无法被计入，于是修复前后输出一模一样、看着像没修好；
-  正确做法是两边都归一化后比 `torch.equal`，并且同时跑"未改写"路径确认探针有区分力
+- **weight_norm 有两套键名，但加载侧不需要改写**（`rvc/models/state_dict_keys.py`）：
+  上游模型与官方预训练资产用旧版 `torch.nn.utils.weight_norm` 命名
+  （`<layer>.weight_g`/`weight_v`），本项目模块用 `parametrizations.weight_norm`
+  （`<layer>.parametrizations.weight.original0/1`）。**`ParametrizationList` 自带
+  旧键名兼容层**：直接 `load_state_dict({"weight_g":..., "weight_v":...}, strict=False)`
+  得到 `missing=[] unexpected=[]`，`original0/1` 与物化 `weight` 全部正确落地
+  （最小复现 `$env:TEMP\shim_probe.py`，回归锁在 `tests/test_state_dict_keys.py`
+  的 `TestLegacyKeysAcceptedOnLoad`）。**别手写加载侧键名改写，也别据此判断"权重没加载"**
+  - 真正需要改写的是**两份字典互相比对的场合**——那里没有 torch 兼容层：
+    `merge_models` 按裸键名取交集加权平均，一个旧命名文件 + 一个本流程导出的文件
+    会让同一层变成两个键，权重不参与平均，结果还同时带两套键名。
+    现在两个输入先 `to_parametrized()`、输出 `to_legacy()` 落盘
+  - `export_model` 落盘统一用旧版命名，与本仓库已有模型文件、上游工具一致
+- **踩过的坑（代价很大，务必记住）：`state_dict()` 的键名比对 ≠ 加载结果**。
+  曾用"模型 state_dict 里有 208 个 `parametrizations.*` 键不在文件里"推断
+  "用户模型解码器全是随机初始化、音质一直错"，并把这条错误结论写进本文件、
+  提交说明和给用户的汇报。实际上 torch 的兼容层早把 `weight_g/v` 认了。
+  两点教训：
+  - 判断"权重是否落地"要比**值**（`torch.equal` 逐张量），或直接看
+    `load_state_dict` 返回的 `missing_keys`/`unexpected_keys`，不要比键名
+  - 只要涉及"输出是否改变"，就做 A/B 音频比对兜底。这次正是 A/B 测出
+    修复前后**输出完全相同**（相关性 +1.0000、差异 −93.8 dB）才翻案；
+    若只停在权重层面就会一直错下去
 
 ## 14. 测量方法论与踩坑（做实验前必读）
 

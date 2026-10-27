@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from rvc.models.state_dict_keys import to_legacy, to_parametrized
+from rvc.models.state_dict_keys import to_legacy, to_parametrized, weight_norm_style
 from rvc.runtime import train_config_path
 from rvc.train.atomic_save import save_torch_atomic
 
@@ -180,8 +180,8 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
         if key.startswith("enc_q"):
             continue
         weights[key] = value.detach().cpu().half()
-    # 落盘用旧版 weight_norm 命名（weight_g/weight_v），与本仓库已有模型文件和
-    # 上游工具一致；推理侧加载时会归一化回 parametrize，两种命名都能读。
+    # 落盘用旧版 weight_norm 命名（weight_g/weight_v），与本仓库已有模型文件、
+    # 上游工具一致。加载侧两种命名都能读（ParametrizationList 自带兼容层）。
     weights = to_legacy(weights)
     model_config = build_model_config(sr, config)
     name = re.sub(r"_e\d+$", "", Path(output_path).stem)
@@ -205,8 +205,14 @@ def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
     if ckpt_a["config"] != ckpt_b["config"]:
         raise ValueError("两个模型架构不一致（config 不同），无法合并")
     merged = OrderedDict()
-    # 两个来源可能一个新命名一个旧命名（上游模型 vs 本流程导出的旧版文件），
-    # 先归一化到同一套键名，否则同一层会被当成两个不同的键，权重不会加权平均。
+    # 两个来源可能一个新命名一个旧命名（上游模型 vs 本流程导出的文件）。这里是
+    # 两份字典按裸键名取交集，没有 torch 的旧键名兼容层，不归一化同一层就会被
+    # 当成两个不同的键：权重不参与平均，结果还同时带两套键名。
+    style_a = weight_norm_style(ckpt_a["weight"])
+    style_b = weight_norm_style(ckpt_b["weight"])
+    if {style_a, style_b} == {"legacy", "parametrized"}:
+        logger.info("合并的两个模型 weight_norm 命名不同（%s / %s），已归一化后比较",
+                    style_a, style_b)
     weight_a = to_parametrized(ckpt_a["weight"])
     weight_b = to_parametrized(ckpt_b["weight"])
     for key in weight_a:
