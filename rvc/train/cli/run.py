@@ -54,8 +54,10 @@ def main(argv: list[str] | None = None) -> int:
     # 项目内存在以 cwd 为基准的相对引用，入口统一基准目录（进程级副作用，CLI 入口可接受）
     os.chdir(PROJECT_ROOT)
 
-    # Trainer 里 scheduler.step() 先于 optimizer.step() 的既有写法会每轮刷两条警告，
-    # 属于原代码行为，这里只在脚本侧静音，不改源文件
+    # fp16 的 GradScaler 在预热期会跳过 optimizer.step()（初始 scale 65536 对 fp16
+    # 上限 65504 没有余量，逐 batch 折半直到梯度装得下），而 torch 只在真正 step 过
+    # 之后才置 optimizer._opt_called，于是首个 scheduler.step() 会报一次「先于
+    # optimizer.step」。这是动态标定的正常现象，不是用法错误，只在脚本侧静音
     warnings.filterwarnings("ignore", message=r".*lr_scheduler\.step\(\).*")
 
     argv_dir = ""

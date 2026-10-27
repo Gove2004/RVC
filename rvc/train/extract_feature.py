@@ -25,6 +25,10 @@ _hubert_cache = LRUCache(2)
 
 def clear_hubert_cache():
     """清空训练侧 HuBERT 缓存并归还显存（特征提取完成后调用，训练前释放 ~1GB）。"""
+    # LRUCache.clear() 只丢引用，不回收值本身；HuBERT 可能持有 CUDA Graph 缓存，
+    # 其静态输入/输出张量不会随引用消失立刻归还。先逐个回收再清空。
+    for model in _hubert_cache.values():
+        purge_cuda_graphs(model)
     _hubert_cache.clear()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

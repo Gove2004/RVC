@@ -175,5 +175,45 @@ class TestHubertCacheEviction(unittest.TestCase):
         self.assertEqual(load.call_count, 1)
 
 
+class TestHubertCacheClearReleases(unittest.TestCase):
+    """clear() 只丢引用不回收值本身，调用方必须先 release。
+
+    特征提取完成后、正式训练前会 clear_hubert_cache() 腾出 ~1GB。若只 clear()
+    不回收图缓存，被丢掉的 HuBERT 持有的静态张量不会随引用消失归还，训练紧接着
+    捕获自己的图时可能复用同一批地址。
+    """
+
+    def test_clear_purges_every_cached_model(self):
+        from rvc.runtime.lru import LRUCache
+        from rvc.train import extract_feature
+
+        cache = LRUCache(2)
+        with mock.patch.object(extract_feature, "_hubert_cache", cache), \
+                mock.patch.object(extract_feature, "load_hubert",
+                                  side_effect=lambda cfg, variant: SimpleNamespace(variant=variant)), \
+                mock.patch.object(extract_feature, "purge_cuda_graphs") as purge, \
+                mock.patch("torch.cuda.empty_cache"):
+            base = extract_feature.HuBERTExtractor(hubert="base").model
+            chinese = extract_feature.HuBERTExtractor(hubert="chinese").model
+            purge.reset_mock()
+
+            extract_feature.clear_hubert_cache()
+
+        self.assertEqual(purge.call_count, 2, "缓存里每个模型都要回收")
+        purged = {id(c.args[0]) for c in purge.call_args_list}
+        self.assertEqual(purged, {id(base), id(chinese)})
+        self.assertEqual(cache.values(), [], "回收之后才允许清空")
+
+    def test_clear_on_empty_cache_is_noop(self):
+        from rvc.runtime.lru import LRUCache
+        from rvc.train import extract_feature
+
+        with mock.patch.object(extract_feature, "_hubert_cache", LRUCache(2)), \
+                mock.patch.object(extract_feature, "purge_cuda_graphs") as purge, \
+                mock.patch("torch.cuda.empty_cache"):
+            extract_feature.clear_hubert_cache()
+        purge.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
