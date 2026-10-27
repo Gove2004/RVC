@@ -84,7 +84,16 @@ class EngineState:
     # （实测：比特级重复输入下 凤凰→粉王→安安，固定噪声后稳定期 2.5s→9s+）。
     # 固定后 z_p = m_p + exp(logs_p)·ε_fixed：内容不变则渲染不变，内容变化
     # 照常经 m_p/logs_p 体现。作为张量图输入传入，回放复用同一份值。
+    #
+    # **必须随窗口一起左移**（见 runner._roll_noise_field）：本字段按缓冲区索引
+    # 存放，而窗口每块前移 block_samples。若不滚动，同一段绝对音频在相邻块会落到
+    # 不同索引上、取到不同噪声——实测 z_p 相对差 112%，逼近"完全换一份新噪声"的
+    # 127% 上界，等于固定噪声场没接上。滚动后「同一绝对时刻 ↔ 同一噪声」成立。
     noise_z: torch.Tensor | None = None
+
+    # noise_z 滚动的暂存区（同形状）。源与目标在显存上重叠，GPU 的 copy_ 不保证
+    # memmove 语义，必须经独立缓冲区中转；预分配以免每块做一次显存分配。
+    noise_scratch: torch.Tensor | None = None
 
     # 本块的输入音高（Hz，音域映射前；全清音/无 F0 模型时为 0）。
     # 由 runner 在「同步 D2H 写完主输出之后」取回成 Python float——
