@@ -379,6 +379,27 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   Trainer），不在各模块里各自找
 - 续跑判据是"文件存在即跳过"，所以**所有中间产物必须原子写**，否则中途强杀留下截断文件
   会被静默复用
+- **训练链路在 2026-10 才第一次被真正端到端跑通**，一次暴露四处必崩缺陷（已修，`c061d60`）：
+  - `HuBERTExtractor` 调了 `LRUCache.set`，而真实方法名是 `insert`（返回被淘汰值，作回收钩子）
+  - `checkpoint.py` 用 `os.replace` / `os.path.join` 却没 `import os`：setup 找 checkpoint
+    和每次保存两条路径都崩
+  - collate 给 `TrainBatch` 多传了第 9 个字段 `wav_lengths`，全仓无人消费 → 删死代码，
+    不要加宽 NamedTuple（`pin_memory` 的钉页只对 namedtuple 生效）
+  - `SineGen.forward` 无条件 `torch.inference_mode()`，而它的输出要喂给可训练的
+    `SourceModuleHnNSF.l_linear`：fp32 直接抛 `Inference tensors cannot be saved for
+    backward`，fp16 被 autocast 掩盖成静默断链。改为 `not torch.is_grad_enabled()` 时才进
+    （推理侧调用方本就在 `inference_mode` 里，见 `rvc/streaming/runner.py:188/223/287`，
+    行为与速度不变）
+- **`Detected call of lr_scheduler.step() before optimizer.step()` 不是 scheduler 用法错**：
+  `GradScaler` 发现 inf 就跳过 `optimizer.step()`，而 `_opt_called` 只在
+  `lr_scheduler.py:165` 的包装器里置位，于是首个 `scheduler.step()` 报警。inf 本身是 fp16
+  动态标定的正常预热：默认 `init_scale=65536` 对 fp16 上限 65504 没有余量，本模型梯度量级
+  O(1)~O(10²)，实测每 batch 折半一次（65536→512），**第 8 个 batch 起 `opt_called=True`、
+  scale 稳定在 256、loss 243→119**，自行收敛，不是 bug。代价是小数据集（RVC 典型 5~15 分钟
+  素材 → 每 epoch 只有几十个 batch）会白烧掉首 epoch 的前几个 batch
+- 验训练要跑 `$env:TEMP\train_e2e.py`（合成 4 个 6.5s 共振峰音频 → 预处理 → F0 → HuBERT →
+  filelist → 2 epoch → 导出），单测发现不了上面四处：187 项全过时它们全都还在。
+  逐 batch 观察 scaler 用 `$env:TEMP\grad_trace.py 1|0 [批数]`
 
 ## 14. 测量方法论与踩坑（做实验前必读）
 
