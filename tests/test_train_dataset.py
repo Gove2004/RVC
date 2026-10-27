@@ -120,6 +120,19 @@ class TestTrainingDataLoaderOptions(unittest.TestCase):
         self.assertTrue(options["persistent_workers"])
         self.assertEqual(options["mem_cache_bytes"], 128 * 1024 * 1024)
 
+    def test_workers_always_use_spawn(self):
+        """worker 必须走 spawn，不能吃 Linux 的 fork 默认值。
+
+        setup() 先建模型上 CUDA、再建 DataLoader，fork 出的 worker 会继承父进程
+        半初始化的 CUDA 上下文，表现为卡死或 "Cannot re-initialize CUDA in
+        forked subprocess"。Windows 只有 spawn 所以看不出来，Linux 上必踩。
+        """
+        from rvc.train.trainer import training_dataloader_options
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            options = training_dataloader_options("cuda:0")
+        self.assertEqual(options["multiprocessing_context"], "spawn")
+
     def test_cleanup_shuts_down_persistent_workers(self):
         from rvc.train.trainer import Trainer
 

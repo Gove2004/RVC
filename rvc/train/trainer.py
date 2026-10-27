@@ -64,6 +64,12 @@ def training_dataloader_options(device: str) -> dict:
         "mem_cache_bytes": total_cache_bytes // max(workers, 1),
     }
     if workers:
+        # 显式指定 spawn：Linux 默认 fork，而 setup() 在创建 loader 之前就已经
+        # 把模型搬上 CUDA 并初始化了 CUDA 上下文，fork 出的 worker 会继承这份
+        # 半初始化的状态，表现是训练卡死或 "Cannot re-initialize CUDA in forked
+        # subprocess"。Windows 只有 spawn，所以这个坑此前只在 Linux 上出现。
+        # 两个平台统一走 spawn，行为一致、也不用再各自调试。
+        options["multiprocessing_context"] = "spawn"
         options["persistent_workers"] = True
         options["prefetch_factor"] = _env_nonnegative_int(
             "RVC_TRAIN_PREFETCH", TRAIN_PREFETCH_FACTOR_DEFAULT) or 1

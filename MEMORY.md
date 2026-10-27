@@ -366,6 +366,19 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   `RVC_TRAIN_WORKERS`（默认 2，设 0 关闭）、`RVC_TRAIN_CACHE_MB`（进程总预算，按 worker 均分，
   0 关闭样本内存缓存）、`RVC_TRAIN_PREFETCH`（默认 1）。`persistent_workers` 避免每 epoch
   重新 spawn；`cleanup()` 显式 `iterator._shutdown_workers()`，否则 Windows 上进程被 worker 持有
+- **worker > 0 时必须显式 `multiprocessing_context="spawn"`**（已写进 `training_dataloader_options`）：
+  `setup()` 先建模型搬上 CUDA、再建 DataLoader，Linux 默认 fork，worker 会继承父进程
+  半初始化的 CUDA 上下文 → 训练卡死或 "Cannot re-initialize CUDA in forked subprocess"。
+  **Windows 只有 spawn，所以这个坑在 Windows 上永远看不出来**，只在 Linux 复现。两个平台
+  统一走 spawn（也就是 Windows 早就验证过的那条路径），行为一致。锁在
+  `tests/test_train_dataset.py::test_workers_always_use_spawn`；`RVC_TRAIN_WORKERS=0` 时
+  不许出现这个键（该分支有字典全等断言）。端到端回归：`$env:TEMP\spawn_loader_probe.py`
+  （2 个 worker 真的拉起、6 批、`phone(2,298,768)`）
+- Linux 侧已确认无需改动的几处：`CREATE_NO_WINDOW` 在非 Windows 恒为 0；`locate_ffmpeg()`
+  第三级（`assets/ffmpeg`）**有意限定 Windows**（只随包提供 `ffmpeg.exe`），Linux 走
+  `RVC_FFMPEG`/系统 PATH；`_system_memory_gb()` 有 `os.sysconf` 分支；设备枚举走
+  `sd.query_hostapis()` 而非硬编码 WASAPI，本身跨平台。GUI 的 `recycle_file` 非 Windows 抛
+  `NotImplementedError`（仅 `offline_controller` 用），不在训练模块范围内
 - **`atomic_write` 对 `os.replace` 的 `PermissionError` 重试 5 次**（退避 0.05/0.10/0.15/0.20s）：
   POSIX rename 只改目录项，Windows MoveFileEx 在目标被以"不共享删除"方式打开时失败；
   `.pth`/`.pt` 正是杀毒软件、Everything 索引器、资源管理器预览最常扫的文件。只重试
