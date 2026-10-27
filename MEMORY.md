@@ -322,6 +322,25 @@ rmvpe / fp16，整块 **38.23ms**：
 截窗口会改变真正被合成器消费的 F0**。FCPE 能截是因为它感受野小、且当时逐帧验过
 （见 `FCPE_TAIL_WINDOW_SEC`）；不能想当然套到 RMVPE 上。
 
+**合成器 7.05ms 已经是裁剪过的，别再想去"只合成尾部"**：`SynthesizerTrnMsNSFsid.infer`
+拿到 `skip_head`/`return_length` 后自己就切了——`enc_p` 从 `flow_head = max(skip_head −
+FLOW_CONTEXT_COMPENSATION_FRAMES, 0)` 起算、`flow` 只跑 `flow_head` 之后、`dec` 只出
+`return_length` 帧、`nsff0` 取 `[:, head:head+length]`。用户配置下 p_len≈514、skip_head≈500，
+所以真正进网络的只有 enc_p/flow ~38 帧、dec 16 帧。`FLOW_CONTEXT_COMPENSATION_FRAMES = 24`
+是 flow 分支（WaveNet 感受野长）相对 decoder 分支必须多看的上下文帧数，动它会让 `dec_head`
+处的隐变量与整段推理不一致。
+
+**所以整条链路里与窗口长度成正比的只有 HuBERT 和 F0**（两者都必须看全窗才能给出正确特征/
+音高），合成器只吃尾部。窗口长度 = 用户的 `extra_time`，这是设计约束不是浪费。
+
+**`effects.process_output` 的 2.85ms 绝大部分不是算术，是同步气泡**：脱离流水线单测
+（40k/块 4000/buf 2000/search 400/infer 6400）只有 **0.70ms** = `apply_rms_mix` 0.185 +
+`apply_sola` 0.482。而 sola 内部两个 conv1d 各 0.084/0.086、argmax 0.008、切片 0.011，
+剩下 ~0.29ms 是三处 `isnan().any()` + 两处 `torch.where` 的启动开销。剖析表里多出来的
+~2.1ms 来自 `infer[offset:]` 的**整机同步**（它要等 HuBERT/F0/合成器全部排空），
+Event 口径会把它算进 process_output。所以别去优化 SOLA 的算术——那里没有 2.85ms。
+`apply_rms_mix` 在 `rms_mix >= 1.0` 时直接返回 infer，用户配 0.25 才走实际计算。
+
 **剖析方法（脚本随 .workbuddy 删除，按此重建）**：用 `torch.cuda.Event` 成对包住各阶段
 （事件在同 stream 顺序记录，主机端只在最后同步一次，不像 `.cpu().numpy()` 钩子那样把耗时
 抬高一大截）。宿主对象映射：`_stage_input`/`_stage_preprocess`/`_stage_formant` → runner；
