@@ -67,7 +67,6 @@ class InferWindowHost(Protocol):
     pitch_map_src_range: "RangeSlider"
     pitch_map_dst_range: "RangeSlider"
     formant_slider: "DoubleSlider"
-    realism_slider: "DoubleSlider"
     rms_mix_slider: "DoubleSlider"
     volume_slider: "DoubleSlider"
 

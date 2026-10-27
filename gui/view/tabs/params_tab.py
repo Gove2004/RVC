@@ -87,18 +87,4 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(f0_threshold_label, r, 2)
     r += 1
 
-    # ── 真实感（realism；把输入里的底噪/气息/近讲/距离搬到输出上）──
-    # 单滑条 = 四级按固定配比同开（配比见 rvc.core.config.REALISM_MIX）：
-    # 四级分别调会让面板变成一排实验旋钮，而用户只需要一个「多少」。
-    win.realism_slider, realism_label = create_slider_row(
-        0.0, 1.0, 0.05, params.realism.strength,
-    )
-    win.realism_slider.setToolTip(
-        "真实感：从麦克风输入里取底噪、齿音气息、近讲低频和轻微远近起伏搬到输出上，"
-        "抵消转换后「太干净」的合成感。0 = 关闭。")
-    g.addWidget(QLabel("真实感"), r, 0)
-    g.addWidget(win.realism_slider, r, 1)
-    g.addWidget(realism_label, r, 2)
-    r += 1
-
     return w
