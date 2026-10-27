@@ -173,6 +173,52 @@ class TestGradScalerStateSurvivesResume(unittest.TestCase):
                 self.assertEqual(float(saved["scaler"]["scale"]), 128.0, path)
 
 
+class TestGradScalerInitScale(unittest.TestCase):
+    """GradScaler 初始倍率不能沿用 torch 默认的 65536。
+
+    实测（batch_size=2，每 epoch 6 batch，加载 f0G40k 底模）：
+      65536 起步时前 7 个 batch 全部溢出折半，D 到第 3 批、G 到第 8 批才第一次
+      真正 optimizer.step()——也就是第 1 个 epoch 生成器一次都没更新，还会触发
+      torch 的「lr_scheduler.step() 早于 optimizer.step()」警告。
+      改成 256 起步后 D 第 0 批、G 第 1 批就更新，警告消失，稳态倍率同样是 128
+      → 数值行为不变，只是省掉了折半过程。
+    """
+
+    def test_default_is_not_torch_default(self):
+        from rvc.core.constants import TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT as D
+        from rvc.train.trainer import grad_scaler_init_scale
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("RVC_TRAIN_INIT_SCALE", None)
+            self.assertEqual(grad_scaler_init_scale(), D)
+        self.assertNotEqual(D, 2 ** 16, "不要退回 torch 默认值")
+        self.assertGreater(D, 0)
+        # fp16 上限 65504，初始倍率必须有余量
+        self.assertLessEqual(D, 65504)
+
+    def test_env_override(self):
+        from rvc.train.trainer import grad_scaler_init_scale
+
+        with mock.patch.dict(os.environ, {"RVC_TRAIN_INIT_SCALE": "1024"}):
+            self.assertEqual(grad_scaler_init_scale(), 1024)
+
+    def test_invalid_env_falls_back_to_default(self):
+        from rvc.core.constants import TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT as D
+        from rvc.train.trainer import grad_scaler_init_scale
+
+        for bad in ("abc", "", "   ", "1.5"):
+            with mock.patch.dict(os.environ, {"RVC_TRAIN_INIT_SCALE": bad}):
+                self.assertEqual(grad_scaler_init_scale(), D, bad)
+
+    def test_zero_and_negative_clamped_to_one(self):
+        """scaler 倍率必须为正，0 会让整个 AMP 失效。"""
+        from rvc.train.trainer import grad_scaler_init_scale
+
+        for bad in ("0", "-4096"):
+            with mock.patch.dict(os.environ, {"RVC_TRAIN_INIT_SCALE": bad}):
+                self.assertEqual(grad_scaler_init_scale(), 1, bad)
+
+
 class TestSineGenStaysTrainable(unittest.TestCase):
     """SineGen 的输出要喂给可训练的 SourceModuleHnNSF.l_linear。
 

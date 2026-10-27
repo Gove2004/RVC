@@ -436,6 +436,33 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   `tests/test_train_dataset.py::test_workers_always_use_spawn`；`RVC_TRAIN_WORKERS=0` 时
   不许出现这个键（该分支有字典全等断言）。端到端回归：`$env:TEMP\spawn_loader_probe.py`
   （2 个 worker 真的拉起、6 批、`phone(2,298,768)`）
+- **GradScaler 初始倍率必须放低（已修，2026-10-27）**：torch 默认 `init_scale=65536`，
+  而本模型 `loss_mel` 量级约 1e2，梯度偏大，前若干 batch 恒溢出、每批折半。
+  实测（batch_size=2、每 epoch 6 batch、加载 `f0G40k.pth` 底模、12 片合成素材）：
+
+  | | 旧 65536 | 新 256 |
+  |---|---|---|
+  | D 首次真正 `optimizer.step()` | batch 3 | batch 0 |
+  | G 首次真正 `optimizer.step()` | **batch 8** | **batch 1** |
+  | 稳态倍率 | 128 | 128 |
+  | torch 的 `lr_scheduler.step() 早于 optimizer.step()` 警告 | 1 条 | 0 条 |
+
+  稳态倍率两边都是 128 → **起点放低不改变数值行为，只省掉折半过程**。旧值下
+  第 1 个 epoch 里 G 的 `optimizer.state` 到 epoch 结束仍是空的，也就是生成器
+  整个 epoch 一次参数都没更新（这条是确凿证据，不是估计）。修后同一份素材
+  跑 2 epoch：Mel 113.5→**64.1**（旧 94.6）、D 8.9→3.4（旧 4.1）。
+  常量 `TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT = 2**8` 在 `rvc/core/constants.py`，
+  可经 `RVC_TRAIN_INIT_SCALE` 覆盖；读取函数 `trainer.grad_scaler_init_scale()`
+  保证 ≥1（0 会让整个 AMP 失效）。契约锁在
+  `tests/test_train_pipeline_contracts.py::TestGradScalerInitScale`
+- **那条 LR 警告的成因已查透，别再重新怀疑顺序写错**：torch 的触发条件是
+  `lr_scheduler.py:255` 首次 `step()` 时 `_step_count==1`，第一分支被
+  `patch_track_step_called` 装的 `_wrapped_by_lr_sched` 挡掉，落到
+  `elif not getattr(optimizer, "_opt_called", False)` —— 也就是**只有当该优化器
+  一次 `optimizer.step()` 都没真执行过才警告**。`_opt_called` 由 `scaler.step()`
+  在未跳过时才设置；`GradScaler` 跳过则永不设置。所以警告 ≠ 调用顺序写错，
+  而是「这轮 AMP 把所有 step 都跳过了」。trainer 的调用顺序本来就是
+  `optimizer.step()` 在前、`scheduler.step()` 在 epoch 末，无需调整
 - Linux 侧已确认无需改动的几处：`CREATE_NO_WINDOW` 在非 Windows 恒为 0；`locate_ffmpeg()`
   第三级（`assets/ffmpeg`）**有意限定 Windows**（只随包提供 `ffmpeg.exe`），Linux 走
   `RVC_FFMPEG`/系统 PATH；`_system_memory_gb()` 有 `os.sysconf` 分支；设备枚举走

@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 
 from rvc.core.config import TrainConfig
 from rvc.core.constants import (
+    TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT,
     TRAIN_NUM_WORKERS_DEFAULT,
     TRAIN_PREFETCH_FACTOR_DEFAULT,
     TRAIN_SAMPLE_CACHE_BYTES_DEFAULT,
@@ -44,6 +45,17 @@ def _env_nonnegative_int(name: str, default: int) -> int:
         return max(0, int(raw))
     except ValueError:
         return int(default)
+
+
+def grad_scaler_init_scale() -> int:
+    """GradScaler 初始倍率（可用 RVC_TRAIN_INIT_SCALE 覆盖，至少为 1）。
+
+    torch 默认 65536 对这套损失偏大，会导致前若干 batch 全程溢出、
+    optimizer.step() 被跳过（生成器实际不更新），见
+    TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT 的说明。
+    """
+    return max(1, _env_nonnegative_int(
+        "RVC_TRAIN_INIT_SCALE", TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT))
 
 
 def training_dataloader_options(device: str) -> dict:
@@ -158,9 +170,14 @@ class Trainer:
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
         # GradScaler 必须先于恢复逻辑创建：它的损失缩放倍率存在 checkpoint 里，
-        # 不恢复就要从 65536 重新预热（每 batch 折半，约 7 个 batch 才稳定），
-        # 等于每次续训白烧掉前几个 batch，还会先看到一段 inf/高 loss。
-        self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.fp16_run)
+        # 不恢复就要从初始倍率重新预热（每 batch 折半），等于每次续训白烧掉
+        # 前几个 batch，还会先看到一段 inf/高 loss。
+        init_scale = grad_scaler_init_scale()
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.fp16_run,
+                                          init_scale=init_scale)
+        if self.cfg.fp16_run:
+            self.log(f"AMP 初始损失倍率: {init_scale}"
+                     f"（溢出时自动折半；可用 RVC_TRAIN_INIT_SCALE 覆盖）")
 
         ckpt_dir = str(self._checkpoint_dir())
         latest_g = latest_checkpoint_path(ckpt_dir, "G")

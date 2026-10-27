@@ -69,6 +69,14 @@ TRAIN_NUM_WORKERS_DEFAULT = 2
 TRAIN_SAMPLE_CACHE_BYTES_DEFAULT = 256 * 1024 * 1024
 # 每个 worker 预取 batch 数；训练侧默认限制为 1，避免排队 batch 放大峰值。
 TRAIN_PREFETCH_FACTOR_DEFAULT = 1
+# GradScaler 初始损失倍率。torch 默认 2**16=65536，对这套损失偏大：loss_mel 量级
+# 约 1e2，前若干 batch 的梯度恒溢出，scaler 每批折半，实测要烧掉 8 个 batch
+# （batch_size=2 时超过 1 个 epoch）才降到真正能 step 的倍率——那段时间生成器
+# 一次参数都没更新，还会触发 torch 的「lr_scheduler.step() 早于 optimizer.step()」
+# 警告。实测该配置稳态约 128（D 在 8192 首次成功、G 在 256 首次成功），取
+# 2**8=256 作起点：稳态本来就是 128，起点放低不改变数值行为，只省掉折半过程。
+# 换数据集/损失量级后可用 RVC_TRAIN_INIT_SCALE 覆盖。
+TRAIN_GRAD_SCALER_INIT_SCALE_DEFAULT = 2 ** 8
 
 # ── 切片归一化（preprocess.normalize_audio）──
 # 目标峰值（归一化到满幅的 90%，留 10% 余量防爆音）
