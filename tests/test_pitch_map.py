@@ -56,5 +56,78 @@ class TestPitchMap(unittest.TestCase):
         self.assertTrue(torch.equal(out, f0))
 
 
+class TestCoarseF0MatchesUpstream(unittest.TestCase):
+    """离散 pitch 的 bin 划分必须与上游 RVC 逐值一致。
+
+    背景：`f0_mel_min/max` 的取值很容易被"凭记忆"误判成上游硬编码的 112.0/1975.0
+    （网上流传的说法），从而被当成 bug 去"修正"。实际上游源码
+    （`train/dataset/extract_f0.py` 与 `infer/rtrvc.py::get_f0_post`）写的是：
+
+        f0_min, f0_max = 50.0, 1100.0
+        f0_mel_min = 1127 * log(1 + f0_min / 700)
+        f0_mel_max = 1127 * log(1 + f0_max / 700)
+        f0_mel = 1127 * log(1 + f0 / 700)
+        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (f0_mel_max - f0_mel_min) + 1
+        f0_mel[f0_mel <= 1] = 1
+        f0_mel[f0_mel > 255] = 255
+        f0_coarse = round(f0_mel)
+
+    与本项目的 normalize_f0_to_coarse 等价。本类把上游公式独立重写一份做对照，
+    一旦有人"修正"常量就会失败。注意模型是从上游 f0G40k.pth 微调的，
+    bin 划分错位不会让音高明显跑调（输出音高由连续 nsff0 决定），
+    只会让 enc_p 收到训练时没见过的音高条件 —— 表现为咬字/音色发闷，
+    非常难归因，所以必须用测试钉死。
+    """
+
+    F0_MIN = 50.0
+    F0_MAX = 1100.0
+
+    @classmethod
+    def _upstream_reference(cls, f0):
+        """逐字照抄上游公式的独立实现（numpy）。"""
+        import numpy as np
+
+        f0 = np.asarray(f0, dtype=np.float64).copy()
+        mel_min = 1127 * math.log(1 + cls.F0_MIN / 700)
+        mel_max = 1127 * math.log(1 + cls.F0_MAX / 700)
+        f0_mel = 1127 * np.log(1 + f0 / 700)
+        mask = f0_mel > 0
+        f0_mel[mask] = (f0_mel[mask] - mel_min) * 254 / (mel_max - mel_min) + 1
+        f0_mel[f0_mel <= 1] = 1
+        f0_mel[f0_mel > 255] = 255
+        return np.rint(f0_mel).astype(np.int64)
+
+    def test_mel_bounds_use_f0_formula(self):
+        """常量必须是公式算出来的，不能是 112.0/1975.0。"""
+        from rvc.dsp.mel import F0_MEL_MAX, F0_MEL_MIN
+
+        self.assertAlmostEqual(F0_MEL_MIN, 1127 * math.log(1 + 50.0 / 700), places=9)
+        self.assertAlmostEqual(F0_MEL_MAX, 1127 * math.log(1 + 1100.0 / 700), places=9)
+        self.assertNotAlmostEqual(F0_MEL_MIN, 112.0, places=1)
+        self.assertNotAlmostEqual(F0_MEL_MAX, 1975.0, places=1)
+
+    def test_bins_match_upstream_across_range(self):
+        """50~1100Hz 全量程逐值对照上游。"""
+        import numpy as np
+
+        from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
+
+        f0 = np.linspace(1.0, 1200.0, 1200)
+        mine = normalize_f0_to_coarse(f0.astype(np.float32))
+        ref = self._upstream_reference(f0)
+        np.testing.assert_array_equal(
+            np.asarray(mine), ref,
+            err_msg="离散 pitch 与上游不一致：bin 划分被改动了")
+
+    def test_uv_maps_to_one(self):
+        """清音帧（f0=0）上游给 1，本项目 where(...,0)+clip(下限1) 也应是 1。"""
+        import numpy as np
+
+        from rvc.pipeline.pitch.postprocess import normalize_f0_to_coarse
+
+        out = normalize_f0_to_coarse(np.array([0.0, 0.0], dtype=np.float32))
+        self.assertEqual(list(np.asarray(out)), [1, 1])
+
+
 if __name__ == "__main__":
     unittest.main()

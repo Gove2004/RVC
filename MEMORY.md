@@ -475,6 +475,19 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   `run.py` 先判 `_features_ready(exp_dir, hubert)`，为 False 且目录存在时
   **整目录 rmtree 重提**并打出 WARN——不会静默混用 base/chinese 的旧特征。
   探针 `train_e2e.py` 因为绕过了 CLI 才需要自己手工写这个标记
+- **离散 pitch 的 bin 划分与上游逐值一致（已核对源码 + 测试钉死，别再"修"）**：
+  网上流传上游用硬编码 `f0_mel_min=112.0 / f0_mel_max=1975.0`，我一度也信了并准备
+  按"bug"去改。实际上游源码（本地
+  `E:\Projects\Git\Retrieval-based-Voice-Conversion-WebUI\train\dataset\extract_f0.py:61-65`
+  与 `infer\rtrvc.py:79-82,148-159`）写的是
+  `f0_mel_min = 1127*ln(1+50/700)`、`f0_mel_max = 1127*ln(1+1100/700)`，与本项目
+  `rvc/dsp/mel.py` 的公式完全一致；`(bins-2)/(max-min)+1`、钳制 `[1,255]`、
+  UV 帧落 1 也都等价。对照测试
+  `tests/test_pitch_map.py::TestCoarseF0MatchesUpstream` 用独立重写的上游公式
+  跑 1200 个频点逐值比对。
+  为什么值得钉死：模型是从上游 `f0G40k.pth` 微调的，bin 划分错位**不会**让音高
+  明显跑调（输出音高由连续 `nsff0` 决定），只会让 `enc_p` 收到训练时没见过的
+  音高条件，表现为咬字/音色发闷——极难归因，正是最容易"顺手改坏"的地方
 - Linux 侧已确认无需改动的几处：`CREATE_NO_WINDOW` 在非 Windows 恒为 0；`locate_ffmpeg()`
   第三级（`assets/ffmpeg`）**有意限定 Windows**（只随包提供 `ffmpeg.exe`），Linux 走
   `RVC_FFMPEG`/系统 PATH；`_system_memory_gb()` 有 `os.sysconf` 分支；设备枚举走
