@@ -36,6 +36,12 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   `InferWindowHost` / `OfflineViewHost` / `DeviceViewHost` 通信
 - `test_layering.py` 用 AST 静态守卫（含变异验证）。**已知盲区**：`gui/state/bindings.py`
   在模块级 import `rvc.core.config`，AST 看不到这条传递依赖
+- `test_no_undefined_names.py` 用 `symtable` 守卫「函数体引用了模块中未绑定的全局名」。
+  **这类缺陷 import 阶段无症状、只在调用时抛 NameError，靠测试用例撞见纯属运气**——
+  已踩到两次：`rvc/train/cli/defaults.py` 漏 `from rvc.io.atomic import load_json_or_default`
+  （训练向导预填默认值必崩）、`gui/configs/config.py` 漏 `import json`
+  （`save_config` 每次必崩，被 `_tray_quit` 的 try/except 吞掉 → **用户设置静默全丢**）。
+  当前基线 0 处，新增一处的成本远低于线上炸一次
 - 新包必须登记进 `RANKS`
 - **推论（踩过）**：参数 dataclass 只能活在 `rvc/core/config.py`。`rvc.core` 不得 import
   `rvc.dsp`，所以 DSP 需要参数时反向 `from rvc.core.config import XxxParams`。
@@ -383,6 +389,26 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
 块耗时基线（早期口径）HuBERT 17.8 + F0 后处理 1.2 + 合成器 5.6 + RMS/SOLA 1.0 ≈ 26.5ms；
 首块 2041ms 是图捕获一次性开销。
 
+**复测（2026-10-27，base 特征器，用户实际参数 block 0.1 / crossfade 0.05 / extra 5.0，
+`xd80+ay20.pth`，RTX 5060 Laptop，fp16）**：沿真实 `process_file` 路径包三个阶段方法累计，
+凤凰.wav 11.51s 跑 186 块：
+
+| 阶段 | 每块 | 占比 |
+|---|---|---|
+| HuBERT（含 F0 入队） | 10.58 ms | 69.5% |
+| F0 后处理 + 上采样 | 1.53 ms | 10.0% |
+| 合成 | 3.11 ms | 20.4% |
+| 合计 | **15.22 ms** | / 100 ms 音频 → **6.57x 余量** |
+
+  → 实时路径**不是计算瓶颈**。6.57 倍余量下，用户感知的延迟来自缓冲设置
+  （block + crossfade + 设备缓冲），不是算子速度。既然 HuBERT 占近七成且它的开销由
+  「上下文长度 × 双向注意力」决定，在不动上下文长度的前提下**没有安全余量可挖**：
+  - 不能跨块缓存上下文特征（双向模型里每个远帧特征都会随新样本变化，§9/§10 已实测封死）
+  - fp16、CUDA Graph、pin_memory、non_blocking 全部已用
+  - F0 与 HuBERT 真并发会让两个 CUDA Graph 跨流回放，实测会挂死（见 pipeline.py 注释）
+  结论：**目标 2 在代码侧维持封死**。要更快只能减 `extra_time`，那是听感换延迟的
+  用户取舍，不是本项目该替他决定的事。
+
 **设备层已调**：AudioStreams 用 `latency="low"` + 显式 `blocksize`。WASAPI 共享模式下
 设备缓冲只有 10–30ms（实测 1056 帧 @48k），**远小于块长**——任何"整块塞得下才写"的判据
 在 Windows 上永远不成立，必须用待写队列（`pending` + `pending_pos`，上界 3 块，超出丢最旧）。
@@ -390,6 +416,14 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
 
 ## 13. 训练模块（objective 6）
 
+- **特征器变体有两处独立存档，改代码默认值不会覆盖它们**（2026-10-27 踩到）：
+  `assets/configs/train_cli_defaults.json` 是训练命令行向导的「上次答案」，向导按它预填
+  默认值，回车即采用——当时里面还写着 `"hubert": "chinese"`，等于把错特征器又带回来；
+  `assets/configs/save_state.json` 的 `train.hubert` 同样是 `chinese`。两个文件都**不在版本库**
+  （gitignore），所以改 `HUBERT_DEFAULT` 之后必须手工同步一遍，两处都已改为 `base`。
+  注意 `save_state.json` 的顶层是 `{gui, models, train}`，**当前代码只读写 `gui` 一个块**
+  （`gui/view/lifecycle.py` 的 `params_from_dict(config.get("gui", {}))`），
+  `models` 与 `train` 是旧架构遗留、无人读取的死状态——改它们只是防止将来被人接上时踩坑
 - DataLoader 选项由 `rvc/train/trainer.py::training_dataloader_options` 统一产出：
   `RVC_TRAIN_WORKERS`（默认 2，设 0 关闭）、`RVC_TRAIN_CACHE_MB`（进程总预算，按 worker 均分，
   0 关闭样本内存缓存）、`RVC_TRAIN_PREFETCH`（默认 1）。`persistent_workers` 避免每 epoch

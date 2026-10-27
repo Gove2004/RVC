@@ -4,6 +4,7 @@
 定位）。读取出的 dict 由 gui.state.bindings.params_from_dict 逐字段填入
 InferenceParams（InferenceParams 没有 load() 方法，不接受整对象反序列化）。
 """
+import json
 import logging
 import threading
 

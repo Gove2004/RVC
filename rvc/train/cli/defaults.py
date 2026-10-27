@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 
+from rvc.io.atomic import load_json_or_default
 from rvc.runtime.paths import TRAIN_CLI_DEFAULTS_FILE
 from rvc.train.cli import DEFAULTS, default_output_root
 
