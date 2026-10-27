@@ -292,8 +292,35 @@ rmvpe / fp16，整块 **38.23ms**：
 | `_stage_input` | 0.29 | 0.8% |
 | `_stage_formant` | 0.00 | 0.0% |
 
-**最大头是 F0 后处理 + 特征上采样，不是 HuBERT**——早期记的"HuBERT 17.8ms 占七成"是用
-别的仪器（D2H 同步钩子）和别的素材测的，不可直接比。优化优先看 `postprocess_features`。
+**最大头是 F0，不是 HuBERT**——早期记的"HuBERT 17.8ms 占七成"是用别的仪器（D2H 同步钩子）
+和别的素材测的，不可直接比。优化优先看 F0。
+
+**`postprocess_features` 内部拆分（图启用，5160ms 缓冲 / 514 帧）**：
+特征上采样 0.05ms（可忽略）+ F0 后处理 0.56ms + **RMVPE 11.3ms**。也就是说这个阶段
+99% 就是 RMVPE 本体。514 帧的 F0 后处理要 0.56ms 本身偏高（十几个 514 元素的小算子，
+主要吃的是 kernel launch 的 ~25µs/个），但省下来也只有 0.3ms 量级，不值得动。
+
+**RMVPE 成本随窗口长度的曲线（图启用，这是唯一有效的口径）**：
+
+| 窗口 ms | 帧数 | mel | network | decode | 整条 |
+|---|---|---|---|---|---|
+| 100 | 11 | 0.28 | 5.88 | 0.32 | 6.17 |
+| 300 | 31 | 0.30 | 5.90 | 0.31 | 6.13 |
+| 600 | 61 | 0.25 | 6.07 | 0.31 | 6.34 |
+| 1000 | 101 | 0.25 | 6.60 | 0.30 | 6.91 |
+| 2000 | 201 | 0.26 | 7.69 | 0.32 | 8.32 |
+| 5160 | 517 | 0.25 | 11.87 | 0.31 | **12.31** |
+
+读法：**有约 6ms 的固定地板**（图回放 + 算子启动），长度相关部分只有 ~6ms。
+所以"缩短 F0 窗口"最多省 5–6ms（5160→1000 只省 5.4ms），而下面的等价性实测证明
+这条路不安全 —— 投入产出比不成立，别做。
+
+**RMVPE 尾窗不等价（已否决的方向）**：把 F0 提取的输入截成尾巴（像 FCPE 那样），
+在被消费的尾部 16 帧上 `torch.equal` **全部为假**；尾部浊音帧占比 整段 0.125 vs
+300ms 尾窗 **0.000**、500/600ms 0.062、800/1000ms 才回到 0.125；末 60 帧最大差
+短窗 194–317Hz、800/1000ms 仍有 ~1Hz。**RMVPE 的感受野很大（和 HuBERT 一样是非因果的），
+截窗口会改变真正被合成器消费的 F0**。FCPE 能截是因为它感受野小、且当时逐帧验过
+（见 `FCPE_TAIL_WINDOW_SEC`）；不能想当然套到 RMVPE 上。
 
 **剖析方法（脚本随 .workbuddy 删除，按此重建）**：用 `torch.cuda.Event` 成对包住各阶段
 （事件在同 stream 顺序记录，主机端只在最后同步一次，不像 `.cpu().numpy()` 钩子那样把耗时
@@ -302,7 +329,8 @@ rmvpe / fp16，整块 **38.23ms**：
 `process_output` → `runner.effects`；`process` → `runner.realism`。
 runner 要自己造：`engine._make_runner(work_sr, 1, block, crossfade, extra, model_sr, reset_buffers=True,
 prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 torchaudio 的 sinc
-核宽算成 0 → ZeroDivisionError）。
+核宽算成 0 → ZeroDivisionError）。造 `VoiceEngine` 会顺带构造 `RuntimeDeviceConfig`，
+图才会启用 —— 见 §14 的"图未启用"坑。
 
 **其他已测**：`extra_time` 5.0 → 39.0ms/块 vs 0.6 → 24.5ms（早期口径）；
 块耗时基线（早期口径）HuBERT 17.8 + F0 后处理 1.2 + 合成器 5.6 + RMS/SOLA 1.0 ≈ 26.5ms；
@@ -362,6 +390,12 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
 - 改缓冲区长度/`extra_time` 后**必须重建 `state.noise_z`**：形状不匹配时 `_z_sample`
   静默退回 `randn_like`，逐块随机抽取会让 A/B 结论完全失真
 - 计时前必须 `warmup()`，否则首块 2s 图捕获污染均值
+- **脱离 `VoiceEngine` 的探针脚本默认跑的是 eager，不是生产路径**：`run_cuda_graph` 在
+  `configure_cuda_graph` 从未被调用时静默走 `return function(*inputs)`，而唯一的调用点是
+  `RuntimeDeviceConfig._init` ← `VoiceEngine.__init__`。所以单纯 import 模型自己跑的基准，
+  数字会比实机**大一倍多**：同一个 RMVPE 整条 5160ms 缓冲，eager 31.7ms vs 图 12.3ms。
+  探针里必须显式 `configure_cuda_graph(torch.device('cuda'))` 并断言返回 True，
+  否则"哪个阶段最慢"的结论整个作废（这条坑踩过两次）
 - **笔记本 GPU 会降频，顺序计时会骗人**：同一基准按固定顺序跑，后测的配置会莫名变慢
   （实测 residual 1.5 → breath 3.8 → rumble 5.6ms 的假趋势）。必须**交叉轮转 + 每轮取最小**，
   否则得出的"哪个阶段最慢"可能是顺序造成的
