@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import torch
 
+from rvc.core.config import HUBERT_DEFAULT
 from rvc.core.errors import ModelLoadError
 from rvc.models.hubert import load_hubert
 from rvc.pipeline.cache import default_inference_cache
@@ -52,7 +53,7 @@ class ModelSessions:
         """供 load_hubert / SynthesizerLoader 使用的轻量设备配置适配器。"""
         return _DeviceConfig(self.device, self.is_half)
 
-    def load(self, pth_path: str, hubert_variant: str = "chinese") -> ModelSession:
+    def load(self, pth_path: str, hubert_variant: str = HUBERT_DEFAULT) -> ModelSession:
         """加载模型（HuBERT + Synthesizer），返回 ModelSession。
 
         两个模型都先查 InferenceCache：命中直接复用（切回旧模型秒开），

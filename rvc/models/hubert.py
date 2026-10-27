@@ -18,16 +18,18 @@ from typing import Any
 import torch
 from torch import nn
 
+from rvc.core.config import HUBERT_DEFAULT, HUBERT_VARIANTS
 from rvc.core.errors import FeatureExtractionError
 from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)
 
-# HuBERT 特征器按子目录管理：assets/hubert/base/（原始 hubert_base）
+# HuBERT 特征器按子目录管理：assets/hubert/base/（RVC 生态标准的 hubert_base）
 # 与 assets/hubert/chinese/（腾讯 TencentGameMate/chinese-hubert-base，WenetSpeech 中文）。
 # 训练与推理必须用同一特征器；每张模型卡牌/每次训练可独立选择 variant。
+# 变体清单与缺省值的单源在 rvc.core.config（HUBERT_VARIANTS / HUBERT_DEFAULT = base）。
 # HUBERT_ROOT 统一来自 rvc.runtime.paths（assets/hubert）
-HUBERT_VARIANTS = ("base", "chinese")
+__all__ = ["HUBERT_VARIANTS", "HUBERT_DEFAULT", "hubert_path", "load_hubert"]
 
 # 延迟构造出的「HubertModel + final_proj」子类（构造一次后复用，保证类型唯一）
 _hubert_model_class = None
@@ -59,12 +61,12 @@ def _model_class():
     return _hubert_model_class
 
 
-def hubert_path(variant: str = "chinese") -> str:
+def hubert_path(variant: str = HUBERT_DEFAULT) -> str:
     """返回指定 HuBERT 变体的模型目录（不校验存在性，由 load_hubert 统一报错）。"""
     return str(HUBERT_ROOT / variant)
 
 
-def load_hubert(config: Any, variant: str = "chinese") -> Any:
+def load_hubert(config: Any, variant: str = HUBERT_DEFAULT) -> Any:
     """加载 HuBERT 特征器（纯加载，不做缓存）。
 
     缓存策略属于调用方（pipeline 组装层 / 训练侧各自的加载上下文），
@@ -85,7 +87,8 @@ def load_hubert(config: Any, variant: str = "chinese") -> Any:
     logger.info("  · HuBERT（%s, variant=%s）", dtype, variant)
 
     # GUI 无控制台环境（pythonw / 打包 exe）下 sys.stdout / sys.stderr 为 None，
-    # transformers 打印 LOAD REPORT（chinese 有 MISSING 键必触发）会调 sys.stdout.isatty() 崩溃。
+    # transformers 打印 LOAD REPORT（base 的 final_proj 属于「未被 forward 使用的键」，
+    # chinese 缺 final_proj 会被记为 MISSING，两者都会触发）会调 isatty() 崩溃。
     # 保存原始值，from_pretrained 期间临时替换为 devnull，完成后恢复并关闭。
     _stdout, _stderr = sys.stdout, sys.stderr
     try:

@@ -15,7 +15,7 @@ import logging
 
 import torch
 
-from rvc.core.config import InferenceParams
+from rvc.core.config import HUBERT_DEFAULT, InferenceParams
 from rvc.pipeline.state import EngineState
 from rvc.pipeline.context import InferenceContext
 from rvc.pipeline.cache import default_inference_cache
@@ -32,21 +32,21 @@ class InferencePipeline:
     """实时语音转换管线 — stage_features / stage_f0 / stage_synthesis。
 
     用法:
-        pipeline = InferencePipeline(device_config, pth_path, hubert="chinese")
+        pipeline = InferencePipeline(device_config, pth_path, hubert="base")
         pipeline.load()
         feats = pipeline.extract_features(config)
         pitch, pitchf, feats = pipeline.postprocess_features(feats)
         output = pipeline.synthesize_audio(feats, pitch, pitchf)
     """
 
-    def __init__(self, device_config, pth_path, inference_cache=None, hubert: str = "chinese"):
+    def __init__(self, device_config, pth_path, inference_cache=None, hubert: str = HUBERT_DEFAULT):
         """初始化推理管线。
 
         Args:
             device_config: 设备配置（device/is_half）
             pth_path: 模型权重文件路径
             inference_cache: 推理缓存（默认使用全局缓存）
-            hubert: HuBERT 模型变体（chinese/base/japanese 等）
+            hubert: HuBERT 模型变体（base/chinese），缺省取 HUBERT_DEFAULT
         """
         # 创建跨块持续状态
         self.state = EngineState()

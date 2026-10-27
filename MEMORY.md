@@ -19,7 +19,7 @@
   `pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128`。
   仓库 `requirements.txt` 顶部有大段说明，别把 `--index-url` 塞进去（会替换整个索引）
 - 临时脚本必须设 `$env:PYTHONPATH='E:\Projects\Python\RVC'`，否则 `import rvc` 失败
-- 真实模型冒烟：`assets/models/xd80+ay20.pth` + `chinese` 变体；`load_model` 冷启
+- 真实模型冒烟：`assets/models/xd80+ay20.pth` + 默认 `base` 变体；`load_model` 冷启
   23–26s（transformers 冷启），热启 ~7s
 - **GUI 启动不拉 torch**：`import gui.view.window` 0.41s。链路上别往 gui/controller
   的模块顶层加会 import torch 的东西（cache/graph/engine 一律惰性）
@@ -243,10 +243,26 @@ rms_mix 增益（只在衰减，中位 0.16x）、设备率重采样链、`_stag
 - **特征下游补救（protect / unsharp / 时间反锐化）**：用户实听否决，见 §9
 - 只剩**注意力温度**未试。它同样是弥散干预，按本条第 5 条的标准，在没有听感判据之前不该盲做
 
-**顺带记一条待查项**：`assets/configs/save_state.json` 里 `hubert` 与 `model_path` 都是空，
-实际落到默认 `HUBERT_DEFAULT = "chinese"`；而这几个 .pth 都是从官方 v2 预训练
-（`pretrained/f0G40k.pth`）微调来的，官方预训练用的是 **base** 特征器。特征器选错的表现
-正是"音色发闷、咬字怪"。GUI 下拉可一键切换，成本几乎为零，**先试 base 再谈别的**
+**特征器变体曾选错（已修，2026-10-27）**：`assets/configs/save_state.json` 里没有 `hubert` 键，
+于是全链路落到默认 `HUBERT_DEFAULT = "chinese"`；而这几个 .pth 都是从官方 v2 预训练
+（`pretrained/f0G40k.pth`）微调来的，官方预训练用的是 **base** 特征器。用户已确认
+"这批 .pth 都是基于 base 的"。特征器选错的表现正是"音色发闷、咬字怪"，且**全程无告警**
+（两套特征器同为 768 维，形状校验查不出来）。
+
+修法：`HUBERT_DEFAULT` 改为 `"base"`，`HUBERT_VARIANTS` 提到 `rvc.core.config` 作单一事实源
+（torch-free，GUI 状态层与训练向导不再为拿白名单而导入 torch）；`hubert_path` /
+`load_hubert` / `ModelSessions.load` / `InferencePipeline.__init__` / `VoiceEngine.load_model` /
+`steps.step_feature` 的签名缺省全部引用常量；`params_from_dict` 对白名单外的值（缺键/空串/
+手改错值）回退到 `HUBERT_DEFAULT`，避免打不开软件。`tests/test_hubert_variant.py` 7 条锁死。
+`chinese` 仍是合法可选变体，只不再是缺省。
+
+旁证：`assets/hubert/base/pytorch_model.bin` 有 `final_proj.weight/bias`（213 键），
+`chinese` 没有（211 键）——前者正是 RVC 标准 `hubert_base.pt` 的签名。另外 `final_proj`
+本身是死代码：`rvc/pipeline/features.py` 只取 `last_hidden_state`（feature_projection 经
+encoder 的输出），`final_proj` 只为给 base 权重里的键找落点，不参与计算。
+
+**注意**：这是纠错不是调参，改完必须重新转同一段音频重听——用户此前所有"发假/咬字怪"的
+印象都建立在错特征器的输出上，那个基准作废了。
 
 ## 11. 真实感（objective 4，已实现→已整体删除）
 

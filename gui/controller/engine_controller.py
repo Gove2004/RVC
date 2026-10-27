@@ -106,7 +106,7 @@ class InferController:
     @property
     def hubert_variants(self) -> tuple[str, ...]:
         """HuBERT 特征器清单，View 层经此取数（不直接 import rvc）。"""
-        from rvc.models.hubert import HUBERT_VARIANTS
+        from rvc.core.config import HUBERT_VARIANTS
         return HUBERT_VARIANTS
 
     def list_gpus(self) -> list[str]:

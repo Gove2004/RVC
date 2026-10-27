@@ -13,7 +13,7 @@ params_from_dict 从「刚构造出的默认实例」取 fallback，不写第二
 """
 from typing import TYPE_CHECKING
 
-from rvc.core.config import PARAM_GROUPS, InferenceParams
+from rvc.core.config import HUBERT_DEFAULT, HUBERT_VARIANTS, PARAM_GROUPS, InferenceParams
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -137,6 +137,10 @@ def params_from_dict(state: dict) -> InferenceParams:
     # 顶层字段（rms_mix/volume/model_path/hubert）
     for field_name in TOP_LEVEL_FIELDS:
         setattr(params, field_name, state.get(field_name, getattr(params, field_name)))
+    # hubert 变体是白名单值：存档缺键 / 空串 / 手改错值都不能带进运行期，
+    # 否则 pipeline 组装时会抛「未知 HuBERT 变体」，表现为打不开软件。
+    if params.hubert not in HUBERT_VARIANTS:
+        params.hubert = HUBERT_DEFAULT
     return params
 
 

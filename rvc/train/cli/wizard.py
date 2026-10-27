@@ -25,12 +25,12 @@ from rvc.train.cli.envcheck import (
     _scan_audio,
     _suggest_batch,
 )
-from rvc.models.hubert import HUBERT_VARIANTS
+from rvc.core.config import HUBERT_VARIANTS
 from rvc.runtime.paths import parse_sr
 from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import _as_float, _as_int, _as_sr, ask, ask_yes
 
-# 采样率可选项（同时作为 check 的白名单）；特征器清单单源在 rvc.models.hubert
+# 采样率可选项（同时作为 check 的白名单）；特征器清单单源在 rvc.core.config
 SR_OPTIONS = ("40k", "48k")
 HUBERT_OPTIONS = HUBERT_VARIANTS
 
@@ -130,7 +130,7 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
         return True, ""
 
     hubert = ask("HuBERT 特征器", defaults["hubert"], check=_hubert_ok, options=HUBERT_OPTIONS,
-                 note="chinese = 腾讯 chinese-hubert-base，中文音素/声调更准")
+                 note="base = 官方 v2 预训练用的原版 hubert_base（默认）；chinese = 腾讯 chinese-hubert-base")
     if hubert == "chinese":
         log.log("chinese 特征器：推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
 

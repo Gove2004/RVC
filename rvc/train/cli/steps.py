@@ -4,6 +4,7 @@ import sys
 import time
 from pathlib import Path
 
+from rvc.core.config import HUBERT_DEFAULT
 from rvc.train.cli import EXIT_RUNTIME
 from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import human_dur, human_size
@@ -105,7 +106,7 @@ def step_f0(log: TrainLogger, cfg: dict):
 
 def step_feature(log: TrainLogger, cfg: dict):
     from rvc.train.extract_feature import HuBERTExtractor
-    hubert = cfg.get("hubert", "chinese")
+    hubert = cfg.get("hubert", HUBERT_DEFAULT)
     _run_extraction_step(
         log, cfg,
         title=f"步骤 3/4 提取 HuBERT 特征（{hubert}）",

@@ -14,9 +14,16 @@ from rvc.core.constants import (
     RMVPE_THRESHOLD_INFER,
 )
 
+# HuBERT 特征器变体清单（唯一事实源）。放在这里而不是 rvc.models.hubert，
+# 是为了让 GUI 状态层/训练向导这类只需白名单的地方不必导入 torch。
+HUBERT_VARIANTS = ("base", "chinese")
+
 # HuBERT 特征器默认变体。训练与推理必须用同一个（assets/hubert/{base,chinese}）：
 # 不一致时音色发闷、咬字怪。改这里即全链路默认切换。
-HUBERT_DEFAULT = "chinese"
+# 取 base：本项目在用的 .pth 全部派生自官方 v2 预训练（assets/pretrained/f0G40k.pth），
+# 那套预训练用的是 base 特征器。曾经缺省成 chinese，导致 enc_p 收到分布外特征，
+# 且没有任何告警。chinese 仍是合法可选变体，供真按 chinese 训过的模型使用。
+HUBERT_DEFAULT = "base"
 
 # 输出音量增益范围（唯一事实源：GUI 滑动条量程与热路径钳位都取这里）
 VOLUME_MIN = 0.0

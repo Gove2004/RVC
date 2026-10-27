@@ -25,7 +25,7 @@ import torch
 from rvc.streaming import offline
 from rvc.streaming.runner import InferenceRunner
 from rvc.streaming.stream import AudioStreams
-from rvc.core.config import FORMANT_MAX, FORMANT_MIN, InferenceParams
+from rvc.core.config import FORMANT_MAX, FORMANT_MIN, HUBERT_DEFAULT, InferenceParams
 from rvc.runtime import RuntimeDeviceConfig
 
 logger = logging.getLogger(__name__)
@@ -131,7 +131,7 @@ class VoiceEngine:
 
     # ── 模型加载 ──
 
-    def load_model(self, pth, force=False, hubert="chinese"):
+    def load_model(self, pth, force=False, hubert=HUBERT_DEFAULT):
         """加载模型（创建 InferencePipeline）。
 
         全程持 _load_lock：串行化后台预加载与 GUI/离线的并发加载请求。
@@ -147,7 +147,7 @@ class VoiceEngine:
         """
         with self._load_lock:
             # 快路径必须同时比对 pth 与 hubert 变体：变体是离线任务自带的参数
-            # （音色页选择器 → OfflineParams），可以先 chinese 转一次、再 base 转
+            # （音色页选择器 → OfflineParams），可以先 base 转一次、再 chinese 转
             # 同一个 pth。只比 pth 会命中旧 pipeline，整条链路静默用错特征器
             # （音色发闷/咬字错），无任何告警。
             if (not force and self.pipeline and self.pth_path == pth
