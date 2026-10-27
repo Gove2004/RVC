@@ -400,6 +400,13 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
 - 验训练要跑 `$env:TEMP\train_e2e.py`（合成 4 个 6.5s 共振峰音频 → 预处理 → F0 → HuBERT →
   filelist → 2 epoch → 导出），单测发现不了上面四处：187 项全过时它们全都还在。
   逐 batch 观察 scaler 用 `$env:TEMP\grad_trace.py 1|0 [批数]`
+- **续训链路已验证**（`$env:TEMP\train_resume_probe.py`）：有 `G_2/D_2` 时 `setup()` 认出
+  `start_epoch=3`，权重逐张量等于 checkpoint（不是随机初始化），scheduler 按
+  `last_epoch=start_epoch-2` 续接（lr 已衰减到 0.00009998），只跑 epoch 3，
+  `keep_ckpts=1` 正确淘汰到只剩 `G_3/D_3`。注意 **GradScaler 状态不进 checkpoint**，
+  每次重启都会重新走一遍预热（约 7 个 batch），这是刻意不动上游行为的取舍
+- checkpoint 目录名是 `4_checkpoints`，取路径用 `checkpoints_dir()`，别手拼字符串
+  （e2e 脚本曾按 `exp/checkpoints` 数文件，于是"checkpoint 0 个"是假警报）
 
 ## 14. 测量方法论与踩坑（做实验前必读）
 
