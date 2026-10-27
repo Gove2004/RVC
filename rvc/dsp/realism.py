@@ -3,14 +3,20 @@
 转换模型的输出天然过于干净：训练数据的平均化把底噪、齿音、近讲低频、话筒
 距离感一起抹平了，听感就是「像合成器」。凭空合成噪声解决不了——噪声与语音
 内容不相关，耳朵立刻能分辨出「加了噪声」而不是「录音」。参考输入块里本来就
-带着真实录音链路的痕迹，本模块只做**搬运**：用统计量（电平、频带能量比、
-频谱中位数）决定搬多少，信号本身仍取自输入，因此不引入与内容无关的纹理。
+带着真实录音链路的痕迹，本模块只做**搬运**：用什么电平、什么频带、什么谱形
+全部由输入的统计量决定，纹理与内容天然同步。
+
+搬运的边界：**只搬「痕迹」，不搬「身份」**。直接混入输入信号会把原声按比例
+漏进输出（residual 早期版本实测与原声余弦 0.75、安静段相对电平仅 −1.4dB，
+就是可闻的双重声）。所以含音色成分的那一级必须去掉谐波结构——幅度包络取自
+输入的底噪谱，相位换成随机值，音色身份在结构上不可能残留。
 
 四级各治一种「不真实」，互相不可替代：
 - residual：非谐波底噪。底噪是录音链路的指纹，缺了它静音段就是「死静」，
-  谐波再准也不像人声。取输入 200Hz 以上的成分，按「噪声样程度」定增益。
+  谐波再准也不像人声。取输入的底噪幅度包络（频率方向中值滤掉谐波峰）+ 随机
+  相位重建，按「噪声样程度」定增益。
 - breath：>4kHz 气息与齿音。转换模型的高频常被过度平滑，/s/ /f/ 发闷、字头
-  含糊；直接搬输入的高频带最保真，且与内容天然同步。
+  含糊；这一带几乎不含音色身份，直接搬输入的高频带最保真。
 - rumble：近讲低频搁架 + tanh 软饱和。低频隆起是人耳判断话筒距离的主线索，
   但纯提升会让爆破音低频过冲削顶，所以用 tanh 兜住峰值。
 - distance：慢速随机游走（OU 过程）的电平 + 谱倾斜。真人对着手机说话时距离
@@ -21,6 +27,8 @@
 数据相关形状的布尔索引），跨块状态固定尺寸，不随时间增长。
 """
 from __future__ import annotations
+
+import math
 
 import torch
 import torch.nn.functional as F
@@ -43,6 +51,10 @@ _WALK_STD = 0.30        # 随机游走每块的标准差（配回归系数，稳
 _WALK_PULL = 0.15       # 向 0 的回归系数，防止游走长期贴边
 _LEVEL_DECAY = 0.85     # 输出电平跟踪的释放系数（约 1.5s 时间常数）
 _LEVEL_MATCH_MAX = 2.0  # 输入→输出电平换算上限，防止参考远大于输出时注入爆音
+# 底噪幅度包络的中值滤波窗（频率方向，单位 bin）。必须盖住至少两个谐波周期，
+# 中值才会落在谐波间隙而不是谐波峰上：41 bin 在 10Hz/bin 下是 410Hz，覆盖
+# F0 ≥ ~205Hz。更低频的男声只会让窗口装下更多周期，中值仍是底噪。
+_FLOOR_WIN = 41
 _EPS = 1e-8
 _DEFAULT_SEED = 20240601
 
@@ -75,6 +87,18 @@ def _highpass_from(lowpass: torch.Tensor) -> torch.Tensor:
 def _rms(x: torch.Tensor) -> torch.Tensor:
     """块内 RMS，返回 0-dim 张量（不做 `.item()`，避免 GPU→CPU 同步）。"""
     return torch.sqrt(torch.mean(x * x) + _EPS)
+
+
+def _floor_envelope(mag: torch.Tensor, win: int) -> torch.Tensor:
+    """频率方向滑动中值 —— 谐波是窄峰，中值落在谐波间隙的底噪上。
+
+    用中值不用最小值：最小值会挑到相邻谐波之间的谱零点，系统性低估底噪；
+    中值忽略少数谐波峰，给出的是该频段的底噪电平。
+    """
+    pad = win // 2
+    padded = F.pad(mag.view(1, 1, -1), (pad, pad), mode="replicate")
+    windows = padded.unfold(-1, win, 1)
+    return windows.median(dim=-1).values.view(-1)
 
 
 class RealismChain:
@@ -199,9 +223,10 @@ class RealismChain:
 
         # 参考块的两个频带。每块只推一次工作缓冲：同一块内推两次会让
         # overlap-save 的尾部状态错位（第二推把第一推的尾部当历史），块边界咔哒。
+        # 推送本身必须无条件发生（状态按块推进），但滤波只在用到时算。
         ref_buf = self._push(self._ref_work, r[:n])
-        ref_low = self._conv(ref_buf, self._lp_low)
-        ref_high = self._conv(ref_buf, self._hp_high)
+        ref_low = self._conv(ref_buf, self._lp_low) if rumble > 0.0 else None
+        ref_high = self._conv(ref_buf, self._hp_high) if (breath > 0.0 or rumble > 0.0) else None
 
         # ── distance：慢速远近起伏 ──
         low_out = None
@@ -224,21 +249,39 @@ class RealismChain:
 
         # ── breath：>4kHz 气息/齿音回注 ──
         if breath > 0.0:
-            # 高频能量占比即天然门限：元音几乎为 0（不注入），/s/ /f/ 时接近 1
+            # 高频能量占比即天然门限：元音几乎为 0（不注入），/s/ /f/ 时接近 1。
+            # 这一级直接搬输入的高频带：>4kHz 几乎不含音色身份（实测与原声余弦
+            # 0.003、注入量平坦度 0.216，本质是噪声），无需去谐波。
             hf_ratio = torch.clamp(_rms(ref_high) / ref_rms, max=1.0)
             x = x + ref_high * (lv * self._ramp_gain(0, breath * hf_ratio))
 
         # ── residual：非谐波底噪回注 ──
         if residual > 0.0:
-            # 频谱中位数/均值 ≈ 底噪相对电平：谐波峰稀疏（少数 bin 很高），中位数
-            # 落在谐波之间的底噪上；纯噪声的谱是平的，比值接近 1。该比值直接当作
-            # 注入比例，于是干净元音几乎不注入、噪声底重的输入注入重——这就是
-            # 「搬运」而非「合成」的全部含义。
-            mag = torch.fft.rfft(r).abs()
-            noise_like = torch.clamp(torch.median(mag) / (torch.mean(mag) + _EPS), max=1.0)
-            x = x + (r[:n] - ref_low) * (lv * self._ramp_gain(1, residual * noise_like))
+            bed, noise_like = self._noise_floor_bed(r[:n], n)
+            x = x + bed * (lv * self._ramp_gain(1, residual * noise_like))
 
         return x.clamp_(-1.0, 1.0).view(shape)
+
+    def _noise_floor_bed(self, r: torch.Tensor, n: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """用输入的**非谐波底噪谱** + 随机相位重建一条噪声床。
+
+        不能直接搬 `r - 低频`：那是输入 200Hz 以上的整个频谱，谐波与共振峰都在
+        里面，等于把原声按比例混进输出（实测注入量与原声余弦 0.75，安静段相对
+        本块输出仅 −1.4dB，就是可闻的双重声）。这里只保留底噪的幅度包络、把相位
+        换成随机值——电平与谱形仍是输入的统计量，音色身份被抹掉。
+
+        Returns:
+            (bed, noise_like)：噪声床，以及「底噪在谱里占多大比例」这个门限。
+        """
+        mag = torch.fft.rfft(r).abs()
+        floor = _floor_envelope(mag, _FLOOR_WIN)
+        # 谐波峰稀疏时中位数落在谐波间隙上，比值小；谱平坦（真有底噪）时接近 1
+        noise_like = torch.clamp(torch.median(mag) / (torch.mean(mag) + _EPS), max=1.0)
+        phase = (torch.rand(floor.shape, generator=self._gen, device=self._device)
+                 * 2.0 - 1.0) * math.pi
+        # 随机相位不改变幅度谱，按 Parseval 能量与零相位版本相同，所以这里不需要
+        # 再除以某个参考 RMS 做归一化——电平已经由 floor 本身定好了。
+        return torch.fft.irfft(torch.polar(floor, phase), n=n), noise_like
 
     def _stage_distance(self, x: torch.Tensor, low_out: torch.Tensor,
                         distance: float) -> tuple[torch.Tensor, torch.Tensor]:

@@ -41,6 +41,28 @@ def _chain(**kw) -> RealismChain:
     return c
 
 
+def _voiced_with_floor(f0: float = 120.0, amp: float = 0.4,
+                       floor: float = 0.02, seed: int = 1) -> torch.Tensor:
+    """带真实底噪的浊音：谐波（音色身份）+ 宽带底噪（要搬运的痕迹）。"""
+    t = torch.arange(BLOCK, dtype=torch.float32) / SR
+    sig = torch.zeros(BLOCK)
+    for k in range(1, 13):
+        if f0 * k < SR / 2:
+            sig = sig + (amp / k) * torch.sin(2 * torch.pi * f0 * k * t)
+    g = torch.Generator().manual_seed(seed)
+    return sig + floor * torch.randn(BLOCK, generator=g)
+
+
+def _cosine(a: torch.Tensor, b: torch.Tensor) -> float:
+    return float(torch.dot(a, b) / (torch.linalg.norm(a) * torch.linalg.norm(b) + 1e-12))
+
+
+def _flatness(x: torch.Tensor) -> float:
+    """谱平坦度：几何均值/算术均值。接近 0 = 谐波/音调，接近 1 = 白噪。"""
+    mag = torch.fft.rfft(x).abs() + 1e-10
+    return float(torch.exp(torch.mean(torch.log(mag))) / torch.mean(mag))
+
+
 class TestBypass(unittest.TestCase):
     def test_default_params_are_noop(self):
         """默认全 0：输出必须与输入逐位相同（不是「近似相同」）。"""
@@ -247,6 +269,45 @@ class TestSafety(unittest.TestCase):
         res = _chain(residual=1.0).process(_tone(220, amp=0.4), _noise(n=100))
         self.assertEqual(res.shape[0], BLOCK)
         self.assertTrue(torch.isfinite(res).all())
+
+
+class TestNoVoiceLeak(unittest.TestCase):
+    """搬「痕迹」不搬「身份」——注入量不得与原声相关。
+
+    早期 residual 直接混入 `r - 低频`，也就是输入 200Hz 以上的**整个频谱**：
+    谐波与共振峰都在里面，等于把原声按比例漏进输出。实测（111.wav）注入量与
+    原声余弦 0.75、安静段相对本块输出只有 −1.4dB，是可闻的双重声。
+    现在的实现只取底噪的幅度包络（频率方向中值滤掉谐波峰）+ 随机相位重建。
+    """
+
+    def test_injected_residual_is_uncorrelated_with_reference(self):
+        out = _tone(160, amp=0.4)
+        ref = _voiced_with_floor()
+        inj = _chain(residual=1.0).process(out.clone(), ref) - out
+        self.assertLess(abs(_cosine(inj, ref)), 0.05,
+                        "注入量与原声相关，等于把本音漏进输出")
+
+    def test_injected_residual_is_noise_not_a_tone_copy(self):
+        """注入量的谱平坦度必须高于参考：它是噪声床，不是谐波副本。"""
+        out = _tone(160, amp=0.4)
+        ref = _voiced_with_floor()
+        inj = _chain(residual=1.0).process(out.clone(), ref) - out
+        self.assertGreater(_flatness(inj), _flatness(ref) * 1.5)
+
+    def test_breath_does_not_leak_voice(self):
+        """>4kHz 带几乎不含音色身份，直接搬它也不会与原声相关。"""
+        out = _tone(160, amp=0.4)
+        ref = _voiced_with_floor()
+        inj = _chain(breath=1.0).process(out.clone(), ref) - out
+        self.assertLess(abs(_cosine(inj, ref)), 0.05)
+
+    def test_injected_level_stays_below_output(self):
+        """注入量恒低于输出电平：痕迹不能盖过变声结果本身。"""
+        out = _tone(160, amp=0.4)
+        ref = _voiced_with_floor(floor=0.05)
+        inj = _chain(residual=1.0).process(out.clone(), ref) - out
+        out_rms = float(out.pow(2).mean().sqrt())
+        self.assertLess(float(inj.pow(2).mean().sqrt()), out_rms * 0.5)
 
 
 if __name__ == "__main__":
