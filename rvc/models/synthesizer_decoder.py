@@ -1,4 +1,5 @@
 """声码器 — Generator（通用）+ GeneratorNSF（带 F0 的谐波声码器）"""
+import contextlib
 import math
 from typing import Optional
 
@@ -163,7 +164,16 @@ class SineGen(torch.nn.Module):
         output sine_tensor: tensor(batchsize=1, length, dim)
         output uv: tensor(batchsize=1, length, 1)
         """
-        with torch.inference_mode():
+        # 训练时不能进 inference_mode：本模块的输出要喂给 SourceModuleHnNSF 里可训练的
+        # l_linear，而 inference tensor 不能被 backward 保存——fp32 下直接抛
+        # RuntimeError，fp16 下被 autocast 掩盖成静默断链。推理侧 is_grad_enabled()
+        # 为假（调用方本身就在 inference_mode 里），行为与速度保持不变。
+        ctx = (
+            torch.inference_mode()
+            if not torch.is_grad_enabled()
+            else contextlib.nullcontext()
+        )
+        with ctx:
             f0 = f0.unsqueeze(-1)
             sine_waves = self._f02sine(f0, upp) * self.sine_amp
             uv = self._f02uv(f0)

@@ -267,7 +267,6 @@ class TextAudioCollateMultiNSFsid:
         spec = torch.zeros(b, spec_channels, max_spec_len)
         spec_lengths = torch.LongTensor(b)
         wav = torch.zeros(b, max_wav_len)
-        wav_lengths = torch.LongTensor(b)
         sid = torch.LongTensor(b)
 
         for i, sample in enumerate(batch):
@@ -281,9 +280,8 @@ class TextAudioCollateMultiNSFsid:
             spec[i, :, :spec_len] = sample.spec
             spec_lengths[i] = spec_len
             wav[i, :wav_len] = sample.wav
-            wav_lengths[i] = wav_len
             sid[i] = sample.sid
-        return TrainBatch(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wav, wav_lengths, sid)
+        return TrainBatch(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wav, sid)
 
 
 class BucketSampler(Sampler):

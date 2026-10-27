@@ -13,6 +13,7 @@ from rvc.core.constants import HUBERT_SAMPLE_RATE
 from rvc.io.audio_file import load_audio
 from rvc.models.hubert import load_hubert
 from rvc.pipeline.features import hubert_forward
+from rvc.runtime.graph import purge_cuda_graphs
 from rvc.runtime.lru import LRUCache
 from rvc.train.atomic_save import save_npy_atomic
 
@@ -40,7 +41,12 @@ class HuBERTExtractor:
         model = _hubert_cache.get(cache_key)
         if model is None:
             model = load_hubert(SimpleNamespace(device=device, is_half=is_half), variant=hubert)
-            _hubert_cache.set(cache_key, model)
+            # 淘汰即回收：被淘汰的 HuBERT 可能持有 CUDA Graph 缓存（从 GUI 与推理侧
+            # 同进程跑训练时图是启用的），其静态输入/输出张量占的显存不会随引用消失
+            # 立刻归还，而新模型捕获图时可能复用同一批地址。回收动作就放在这一行。
+            evicted = _hubert_cache.insert(cache_key, model)
+            if evicted is not None:
+                purge_cuda_graphs(evicted)
         self.model = model
 
     def run(self, exp_dir: str, progress_callback=None, stop_check=None):
