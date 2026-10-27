@@ -153,11 +153,8 @@ class InferenceRunner:
             state.noise_z = torch.randn(
                 1, state.synthesizer.inter_channels, length,
                 device=state.device, dtype=dtype)
-            # 滚动暂存区（同形状、预分配）：滚动时源/目标显存重叠，需独立缓冲中转
-            state.noise_scratch = torch.empty_like(state.noise_z)
         else:
             state.noise_z = None
-            state.noise_scratch = None
 
         # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（单源）
         self.effects.setup(
@@ -369,47 +366,12 @@ class InferenceRunner:
 
     # ── stage_input：输入预处理（缓冲区滚动 + work_sr→16k 重采样） ──
 
-    def _roll_noise_field(self) -> None:
-        """把固定噪声场随窗口左移一格，保持与**绝对时间**对齐。
-
-        噪声场按缓冲区索引存放，形状 = m_p 的形状（100fps）。窗口每块前移
-        block_samples，换算成 100fps 帧就是 block_samples / samples_per_centis。
-        同一段绝对音频在块 N 位于索引 j，在块 N+1 位于 j - advance。
-
-        不滚动的后果（真实 base 变体、0.25s 块实测）：同一绝对时刻的 z_p 相对差
-        112%，而"完全换一份独立随机噪声"的上界是 127% —— 也就是说当前固定噪声场
-        在滑动窗口下几乎没起作用，每块等价于重新抽一次噪声，与逐块 randn_like 无异。
-        滚动后该差异归零，噪声边缘分布仍为 N(0,1)（每块补的新值仍是标准正态），
-        所以音色/统计特性不变，变的只是"同一时刻是否始终用同一个噪声"。
-        """
-        state = self.state
-        nz = state.noise_z
-        scratch = state.noise_scratch
-        if nz is None or scratch is None:
-            return
-        advance = state.block_samples // state.samples_per_centis
-        length = nz.shape[-1]
-        if advance <= 0:
-            return
-        with torch.no_grad():
-            if advance >= length:
-                # 极端情况（块长 ≥ 噪声场长度）：整场重抽，等价于重置
-                nz.normal_()
-                return
-            # 源与目标显存重叠，GPU copy_ 不保证 memmove 语义，必须经暂存区中转
-            scratch[..., :length - advance].copy_(nz[..., advance:])
-            scratch[..., length - advance:].normal_()
-            nz.copy_(scratch)
-
     def _stage_preprocess(self, mono: torch.Tensor) -> None:
         """缓冲区滚动 + work_sr→16k 重采样。
 
         使用双缓冲交换避免额外拷贝。16k 重采样只处理新块（带额外上下文抵消重采样延迟）。
         """
         state = self.state
-
-        # 固定噪声场与输入缓冲区同步左移，否则同一段音频每块拿到不同噪声
-        self._roll_noise_field()
 
         # 16k 缓冲区左移（双缓冲交换）— 末尾块随后被重采样输出覆盖，无需 zero_
         state.input_wav_16k_swap[:-state.block_samples_16k].copy_(state.input_wav_16k[state.block_samples_16k:])
