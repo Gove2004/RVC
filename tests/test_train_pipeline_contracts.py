@@ -219,6 +219,77 @@ class TestGradScalerInitScale(unittest.TestCase):
                 self.assertEqual(grad_scaler_init_scale(), 1, bad)
 
 
+class TestLrScheduleAcrossResume(unittest.TestCase):
+    """学习率轨迹：epoch N 必须用 gamma^(N-1)，续训不许额外衰减一次。
+
+    trainer.py 用 `last_epoch = start_epoch - 2` 重建 ExponentialLR。这个 -2 很容易
+    被误认为 off-by-one 而"顺手修正"：ExponentialLR.get_lr() 是纯乘性（在当前 lr
+    上再乘 gamma），看着像会多衰减一次。实测（含续训）偏差为 0，即 -2 是对的——
+    last_epoch>=0 时构造走 closed-form 路径，用 initial_lr*gamma^last_epoch 重算，
+    不做累乘。所以别改这个 -2，改之前先让本文件失败。
+    """
+
+    GAMMA = 0.999875  # 40k/48k 配置里的 lr_decay
+    BASE = 1e-4
+
+    def _fresh(self):
+        model = torch.nn.Linear(2, 2)
+        opt = torch.optim.AdamW(model.parameters(), lr=self.BASE)
+        sch = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=self.GAMMA, last_epoch=-1)
+        return opt, sch
+
+    def test_fresh_epoch_uses_gamma_pow_n_minus_1(self):
+        opt, sch = self._fresh()
+        for epoch in range(1, 7):
+            expected = self.BASE * self.GAMMA ** (epoch - 1)
+            self.assertAlmostEqual(
+                opt.param_groups[0]["lr"], expected, places=15,
+                msg=f"epoch {epoch} 的 LR 应是 gamma^{epoch - 1}")
+            opt.step()
+            sch.step()
+
+    def test_resume_does_not_decay_an_extra_time(self):
+        """在 epoch 5 末存 checkpoint，续训后 epoch 6 仍是 gamma^5。"""
+        opt, sch = self._fresh()
+        for _ in range(5):
+            opt.step()
+            sch.step()
+        lr_at_save = opt.param_groups[0]["lr"]
+        self.assertAlmostEqual(lr_at_save, self.BASE * self.GAMMA ** 5, places=15)
+        self.assertIn("initial_lr", opt.param_groups[0], "initial_lr 必须随 optimizer 状态落盘")
+
+        saved = opt.state_dict()
+
+        # 续训：恢复 optimizer 状态，再按 trainer 的公式重建 scheduler
+        opt2, _ = self._fresh()
+        opt2.load_state_dict(saved)
+        torch.optim.lr_scheduler.ExponentialLR(
+            opt2, gamma=self.GAMMA, last_epoch=6 - 2)
+
+        self.assertAlmostEqual(
+            opt2.param_groups[0]["lr"], lr_at_save, places=15,
+            msg="续训后的 LR 必须与 checkpoint 时一致；变小了说明多衰减了一次")
+        self.assertAlmostEqual(
+            opt2.param_groups[0]["lr"], self.BASE * self.GAMMA ** 5, places=15)
+
+    def test_resume_continues_from_next_epoch(self):
+        """续训后走完一个 epoch，epoch 7 应拿到 gamma^6（衔接不跳步）。"""
+        opt, sch = self._fresh()
+        for _ in range(5):
+            opt.step()
+            sch.step()
+        saved = opt.state_dict()
+
+        opt2, _ = self._fresh()
+        opt2.load_state_dict(saved)
+        sch2 = torch.optim.lr_scheduler.ExponentialLR(
+            opt2, gamma=self.GAMMA, last_epoch=6 - 2)
+        opt2.step()
+        sch2.step()
+        self.assertAlmostEqual(
+            opt2.param_groups[0]["lr"], self.BASE * self.GAMMA ** 6, places=15)
+
+
 class TestSineGenStaysTrainable(unittest.TestCase):
     """SineGen 的输出要喂给可训练的 SourceModuleHnNSF.l_linear。
 

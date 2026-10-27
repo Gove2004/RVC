@@ -463,6 +463,18 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   在未跳过时才设置；`GradScaler` 跳过则永不设置。所以警告 ≠ 调用顺序写错，
   而是「这轮 AMP 把所有 step 都跳过了」。trainer 的调用顺序本来就是
   `optimizer.step()` 在前、`scheduler.step()` 在 epoch 末，无需调整
+- **`last_epoch = start_epoch - 2` 是对的，别当 off-by-one 改**：`ExponentialLR.get_lr()`
+  是纯乘性（在当前 lr 上再乘 gamma），看着像续训会多衰减一次；实测（2026-10-27）
+  全新训练每个 epoch 精确等于 `gamma^(N-1)`，第 5 epoch 末存盘后续训，epoch 6 仍
+  恰为 `gamma^5`，偏差 0.000000%。原因是 `last_epoch >= 0` 时构造走 closed-form
+  路径（`initial_lr * gamma^last_epoch` 重算），不做累乘；`initial_lr` 由
+  `LRScheduler.__init__` 在 `last_epoch == -1` 时 `setdefault` 进 param_groups，
+  并随 optimizer state_dict 一起落盘。契约锁在
+  `tests/test_train_pipeline_contracts.py::TestLrScheduleAcrossResume`
+- 训练侧特征器变体的接线已确认闭合：`step_feature` 写 `3_feature768/.variant`，
+  `run.py` 先判 `_features_ready(exp_dir, hubert)`，为 False 且目录存在时
+  **整目录 rmtree 重提**并打出 WARN——不会静默混用 base/chinese 的旧特征。
+  探针 `train_e2e.py` 因为绕过了 CLI 才需要自己手工写这个标记
 - Linux 侧已确认无需改动的几处：`CREATE_NO_WINDOW` 在非 Windows 恒为 0；`locate_ffmpeg()`
   第三级（`assets/ffmpeg`）**有意限定 Windows**（只随包提供 `ffmpeg.exe`），Linux 走
   `RVC_FFMPEG`/系统 PATH；`_system_memory_gb()` 有 `os.sysconf` 分支；设备枚举走
