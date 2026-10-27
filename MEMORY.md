@@ -649,3 +649,20 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   volume 1.5，rms_mix 0.25，模型 `assets/models/xd80+ay20.pth`，hubert `base`，formant −0.25
 - A/B 试听要先把输入峰值归一化到 0.5 并把 `volume` 置 1.0，否则 111.wav（峰值 1.098）×
   volume 1.5 直接削顶到 1.000，比较失效
+- **HuBERT 权重存盘精度**：项目全程 fp16（推理侧 `rvc/runtime/device.py:32` 把 `is_half`
+  硬编码为 `True`，模型总是 `.to(dtype=float16)`）。原始 `base/` 本来就是 fp16 存盘
+  （189,206,711 B / 213 张量），`chinese/` 原本是 fp32（377,552,987 B / 211 张量）——
+  那份 fp32 是**假的精度**：加载时立刻被 `.to(float16)` 降下来，白白多占 180 MB 磁盘，
+  `torch.load` 期间还多占 180 MB 宿主内存。已按用户要求转成 fp16
+  （188,813,420 B，省 180.0 MB / 50.0%）。转换经两道关卡实测：211 个张量
+  `orig.half()` 逐位相等；端到端真实音频取特征 `(1,399,768)` **逐位相等、最大绝对差
+  0.000e+00**；替换后复核一致；`chinese(fp16)` 端到端冒烟通过（94.6M 参数全 fp16、
+  输出 11.51s、rms 0.0261、peak 0.2057、无 NaN）。两个变体现在格式统一
+- 由此得出的判据：**任何"用 fp32 权重换精度"的想法在项目里都无效**——全链路 fp16，
+  fp32 存盘只会在加载瞬间丢掉低 13 位。实测 `is_half=False` 时参数 dtype 是 float32，
+  但低 13 位全零占比 1.0000（就是 fp16 值零填充），所以那条路径不存在真实 fp32 精度
+- 与训练侧 fp32 回退的关系：`rvc/train/cli/envcheck.py:133-136` 在算力 < 7.0
+  （P40/1080Ti）时把 `use_fp16` 置 False。**不要因为这个就删掉它**——合成器权重本来
+  是 fp32，`fp16_run=False` 对它确实提供真实 fp32 精度，那条路径不是死代码。只是
+  HuBERT 侧现在两个变体都是 fp16 存盘，因此老卡上 HuBERT 特征精度不会再高于 fp16。
+  本机算力 12.0，恒走 fp16，不受影响
