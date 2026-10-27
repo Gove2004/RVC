@@ -16,6 +16,7 @@ from rvc.core.constants import (
     TRAIN_PREFETCH_FACTOR_DEFAULT,
     TRAIN_SAMPLE_CACHE_BYTES_DEFAULT,
 )
+from rvc.models.state_dict_keys import to_parametrized
 from rvc.models.synthesizer import SynthesizerTrnMsNSFsid
 from rvc.nn import vits_blocks
 from rvc.nn.discriminator import MultiPeriodDiscriminatorV2
@@ -162,15 +163,9 @@ class Trainer:
             self.log(f"恢复训练: epoch {self.start_epoch}（G={Path(latest_g).name} D={Path(latest_d).name}）")
         else:
             if self.cfg.pretrain_g:
-                # 安全前提：预训练 G 为随仓库分发的官方资产，来源可信，故 weights_only=False。
-                state = torch.load(self.cfg.pretrain_g, map_location="cpu", weights_only=False)
-                self.synthesizer.load_state_dict(state["model"], strict=False)
-                self.log("加载预训练 G")
+                self._load_pretrained(self.synthesizer, self.cfg.pretrain_g, "G")
             if self.cfg.pretrain_d:
-                # 安全前提：预训练 D 为随仓库分发的官方资产，来源可信，故 weights_only=False。
-                state = torch.load(self.cfg.pretrain_d, map_location="cpu", weights_only=False)
-                self.net_d.load_state_dict(state["model"], strict=False)
-                self.log("加载预训练 D")
+                self._load_pretrained(self.net_d, self.cfg.pretrain_d, "D")
 
         self.scheduler_g = torch.optim.lr_scheduler.ExponentialLR(self.optim_g, gamma=self.train_cfg["lr_decay"], last_epoch=self.start_epoch - 2)
         self.scheduler_d = torch.optim.lr_scheduler.ExponentialLR(self.optim_d, gamma=self.train_cfg["lr_decay"], last_epoch=self.start_epoch - 2)
@@ -191,6 +186,28 @@ class Trainer:
         )
         if len(self.loader) == 0:
             raise RuntimeError("训练样本不足，无法组成 batch")
+
+    def _load_pretrained(self, model, path: str, label: str) -> None:
+        """加载预训练权重并报告未落地的键。
+
+        官方资产用旧版 weight_norm 命名（weight_g/weight_v），本项目模块用
+        parametrize（parametrizations.weight.original0/1）；不归一化就会被
+        strict=False 静默跳过整层解码器，训出来的模型音色与细节全错。
+        """
+        # 安全前提：预训练权重为随仓库分发的官方资产，来源可信，故 weights_only=False。
+        state = torch.load(path, map_location="cpu", weights_only=False)
+        weights = to_parametrized(state["model"])
+        result = model.load_state_dict(weights, strict=False)
+        # enc_q 只在训练侧存在；用导出的模型当预训练时会缺这一批，属预期。
+        missing = [k for k in result.missing_keys if not k.startswith("enc_q.")]
+        if missing or result.unexpected_keys:
+            self.log(
+                f"预训练 {label} 未完全匹配：{len(missing)} 个键缺失"
+                f"（保持随机初始化）、{len(result.unexpected_keys)} 个键多余；"
+                f"示例 {missing[:4] or result.unexpected_keys[:4]}"
+            )
+        else:
+            self.log(f"加载预训练 {label}")
 
     def train(self):
         self.setup()

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import torch
 
+from rvc.models.state_dict_keys import to_legacy, to_parametrized
 from rvc.runtime import train_config_path
 from rvc.train.atomic_save import save_torch_atomic
 
@@ -179,6 +180,9 @@ def export_model(state_dict, sr: int, config: dict, epoch: int, output_path: str
         if key.startswith("enc_q"):
             continue
         weights[key] = value.detach().cpu().half()
+    # 落盘用旧版 weight_norm 命名（weight_g/weight_v），与本仓库已有模型文件和
+    # 上游工具一致；推理侧加载时会归一化回 parametrize，两种命名都能读。
+    weights = to_legacy(weights)
     model_config = build_model_config(sr, config)
     name = re.sub(r"_e\d+$", "", Path(output_path).stem)
     ckpt = {
@@ -201,17 +205,21 @@ def merge_models(path_a: str, path_b: str, ratio: float, output_path: str):
     if ckpt_a["config"] != ckpt_b["config"]:
         raise ValueError("两个模型架构不一致（config 不同），无法合并")
     merged = OrderedDict()
-    for key in ckpt_a["weight"]:
-        if key in ckpt_b["weight"]:
-            merged[key] = (ckpt_a["weight"][key].float() * ratio
-                           + ckpt_b["weight"][key].float() * (1 - ratio)).half()
+    # 两个来源可能一个新命名一个旧命名（上游模型 vs 本流程导出的旧版文件），
+    # 先归一化到同一套键名，否则同一层会被当成两个不同的键，权重不会加权平均。
+    weight_a = to_parametrized(ckpt_a["weight"])
+    weight_b = to_parametrized(ckpt_b["weight"])
+    for key in weight_a:
+        if key in weight_b:
+            merged[key] = (weight_a[key].float() * ratio
+                           + weight_b[key].float() * (1 - ratio)).half()
         else:
-            merged[key] = ckpt_a["weight"][key]
-    for key in ckpt_b["weight"]:
+            merged[key] = weight_a[key]
+    for key in weight_b:
         if key not in merged:
-            merged[key] = ckpt_b["weight"][key]
+            merged[key] = weight_b[key]
     ckpt = {
-        "weight": merged,
+        "weight": to_legacy(merged),
         "config": ckpt_a["config"],
         "info": Path(output_path).stem,
         "sr": ckpt_a["sr"],
