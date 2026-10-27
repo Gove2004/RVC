@@ -151,12 +151,17 @@ class Trainer:
         self.optim_g = torch.optim.AdamW(self.synthesizer.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.optim_d = torch.optim.AdamW(self.net_d.parameters(), self.cfg.learning_rate, betas=self.train_cfg["betas"], eps=self.train_cfg["eps"])
         self.start_epoch = 1
+        # GradScaler 必须先于恢复逻辑创建：它的损失缩放倍率存在 checkpoint 里，
+        # 不恢复就要从 65536 重新预热（每 batch 折半，约 7 个 batch 才稳定），
+        # 等于每次续训白烧掉前几个 batch，还会先看到一段 inf/高 loss。
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.fp16_run)
 
         ckpt_dir = str(self._checkpoint_dir())
         latest_g = latest_checkpoint_path(ckpt_dir, "G")
         latest_d = latest_checkpoint_path(ckpt_dir, "D")
         if latest_g and latest_d:
-            _, epoch_g = load_checkpoint(latest_g, self.synthesizer, self.optim_g)
+            # scaler 只从 G 取：G/D 成对保存，存的是同一个实例的同一份拷贝。
+            _, epoch_g = load_checkpoint(latest_g, self.synthesizer, self.optim_g, self.scaler)
             _, epoch_d = load_checkpoint(latest_d, self.net_d, self.optim_d)
             self.start_epoch = min(epoch_g, epoch_d) + 1
             self.log(f"恢复训练: epoch {self.start_epoch}（G={Path(latest_g).name} D={Path(latest_d).name}）")
@@ -168,7 +173,6 @@ class Trainer:
 
         self.scheduler_g = torch.optim.lr_scheduler.ExponentialLR(self.optim_g, gamma=self.train_cfg["lr_decay"], last_epoch=self.start_epoch - 2)
         self.scheduler_d = torch.optim.lr_scheduler.ExponentialLR(self.optim_d, gamma=self.train_cfg["lr_decay"], last_epoch=self.start_epoch - 2)
-        self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.fp16_run)
 
         filelist = str(Path(self.cfg.exp_dir) / "filelist.txt")
         loader_options = training_dataloader_options(self.cfg.device)
@@ -336,6 +340,7 @@ class Trainer:
             self.synthesizer, self.optim_g, self.net_d, self.optim_d,
             self.cfg.learning_rate, epoch,
             str(ckpt_dir / f"G_{epoch}.pth"), str(ckpt_dir / f"D_{epoch}.pth"),
+            self.scaler,
         )
         self.log(f"保存 checkpoint: epoch {epoch}")
 

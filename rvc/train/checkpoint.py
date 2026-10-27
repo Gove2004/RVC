@@ -16,38 +16,50 @@ from rvc.train.atomic_save import save_torch_atomic
 logger = logging.getLogger(__name__)
 
 
-def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str):
-    """保存训练 checkpoint（{model, iteration, optimizer, learning_rate}），原子写。"""
+def save_checkpoint(model, optimizer, learning_rate: float, epoch: int, path: str,
+                    scaler=None):
+    """保存训练 checkpoint（{model, iteration, optimizer, learning_rate, scaler}），原子写。
+
+    scaler 是可选的：fp32 训练没有 GradScaler，旧 checkpoint 也没有这个键。
+    保存它是因为 fp16 的损失缩放倍率要靠逐 batch 折半才收敛（默认 65536 对
+    fp16 上限 65504 没有余量），不存就每次续训都从 65536 重新预热、白烧
+    前几个 batch。整个 state 只有几个标量，体积可忽略。
+    """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     save_torch_atomic(path, {
         "model": model.state_dict(),
         "iteration": epoch,
         "optimizer": optimizer.state_dict() if optimizer is not None else None,
         "learning_rate": learning_rate,
+        "scaler": scaler.state_dict() if scaler is not None else None,
     })
 
 
 def save_checkpoint_pair(g_model, g_opt, d_model, d_opt, learning_rate: float,
-                         epoch: int, g_path: str, d_path: str):
+                         epoch: int, g_path: str, d_path: str, scaler=None):
     """成对保存 G/D checkpoint。
 
     先写完两个 .tmp 再连续 os.replace——把「G 已落、D 未落」的中断窗口从
     一次 torch.save（数十秒）压缩到两次 replace（微秒）。若中断仍恰好落在
     替换之间，会留下单边孤儿 .pth 与 *.pairtmp 残骸，由
     prune_orphan_checkpoints 在下次训练前一并清理。
+
+    scaler 是 G/D 共用的一个实例，两个文件里存的是同一份拷贝（几字节）。
     """
-    save_checkpoint(g_model, g_opt, learning_rate, epoch, g_path + ".pairtmp")
-    save_checkpoint(d_model, d_opt, learning_rate, epoch, d_path + ".pairtmp")
+    save_checkpoint(g_model, g_opt, learning_rate, epoch, g_path + ".pairtmp", scaler)
+    save_checkpoint(d_model, d_opt, learning_rate, epoch, d_path + ".pairtmp", scaler)
     os.replace(g_path + ".pairtmp", g_path)
     os.replace(d_path + ".pairtmp", d_path)
 
 
-def load_checkpoint(path: str, model, optimizer=None):
-    """加载训练 checkpoint（{model, iteration, optimizer, learning_rate}）。
+def load_checkpoint(path: str, model, optimizer=None, scaler=None):
+    """加载训练 checkpoint（{model, iteration, optimizer, learning_rate, scaler}）。
 
     键匹配语义：形状不一致或缺键的权重被跳过（与上游 strict=False 行为
     一致），但跳过会打 warning——旧版零提示，续训结构不匹配时静默产生
     半随机模型，排查困难。
+
+    scaler 缺省不恢复（fp32 训练本就没有；旧 checkpoint 也没有这个键）。
     """
     # 安全前提：训练 checkpoint 由本流程 torch.save 产出，来源可信，故 weights_only=False。
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
@@ -66,6 +78,9 @@ def load_checkpoint(path: str, model, optimizer=None):
         logger.warning("checkpoint %s 有 %d 个权重未匹配被跳过: %s", path, len(skipped), ", ".join(skipped[:8]))
     if optimizer is not None and checkpoint["optimizer"] is not None:
         optimizer.load_state_dict(checkpoint["optimizer"])
+    saved_scaler = checkpoint.get("scaler")
+    if scaler is not None and saved_scaler is not None:
+        scaler.load_state_dict(saved_scaler)
     return checkpoint["learning_rate"], checkpoint["iteration"]
 
 

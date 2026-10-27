@@ -12,7 +12,7 @@ from unittest import mock
 
 import torch
 
-from rvc.train.checkpoint import latest_checkpoint_path, save_checkpoint_pair
+from rvc.train.checkpoint import latest_checkpoint_path, save_checkpoint, save_checkpoint_pair
 from rvc.train.dataset import TextAudioCollateMultiNSFsid, TrainBatch, TrainSample
 
 
@@ -101,6 +101,76 @@ class TestCheckpointPairWritesAndFinds(unittest.TestCase):
                 self._pair(tmp, epoch)
             # 按数值而非字典序：G_10 必须赢过 G_2
             self.assertEqual(os.path.basename(latest_checkpoint_path(tmp, "G")), "G_10.pth")
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "GradScaler(enabled=True) 需要 CUDA 才能构造 _scale")
+class TestGradScalerStateSurvivesResume(unittest.TestCase):
+    """fp16 的损失缩放倍率必须能跨续训保留。
+
+    默认 init_scale=65536 对 fp16 上限 65504 没有余量，本模型梯度量级
+    O(1)~O(10²)，实测每 batch 折半一次、约 7 个 batch 才稳定到 256。
+    不存进 checkpoint 就每次续训从 65536 重新预热：白烧前几个 batch，
+    还会先看到一段 inf 和虚高的 loss。
+
+    必须用 enabled=True 的 scaler 来测：禁用态的 state_dict() 恒为空、
+    get_scale() 恒为 1.0，拿它测往返等于什么都没测。
+    """
+
+    def _scaler(self, scale: float = 256.0):
+        scaler = torch.amp.GradScaler("cuda", enabled=True)
+        scaler._scale = torch.tensor(scale, device="cuda")
+        return scaler
+
+    def test_scaler_state_round_trips(self):
+        from rvc.train.checkpoint import load_checkpoint
+
+        scaler = self._scaler(256.0)
+
+        model = torch.nn.Linear(2, 2)
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-4)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "G_1.pth")
+            save_checkpoint(model, opt, 1e-4, 1, path, scaler)
+
+            restored = torch.amp.GradScaler("cuda", enabled=True)
+            self.assertEqual(float(restored.get_scale()), 65536.0, "新实例应是默认初值")
+            load_checkpoint(path, torch.nn.Linear(2, 2), None, restored)
+            self.assertEqual(float(restored.get_scale()), 256.0, "续训后不应重新预热")
+
+    def test_old_checkpoint_without_scaler_still_loads(self):
+        """旧 checkpoint 没有 scaler 键，续训必须照常工作（不能 KeyError）。"""
+        from rvc.train.checkpoint import load_checkpoint
+
+        model = torch.nn.Linear(2, 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "G_1.pth")
+            torch.save({
+                "model": model.state_dict(), "iteration": 1,
+                "optimizer": None, "learning_rate": 1e-4,
+            }, path)
+
+            scaler = self._scaler(512.0)
+            lr, epoch = load_checkpoint(path, torch.nn.Linear(2, 2), None, scaler)
+            self.assertEqual((lr, epoch), (1e-4, 1))
+            self.assertEqual(float(scaler.get_scale()), 512.0, "无 scaler 键时应保持原状")
+
+    def test_pair_saves_same_scaler_copy(self):
+        """G/D 成对保存时，两个文件里应是同一个 scaler 的同一份状态。"""
+        scaler = self._scaler(128.0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            g, d = torch.nn.Linear(2, 2), torch.nn.Linear(2, 2)
+            g_path = os.path.join(tmp, "G_2.pth")
+            d_path = os.path.join(tmp, "D_2.pth")
+            save_checkpoint_pair(
+                g, torch.optim.AdamW(g.parameters(), lr=1e-4),
+                d, torch.optim.AdamW(d.parameters(), lr=1e-4),
+                1e-4, 2, g_path, d_path, scaler,
+            )
+            for path in (g_path, d_path):
+                saved = torch.load(path, map_location="cpu", weights_only=False)
+                self.assertIsNotNone(saved["scaler"], path)
+                self.assertEqual(float(saved["scaler"]["scale"]), 128.0, path)
 
 
 class TestSineGenStaysTrainable(unittest.TestCase):

@@ -403,8 +403,16 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
 - **续训链路已验证**（`$env:TEMP\train_resume_probe.py`）：有 `G_2/D_2` 时 `setup()` 认出
   `start_epoch=3`，权重逐张量等于 checkpoint（不是随机初始化），scheduler 按
   `last_epoch=start_epoch-2` 续接（lr 已衰减到 0.00009998），只跑 epoch 3，
-  `keep_ckpts=1` 正确淘汰到只剩 `G_3/D_3`。注意 **GradScaler 状态不进 checkpoint**，
-  每次重启都会重新走一遍预热（约 7 个 batch），这是刻意不动上游行为的取舍
+  `keep_ckpts=1` 正确淘汰到只剩 `G_3/D_3`。**GradScaler 状态现在会进 checkpoint**：
+  `save_checkpoint`/`save_checkpoint_pair`/`load_checkpoint` 都有可选 `scaler` 参数，
+  `setup()` 里 scaler 必须在恢复逻辑**之前**创建（原来在后，存了也接不上）。
+  续训不再重新预热，省掉那 7 个白烧的 batch。旧 checkpoint 没有 `scaler` 键，
+  用 `checkpoint.get("scaler")` 读，缺省就保持默认 65536，不会 KeyError。
+  验证：`$env:TEMP\scaler_wiring_probe.py`（起训 65536 → 续训 256 → 旧格式 65536）
+- **测 `GradScaler` 必须用 `enabled=True`**：禁用态 `state_dict()` 恒为 `{}`、
+  `get_scale()` 恒为 1.0，设 `_scale` 也不生效，拿它测往返等于什么都没测。
+  只有 `enabled=True` 才有 `{scale, growth_factor, backoff_factor, growth_interval,
+  _growth_tracker}`，且 `_scale` 是 cuda 张量——单测要加 `skipUnless(torch.cuda.is_available())`
 - checkpoint 目录名是 `4_checkpoints`，取路径用 `checkpoints_dir()`，别手拼字符串
   （e2e 脚本曾按 `exp/checkpoints` 数文件，于是"checkpoint 0 个"是假警报）
 - **weight_norm 有两套键名，但加载侧不需要改写**（`rvc/models/state_dict_keys.py`）：
