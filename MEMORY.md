@@ -488,6 +488,18 @@ prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 t
   为什么值得钉死：模型是从上游 `f0G40k.pth` 微调的，bin 划分错位**不会**让音高
   明显跑调（输出音高由连续 `nsff0` 决定），只会让 `enc_p` 收到训练时没见过的
   音高条件，表现为咬字/音色发闷——极难归因，正是最容易"顺手改坏"的地方
+- **固定噪声场（`state.noise_z`）已实测确认生效（2026-10-27）**：`_z_sample` 的形状
+  校验是**静默退回** `randn_like`——差一帧就退回随机，不报错不告警，固定噪声场等于
+  没接，表现为持续/重复内容的咬字逐块随机漂移。代码注释说这特性「从上线起就一直
+  没生效」（长度曾按 `skip_head + return_length` 估，与真实 m_p 恒差一帧），但修完
+  后从没有测试证明过：`tests/test_noise_z_shape.py` 原先只测 `hubert_frame_count`
+  对**假** conv 配置的帧数。实测（真实 `xd80+ay20.pth` + 凤凰.wav，走离线
+  `process_file`，与实时共用同一 `runner.process_block`）：4/4 块全部命中，
+  `m_p=(1,192,56)` == `noise_z=(1,192,56)`，且 `_z_sample` 返回的就是传入张量本身。
+  现在补了两类测试：`TestZSampleContract`（命中必须返回同一对象、不匹配必须退回）
+  与 `TestRealHubertConfigFrames`（用真实 `assets/hubert/base/config.json` 校验
+  `2*(frames+1)` == `upsample_features` 实际输出长度、且 runner 的 `length` 公式
+  == `p_len - flow_head`）
 - Linux 侧已确认无需改动的几处：`CREATE_NO_WINDOW` 在非 Windows 恒为 0；`locate_ffmpeg()`
   第三级（`assets/ffmpeg`）**有意限定 Windows**（只随包提供 `ffmpeg.exe`），Linux 走
   `RVC_FFMPEG`/系统 PATH；`_system_memory_gb()` 有 `os.sysconf` 分支；设备枚举走
