@@ -1,4 +1,4 @@
-"""参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值 / 真实感"""
+"""参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值。"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 def build_params_tab(win: "InferWindowHost"):
-    """参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值 / 真实感。"""
+    """参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)

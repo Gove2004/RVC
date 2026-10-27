@@ -379,7 +379,8 @@ Event 口径会把它算进 process_output。所以别去优化 SOLA 的算术�
 （事件在同 stream 顺序记录，主机端只在最后同步一次，不像 `.cpu().numpy()` 钩子那样把耗时
 抬高一大截）。宿主对象映射：`_stage_input`/`_stage_preprocess`/`_stage_formant` → runner；
 `extract_features`/`postprocess_features`/`synthesize_audio` → `runner.pipeline`；
-`process_output` → `runner.effects`；`process` → `runner.realism`。
+`process_output` → `runner.effects`。（`process` → `runner.realism` 已随目标 4 整条删除，
+该属性不存在了，照旧笔记写会 AttributeError。）
 runner 要自己造：`engine._make_runner(work_sr, 1, block, crossfade, extra, model_sr, reset_buffers=True,
 prewarm_formant=False)`（`load_model` 不建 runner；`model_sr` 传 0 会让 torchaudio 的 sinc
 核宽算成 0 → ZeroDivisionError）。造 `VoiceEngine` 会顺带构造 `RuntimeDeviceConfig`，

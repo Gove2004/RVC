@@ -89,5 +89,94 @@ class TestNoUndefinedGlobalNames(unittest.TestCase):
         )
 
 
+# ── 死引用守卫：防"删掉功能留下指向不存在属性的引用" ──
+
+def _has_attr_or_submodule(mod, mod_name: str, attr: str) -> bool:
+    """attr 存在于 mod，或 attr 是 mod 的子模块（import 子模块会挂成包属性）。"""
+    import importlib
+
+    if hasattr(mod, attr):
+        return True
+    try:
+        importlib.import_module(f"{mod_name}.{attr}")
+        return True
+    except Exception:
+        return False
+
+
+def scan_dead_references(root: Path) -> list[tuple[str, int, str]]:
+    """找 `from X import Y` / `X.attr` 里 Y、attr 在 X 中已不存在的情况。
+
+    只覆盖可静态判定的，不做类型推断。相对导入跳过（由测试运行时兜底）。
+    """
+    import ast
+    import importlib
+    import sys
+
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+
+    problems = []
+    for pkg in _SCAN_DIRS:
+        for f in sorted((root / pkg).rglob("*.py")):
+            if "__pycache__" in f.parts or ".venv" in f.parts:
+                continue
+            try:
+                tree = ast.parse(f.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            rel = str(f.relative_to(root))
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    if node.level or not node.module:
+                        continue
+                    if not node.module.startswith(("rvc", "gui")):
+                        continue
+                    try:
+                        mod = importlib.import_module(node.module)
+                    except Exception:
+                        continue
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        if not _has_attr_or_submodule(mod, node.module, alias.name):
+                            problems.append((
+                                rel, node.lineno,
+                                f"from {node.module} import {alias.name}"))
+    return problems
+
+
+class TestNoDeadReferences(unittest.TestCase):
+    """删掉一个功能后，不许留下指向已不存在属性的引用。
+
+    来历：目标 4 的真实感链整条删除后，`params_tab.py` 的两处 docstring 仍在
+    描述"真实感"，MEMORY 也仍以现在时把 `process` 映射到 `runner.realism`
+    （该属性已不存在，照它重建剖析脚本会直接 AttributeError）。
+    这类残留不会让测试变红，只会误导后来的人，所以在静态层扫掉。
+    """
+
+    def test_no_dead_references(self):
+        problems = scan_dead_references(_PROJECT_ROOT)
+        if problems:
+            detail = "\n".join(f"  {p}:{ln} {msg}" for p, ln, msg in problems)
+            self.fail("以下位置引用了已不存在的属性（删功能后的残留）：\n" + detail)
+
+    def test_scanner_catches_dead_reference(self):
+        """自检：扫描器能抓到指向不存在属性的 import。"""
+        import tempfile
+
+        src = "from rvc.core.config import NO_SUCH_THING\n"
+        with tempfile.TemporaryDirectory() as d:
+            pkg = Path(d) / "rvc"
+            pkg.mkdir()
+            (pkg / "dead.py").write_text(src, encoding="utf-8")
+            problems = scan_dead_references(Path(d))
+        self.assertTrue(
+            any("NO_SUCH_THING" in msg for _, _, msg in problems),
+            f"扫描器未能识别死引用，返回 {problems}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
