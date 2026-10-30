@@ -77,13 +77,10 @@ class InferenceRunner:
         # 计算参数（对齐到 10ms 边界）
         state.block_samples = int(np.round(block_time * work_sr / zc)) * zc
         state.crossfade_samples = int(np.round(crossfade_time * work_sr / zc)) * zc
-        # SOLA 重叠上限固定 40ms，且**与块长无关**。这是实时链路的既定契约：
-        # 重叠区里旧块尾部（fade_out）与新块头部（fade_in）按 sola_offset 错位相加，
-        # 错位量可达整个搜索窗，于是该区段周期性相消、能量下沉（实测边界/内部 RMS
-        # 比中位数 0.93，三成块低于 0.8）。重叠越长，被这种错位相加替换掉的原始
-        # 音频越多——块长 100ms 时 50ms 重叠意味着**半个块**都在相消区里，听感正是
-        # 「每个字持续时间太短、听不清」。上限放到 50ms 没有换来任何对齐收益。
-        state.sola_buffer_samples = min(state.crossfade_samples, 4 * zc)
+        # 重叠上限 100ms。上限只决定参数"能调到多长"，实际取多长由用户自己的
+        # crossfade_time 决定。注意重叠区是旧块尾部与新块头部按 sola_offset 错位
+        # 相加，错位相加会周期性相消；重叠越长，被相消区替换掉的原始音频越多。
+        state.sola_buffer_samples = min(state.crossfade_samples, 10 * zc)
         state.sola_search_samples = zc
         state.extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
         state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc

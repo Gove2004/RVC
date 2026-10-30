@@ -62,7 +62,7 @@ class F0Params:
 class BufferParams:
     """缓冲区参数 — 控制实时推理延迟和音质。"""
     block_time: float = 0.25      # 每块时长（秒）
-    crossfade_time: float = 0.04  # 交叉淡化时长（秒；SOLA 上限 40ms）
+    crossfade_time: float = 0.10  # 交叉淡化时长（秒；SOLA 上限 100ms）
     extra_time: float = 2.5        # 额外上下文（秒）
 
 
