@@ -38,8 +38,8 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(extra_time_label, r, 2)
     r += 1
 
-    # ── 交叉淡化（crossfade_time）──
-    win.crossfade_slider, crossfade_label = create_slider_row(0.01, 0.05, 0.01, 0.05)
+    # ── 交叉淡化（crossfade_time；上限 0.04 = SOLA 实际生效的 40ms，再大无效）──
+    win.crossfade_slider, crossfade_label = create_slider_row(0.01, 0.04, 0.01, 0.04)
     g.addWidget(QLabel("交叉淡化"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(crossfade_label, r, 2)
