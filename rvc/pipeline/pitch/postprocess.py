@@ -135,9 +135,13 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     旋律的相对形状（音程之间的比例）不变。k=1（两区间等宽）时才是
     严格意义的移调。
 
-    模型音域侧钳制（不静音）：映射后的输出 F0 超出模型音域
-    [dst_min, dst_max] 的帧钳制到最近边界，避免破音的同时保持有声。
-    原声音域 [src_min, src_max] 仅用于校准映射比例，不做安全边界。
+    音域侧钳制（不静音）：映射后的输出 F0 高于模型音域上限 dst_max 的帧钳制
+    到 dst_max，避免破音的同时保持有声。**下限 dst_min 不做钳制**：低于
+    src_min 的帧（气泡音/极低音，典型 20~70Hz）按同一条映射直线继续算下去，
+    保留其音高起伏。若在 dst_min 处截断，整段气泡音会被压成同一个常数
+    （实测 30~60Hz → 全部恰好 180Hz，变化量 30Hz→0Hz），尾音听起来变成一条
+    平直的音，正是用户报的「气泡音尾音变声有点怪」。原声音域 [src_min, src_max]
+    仅用于校准映射比例，不做安全边界。
 
     ⚠️ out_m = dst_min + ratio * (dst_max - dst_min) 无斜率约束，
     k = 两区间半音宽度之比。用户当前存档 60–720 → 160–720（k=0.6053）
@@ -154,7 +158,7 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
         dst_min/dst_max: 目标音域（Hz）
 
     Returns:
-        映射后的 F0，类型与输入一致，清音保持 0，范围外钳制到边界
+        映射后的 F0，类型与输入一致，清音保持 0，高于 dst_max 的钳制到 dst_max
     """
     # 参数下限保护：避免 0 或负数导致 hz_to_midi 产生 -inf/NaN
     _MIN_FREQ = 1.0
@@ -182,7 +186,9 @@ def apply_pitch_map(f0, src_min, src_max, dst_min, dst_max):
     f0_m = hz_to_midi(ops.clip(f0, 1e-6, None), ops.xp)   # Hz → MIDI 半音
 
     ratio = (f0_m - c_src_min) / (c_src_max - c_src_min)   # 半音尺度线性映射
-    out_m = ops.clip(c_dst_min + ratio * (c_dst_max - c_dst_min), c_dst_min, c_dst_max)
+    # 只钳上限：低于 dst_min 的帧（气泡音/极低音）按同一条直线继续外推，
+    # 保住它们的音高起伏。在下限处截断会把整段气泡音压成同一个常数。
+    out_m = ops.clip(c_dst_min + ratio * (c_dst_max - c_dst_min), None, c_dst_max)
 
     out = midi_to_hz(out_m, ops.xp)   # MIDI → Hz
     # 原始 UV 帧 + NaN/inf 帧 → 输出 0

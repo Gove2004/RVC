@@ -2,7 +2,10 @@
 
 关键契约（用户裁定，勿动）：
 - 半音尺度线性映射（音程按常数斜率 k 缩放，k<1 时压缩——刻意行为）
-- 界外钳制到模型音域边界（不静音）
+- 高于模型音域上限 dst_max 的帧钳制到 dst_max（不静音）
+- **低于 src_min 的帧不做钳制**：按同一条映射直线继续外推，保留音高起伏。
+  在下限截断会把气泡音（20~70Hz）整段压成同一个常数，尾音听感变成平直的音
+  （实测 30~60Hz → 全部恰好 180Hz，变化量 30Hz→0Hz）。用户裁定去掉下限钳制。
 - 清音帧（0）保持 0
 """
 import math
@@ -38,11 +41,50 @@ class TestPitchMap(unittest.TestCase):
         for v in out:
             self.assertAlmostEqual(float(v), 720.0, places=1)
 
-    def test_clamp_below_dst_min(self):
+    def test_no_clamp_below_dst_min(self):
+        """低于 src_min 的帧按同一条直线继续外推，不被钳成常数。
+
+        旧行为是钳到 dst_min(120)，会把整段气泡音压平。用户裁定去掉。
+        """
         f0 = torch.tensor([10.0, 20.0])
         out = apply_pitch_map(f0, 40.0, 640.0, 120.0, 720.0)
+        # 不被钳到 120：仍按映射直线外推，且保留两帧之间的差异
         for v in out:
-            self.assertAlmostEqual(float(v), 120.0, places=1)
+            self.assertLess(float(v), 120.0)
+        self.assertNotAlmostEqual(float(out[0]), float(out[1]), places=3)
+        # 单调：输入更大则输出更大
+        self.assertLess(float(out[0]), float(out[1]))
+
+    def test_fry_contour_preserved(self):
+        """气泡音段（30~60Hz）的音高起伏必须保留——这是去掉下限钳制的目的。"""
+        fry = torch.tensor([30.0, 40.0, 50.0, 60.0])
+        out = apply_pitch_map(fry, 80.0, 640.0, 180.0, 800.0)
+        vals = [float(v) for v in out]
+        # 不能塌缩成同一个值
+        self.assertEqual(len(set(round(v, 3) for v in vals)), 4,
+                         f"气泡音被压成常数: {vals}")
+        # 起伏幅度应显著（输入跨度 30Hz）
+        self.assertGreater(max(vals) - min(vals), 30.0)
+        # 严格单调递增，形状与输入一致
+        self.assertEqual(vals, sorted(vals))
+        self.assertLess(vals[0], vals[-1])
+
+    def test_low_end_matches_mapping_line(self):
+        """外推值必须落在同一条映射直线上（不是随手截断或置零）。"""
+        from rvc.dsp.hz_midi import midi_to_hz
+
+        src_min, src_max, dst_min, dst_max = 80.0, 640.0, 180.0, 800.0
+        sm = float(hz_to_midi(torch.tensor(src_min)))
+        sx = float(hz_to_midi(torch.tensor(src_max)))
+        dm = float(hz_to_midi(torch.tensor(dst_min)))
+        dx = float(hz_to_midi(torch.tensor(dst_max)))
+
+        f0 = torch.tensor([20.0, 40.0, 60.0, 79.0])
+        out = apply_pitch_map(f0, src_min, src_max, dst_min, dst_max)
+        for a, b in zip(f0.tolist(), out.tolist()):
+            expected = midi_to_hz(dm + (float(hz_to_midi(torch.tensor(a))) - sm)
+                                  / (sx - sm) * (dx - dm))
+            self.assertAlmostEqual(b, expected, places=2)
 
     def test_uv_frames_stay_zero(self):
         f0 = torch.tensor([0.0, 200.0, 0.0])
