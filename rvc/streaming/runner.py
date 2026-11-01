@@ -77,11 +77,10 @@ class InferenceRunner:
         # 计算参数（对齐到 10ms 边界）
         state.block_samples = int(np.round(block_time * work_sr / zc)) * zc
         state.crossfade_samples = int(np.round(crossfade_time * work_sr / zc)) * zc
-        # 重叠上限 150ms（对齐原版 RVC 的 0.15）。上限只决定参数"能调到多长"，
-        # 实际取多长由用户自己的 crossfade_time 决定。注意重叠区是旧块尾部与新块
-        # 头部按 sola_offset 错位相加，错位相加会周期性相消；重叠越长，被相消区
-        # 替换掉的原始音频越多。
-        state.sola_buffer_samples = min(state.crossfade_samples, 15 * zc)
+        # 重叠上限 100ms。上限只决定参数"能调到多长"，实际取多长由用户自己的
+        # crossfade_time 决定。注意重叠区是旧块尾部与新块头部按 sola_offset 错位
+        # 相加，错位相加会周期性相消；重叠越长，被相消区替换掉的原始音频越多。
+        state.sola_buffer_samples = min(state.crossfade_samples, 10 * zc)
         state.sola_search_samples = zc
         state.extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
         state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
