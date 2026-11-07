@@ -6,7 +6,6 @@
 
 - **实时变声** — 麦克风输入实时转换输出，延迟实时显示（算法延迟 = 2×块时长 + HuBERT 未来上下文 + 推理耗时，默认不含驱动层；有实测校准值时经 `driver_latency_compensation` 写入才计入）
 - **F0 双后端** — FCPE（实时首选，mel 前端为仓库内无同步复刻）与 RMVPE 可切换
-- **HuBERT 三变体** — base / chinese / ktum（KtUltraMorph 自训练）可切换，训练与推理必须一致，变体清单唯一事实源 `rvc/core/config.py:HUBERT_VARIANTS`
 - **快速启动** — 惰性导入架构，窗口秒开（~0.3s）；torch 后台预热，首次点「开始」不卡顿
 - **CUDA Graph 加速** — HuBERT / F0 网络 / 合成器全链路图捕获（FCPE 的 mel 前端刻意 eager，见 pipeline 注释），开流前静音预热完成
 - **系统托盘** — 关闭窗口最小化到托盘（变声不中断），托盘可开始/停止变声
@@ -44,9 +43,7 @@ python -m venv .venv
 训练功能需要以下预训练权重（放在 `assets/` 对应目录）：
 
 - `assets/rmvpe/rmvpe.pt` — RMVPE F0 提取器
-- `assets/hubert/base/`、`assets/hubert/chinese/`、`assets/hubert/ktum/` — HuBERT 特征提取器
-  （base=原版 hubert_base，chinese=腾讯中文 hubert，ktum=KtUltraMorph 自训练版；
-  训练与推理必须选同一变体，选错不报错、只是变差/变噪音）
+- `assets/hubert/base/` 和 `assets/hubert/chinese/` — HuBERT 特征提取器
 - `assets/pretrained/f0G48k.pth` / `f0D48k.pth` — 预训练底模（可选，加速收敛）
 
 ## 使用

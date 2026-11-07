@@ -11,10 +11,9 @@
    实测 `is_half=False` 时参数 dtype 是 float32，但低 13 位全零占比 1.0000，
    就是 fp16 值零填充，不存在真实 fp32 精度。
 
-本测试锁住三件事：
+本测试锁住两件事：
   - 推理侧 is_half 恒为 True（不得引入 fp32 推理路径）
   - 已就位的 HuBERT 权重必须是 fp16（缺权重时跳过，不误报）
-  - 转换工具存在且幂等（保证换机器重新下载后能复现转换）
 """
 import unittest
 from pathlib import Path
@@ -66,32 +65,11 @@ class TestHubertWeightsAreHalf(unittest.TestCase):
                 non_half,
                 f"{variant} 权重有 {len(non_half)} 个非 fp16 张量（样例 {non_half[:3]}）。"
                 f"全项目只有半精度，fp32 存盘只会在加载瞬间丢失低位、白占一倍磁盘。"
-                f"用 tools/convert_hubert_fp16.py 转换",
+                f"加载后 .half() 再存盘即可转换",
             )
             checked.append(variant)
         if not checked:
             self.skipTest("本机未放置任何 HuBERT 权重")
-
-
-class TestConversionToolExists(unittest.TestCase):
-    """转换工具要能被找到并识别为幂等（换机器重新下载 fp32 后可复现）。"""
-
-    def test_tool_present(self):
-        tool = _PROJECT_ROOT / "tools" / "convert_hubert_fp16.py"
-        self.assertTrue(tool.exists(), "转换工具缺失，重新下载 fp32 权重后无法复现转换")
-
-    def test_tool_is_idempotent(self):
-        """对已 fp16 的权重跑工具应报告"无需转换"而非重写。"""
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location(
-            "_conv_tool", _PROJECT_ROOT / "tools" / "convert_hubert_fp16.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        self.assertTrue(mod._is_all_half({"w": torch.zeros(2, dtype=torch.float16)}))
-        self.assertFalse(mod._is_all_half({"w": torch.zeros(2, dtype=torch.float32)}))
-        self.assertFalse(mod._is_all_half({}))
 
 
 if __name__ == "__main__":
