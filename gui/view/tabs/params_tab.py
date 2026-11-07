@@ -1,4 +1,4 @@
-"""参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值 / 噪声门。"""
+"""参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化 / 噪声门。"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel, QComboBox
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 def build_params_tab(win: "InferWindowHost"):
-    """参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值 / 噪声门。"""
+    """参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化 / 噪声门。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -20,27 +20,6 @@ def build_params_tab(win: "InferWindowHost"):
     g.setColumnStretch(1, 13)
     g.setColumnStretch(2, 3)
     r = 0
-
-    # ── 采样长度（block_time）──
-    win.block_time_slider, block_time_label = create_slider_row(0.05, 0.50, 0.01, 0.25)
-    g.addWidget(QLabel("块时长"), r, 0)
-    g.addWidget(win.block_time_slider, r, 1)
-    g.addWidget(block_time_label, r, 2)
-    r += 1
-
-    # ── 上下文长度（extra_time）──
-    win.extra_time_slider, extra_time_label = create_slider_row(0.10, 5.0, 0.10, 2.5)
-    g.addWidget(QLabel("上下文长度"), r, 0)
-    g.addWidget(win.extra_time_slider, r, 1)
-    g.addWidget(extra_time_label, r, 2)
-    r += 1
-
-    # ── 交叉淡化（crossfade_time；上限 0.10 = SOLA 实际生效的 100ms）──
-    win.crossfade_slider, crossfade_label = create_slider_row(0.01, 0.10, 0.01, 0.10)
-    g.addWidget(QLabel("交叉淡化"), r, 0)
-    g.addWidget(win.crossfade_slider, r, 1)
-    g.addWidget(crossfade_label, r, 2)
-    r += 1
 
     # ── 音高算法 ──
     win.f0_combo = QComboBox()
@@ -63,6 +42,27 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(win.f0_threshold_name, r, 0)
     g.addWidget(win.f0_threshold_slider, r, 1)
     g.addWidget(f0_threshold_label, r, 2)
+    r += 1
+
+    # ── 采样长度（block_time）──
+    win.block_time_slider, block_time_label = create_slider_row(0.05, 0.50, 0.01, 0.25)
+    g.addWidget(QLabel("块时长"), r, 0)
+    g.addWidget(win.block_time_slider, r, 1)
+    g.addWidget(block_time_label, r, 2)
+    r += 1
+
+    # ── 上下文长度（extra_time）──
+    win.extra_time_slider, extra_time_label = create_slider_row(0.10, 5.0, 0.10, 2.5)
+    g.addWidget(QLabel("上下文长度"), r, 0)
+    g.addWidget(win.extra_time_slider, r, 1)
+    g.addWidget(extra_time_label, r, 2)
+    r += 1
+
+    # ── 交叉淡化（crossfade_time；上限 0.10 = SOLA 实际生效的 100ms）──
+    win.crossfade_slider, crossfade_label = create_slider_row(0.01, 0.10, 0.01, 0.10)
+    g.addWidget(QLabel("交叉淡化"), r, 0)
+    g.addWidget(win.crossfade_slider, r, 1)
+    g.addWidget(crossfade_label, r, 2)
     r += 1
 
     # ── 输入噪声门（阈值即门限：低于该 dB 的输入帧静音；-100 近似关闭）──
