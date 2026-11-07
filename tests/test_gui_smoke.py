@@ -9,6 +9,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
+from types import SimpleNamespace
+
+from rvc.core.config import NOISE_GATE_DEFAULT, NOISE_GATE_MAX, NOISE_GATE_MIN, InferenceParams
+
 app = QApplication.instance() or QApplication([])
 
 
@@ -20,10 +24,12 @@ class _F0:
 
 class _P:
     f0 = _F0()
+    noise_gate_db = -60.0
 
 
 class _Win:
     runtime_params = _P()
+    controller = SimpleNamespace(noise_gate_range=(NOISE_GATE_MIN, NOISE_GATE_MAX))
 
 
 class TestTabsConstruct(unittest.TestCase):
@@ -127,6 +133,7 @@ class TestNoRealismSliderLeftover(unittest.TestCase):
 
         class _Win:
             runtime_params = _P()
+            controller = SimpleNamespace(noise_gate_range=(NOISE_GATE_MIN, NOISE_GATE_MAX))
 
         win = _Win()
         win._page = build_params_tab(win)
@@ -152,6 +159,94 @@ class TestNoRealismSliderLeftover(unittest.TestCase):
         win = _Win()
         win._page = build_timbre_tab(win)
         self.assertFalse(hasattr(win, "realism_slider"))
+
+
+class TestDropdownsAndNoiseGate(unittest.TestCase):
+    """toggle→下拉框 + 噪声门：语义 userData、滑条量程/默认、切换槽副作用。
+
+    下拉框的 userData（rmvpe/fcpe、model/device）是 collect/apply 的命中键，
+    改文案或漏挂 userData 会静默落空首项——这里把语义值钉死。
+    """
+
+    def _params_win(self):
+        from gui.view.tabs.params_tab import build_params_tab
+
+        win = _Win()
+        win._page = build_params_tab(win)   # 页容器保活，子控件才不随之销毁
+        return win
+
+    def _device_win(self):
+        from gui.view.tabs.device_tab import build_device_tab
+
+        class _DWin:
+            def _ha_changed(self, *_a):
+                pass
+
+        win = _DWin()
+        win._page, win._refresh = build_device_tab(win)
+        return win
+
+    def test_f0_combo_semantic_userdata(self):
+        win = self._params_win()
+        combo = win.f0_combo
+        items = [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
+        self.assertEqual(items, [("RMVPE", "rmvpe"), ("FCPE", "fcpe")])
+
+    def test_sr_combo_semantic_userdata(self):
+        win = self._device_win()
+        combo = win.sr_combo
+        items = [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
+        self.assertEqual(items, [("模型", "model"), ("设备", "device")])
+
+    def test_noise_gate_slider_default_and_range(self):
+        win = self._params_win()
+        slider = win.noise_gate_slider
+        self.assertAlmostEqual(slider.value(), NOISE_GATE_DEFAULT, places=6)
+        slider.setValue(NOISE_GATE_MIN)
+        self.assertAlmostEqual(slider.value(), NOISE_GATE_MIN, places=6)
+        slider.setValue(NOISE_GATE_MAX)
+        self.assertAlmostEqual(slider.value(), NOISE_GATE_MAX, places=6)
+        slider.setValue(NOISE_GATE_MAX + 50)   # 越界钳到上界
+        self.assertAlmostEqual(slider.value(), NOISE_GATE_MAX, places=6)
+
+    def test_f0_switch_slot_refreshes_threshold(self):
+        from gui.view.window import MainWindow
+
+        pw = self._params_win()
+        win = MainWindow.__new__(MainWindow)
+        win.runtime_params = InferenceParams()
+        win.f0_combo = pw.f0_combo
+        win.f0_threshold_slider = pw.f0_threshold_slider
+        win.f0_threshold_name = pw.f0_threshold_name
+
+        win.f0_combo.setCurrentIndex(1)   # fcpe
+        win._on_f0_method_changed()
+        self.assertEqual(win.runtime_params.f0.method, "fcpe")
+        self.assertEqual(win.f0_threshold_name.text(), "FCPE 阈值")
+        self.assertAlmostEqual(win.f0_threshold_slider.value(),
+                               win.runtime_params.f0.fcpe_confidence_threshold, places=6)
+
+        win.f0_combo.setCurrentIndex(0)   # rmvpe
+        win._on_f0_method_changed()
+        self.assertEqual(win.runtime_params.f0.method, "rmvpe")
+        self.assertEqual(win.f0_threshold_name.text(), "RMVPE 阈值")
+        self.assertAlmostEqual(win.f0_threshold_slider.value(),
+                               win.runtime_params.f0.rmvpe_threshold, places=6)
+
+    def test_sr_switch_slot_writes_userdata(self):
+        from gui.view.window import MainWindow
+
+        dw = self._device_win()
+        win = MainWindow.__new__(MainWindow)
+        win.runtime_params = InferenceParams()
+        win.sr_combo = dw.sr_combo
+
+        win.sr_combo.setCurrentIndex(1)
+        win._on_sr_mode_changed()
+        self.assertEqual(win.runtime_params.audio.sr_mode, "device")
+        win.sr_combo.setCurrentIndex(0)
+        win._on_sr_mode_changed()
+        self.assertEqual(win.runtime_params.audio.sr_mode, "model")
 
 
 if __name__ == "__main__":

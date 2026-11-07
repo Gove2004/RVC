@@ -108,6 +108,15 @@ class InferController:
         return FORMANT_MIN, FORMANT_MAX
 
     @property
+    def noise_gate_range(self) -> tuple[float, float]:
+        """输入噪声门滑条量程 (min, max)，单位 dB。
+
+        与热路径短路阈值是同一组常量——View 层经此取数，不直接 import rvc 常量。
+        """
+        from rvc.core.config import NOISE_GATE_MAX, NOISE_GATE_MIN
+        return NOISE_GATE_MIN, NOISE_GATE_MAX
+
+    @property
     def hubert_variants(self) -> tuple[str, ...]:
         """HuBERT 特征器清单，View 层经此取数（不直接 import rvc）。"""
         from rvc.core.config import HUBERT_VARIANTS

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from PySide6.QtCore import QTimer, Signal
     from PySide6.QtWidgets import (
         QComboBox, QLabel, QLineEdit, QProgressBar, QPushButton,
-        QRadioButton, QSlider, QTextEdit,
+        QSlider, QTextEdit,
     )
 
     from gui.controller.device_controller import DeviceCatalog
@@ -75,8 +75,8 @@ class InferWindowHost(Protocol):
     crossfade_slider: "DoubleSlider"
     f0_threshold_slider: "DoubleSlider"
     f0_threshold_name: "QLabel"
-    f0_rmvpe_btn: "QRadioButton"
-    f0_fcpe_btn: "QRadioButton"
+    f0_combo: "QComboBox"
+    noise_gate_slider: "DoubleSlider"
 
     # ── 设备控件（device_tab / BINDINGS）──
     hostapi_combo: "QComboBox"
@@ -84,8 +84,7 @@ class InferWindowHost(Protocol):
     output_combo: "QComboBox"
     output2_combo: "QComboBox"
     gpu_combo: "QComboBox"
-    sr_model_radio: "QRadioButton"
-    sr_device_radio: "QRadioButton"
+    sr_combo: "QComboBox"
 
     # ── 融合控件（merge_tab）──
     merge_a: "PathPickerButton"

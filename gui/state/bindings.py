@@ -22,15 +22,17 @@ if TYPE_CHECKING:
 FLOAT = "float"
 COMBO = "combo"
 PATH = "path"
-RADIO_F0 = "radio_f0"
-RADIO_SR = "radio_sr"
+# 下拉框但带专用信号槽（读 userData 而非信号文本，且有切换副作用）：
+# COMBO_F0 切换时刷新阈值滑条，COMBO_SR 启动后回写带采样率的项文案。
+COMBO_F0 = "combo_f0"
+COMBO_SR = "combo_sr"
 
 # 序列化分组名与派生字段（params_from_dict / params_to_dict / 测试共用单源）
 GROUP_NAMES = PARAM_GROUPS  # 单源：rvc.core.config
 # 派生属性，不参与 dict 序列化（enable_out2 由 output2_device 计算）
 DERIVED_FIELDS = frozenset({"enable_out2"})
 # 顶层字段
-TOP_LEVEL_FIELDS = ("rms_mix", "volume", "model_path", "hubert")
+TOP_LEVEL_FIELDS = ("rms_mix", "volume", "noise_gate_db", "model_path", "hubert")
 
 # 状态字段 schema：(分组路径, window 控件属性名, 读写方式)
 # 分组路径用点号分隔，如 "voice.formant"、"buffer.block_time"
@@ -39,14 +41,15 @@ BINDINGS = [
     ("voice.formant", "formant_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
+    ("noise_gate_db", "noise_gate_slider", FLOAT),
     # ── F0 参数（f0.*）──
-    ("f0.method", "f0_rmvpe_btn", RADIO_F0),
+    ("f0.method", "f0_combo", COMBO_F0),
     # ── 缓冲区参数（buffer.*）──
     ("buffer.block_time", "block_time_slider", FLOAT),
     ("buffer.crossfade_time", "crossfade_slider", FLOAT),
     ("buffer.extra_time", "extra_time_slider", FLOAT),
     # ── 音频设备参数（audio.*）──
-    ("audio.sr_mode", "sr_model_radio", RADIO_SR),
+    ("audio.sr_mode", "sr_combo", COMBO_SR),
     # hostapi 必须排在三个设备下拉框之前：apply_params 依序回填，hostapi 的
     # currentTextChanged 触发按驱动重扫重填，其后 input/output 的回填才能在
     # 正确的设备列表里命中存档中的名字（BINDINGS 表内顺序即回填顺序）
@@ -171,7 +174,7 @@ def _set(win: "InferWindowHost", widget, kind, value):
         slider.setValue(float(value))
         # 手动刷新标签：控件未显示时 setValue 可能不触发 valueChanged
         slider.update_label()
-    elif kind == COMBO:
+    elif kind in (COMBO, COMBO_F0, COMBO_SR):
         combo = getattr(win, widget)
         # 优先按 userData 匹配，无 userData 时回退到文本匹配
         idx = combo.findData(value)
@@ -182,12 +185,6 @@ def _set(win: "InferWindowHost", widget, kind, value):
     elif kind == PATH:
         # 程序化回填（配置加载）：只改显示与内部路径，不反向触发 pathChanged
         getattr(win, widget).set_path(str(value) if value else "", emit=False)
-    elif kind == RADIO_F0:
-        win.f0_rmvpe_btn.setChecked(value == "rmvpe")
-        win.f0_fcpe_btn.setChecked(value != "rmvpe")
-    elif kind == RADIO_SR:
-        win.sr_model_radio.setChecked(value == "model")
-        win.sr_device_radio.setChecked(value != "model")
     else:
         raise ValueError(f"未知读写方式: {kind}")
 
@@ -224,16 +221,12 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
         w = getattr(win, widget)
         if kind == FLOAT:
             value = w.value()
-        elif kind == COMBO:
+        elif kind in (COMBO, COMBO_F0, COMBO_SR):
             # 优先取 userData，无则取文本
             data = w.currentData()
             value = data if data is not None else w.currentText()
         elif kind == PATH:
             value = w.path()
-        elif kind == RADIO_F0:
-            value = "rmvpe" if win.f0_rmvpe_btn.isChecked() else "fcpe"
-        elif kind == RADIO_SR:
-            value = "model" if win.sr_model_radio.isChecked() else "device"
         else:
             continue
         _set_nested(params, path, value)

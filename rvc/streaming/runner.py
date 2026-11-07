@@ -10,8 +10,8 @@
     stage_f0：F0 同步/截断 + 后处理 + 特征上采样（pipeline.postprocess_features）
     stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
     stage_output：RMS 混合 + SOLA + 硬件输出
-- formant 因子可运行中调整（state.formant_factor → formant_ratio），各档位的
-  合成器图在启动时预捕获（prewarm_formant），切换即纯回放
+- formant 因子可运行中调整（state.formant_factor → formant_ratio），当前档位的
+  合成器图在启动时预捕获（prewarm_formant），切到未预捕获的档位则现场补捕获一次
 """
 import logging
 import time
@@ -21,11 +21,12 @@ import torch
 import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.core.config import VOLUME_MAX, VOLUME_MIN
+from rvc.core.config import NOISE_GATE_MIN, VOLUME_MAX, VOLUME_MIN
 from rvc.core.constants import (
     HUBERT_FRAME_SIZE,
     HUBERT_SAMPLE_RATE,
 )
+from rvc.dsp.rms import apply_noise_gate
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
 from rvc.streaming.buffers import buffer_geometry, formant_frame_range
 from rvc.streaming.effects import AudioProcessor
@@ -86,7 +87,7 @@ class InferenceRunner:
 
         # 启动时以配置值初始化；运行中由 set_formant_factor 改写（滑条实时生效）。
         # 每换一个 formant 档位就是另一张合成器图（输出形状随 return_length2 变），
-        # 这些图在 prewarm_formant 里按量程整段预捕获。
+        # 当前档位在 prewarm_formant 里预捕获，其余档位切到时现场补捕获。
         state.formant_factor = 2.0 ** (float(self.runtime_params.voice.formant) / 12.0)
         state.formant_ratio = 1.0
 
@@ -179,18 +180,19 @@ class InferenceRunner:
             logger.warning("预热失败，不影响运行: %s", exc)
 
     def prewarm_formant(self, formant_min: float, formant_max: float) -> None:
-        """预捕获 formant 全量程各档位的合成器图（必须在音频流启动前调用）。
+        """预捕获给定 formant 量程内各档位的合成器图（必须在音频流启动前调用）。
 
         formant 经 return_length2 决定合成器输出形状，每换一个整数帧数就是另一
-        张图。缺图时捕获发生在音频回调线程里，单张捕获是百毫秒级，对听者就是
-        一次断音。而全量程的整数帧数只有 `formant_frame_range` 那么多个，
-        一次性把这段跑完，换来运行中拖动滑条的零开销切换。
+        张图，各持一份私有显存池。缺图时捕获发生在音频回调线程里，单张捕获是
+        百毫秒级，对听者就是一次断音。传入的量程越大，预捕获的档位越多、运行中
+        拖滑条越不会顿，但常驻显存也越高——量程由调用方按这个取舍决定（实时只
+        传当前档位，见 VoiceEngine._make_runner）。
 
         只在流启动前调用：此刻没有在途回放，捕获不会与回放互相干扰。各档位用
         静音输入，调用方随后 reset_buffers() 清掉静音上下文。
 
         Args:
-            formant_min / formant_max: 量程（半音），取 FORMANT_MIN/MAX
+            formant_min / formant_max: 量程（半音）；两者相等即只捕获当前一档
         """
         state = self.state
         if self.pipeline is None or state.input_wav_16k is None or state.return_length <= 0:
@@ -218,7 +220,7 @@ class InferenceRunner:
         """更新性别因子（共振峰比例），下一块即生效。
 
         单次属性赋值：音频回调线程每块读一次 state.formant_factor，Python 赋值
-        原子，不需要锁。目标档位的图已由 prewarm_formant 捕获，切换是纯回放。
+        原子，不需要锁。目标档位若已预捕获则是纯回放，否则该块现场补捕获一次。
         """
         self.state.formant_factor = float(factor)
 
@@ -267,6 +269,11 @@ class InferenceRunner:
         with torch.inference_mode():
             # ── stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样 ──
             mono = self._stage_input(indata)
+            # 输入噪声门：低于阈值的帧静音后再进缓冲区/模型（参考原版响应阈值）。
+            # 阈值即门限全程生效；NOISE_GATE_MIN 近似关闭，短路省算力。
+            gate_db = self.runtime_params.noise_gate_db
+            if gate_db > NOISE_GATE_MIN:
+                mono = apply_noise_gate(mono, gate_db, state.samples_per_centis)
             self._stage_preprocess(mono)
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──

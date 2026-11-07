@@ -1,7 +1,7 @@
 """设备 Tab — 推理显卡 / 音频驱动与设备 / 采样率"""
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QRadioButton, QButtonGroup, QSizePolicy,
+    QWidget, QGridLayout, QLabel, QComboBox,
+    QPushButton, QSizePolicy,
 )
 
 from gui.styles import ButtonStyles
@@ -73,31 +73,15 @@ def build_device_tab(win):
     r += 1
 
     # ── 采样率 ──
-    # 两枚单选钮必须包进容器再入格：裸放进拉伸列时，其较小的 sizeHint/最大宽
-    # 会把整列的 max 钳死，富余宽度无处可去就被 Qt 分给布局外边距（内容整体
-    # 居中，左右各多出几十 px）。容器 max 无上限，列恢复可扩展；
-    # 尾部 addStretch 保证富余宽度给弹性空隙、两钮保持贴文字宽度。
-    win.sr_model_radio = QRadioButton("模型 -")
-    win.sr_device_radio = QRadioButton("设备 -")
-    win.sr_model_radio.setChecked(True)
-
-    sr_group = QButtonGroup(w)
-    sr_group.addButton(win.sr_model_radio)
-    sr_group.addButton(win.sr_device_radio)
-
-    sr_row = QWidget()
-    # 垂直必须 Fixed：容器默认 Preferred（可拉伸），窗口富余高度会被这一行
-    # 独吞导致行偏高（同参数页音高算法行的修复）。
-    sr_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-    sr_h = QHBoxLayout(sr_row)
-    sr_h.setContentsMargins(0, 0, 0, 0)
-    sr_h.setSpacing(12)
-    sr_h.addWidget(win.sr_model_radio)
-    sr_h.addWidget(win.sr_device_radio)
-    sr_h.addStretch(1)
-
+    # userData 存语义值（model/device），项文案启动后由 lifecycle 回写成带真实
+    # 采样率的文本（「模型 40000」/「设备 48000」）；收集/回填都按 userData。
+    win.sr_combo = QComboBox()
+    win.sr_combo.addItem("模型", "model")
+    win.sr_combo.addItem("设备", "device")
+    win.sr_combo.setMinimumHeight(28)
+    win.sr_combo.setToolTip("模型：流按模型采样率跑；设备：按输入设备默认采样率跑。")
     g.addWidget(_label("采样率"), r, 0)
-    g.addWidget(sr_row, r, 1, 1, 2)
+    g.addWidget(win.sr_combo, r, 1, 1, 2)
     r += 1
 
     return w, refresh_btn

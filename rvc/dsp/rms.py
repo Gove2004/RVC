@@ -86,3 +86,27 @@ def apply_rms_mix(
     r2 = F.interpolate(r2[None, None], size=n + 1, mode="linear", align_corners=True)[0, 0, :-1]
     r2 = torch.clamp(r2, min=1e-3)
     return converted * torch.pow(r1 / r2, 1 - rms_mix)
+
+
+def apply_noise_gate(
+    wav: torch.Tensor,
+    threshold_db: float,
+    samples_per_centis: int,
+) -> torch.Tensor:
+    """输入噪声门：按帧 RMS→dB，把低于阈值的帧静音（参考原版 RVC 响应阈值）。
+
+    阈值即门限，全程生效：-100dB 近似关闭（只滤真静音），0dB 几乎全滤。
+    帧长 4 厘秒、帧移 1 厘秒（与原版 4*zc/zc 及本项目 RMS 口径一致）。
+    GPU 端向量化、零 CPU 同步；返回新张量，不改写入参（mono 是持久上传缓冲的视图）。
+
+    Args:
+        wav: 单声道输入块 [N]（work_sr 采样率）
+        threshold_db: 门限（dB），低于此 RMS 的帧被静音
+        samples_per_centis: 每厘秒样本数（work_sr // 100）
+    """
+    n = wav.shape[0]
+    rms = fast_rms(wav, 4 * samples_per_centis, samples_per_centis)
+    # fast_rms 已 clamp min=1e-8 → db 下限 -160，log10 不会 -inf
+    db = 20.0 * torch.log10(rms)
+    mask = (db < threshold_db).repeat_interleave(samples_per_centis)[:n]
+    return wav.masked_fill(mask, 0.0)

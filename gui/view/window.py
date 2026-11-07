@@ -216,11 +216,11 @@ class MainWindow(WindowLifecycle, HostContractMixin, QMainWindow):
     def _connect_all_param_signals(self) -> None:
         """统一连接所有参数控件的变化信号 → 实时更新 runtime_params。
 
-        覆盖 BINDINGS 表中的所有控件类型（FLOAT/COMBO/RADIO_F0/RADIO_SR），
+        覆盖 BINDINGS 表中的所有控件类型（FLOAT/COMBO/COMBO_F0/COMBO_SR），
         以及特殊控件（RangeSlider、f0_threshold_slider）。只在 __init__ 调用一次。
         """
         from gui.state.bindings import (
-            BINDINGS, FLOAT, COMBO, PATH, RADIO_F0, RADIO_SR, _set_nested,
+            BINDINGS, FLOAT, COMBO, PATH, COMBO_F0, COMBO_SR, _set_nested,
         )
 
         # 1. BINDINGS 表中的所有控件
@@ -240,10 +240,10 @@ class MainWindow(WindowLifecycle, HostContractMixin, QMainWindow):
                 def _on_path(new_path, p=path):
                     _set_nested(self.runtime_params, p, new_path)
                 w.pathChanged.connect(_on_path)
-            elif kind == RADIO_F0:
-                w.toggled.connect(lambda _: self._on_f0_method_changed())
-            elif kind == RADIO_SR:
-                w.toggled.connect(lambda _: self._on_sr_mode_changed())
+            elif kind == COMBO_F0:
+                w.currentIndexChanged.connect(lambda _: self._on_f0_method_changed())
+            elif kind == COMBO_SR:
+                w.currentIndexChanged.connect(lambda _: self._on_sr_mode_changed())
 
         # 2. RangeSlider（音域映射）— rangeChanged 信号
         def _on_src_range(low, high):
@@ -332,13 +332,12 @@ class MainWindow(WindowLifecycle, HostContractMixin, QMainWindow):
         combo.blockSignals(False)
 
     def _on_sr_mode_changed(self):
-        """采样率模式切换时，更新 runtime_params.audio.sr_mode。"""
-        self.runtime_params.audio.sr_mode = "model" if self.sr_model_radio.isChecked() else "device"
+        """采样率模式切换时，更新 runtime_params.audio.sr_mode（读 userData）。"""
+        self.runtime_params.audio.sr_mode = self.sr_combo.currentData()
 
     def _on_f0_method_changed(self):
-        """F0 方法切换时，更新 runtime_params 和阈值滑动条。"""
-        is_rmvpe = self.f0_rmvpe_btn.isChecked()
-        self.runtime_params.f0.method = "rmvpe" if is_rmvpe else "fcpe"
+        """F0 方法切换时，更新 runtime_params 和阈值滑动条（读 userData）。"""
+        self.runtime_params.f0.method = self.f0_combo.currentData()
         self.f0_threshold_slider.setValue(f0_active_threshold(self.runtime_params))
         self.f0_threshold_name.setText(f0_threshold_label(self.runtime_params.f0.method))
 
@@ -406,8 +405,9 @@ class MainWindow(WindowLifecycle, HostContractMixin, QMainWindow):
         else:
             mode = "stop"
         self.mode_toggle.set_mode(mode)
-        # 性别因子不随运行状态禁用：各档位的合成器图在启动时已整段预捕获
-        # （见 InferenceRunner.prewarm_formant），运行中拖动只是切换回放的图。
+        # 性别因子不随运行状态禁用：当前档位的合成器图启动时已预捕获
+        # （见 InferenceRunner.prewarm_formant），拖到未预捕获的新档位会现场
+        # 补捕获一次（该块一次性顿一下），之后常驻。
 
     def _reset_runtime_ui(self):
         self._timer.stop()

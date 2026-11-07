@@ -1,10 +1,7 @@
-"""参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值。"""
+"""参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值 / 噪声门。"""
 from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
-    QSizePolicy,
-)
+from PySide6.QtWidgets import QWidget, QGridLayout, QLabel, QComboBox
 
 from gui.view.widgets import create_slider_row
 
@@ -13,7 +10,7 @@ if TYPE_CHECKING:
 
 
 def build_params_tab(win: "InferWindowHost"):
-    """参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值。"""
+    """参数 Tab — 块时长 / 上下文长度 / 交叉淡化 / 音高算法 / 音高阈值 / 噪声门。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -46,32 +43,13 @@ def build_params_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 音高算法 ──
-    # 两枚单选钮必须包进容器再入格（同设备页采样率行）：裸放进拉伸列时，
-    # 其较小的 sizeHint/最大宽会把整列的 max 钳死，且两钮被拆到两列显得散；
-    # 容器 + 尾部 addStretch 让富余宽度进弹性空隙、两钮贴文字宽度横排靠左。
-    win.f0_rmvpe_btn = QRadioButton("RMVPE")
-    win.f0_fcpe_btn = QRadioButton("FCPE")
-    is_rmvpe = params.f0.method == "rmvpe"
-    win.f0_rmvpe_btn.setChecked(is_rmvpe)
-    win.f0_fcpe_btn.setChecked(not is_rmvpe)
-
-    f0_group = QButtonGroup(w)
-    f0_group.addButton(win.f0_rmvpe_btn)
-    f0_group.addButton(win.f0_fcpe_btn)
-
-    f0_row = QWidget()
-    # 垂直必须 Fixed：容器默认 Preferred（可拉伸），而本页其余行都是 Fixed，
-    # 窗口的富余高度会被这一行独吞，radio 垂直居中后上下留白、行明显偏高。
-    f0_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-    f0_h = QHBoxLayout(f0_row)
-    f0_h.setContentsMargins(0, 0, 0, 0)
-    f0_h.setSpacing(12)
-    f0_h.addWidget(win.f0_rmvpe_btn)
-    f0_h.addWidget(win.f0_fcpe_btn)
-    f0_h.addStretch(1)
-
+    win.f0_combo = QComboBox()
+    win.f0_combo.addItem("RMVPE", "rmvpe")
+    win.f0_combo.addItem("FCPE", "fcpe")
+    win.f0_combo.setMinimumHeight(28)
+    win.f0_combo.setCurrentIndex(0 if params.f0.method == "rmvpe" else 1)
     g.addWidget(QLabel("音高算法"), r, 0)
-    g.addWidget(f0_row, r, 1, 1, 2)
+    g.addWidget(win.f0_combo, r, 1, 1, 2)
     r += 1
 
     # ── 音高阈值（行标签随音高算法动态切换为 RMVPE/FCPE 阈值）──
@@ -85,6 +63,20 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(win.f0_threshold_name, r, 0)
     g.addWidget(win.f0_threshold_slider, r, 1)
     g.addWidget(f0_threshold_label, r, 2)
+    r += 1
+
+    # ── 输入噪声门（阈值即门限：低于该 dB 的输入帧静音；-100 近似关闭）──
+    ng_min, ng_max = win.controller.noise_gate_range
+    win.noise_gate_slider, noise_gate_label = create_slider_row(
+        ng_min, ng_max, 5.0, params.noise_gate_db, fmt=".0f", unit=" dB",
+    )
+    win.noise_gate_slider.setToolTip(
+        "输入噪声门：麦克风块进模型前，按帧 RMS 把低于阈值的帧静音。\n"
+        "-100 dB 近似关闭（只滤真静音），0 dB 几乎全滤；默认 -60 dB。"
+    )
+    g.addWidget(QLabel("噪声门"), r, 0)
+    g.addWidget(win.noise_gate_slider, r, 1)
+    g.addWidget(noise_gate_label, r, 2)
     r += 1
 
     return w

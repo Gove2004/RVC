@@ -328,8 +328,10 @@ class WindowLifecycle:
             self._on_err(str(e))
             return
 
-        self.sr_model_radio.setText(f"模型 {stats.model_sr}")
-        self.sr_device_radio.setText(f"设备 {stats.device_sr}")
+        # 回写带真实采样率的项文案（userData 保持 model/device 不变）。
+        # setItemText 不改当前索引，sr_combo 的 currentIndexChanged 不会触发。
+        self.sr_combo.setItemText(0, f"模型 {stats.model_sr}")
+        self.sr_combo.setItemText(1, f"设备 {stats.device_sr}")
         self._mark_running()
         if self.tray is not None:
             self.tray.update_status()
