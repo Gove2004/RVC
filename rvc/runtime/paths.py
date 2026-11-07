@@ -7,6 +7,8 @@
 import os
 from pathlib import Path
 
+from rvc.core.constants import DEFAULT_TRAIN_SR
+
 # 项目根：rvc/runtime/paths.py → 向上两级
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ASSETS_ROOT = PROJECT_ROOT / "assets"
@@ -23,7 +25,6 @@ TRAIN_CONFIG_FILES = {
     40000: CONFIG_ROOT / "40ktrain_config.json",
     48000: CONFIG_ROOT / "48ktrain_config.json",
 }
-DEFAULT_TRAIN_SR = 48000
 
 # ── 权重资产（大文件，git 忽略，目录骨架保留）──
 # HuBERT 特征器：assets/hubert/{base,chinese}/ 各含三件套（config.json + preprocessor_config.json + pytorch_model.bin）

@@ -9,6 +9,10 @@
 HUBERT_SAMPLE_RATE = 16000
 HUBERT_FRAME_SIZE = 160
 
+# 训练默认采样率（Hz）。TrainConfig.sr 的默认值与训练配置文件的缺省选择
+# 共用此单源；40k/48k 两档配置文件见 runtime.paths.TRAIN_CONFIG_FILES。
+DEFAULT_TRAIN_SR = 48000
+
 
 # 训练样本有效帧数范围（phone 帧数 = 特征帧数 ×2）。
 # 单源定义防止双处漂移：_filter 用它过滤样本，BucketSampler 用它生成分桶边界——

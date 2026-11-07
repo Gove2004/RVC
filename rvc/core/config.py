@@ -10,6 +10,7 @@
 from dataclasses import dataclass, field
 
 from rvc.core.constants import (
+    DEFAULT_TRAIN_SR,
     FCPE_CONFIDENCE_THRESHOLD_INFER,
     RMVPE_THRESHOLD_INFER,
 )
@@ -154,7 +155,7 @@ class TrainConfig:
     assets/configs/<40k|48k>train_config.json（按采样率二选一）。
     """
     exp_dir: str
-    sr: int = 48000
+    sr: int = DEFAULT_TRAIN_SR
     epochs: int = 2000
     batch_size: int = 4
     save_every_epoch: int = 200
