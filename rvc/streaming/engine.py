@@ -25,7 +25,7 @@ import torch
 from rvc.streaming import offline
 from rvc.streaming.runner import InferenceRunner
 from rvc.streaming.stream import AudioStreams
-from rvc.core.config import FORMANT_MAX, FORMANT_MIN, HUBERT_DEFAULT, InferenceParams
+from rvc.core.config import HUBERT_DEFAULT, InferenceParams
 from rvc.runtime import RuntimeDeviceConfig
 
 logger = logging.getLogger(__name__)
@@ -224,8 +224,9 @@ class VoiceEngine:
             extra_time: 额外上下文时长（秒）
             model_sr: 模型原生采样率
             reset_buffers: 是否在预热后重置缓冲区（实时需要，离线不需要）
-            prewarm_formant: 是否预捕获 formant 全量程的合成器图（只有实时需要：
-                它换来运行中拖动性别因子的零断音；离线一次转换只用一个档位）
+            prewarm_formant: 是否预捕获合成器图（只有实时需要：省首块的现场捕获
+                断音）。只捕获当前 formant 档位——每档各持一份私有显存池，全量程
+                预捕获常驻占用远高于单档；其余档位拖滑条时现场补捕获（一次性顿一下）
         """
         runner = InferenceRunner(self.pipeline, self.runtime_params)
         runner.init_processing(
@@ -236,9 +237,9 @@ class VoiceEngine:
         # _WARMUP_ITERATIONS 注释）。换回慢机冷启动若首几秒卡顿，先查这里。
         runner.warmup(_WARMUP_ITERATIONS)
         if prewarm_formant:
-            # 必须在主流启动前：捕获期间不能有在途回放。图缓存挂在合成器对象上，
-            # 跨 stop/start 复用，所以这段通常只在换模型后的首次启动付一次。
-            runner.prewarm_formant(FORMANT_MIN, FORMANT_MAX)
+            # 只预捕获当前档位：全量程每档各持一份私有显存池，常驻占用远高于单档位；其余档位拖滑条时现场补捕获。
+            current = self.runtime_params.voice.formant
+            runner.prewarm_formant(current, current)
         if reset_buffers:
             runner.reset_buffers()
         # 预热完成后推理用固定张量尺寸，归还 PyTorch GPU 内存池中未用的缓存。
@@ -250,8 +251,9 @@ class VoiceEngine:
     def set_formant(self, formant: float) -> None:
         """运行中调整性别因子（半音，即滑条值），下一块生效。
 
-        只改 runner 的 formant 因子，不碰缓冲区：各档位的合成器图已在 setup 时
-        预捕获，切换就是一次纯图回放，音频回调不会被捕获阻塞。
+        只改 runner 的 formant 因子，不碰缓冲区。当前档位的合成器图在 setup 时
+        已预捕获，切回它就是纯图回放；切到未预捕获的新档位则现场补捕获一次
+        （该块一次性顿一下），之后常驻。
         未启动时直接忽略——下次 setup 的 init_processing 会从配置取当前值。
         """
         if self._runner is None:

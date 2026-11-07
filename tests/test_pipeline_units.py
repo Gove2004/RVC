@@ -392,18 +392,17 @@ class TestRunnerPrewarmWiring(unittest.TestCase):
     def _make(self, **kwargs):
         engine = _bare_engine(mock.Mock(model_sr=40000), "x.pth")
         engine.runtime_params = mock.Mock()
+        engine.runtime_params.voice.formant = 1.5
         with mock.patch("rvc.streaming.engine.InferenceRunner") as ctor, \
                 mock.patch("torch.cuda.is_available", return_value=False):
             engine._make_runner(40000, 1, 0.25, 0.05, 2.5, 40000, **kwargs)
             return ctor.return_value
 
-    def test_realtime_prewarms_after_warmup(self):
+    def test_realtime_prewarms_only_current_gear(self):
         runner = self._make(reset_buffers=True, prewarm_formant=True)
         runner.warmup.assert_called_once()
-        runner.prewarm_formant.assert_called_once()
-        args = runner.prewarm_formant.call_args[0]
-        from rvc.core.config import FORMANT_MAX, FORMANT_MIN
-        self.assertEqual(args, (FORMANT_MIN, FORMANT_MAX))
+        # 只预捕获当前档位（min==max==current），其余档位拖滑条时现场补捕获。
+        runner.prewarm_formant.assert_called_once_with(1.5, 1.5)
 
     def test_offline_skips_prewarm(self):
         runner = self._make(reset_buffers=False)
