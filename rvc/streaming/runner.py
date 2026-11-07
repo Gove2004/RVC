@@ -27,6 +27,7 @@ from rvc.core.constants import (
     HUBERT_SAMPLE_RATE,
 )
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
+from rvc.streaming.buffers import buffer_geometry, formant_frame_range
 from rvc.streaming.effects import AudioProcessor
 from rvc.streaming.output import write_main_output
 
@@ -71,24 +72,17 @@ class InferenceRunner:
         state.work_sr = work_sr
         state.model_sr = model_sr
         state.channels = channels
-        zc = work_sr // 100
-        state.samples_per_centis = zc
 
-        # 计算参数（对齐到 10ms 边界）
-        state.block_samples = int(np.round(block_time * work_sr / zc)) * zc
-        state.crossfade_samples = int(np.round(crossfade_time * work_sr / zc)) * zc
-        # 重叠上限 100ms。上限只决定参数"能调到多长"，实际取多长由用户自己的
-        # crossfade_time 决定。注意重叠区是旧块尾部与新块头部按 sola_offset 错位
-        # 相加，错位相加会周期性相消；重叠越长，被相消区替换掉的原始音频越多。
-        state.sola_buffer_samples = min(state.crossfade_samples, 10 * zc)
-        state.sola_search_samples = zc
-        state.extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
-        state.block_samples_16k = HUBERT_FRAME_SIZE * state.block_samples // zc
-        state.skip_head = state.extra_samples // zc
-        # 传给合成器的帧数 = 当前块 + SOLA 缓冲 + SOLA 搜索（10ms 帧对齐）。
-        # 尾窗只有 return_length 帧进合成器；SOLA 拼接期望固定块长，输出侧
-        # 按 block_samples + sola_buffer + sola_search 截齐（见 _stage_formant）。
-        state.return_length = (state.block_samples + state.sola_buffer_samples + state.sola_search_samples) // zc
+        geo = buffer_geometry(work_sr, block_time, crossfade_time, extra_time)
+        state.samples_per_centis = geo.samples_per_centis
+        state.block_samples = geo.block_samples
+        state.crossfade_samples = geo.crossfade_samples
+        state.sola_buffer_samples = geo.sola_buffer_samples
+        state.sola_search_samples = geo.sola_search_samples
+        state.extra_samples = geo.extra_samples
+        state.block_samples_16k = geo.block_samples_16k
+        state.skip_head = geo.skip_head
+        state.return_length = geo.return_length
 
         # 启动时以配置值初始化；运行中由 set_formant_factor 改写（滑条实时生效）。
         # 每换一个 formant 档位就是另一张合成器图（输出形状随 return_length2 变），
@@ -97,17 +91,11 @@ class InferenceRunner:
         state.formant_ratio = 1.0
 
         # work_sr 滚动缓冲区
-        n = (
-            state.extra_samples
-            + state.crossfade_samples
-            + state.sola_search_samples
-            + state.block_samples
-        )
-        state.input_wav_work = torch.zeros(n, device=state.device)
+        state.input_wav_work = torch.zeros(geo.work_buffer_samples, device=state.device)
         state.input_wav_work_swap = torch.empty_like(state.input_wav_work)
 
         # 16k 滚动缓冲区（HuBERT / F0 用）
-        state.input_wav_16k = torch.zeros(HUBERT_FRAME_SIZE * n // zc, device=state.device)
+        state.input_wav_16k = torch.zeros(geo.buffer_16k_samples, device=state.device)
         state.input_wav_16k_swap = torch.empty_like(state.input_wav_16k)
 
         # pinned memory 双缓冲（异步 DMA 交替使用，避免下一块覆写时上一块 DMA 未完成）
@@ -134,11 +122,20 @@ class InferenceRunner:
         else:
             state.resampler_model_to_work = None
 
-        # z_p 固定噪声场：必须在任何 CUDA Graph 捕获**之前**预生成（捕获期间
-        # 建张量会落进图的私有内存池，跨图复用直接报错）。形状 = m_p 的形状：
-        # use_f0 路径 enc_p 会切掉 flow_head（FLOW_CONTEXT_COMPENSATION_FRAMES），
-        # no-f0 路径不切，两者长度不同。每次 init_processing 重建（块参数可能变了）。
-        #
+        # z_p 固定噪声场（须在 CUDA Graph 捕获前预生成，形状精确等于 m_p）
+        self._init_noise_z()
+
+        # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（单源）
+        self.effects.setup(
+            work_sr, state.block_samples, state.sola_buffer_samples,
+            state.sola_search_samples, state.device,
+        )
+
+    def _init_noise_z(self) -> None:
+        """预生成 z_p 固定噪声场，形状须与 m_p 精确一致（use_f0 路径要切 flow_head）。"""
+        state = self.state
+        # 必须在任何 CUDA Graph 捕获**之前**预生成（捕获期间建张量会落进图的
+        # 私有内存池，跨图复用直接报错）。每次 init_processing 重建（块参数可能变了）。
         # 长度按 HuBERT 卷积栈精确算出，不能用 skip_head + return_length 估：
         # feats_up 的实际长度是 (hubert_frames + 1) * 2（+1 是上采样的末帧重复），
         # 与 skip_head + return_length 恒差一帧。差一帧时 _z_sample 的形状校验
@@ -158,12 +155,6 @@ class InferenceRunner:
                 device=state.device, dtype=dtype)
         else:
             state.noise_z = None
-
-        # 效果器（RMS + SOLA）；sola_buffer_samples 已在上面统一计算（单源）
-        self.effects.setup(
-            work_sr, state.block_samples, state.sola_buffer_samples,
-            state.sola_search_samples, state.device,
-        )
 
     def warmup(self, n: int = 2) -> None:
         """预热推理引擎：用静音数据跑 n 个完整块。
@@ -191,10 +182,9 @@ class InferenceRunner:
         """预捕获 formant 全量程各档位的合成器图（必须在音频流启动前调用）。
 
         formant 经 return_length2 决定合成器输出形状，每换一个整数帧数就是另一
-        张图。缺图时捕获发生在音频回调线程里，单张实测 0.19~0.30s（RTX 5060
-        Laptop，真实链路），对听者就是一次断音。而全量程的整数帧数只有
-        `ceil(rl*f_max) - ceil(rl*f_min) + 1` 个（250ms 块 / 40kHz → 10 个），
-        一次性把这段跑完约 2s，换来运行中拖动滑条的零开销切换。
+        张图。缺图时捕获发生在音频回调线程里，单张捕获是百毫秒级，对听者就是
+        一次断音。而全量程的整数帧数只有 `formant_frame_range` 那么多个，
+        一次性把这段跑完，换来运行中拖动滑条的零开销切换。
 
         只在流启动前调用：此刻没有在途回放，捕获不会与回放互相干扰。各档位用
         静音输入，调用方随后 reset_buffers() 清掉静音上下文。
@@ -206,16 +196,14 @@ class InferenceRunner:
         if self.pipeline is None or state.input_wav_16k is None or state.return_length <= 0:
             return
 
-        ratio = state.return_length
-        lo = int(np.ceil(ratio * 2.0 ** (formant_min / 12.0)))
-        hi = int(np.ceil(ratio * 2.0 ** (formant_max / 12.0)))
         saved = state.formant_factor
+        ratio = state.return_length
         frames = state.block_samples
         indata = np.zeros((frames, state.channels), dtype=np.float32)
         outdata = np.zeros((frames, state.channels), dtype=np.float32)
         try:
             with torch.inference_mode():
-                for frames_rl2 in range(max(1, lo), hi + 1):
+                for frames_rl2 in formant_frame_range(state.return_length, formant_min, formant_max):
                     # 该档位的代表因子：ceil(rl * (rl2/rl)) 恰为 rl2
                     state.formant_factor = frames_rl2 / ratio
                     self.process_block(indata, outdata, frames)
