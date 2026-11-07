@@ -13,9 +13,16 @@ from torch import Tensor, nn
 def init_weights(m: nn.Module, mean: float = 0.0, std: float = 0.01) -> None:
     classname = m.__class__.__name__
     if classname.find("Conv") != -1:
-        weight = getattr(m, "weight", None)
-        if weight is not None:
-            weight.data.normal_(mean, std)
+        # weight_norm 参数化后 m.weight 是前向算出的非叶张量，写它会被丢弃；
+        # 真正的参数是 parametrizations.weight.original0，必须写它初始化才落地。
+        parametrizations = getattr(m, "parametrizations", None)
+        weight_param = getattr(parametrizations, "weight", None) if parametrizations is not None else None
+        if weight_param is not None and hasattr(weight_param, "original0"):
+            weight_param.original0.data.normal_(mean, std)
+        else:
+            weight = getattr(m, "weight", None)
+            if weight is not None:
+                weight.data.normal_(mean, std)
 
 
 def get_padding(kernel_size: int, dilation: int = 1) -> int:
