@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rvc.core.config import HUBERT_VARIANTS
 from rvc.io import CREATE_NO_WINDOW
 from rvc.io.audio_file import locate_ffmpeg
 from rvc.runtime.paths import (
@@ -201,7 +202,7 @@ def _probe_assets(log: TrainLogger) -> dict:
             fatal.append(f"训练配置缺失: assets/configs/{sr_k}ktrain_config.json（应随代码仓库一起上传）")
 
     hubert_root = HUBERT_ROOT
-    for variant in ("base", "chinese"):
+    for variant in HUBERT_VARIANTS:
         hubert_dir = hubert_root / variant
         for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin"):
             path = hubert_dir / f
@@ -233,7 +234,7 @@ def _probe_assets(log: TrainLogger) -> dict:
             log.log(msg, "ERROR")
         log.plain()
         log.log("以上权重都在 .gitignore 里，git clone 不会带下来，需要单独放置：", "ERROR")
-        log.log("  · assets/hubert/base/ + assets/hubert/chinese/（各含 config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
+        log.log("  · assets/hubert/{" + ",".join(HUBERT_VARIANTS) + "}/（各含 config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
         log.log("  · assets/rmvpe/rmvpe.pt", "ERROR")
         log.log("  · assets/pretrained/f0G48k.pth + f0D48k.pth（可选，但强烈建议）", "ERROR")
         raise EnvFatal("模型权重缺失")

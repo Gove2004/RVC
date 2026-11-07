@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 
+from rvc.core.config import HUBERT_VARIANTS
 from rvc.io.atomic import load_json_or_default
 from rvc.runtime.paths import TRAIN_CLI_DEFAULTS_FILE
 from rvc.train.cli import DEFAULTS, default_output_root
@@ -52,7 +53,7 @@ def _sanitize(saved: dict) -> dict:
 
     if saved.get("sr") in ("40k", "48k"):
         ok["sr"] = saved["sr"]
-    if saved.get("hubert") in ("base", "chinese"):
+    if saved.get("hubert") in HUBERT_VARIANTS:
         ok["hubert"] = saved["hubert"]
 
     if isinstance(saved.get("batch_size"), int) and not isinstance(saved.get("batch_size"), bool):

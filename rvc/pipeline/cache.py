@@ -33,7 +33,7 @@ def _release_graph_caches(value) -> None:
 class InferenceCache:
     def __init__(self):
         # 大对象少存：synthesizer 留最近 2 个（切模型时当前+上一个）；
-        # hubert 的 key = 设备+精度+variant（base/chinese 各 1 个），留 2 避免来回切换重载；
+        # hubert 的 key = 设备+精度+variant（每个 variant 1 个），留 2 避免来回切换重载；
         # rmvpe/fcpe 的 key 是设备+精度组合（各 1 个），留 1 即可。
         self._hubert = LRUCache(2)
         self._rmvpe = LRUCache(1)

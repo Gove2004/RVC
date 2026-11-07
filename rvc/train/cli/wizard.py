@@ -25,7 +25,7 @@ from rvc.train.cli.envcheck import (
     _scan_audio,
     _suggest_batch,
 )
-from rvc.core.config import HUBERT_VARIANTS
+from rvc.core.config import HUBERT_DEFAULT, HUBERT_VARIANTS
 from rvc.runtime.paths import parse_sr
 from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import _as_float, _as_int, _as_sr, ask, ask_yes
@@ -122,17 +122,19 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     if sr == "40k":
         log.log("40k：显存占用更小、训练更快，高频细节略少于 48k", "WARN")
 
-    # 5) HuBERT 特征器（训练/推理必须一致，权重在 assets/hubert/{base,chinese}；
+    # 5) HuBERT 特征器（训练/推理必须一致，权重在 assets/hubert/{base,chinese,ktum}；
     #    不一致 → 音色发闷、咬字怪异）
     def _hubert_ok(value):
         if value not in HUBERT_OPTIONS:
-            return False, "只能填 base 或 chinese"
+            return False, "只能填 " + " / ".join(HUBERT_OPTIONS)
         return True, ""
 
     hubert = ask("HuBERT 特征器", defaults["hubert"], check=_hubert_ok, options=HUBERT_OPTIONS,
-                 note="base = 官方 v2 预训练用的原版 hubert_base（默认）；chinese = 腾讯 chinese-hubert-base")
-    if hubert == "chinese":
-        log.log("chinese 特征器：推理时模型卡牌上的「特征器」必须同样选 chinese", "WARN")
+                 note="base = 官方 v2 预训练用的原版 hubert_base（默认）；"
+                      "chinese = 腾讯 chinese-hubert-base；"
+                      "ktum = KtUltraMorph 自训练版（KTUM 系模型必须选它）")
+    if hubert != HUBERT_DEFAULT:
+        log.log(f"{hubert} 特征器：推理时模型卡牌上的「特征器」必须同样选 {hubert}", "WARN")
 
     # 6) batch size（上次填过就用上次的，没填过按显存现算）
     suggested = _suggest_batch(vram_gb, sr_hz)

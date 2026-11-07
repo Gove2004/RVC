@@ -33,8 +33,10 @@ assets/hubert/**
 !assets/rmvpe/.gitkeep
 !assets/hubert/base/
 !assets/hubert/chinese/
+!assets/hubert/ktum/
 !assets/hubert/base/.gitkeep
 !assets/hubert/chinese/.gitkeep
+!assets/hubert/ktum/.gitkeep
 
 # Runtime configs (migrated to assets/configs/)
 /configs/

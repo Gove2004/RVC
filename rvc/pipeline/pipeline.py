@@ -46,7 +46,7 @@ class InferencePipeline:
             device_config: 设备配置（device/is_half）
             pth_path: 模型权重文件路径
             inference_cache: 推理缓存（默认使用全局缓存）
-            hubert: HuBERT 模型变体（base/chinese），缺省取 HUBERT_DEFAULT
+            hubert: HuBERT 模型变体（见 HUBERT_VARIANTS），缺省取 HUBERT_DEFAULT
         """
         # 创建跨块持续状态
         self.state = EngineState()

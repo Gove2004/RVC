@@ -16,13 +16,16 @@ from rvc.core.constants import (
 
 # HuBERT 特征器变体清单（唯一事实源）。放在这里而不是 rvc.models.hubert，
 # 是为了让 GUI 状态层/训练向导这类只需白名单的地方不必导入 torch。
-HUBERT_VARIANTS = ("base", "chinese")
+HUBERT_VARIANTS = ("base", "chinese", "ktum")
 
-# HuBERT 特征器默认变体。训练与推理必须用同一个（assets/hubert/{base,chinese}）：
+# HuBERT 特征器默认变体。训练与推理必须用同一个（assets/hubert/{base,chinese,ktum}）：
 # 不一致时音色发闷、咬字怪。改这里即全链路默认切换。
 # 取 base：本项目在用的 .pth 全部派生自官方 v2 预训练（assets/pretrained/f0G40k.pth），
 # 那套预训练用的是 base 特征器。曾经缺省成 chinese，导致 enc_p 收到分布外特征，
 # 且没有任何告警。chinese 仍是合法可选变体，供真按 chinese 训过的模型使用。
+# ktum：KtUltraMorph 自训练的 HuBERT（fairseq 格式，已转 transformers），
+# 架构与 base 完全相同（12 层 / 768 / 3072 / 12 头），但训练数据与 k-means
+# 标签不同，特征分布与 base 不兼容 —— 跑 KTUM 系模型必须选 ktum。
 HUBERT_DEFAULT = "base"
 
 # 输出音量增益范围（唯一事实源：GUI 滑动条量程与热路径钳位都取这里）
