@@ -1,5 +1,8 @@
 """运行时设备配置。"""
+import ctypes
+import glob
 import logging
+import os
 import threading
 
 import torch
@@ -7,6 +10,34 @@ import torch
 from rvc.runtime.graph import RuntimeOptions, configure_cuda_graph
 
 logger = logging.getLogger(__name__)
+
+
+def _prefer_blocking_sync() -> None:
+    """让 CUDA 同步阻塞睡眠而非自旋，省音频回调线程等待 GPU 时的 CPU。
+
+    实测（RTX 5060 Laptop，真实链路每块）：自旋 CPU 19ms ≈ 墙钟 20ms；改阻塞后
+    CPU 降到 ~4ms，墙钟不变。代价是唤醒依赖 OS 调度器（健康系统 <1ms），重负载
+    下的实时可靠性需实听验证。
+
+    必须在 CUDA 上下文创建前调用，进程级生效。要加载 torch 自带的那份 cudart
+    （与 torch 同一运行时实例，flags 才落在 torch 用的上下文上）；失败仅告警，
+    退回自旋不影响正确性。
+    """
+    lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
+    candidates = (
+        glob.glob(os.path.join(lib_dir, "cudart64_*.dll"))
+        + glob.glob(os.path.join(lib_dir, "libcudart.so*"))
+    )
+    if not candidates:
+        logger.warning("未找到 torch 自带 cudart，CUDA 同步保持自旋（CPU 占用较高）")
+        return
+    try:
+        cudart = ctypes.CDLL(candidates[0])
+        rc = cudart.cudaSetDeviceFlags(ctypes.c_uint(0x04))  # cudaDeviceScheduleBlockingSync
+        if rc != 0:
+            logger.warning("cudaSetDeviceFlags 返回 %d，CUDA 同步保持自旋", rc)
+    except Exception as exc:
+        logger.warning("设置 CUDA 阻塞同步失败，保持自旋：%s", exc)
 
 
 class RuntimeDeviceConfig:
@@ -37,6 +68,8 @@ class RuntimeDeviceConfig:
             logger.info("CUDA Graph 已启用（GPU：%s）", self.gpu_name)
 
     def _init_device(self, device_index: int) -> None:
+        # 阻塞同步须在上下文创建前设（见 _prefer_blocking_sync）：省回调线程自旋 CPU。
+        _prefer_blocking_sync()
         # 现状契约：无 CUDA 环境直接失败，不做 CPU 回退。
         # 显式抛出可读错误（而非让 torch 裸异常穿透），GUI 层据此弹友好提示。
         if not torch.cuda.is_available():
