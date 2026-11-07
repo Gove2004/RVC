@@ -68,7 +68,7 @@ class _SynthesizerTrnMsBase(nn.Module):
         """
         super(_SynthesizerTrnMsBase, self).__init__()
         if isinstance(sr, str):
-            sr = _SR_BY_KEY.get(sr, 48000)
+            sr = _SR_BY_KEY[sr]
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
         self.hidden_channels = hidden_channels

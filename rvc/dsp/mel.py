@@ -42,11 +42,9 @@ def _fft_frequencies(sr: float, n_fft: int) -> np.ndarray:
     return np.linspace(0, sr / 2, 1 + n_fft // 2, dtype=np.float64)
 
 
-def _mel_frequencies(n_mels: int, fmin: float = 0.0,
-                     fmax: float | None = None, htk: bool = False) -> np.ndarray:
+def _mel_frequencies(n_mels: int, fmin: float, fmax: float,
+                     htk: bool = False) -> np.ndarray:
     """mel 刻度上均匀分布的频率点。"""
-    if fmax is None:
-        fmax = 11025.0  # 兜底取 librosa 默认值；mel_filter_bank 调用时总会显式传入
     mel_min = _hz_to_mel(fmin, htk=htk)
     mel_max = _hz_to_mel(fmax, htk=htk)
     mels = np.linspace(mel_min, mel_max, n_mels, dtype=np.float64)

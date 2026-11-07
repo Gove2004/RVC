@@ -113,7 +113,7 @@ class Trainer:
         self.mel_config = self.json_config["data"]
         # use_spectral_norm 只属于判别器，不能混进生成器构造参数（基类虽有 **kwargs 吞掉，但保持干净）
         self.model_cfg = self.json_config["model"].copy()
-        self.use_spectral_norm = bool(self.model_cfg.pop("use_spectral_norm", False))
+        self.use_spectral_norm = bool(self.model_cfg.pop("use_spectral_norm"))
         self.segment_size = self.train_cfg["segment_size"] // self.mel_config["hop_length"]
         self.log_file = Path(self.cfg.exp_dir) / "train.log"
 
@@ -152,9 +152,10 @@ class Trainer:
             self.log_callback(message)
 
     def setup(self):
-        torch.manual_seed(self.train_cfg.get("seed", 1234))
-        random.seed(self.train_cfg.get("seed", 1234))
-        np.random.seed(self.train_cfg.get("seed", 1234))
+        seed = self.train_cfg["seed"]
+        torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
         # BucketSampler 让输入尺寸集中在少数几种 shape 上，benchmark 选核收益稳定
         torch.backends.cudnn.benchmark = True
         spec_channels = self.mel_config["filter_length"] // 2 + 1

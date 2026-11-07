@@ -39,10 +39,7 @@ def run_tool_async(win, fn, *args, on_done) -> None:
     被判定「无响应」）。串行化本身是必要的（合并与检视都要读同一批模型文件），
     但等待不该发生在主线程。
     """
-    queue = getattr(win, "tool_queue", None)
-    if queue is None:
-        queue = win.tool_queue = []
-    queue.append((fn, args, on_done))
+    win.tool_queue.append((fn, args, on_done))
     _drain_tool_queue(win)
 
 
@@ -51,7 +48,7 @@ def _drain_tool_queue(win) -> None:
     current = win.tool_runner
     if current is not None and current.isRunning():
         return
-    queue = getattr(win, "tool_queue", None)
+    queue = win.tool_queue
     if not queue:
         return
 
