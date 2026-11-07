@@ -17,6 +17,7 @@ from rvc.core.config import OfflineParams
 from rvc.core.errors import CancelledError
 
 if TYPE_CHECKING:
+    from gui.controller.engine_controller import InferController
     from gui.view.contracts import OfflineViewHost
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,7 @@ class OfflineConversion:
 
         self.worker = OfflineWorker(
             config,
-            engine_provider=lambda: self.host.controller.engine,
+            controller=self.host.controller,
             parent=self.host,
         )
         self._converting = True
@@ -301,10 +302,10 @@ class OfflineWorker(QThread):
     error = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, params: OfflineParams, engine_provider, parent=None):
+    def __init__(self, params: OfflineParams, controller: "InferController", parent=None):
         super().__init__(parent)
         self.params = params
-        self._engine_provider = engine_provider
+        self._controller = controller
         self._cancel_requested = False
 
     def request_stop(self) -> None:
@@ -329,13 +330,12 @@ class OfflineWorker(QThread):
                 pass
 
     def _do_run(self):
-        # 复用实时共享引擎（engine_controller.engine，带 inference_cache）：
+        # 复用实时共享引擎（经 InferController 操作，带 inference_cache）：
         # process_file 的设计契约就是离线/实时共用同一 engine（见 engine.process_file
         # 文档）。同 pth 时 load_model 命中快路径零加载，也避免与实时引擎并存导致
         # 的显存双份。互斥由 start_conversion 的 is_running 守卫保证。
         self.progress.emit(0, 100)
-        engine = self._engine_provider()
-        engine.load_model(self.params.model_path, hubert=self.params.hubert)
+        self._controller.load_model(self.params.model_path, self.params.hubert)
         self.progress.emit(20, 100)
 
         def _progress(cur, total):
@@ -346,6 +346,6 @@ class OfflineWorker(QThread):
         def _cancel_check():
             return self._cancel_requested
 
-        engine.process_file(self.params, progress_cb=_progress, cancel_cb=_cancel_check)
+        self._controller.process_file(self.params, progress_cb=_progress, cancel_cb=_cancel_check)
         self.progress.emit(100, 100)
         self.result_ready.emit(self.params.output_path)

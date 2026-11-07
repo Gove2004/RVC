@@ -118,7 +118,7 @@ class WindowLifecycle:
 
         def _do():
             try:
-                self.engine  # 触发惰性构造
+                self.controller.warmup()
                 logger.info("引擎预热完成")
                 # torch 此刻已就绪，把显卡列表投递回主线程回填下拉框
                 # （信号跨线程，Qt 自动走队列投递，不违反「后台线程不碰 Qt」）
@@ -281,7 +281,7 @@ class WindowLifecycle:
         self._loading = True
 
         self._mark_loading()
-        self._lt = LoadThread(self.engine, pth, hubert)
+        self._lt = LoadThread(self.controller, pth, hubert)
         self._lt.ok.connect(self._on_loaded)
         self._lt.err.connect(self._on_err)
         # 线程实例绑进连接：迟到的那一代线程只回收自己，绝不 deleteLater

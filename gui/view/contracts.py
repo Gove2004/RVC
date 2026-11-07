@@ -27,7 +27,6 @@ if TYPE_CHECKING:
         DoubleSlider, ElidedLabel, LoadThread, ModeToggle, PathPickerButton, RangeSlider,
     )
     from rvc.core.config import InferenceParams
-    from rvc.streaming.engine import VoiceEngine
 
 
 class InferWindowHost(Protocol):
@@ -123,10 +122,6 @@ class InferWindowHost(Protocol):
     # 预热线程 → 主线程：显卡列表回填 / 预热失败提示
     gpu_list_ready: "Signal"
     warmup_error: "Signal"
-
-    # ── 惰性引擎 ──
-    @property
-    def engine(self) -> "VoiceEngine": ...
 
     # ── 宿主方法（window.py 定义，混入与绑定层调用）──
     def apply_gui_state(self, state: "InferenceParams") -> None: ...

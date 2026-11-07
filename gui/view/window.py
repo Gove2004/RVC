@@ -146,11 +146,6 @@ class MainWindow(WindowLifecycle, HostContractMixin, QMainWindow):
             QMessageBox.critical(self, "错误", f"托盘初始化失败：{e}\n程序将退出。")
             sys.exit(1)
 
-    @property
-    def engine(self):
-        """惰性获取引擎 — 首次访问才构造（构造会加载 torch，避免拖慢窗口出现）。"""
-        return self.controller.engine
-
     # ── UI 辅助方法 ──
 
     def show_warning(self, message: str) -> None:

@@ -68,6 +68,10 @@ class InferController:
                     )
         return self._engine
 
+    def warmup(self) -> None:
+        """触发引擎惰性构造（后台预热线程调用：加载 torch + CUDA 探测）。"""
+        _ = self.engine
+
     @property
     def is_running(self) -> bool:
         """引擎是否在运行。"""
@@ -136,7 +140,7 @@ class InferController:
         if not pth:
             return
         try:
-            self.engine.load_model(pth, hubert=self.runtime_params.hubert)
+            self.load_model(pth, self.runtime_params.hubert)
             logger.info("上次模型已后台预加载，点「变声」将直接就绪")
         except Exception:
             logger.warning("后台预加载模型失败（点击变声时将正常加载）：%s", pth, exc_info=True)
@@ -157,6 +161,17 @@ class InferController:
         )
 
     # ── 引擎控制 ──
+
+    def load_model(self, pth: str, hubert: str, *, force: bool = False) -> int:
+        """加载模型，返回模型采样率（后台加载线程 / 离线 worker 经此操作，不持引擎对象）。
+
+        force=True 跳过同 pth 快路径（点「变声」显式重载）；预加载/离线用默认 False。
+        """
+        return self.engine.load_model(pth, force=force, hubert=hubert)
+
+    def process_file(self, params, *, progress_cb=None, cancel_cb=None) -> None:
+        """离线文件转换（复用实时共享引擎，离线 worker 经此操作）。"""
+        self.engine.process_file(params, progress_cb=progress_cb, cancel_cb=cancel_cb)
 
     def setup_engine(self, sr_mode: str, input_device_idx: int, output_device_idx: int,
                      output2_device_idx: int, block_time: float, crossfade_time: float,

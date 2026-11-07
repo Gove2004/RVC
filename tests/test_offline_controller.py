@@ -15,7 +15,6 @@ class FakeHost:
         self.controller = mock.Mock()
         self.controller.is_running = running
         self.controller.passthrough_running = False
-        self.controller.engine = object()
         self._loading = loading
         self._input_path = input_path
         self._model_path = model_path
@@ -88,9 +87,9 @@ class _FakeWorker:
 
     instances = []
 
-    def __init__(self, params, engine_provider, parent=None):
+    def __init__(self, params, controller, parent=None):
         self.params = params
-        self.engine_provider = engine_provider
+        self.controller = controller
         self.parent = parent
         self.progress = _FakeSignal()
         self.result_ready = _FakeSignal()
@@ -166,6 +165,8 @@ class TestStartConversionHappyPath(unittest.TestCase):
         self.assertEqual(len(_FakeWorker.instances), 1)
         worker = _FakeWorker.instances[0]
         self.assertTrue(worker.started)
+        # 离线 worker 经 controller 操作引擎，不再穿透拿引擎对象
+        self.assertIs(worker.controller, host.controller)
         # 输出路径 = 输入同目录 + _converted.wav（from_inference 的实参）
         kwargs = from_inf.call_args.kwargs
         self.assertEqual(kwargs["output_path"], "E:/audio/aaa_converted.wav")
