@@ -160,6 +160,62 @@ def _gpu_mem() -> tuple[float, float]:
         return 0.0, 0.0
 
 
+def _make_train_reporter(log: TrainLogger, cfg: dict):
+    """训练遥测回调工厂（与 _make_progress 同模式）：封装 loss 累计与 EMA 计时状态。
+
+    返回 (on_epoch, on_trainer_log, on_loss, on_batch, state)；state['batches']
+    供训练结束后的总 batch 数报告读取。on_epoch 经全局 STOP.trainer 读当前学习率。
+    """
+    state = {"t_epoch": time.time(), "sum": None, "count": 0, "batches": 0, "samples": 0, "last_ckpt": 0, "ema_secs": None}
+
+    def _reset_epoch():
+        state["sum"] = {"d": 0.0, "g": 0.0, "mel": 0.0, "kl": 0.0, "fm": 0.0}
+        state["count"] = 0
+        state["t_epoch"] = time.time()
+
+    _reset_epoch()
+
+    def on_batch(epoch, batch_idx, total):
+        state["batches"] += 1
+
+    def on_loss(loss_report):
+        if loss_report["batch"] == 1:
+            _reset_epoch()
+        s = state["sum"]
+        for key, field in (("d", "loss_d"), ("g", "loss_g"), ("mel", "loss_mel"), ("kl", "loss_kl"), ("fm", "loss_fm")):
+            s[key] += loss_report[field]
+        state["count"] += 1
+
+    def on_epoch(epoch, total):
+        s, n = state["sum"], max(state["count"], 1)
+        secs = time.time() - state["t_epoch"]
+        ema = secs if state["ema_secs"] is None else state["ema_secs"] * 0.7 + secs * 0.3
+        state["ema_secs"] = ema
+        left = ema * (total - epoch)
+        eta = human_dur(left) if left > 0 else "--"
+        lr_now = ""
+        if STOP.trainer is not None and hasattr(STOP.trainer, "optim_g") and STOP.trainer.optim_g is not None:
+            lr_now = f"lr {STOP.trainer.optim_g.param_groups[0]['lr']:.2e} | "
+        cur, peak = _gpu_mem()
+        mem = f" | 显存 现{cur:.1f}/峰{peak:.1f}GB" if cfg["device"].startswith("cuda") else ""
+        speed = f"{state['count'] / max(secs, 1e-6):.1f} it/s"
+        log.log(
+            f"epoch {epoch:>4}/{total} | {lr_now}"
+            f"D {s['d'] / n:.4f} G {s['g'] / n:.4f} Mel {s['mel'] / n:.4f} "
+            f"KL {s['kl'] / n:.4f} FM {s['fm'] / n:.4f} | {secs:.1f}s {speed} 剩余 {eta}{mem}",
+            "EPOCH",
+        )
+        _reset_epoch()
+
+    def on_trainer_log(msg: str):
+        if msg.startswith("epoch "):
+            log.file_only(msg)
+        else:
+            log.log(msg)
+
+    return on_epoch, on_trainer_log, on_loss, on_batch, state
+
+
 def step_train(log: TrainLogger, cfg: dict):
     from rvc.train.checkpoint import prune_orphan_checkpoints
     from rvc.train.preprocess import generate_filelist
@@ -208,52 +264,7 @@ def step_train(log: TrainLogger, cfg: dict):
         keep_models=cfg["keep_models"],
     )
 
-    state = {"t_epoch": time.time(), "sum": None, "count": 0, "batches": 0, "samples": 0, "last_ckpt": 0, "ema_secs": None}
-
-    def _reset_epoch():
-        state["sum"] = {"d": 0.0, "g": 0.0, "mel": 0.0, "kl": 0.0, "fm": 0.0}
-        state["count"] = 0
-        state["t_epoch"] = time.time()
-
-    _reset_epoch()
-
-    def on_batch(epoch, batch_idx, total):
-        state["batches"] += 1
-
-    def on_loss(loss_report):
-        if loss_report["batch"] == 1:
-            _reset_epoch()
-        s = state["sum"]
-        for key, field in (("d", "loss_d"), ("g", "loss_g"), ("mel", "loss_mel"), ("kl", "loss_kl"), ("fm", "loss_fm")):
-            s[key] += loss_report[field]
-        state["count"] += 1
-
-    def on_epoch(epoch, total):
-        s, n = state["sum"], max(state["count"], 1)
-        secs = time.time() - state["t_epoch"]
-        ema = secs if state["ema_secs"] is None else state["ema_secs"] * 0.7 + secs * 0.3
-        state["ema_secs"] = ema
-        left = ema * (total - epoch)
-        eta = human_dur(left) if left > 0 else "--"
-        lr_now = ""
-        if STOP.trainer is not None and hasattr(STOP.trainer, "optim_g") and STOP.trainer.optim_g is not None:
-            lr_now = f"lr {STOP.trainer.optim_g.param_groups[0]['lr']:.2e} | "
-        cur, peak = _gpu_mem()
-        mem = f" | 显存 现{cur:.1f}/峰{peak:.1f}GB" if cfg["device"].startswith("cuda") else ""
-        speed = f"{state['count'] / max(secs, 1e-6):.1f} it/s"
-        log.log(
-            f"epoch {epoch:>4}/{total} | {lr_now}"
-            f"D {s['d'] / n:.4f} G {s['g'] / n:.4f} Mel {s['mel'] / n:.4f} "
-            f"KL {s['kl'] / n:.4f} FM {s['fm'] / n:.4f} | {secs:.1f}s {speed} 剩余 {eta}{mem}",
-            "EPOCH",
-        )
-        _reset_epoch()
-
-    def on_trainer_log(msg: str):
-        if msg.startswith("epoch "):
-            log.file_only(msg)
-        else:
-            log.log(msg)
+    on_epoch, on_trainer_log, on_loss, on_batch, state = _make_train_reporter(log, cfg)
 
     trainer = Trainer(train_config, on_epoch, on_trainer_log, on_loss, on_batch,
                       export_dir=model_dir, ffmpeg_exe=cfg["ffmpeg"])
