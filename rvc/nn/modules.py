@@ -347,15 +347,20 @@ class ResidualCouplingLayer(nn.Module):
             m, logs = torch.split(stats, [self.half_channels] * 2, 1)
         else:
             m = stats
-            logs = torch.zeros_like(m)
+            logs = None  # mean_only：logs 恒 0，exp(±0)=1，reverse 可整段略去
 
         if not reverse:
+            if logs is None:
+                logs = torch.zeros_like(m)
             x1 = m + x1 * torch.exp(logs) * x_mask
             x = torch.cat([x0, x1], 1)
             logdet = torch.sum(logs, [1, 2])
             return x, logdet
         else:
-            x1 = (x1 - m) * torch.exp(-logs) * x_mask
+            x1 = x1 - m
+            if logs is not None:
+                x1 = x1 * torch.exp(-logs)
+            x1 = x1 * x_mask
             x = torch.cat([x0, x1], 1)
             return x, torch.zeros([1])
 

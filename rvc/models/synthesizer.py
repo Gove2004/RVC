@@ -239,13 +239,13 @@ class _SynthesizerTrnMsBase(nn.Module):
             z_p = (m_p + torch.exp(logs_p) * self._z_sample(m_p, z_noise) * 0.66666) * x_mask
             z = self.flow(z_p, x_mask, g=g, reverse=True)
 
-        # Decoder — 根据 use_f0 传递参数
+        # Decoder — z 经 flow 已在 x_mask 外归零，无需再乘 x_mask（比特级等价）
         if self.use_f0:
             if nsff0 is None:
                 raise ValueError("use_f0 模型要求 nsff0，实际为 None")
-            o = self.dec(z * x_mask, nsff0, g=g, n_res=return_length2)
+            o = self.dec(z, nsff0, g=g, n_res=return_length2)
         else:
-            o = self.dec(z * x_mask, g=g, n_res=return_length2)
+            o = self.dec(z, g=g, n_res=return_length2)
 
         return o, x_mask, (z, z_p, m_p, logs_p)
 
