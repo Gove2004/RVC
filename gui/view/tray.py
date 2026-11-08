@@ -74,7 +74,7 @@ class SystemTray:
         # （离开变声/加载 → 下次开原声；离开原声 → 下次开变声），
         # 启动失败不消耗交替（下次单击重试同档）。
         self._next_from_stop = "convert"
-        # 上一轮的图标/提示文本：每 200ms 的遥测 tick 都会调用 update_status，
+        # 上一轮的图标/提示文本：每 50ms 的遥测 tick 都会调用 update_status，
         # 内容不变时跳过 setToolTip/setIcon（两者都会触发托盘重绘）
         self._last_icon = None
         self._last_tip = None

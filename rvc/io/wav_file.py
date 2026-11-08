@@ -7,8 +7,6 @@
 - wav_file.py:  WAV 文件读写（结构化，不需要解码）
 - audio_file.py: 任意格式解码到 numpy 数组（需要 ffmpeg）
 """
-import os
-
 from rvc.io import CREATE_NO_WINDOW
 import re
 import struct
@@ -108,9 +106,7 @@ def read_wav_metadata(path: str | Path) -> dict:
                 (audio_format, channels, samplerate,
                  byte_rate, block_align, bits_per_sample) = struct.unpack("<HHIIHH", f.read(16))
                 # fmt 块可能长于 16 字节（cbSize 扩展 / WAVE_FORMAT_EXTENSIBLE 的
-                # 40 字节变体），解析后必须 seek 到块尾，否则后续块全部错位
-                if audio_format == 0xFFFE:  # WAVE_FORMAT_EXTENSIBLE
-                    audio_format = 1  # SubFormat 实际是 PCM（本项目只读元信息，按 PCM 处理）
+                # 40 字节变体），下方 seek 按 chunk_size 跳到块尾，否则后续块全部错位
             elif chunk_id == b"data":
                 pcm_size = chunk_size
                 break

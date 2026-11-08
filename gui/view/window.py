@@ -271,7 +271,7 @@ class MainWindow(WindowLifecycle, HostContractMixin, QMainWindow):
         for _slider_name in ("block_time_slider", "crossfade_slider", "extra_time_slider"):
             _slider = getattr(self, _slider_name)
 
-            def _on_buffer_param_changed(_v, s=_slider):
+            def _on_buffer_param_changed(_v):
                 if self.controller.is_running:
                     logger.info("缓冲区参数（块时长/交叉淡化/额外上下文）变更，自动停止转换（新值下次启动生效）")
                     self._stop()

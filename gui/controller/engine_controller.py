@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EngineStats:
-    """引擎启动后的两组采样率，GUI 用来刷新「模型 XXXX / 设备 XXXX」单选按钮。"""
+    """引擎启动后的两组采样率，GUI 用来刷新「模型 XXXX / 设备 XXXX」下拉框项文案。"""
     model_sr: int   # 模型原生采样率
     device_sr: int  # 输入设备默认采样率（sr_mode="device" 时按它开流）
 
@@ -145,7 +145,7 @@ class InferController:
         时 load_model 命中同 pth 快路径直接返回，只剩 warmup + 开流。
         失败静默（只留日志）——预加载是纯优化，真实加载的错误由点击路径正常上报。
         """
-        pth = (getattr(self.runtime_params, "model_path", "") or "").strip()
+        pth = (self.runtime_params.model_path or "").strip()
         if not pth:
             return
         try:
