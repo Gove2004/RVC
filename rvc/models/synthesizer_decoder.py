@@ -135,9 +135,7 @@ class SineGen(torch.nn.Module):
         self.voiced_threshold = voiced_threshold
 
     def _f02uv(self, f0: Tensor) -> Tensor:
-        uv = torch.ones_like(f0)
-        uv = uv * (f0 > self.voiced_threshold)
-        return uv
+        return (f0 > self.voiced_threshold).to(f0.dtype)
     
     def _f02sine(self, f0: Tensor, upp: int) -> Tensor:
         """ f0: (batchsize, length, dim)
@@ -149,8 +147,9 @@ class SineGen(torch.nn.Module):
         rad_acc = rad2.cumsum(dim=1).fmod(1.0).to(f0)
         rad += F.pad(rad_acc, (0, 0, 1, 0), mode='constant')
         rad = rad.reshape(f0.shape[0], -1, 1)
-        b = torch.arange(1, self.dim + 1, dtype=f0.dtype, device=f0.device).reshape(1, 1, -1)
-        rad *= b
+        if self.dim > 1:  # dim==1（仅基频）时 b≡1.0，rad*=b 是恒等，略去省一个捕获 kernel
+            b = torch.arange(1, self.dim + 1, dtype=f0.dtype, device=f0.device).reshape(1, 1, -1)
+            rad *= b
         rand_ini = torch.rand(1, 1, self.dim, device=f0.device)
         rand_ini[..., 0] = 0
         rad += rand_ini
