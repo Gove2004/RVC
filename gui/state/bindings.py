@@ -13,7 +13,9 @@ params_from_dict 从「刚构造出的默认实例」取 fallback，不写第二
 """
 from typing import TYPE_CHECKING
 
-from rvc.core.config import HUBERT_DEFAULT, HUBERT_VARIANTS, PARAM_GROUPS, InferenceParams
+from rvc.core.config import (
+    HUBERT_DEFAULT, HUBERT_VARIANTS, PARAM_GROUPS, TOP_LEVEL_FIELDS, InferenceParams,
+)
 
 if TYPE_CHECKING:
     from gui.view.contracts import InferWindowHost
@@ -31,8 +33,7 @@ COMBO_SR = "combo_sr"
 GROUP_NAMES = PARAM_GROUPS  # 单源：rvc.core.config
 # 派生属性，不参与 dict 序列化（enable_out2 由 output2_device 计算）
 DERIVED_FIELDS = frozenset({"enable_out2"})
-# 顶层字段
-TOP_LEVEL_FIELDS = ("rms_mix", "volume", "noise_gate_db", "model_path", "hubert")
+# 顶层字段单源：rvc.core.config.TOP_LEVEL_FIELDS（与 update_from 共用，经上方 import 再导出）
 
 # 状态字段 schema：(分组路径, window 控件属性名, 读写方式)
 # 分组路径用点号分隔，如 "voice.formant"、"buffer.block_time"
@@ -137,7 +138,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     # device_index 强制 int（JSON 读出来可能是 float）
     params.audio.device_index = int(params.audio.device_index)
 
-    # 顶层字段（rms_mix/volume/model_path/hubert）
+    # 顶层字段（rms_mix/volume/noise_gate_db/model_path/hubert，单源 TOP_LEVEL_FIELDS）
     for field_name in TOP_LEVEL_FIELDS:
         setattr(params, field_name, state.get(field_name, getattr(params, field_name)))
     # hubert 变体是白名单值：存档缺键 / 空串 / 手改错值都不能带进运行期，
@@ -228,7 +229,7 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
         elif kind == PATH:
             value = w.path()
         else:
-            continue
+            raise ValueError(f"未知读写方式: {kind}")
         _set_nested(params, path, value)
 
     # F0 阈值：滑条只展示当前方法的阈值；非活动方法的阈值从 runtime_params
@@ -250,6 +251,6 @@ def collect_params(win: "InferWindowHost") -> InferenceParams:
 
     # GPU 编号：没有走 BINDINGS（下拉项来自运行时探测的显卡列表），
     # 其变化由 gpu_combo 的信号直接写入 runtime_params，故这里取实时值。
-    params.audio.device_index = int(getattr(win, "runtime_params").audio.device_index)
+    params.audio.device_index = int(win.runtime_params.audio.device_index)
 
     return params

@@ -11,7 +11,9 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from types import SimpleNamespace
 
-from rvc.core.config import NOISE_GATE_DEFAULT, NOISE_GATE_MAX, NOISE_GATE_MIN, InferenceParams
+from rvc.core.config import (
+    NOISE_GATE_DEFAULT, NOISE_GATE_MAX, NOISE_GATE_MIN, BufferParams, InferenceParams,
+)
 
 app = QApplication.instance() or QApplication([])
 
@@ -24,6 +26,7 @@ class _F0:
 
 class _P:
     f0 = _F0()
+    buffer = BufferParams()
     noise_gate_db = -60.0
 
 

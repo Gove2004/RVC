@@ -81,10 +81,10 @@ def build_timbre_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 性别因子（formant）──
-    # 量程取自引擎侧的 FORMANT_MIN/MAX：实时启动时的图预捕获按同一段量程枚举，
-    # 两处若各写一份，滑条改宽而预捕获没跟上，超出段就会在音频回调里补捕获。
+    # 量程经 controller 下发（单源 rvc.core.config，View 不直接 import rvc 常量）。
+    # 实时启动只预捕获当前档位，运行中拖到别的档位会在音频回调里补捕获一次。
     f_min, f_max = win.controller.formant_range
-    win.formant_slider, formant_label = create_slider_row(f_min, f_max, 0.05, 0.0, fmt="+.2f")
+    win.formant_slider, formant_label = create_slider_row(f_min, f_max, 0.05, params.voice.formant, fmt="+.2f")
     win.formant_slider.setToolTip(
         "性别因子（共振峰偏移）：变声时实时生效。数值为半音，正数偏女、负数偏男。")
     g.addWidget(QLabel("性别因子"), r, 0)
@@ -93,7 +93,7 @@ def build_timbre_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 响度因子（rms_mix）──
-    win.rms_mix_slider, rms_mix_label = create_slider_row(0.0, 1.0, 0.05, 0.0)
+    win.rms_mix_slider, rms_mix_label = create_slider_row(0.0, 1.0, 0.05, params.rms_mix)
     g.addWidget(QLabel("响度因子"), r, 0)
     g.addWidget(win.rms_mix_slider, r, 1)
     g.addWidget(rms_mix_label, r, 2)

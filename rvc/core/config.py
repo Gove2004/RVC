@@ -33,9 +33,9 @@ HUBERT_DEFAULT = "base"
 VOLUME_MIN = 0.0
 VOLUME_MAX = 2.5
 
-# 性别因子（formant）量程，单位半音。GUI 滑条量程与实时启动时的图预捕获范围
-# 都取这里——两处若各写一份，滑条改宽了而预捕获没跟上，超出部分会在音频回调
-# 线程里现场捕获（约 0.25s 断音）。
+# 性别因子（formant）量程，单位半音：GUI 滑条量程取这里（controller.formant_range）。
+# 实时启动只预捕获当前档位（省常驻显存，见 engine.prewarm_formant），不按本量程
+# 全量枚举；运行中拖到别的档位会在音频回调线程现场补捕获一次（约 0.25s 顿一下）。
 FORMANT_MIN = -2.5
 FORMANT_MAX = 2.5
 
@@ -124,12 +124,17 @@ class InferenceParams:
             dst_group = getattr(self, group_name)
             for field_name in src_group.__dataclass_fields__:
                 setattr(dst_group, field_name, getattr(src_group, field_name))
-        # 顶层字段
-        self.rms_mix = other.rms_mix
-        self.volume = other.volume
-        self.noise_gate_db = other.noise_gate_db
-        self.model_path = other.model_path
-        self.hubert = other.hubert
+        # 顶层字段（动态遍历 TOP_LEVEL_FIELDS，新增字段自动带上，杜绝手抄遗漏）
+        for field_name in TOP_LEVEL_FIELDS:
+            setattr(self, field_name, getattr(other, field_name))
+
+
+# 顶层字段（非分组）唯一事实源：update_from 与序列化（gui.state.bindings）共用。
+# 基于 InferenceParams 而非 OfflineParams——后者额外的 input_path/output_path 是
+# 任务路径，不属于可拷贝/持久化的推理参数。新增顶层字段自动纳入，无需手抄。
+TOP_LEVEL_FIELDS = tuple(
+    f for f in InferenceParams.__dataclass_fields__ if f not in PARAM_GROUPS
+)
 
 
 @dataclass
