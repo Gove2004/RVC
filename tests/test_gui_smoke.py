@@ -11,24 +11,13 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from types import SimpleNamespace
 
-from rvc.core.config import BufferParams, InferenceParams
+from rvc.core.config import InferenceParams
 
 app = QApplication.instance() or QApplication([])
 
 
-class _F0:
-    method = "fcpe"
-    rmvpe_threshold = 0.05
-    fcpe_confidence_threshold = 0.03
-
-
-class _P:
-    f0 = _F0()
-    buffer = BufferParams()
-
-
 class _Win:
-    runtime_params = _P()
+    runtime_params = InferenceParams()
 
 
 class TestTabsConstruct(unittest.TestCase):
@@ -131,7 +120,7 @@ class TestNoRealismSliderLeftover(unittest.TestCase):
         from gui.view.tabs.params_tab import build_params_tab
 
         class _Win:
-            runtime_params = _P()
+            runtime_params = InferenceParams()
 
         win = _Win()
         win._page = build_params_tab(win)

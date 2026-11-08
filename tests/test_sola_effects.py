@@ -5,6 +5,7 @@
 - 平滑周期信号的连续块经 SOLA 拼接后无跳变（不产生咔哒/重影）
 - NaN 防护：buffer 污染后输出仍有限值，buffer 复位为零
 - RmsMixEffect：rms_mix=1 恒等旁路；rms_mix=0 跟随参考响度
+- MicAirflowEffect：强度 0 恒等旁路；输出不随分块长度漂移（ulp 级）；强度单调
 - AudioProcessor 全链可在 CPU 上 setup/process 往返
 """
 import unittest
@@ -13,7 +14,7 @@ import numpy as np
 import torch
 
 from rvc.dsp.sola import apply_sola
-from rvc.streaming.effects import AudioProcessor, RmsMixEffect, SolaEffect
+from rvc.streaming.effects import AudioProcessor, MicAirflowEffect, RmsMixEffect, SolaEffect
 
 BLOCK = 1000
 BUF = 100
@@ -137,6 +138,82 @@ class TestAudioProcessorChain(unittest.TestCase):
     def test_reset_is_safe_before_setup(self):
         ap = AudioProcessor()
         ap.reset()  # 未 setup 时 reset 不应抛异常（离线 process_file 会先 reset）
+
+
+def _speech_with_pauses(n: int, sr: int) -> torch.Tensor:
+    """「说话 0.4s + 近静音 0.4s」交替信号——驱动气流效果的吸气节奏。"""
+    seg = int(0.4 * sr)
+    t = torch.arange(seg, dtype=torch.float32) / sr
+    voiced = 0.3 * torch.sin(2 * torch.pi * 220 * t)
+    parts = []
+    for _ in range(n // (2 * seg) + 1):
+        parts.append(voiced)
+        parts.append(torch.full((seg,), 1e-4, dtype=torch.float32))
+    return torch.cat(parts)[:n]
+
+
+class TestMicAirflowEffect(unittest.TestCase):
+    """麦克风气流声 — 效果器最硬的契约是**与分块无关**：噪声流、输入上下文缓存、
+    仿射递推尾值任一按块长漂移，实时链路就会和离线渲染不一样。
+    """
+
+    SR = 16000
+
+    def _effect(self) -> MicAirflowEffect:
+        eff = MicAirflowEffect()
+        eff.setup(self.SR, "cpu")
+        return eff
+
+    def test_zero_intensity_is_identity_bypass(self):
+        eff = self._effect()
+        x = _speech_with_pauses(40000, self.SR)
+        self.assertIs(eff.process(x, 0.0), x, "强度 0 应恒等旁路（不分配、也不推进块间状态）")
+
+    def test_chunking_does_not_change_output(self):
+        x = _speech_with_pauses(48000, self.SR)
+        whole = self._effect().process(x, 0.7)
+        for block in (1600, 3000, 8000):
+            eff = self._effect()
+            outs = [eff.process(x[i:i + block], 0.7) for i in range(0, x.shape[0], block)]
+            drift = float((torch.cat(outs) - whole).abs().max())
+            # 不是逐比特：不同输入长度下 conv1d 的浮点结合序会变，差异在 ulp 量级。
+            # 真正的契约是「不随块长漂移」——噪声流、上下文缓存、递推尾值任一处
+            # 分块敏感的缺陷都会把漂移推到听得出来的量级。
+            self.assertLess(drift, 1e-5, f"块长 {block} 与整段渲染漂移 {drift}")
+
+    def test_strength_is_monotonic_and_output_finite(self):
+        x = _speech_with_pauses(40000, self.SR)
+        deltas = []
+        for strength in (0.3, 0.7, 1.0):
+            out = self._effect().process(x, strength)
+            self.assertTrue(torch.isfinite(out).all())
+            deltas.append(float((out - x).pow(2).mean().sqrt()))
+        self.assertTrue(deltas[0] < deltas[1] < deltas[2], f"强度应单调递增：{deltas}")
+
+    def test_inhale_arc_fades_before_speech_resumes(self):
+        """吸气弧必须在停顿内部走完：开口瞬间的气息能量要明显低于停顿里的峰值。
+
+        反例是 git 版的「升到开口那一刻才到顶」——呼呼压在每个停顿后的第一个字上
+        再被 τ=0.05s 硬切，实测断句处比停顿峰值只低 0.6 dB（听感=位置错+突兀）。
+        """
+        sr, eff = self.SR, self._effect()
+        voiced = 0.3 * torch.sin(
+            2 * torch.pi * 220 * torch.arange(int(0.6 * sr), dtype=torch.float32) / sr)
+        gap = torch.full((int(0.8 * sr),), 1e-4, dtype=torch.float32)
+        x = torch.cat([voiced, gap, voiced])
+        y = eff.process(x, 1.0)
+        ins = (y - x).pow(2)
+
+        def win_rms(a, b):
+            return float(ins[int(a * sr):int(b * sr)].mean().sqrt())
+
+        gap_end = 0.6 + 0.8
+        peak_gap = max(win_rms(s, s + 0.15) for s in (gap_end - 0.45, gap_end - 0.30, gap_end - 0.15))
+        first_speech = win_rms(gap_end, gap_end + 0.15)
+        self.assertGreater(peak_gap, 0.0, "停顿里必须有可测的气息能量")
+        drop_db = 20 * torch.log10(torch.tensor(first_speech / peak_gap)).item()
+        self.assertLess(drop_db, -6.0,
+                        f"开口后 150ms 的气息只比停顿峰值低 {-drop_db:.1f} dB，弧没在停顿内走完")
 
 
 if __name__ == "__main__":

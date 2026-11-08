@@ -1,4 +1,4 @@
-"""参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化。"""
+"""参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化 / 气息感。"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel, QComboBox
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 def build_params_tab(win: "InferWindowHost"):
-    """参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化。"""
+    """参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化 / 气息感。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -64,6 +64,13 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(QLabel("交叉淡化"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(crossfade_label, r, 2)
+    r += 1
+
+    # ── 气息感（airflow：输出侧麦克风气流声，0=关闭）──
+    win.airflow_slider, airflow_label = create_slider_row(0.0, 1.0, 0.05, params.airflow)
+    g.addWidget(QLabel("气息感"), r, 0)
+    g.addWidget(win.airflow_slider, r, 1)
+    g.addWidget(airflow_label, r, 2)
     r += 1
 
     return w

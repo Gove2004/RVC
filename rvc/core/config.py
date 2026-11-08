@@ -100,6 +100,7 @@ class InferenceParams:
     buffer: BufferParams = field(default_factory=BufferParams)
     audio: AudioParams = field(default_factory=AudioParams)
     rms_mix: float = 0.0
+    airflow: float = 0.0  # 麦克风气流声强度 0-1（0=关闭；输出侧效果器，见 streaming.effects）
     volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
     model_path: str = ""
     hubert: str = HUBERT_DEFAULT

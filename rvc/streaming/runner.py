@@ -9,7 +9,7 @@
     stage_features：HuBERT 特征提取（pipeline.extract_features，F0 原始提取也在此启动）
     stage_f0：F0 同步/截断 + 后处理 + 特征上采样（pipeline.postprocess_features）
     stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
-    stage_output：RMS 混合 + SOLA + 硬件输出
+    stage_output：RMS 混合 + SOLA + 气流声 + 硬件输出
 - formant 因子可运行中调整（state.formant_factor → formant_ratio），当前档位的
   合成器图在启动时预捕获（prewarm_formant），切到未预捕获的档位则现场补捕获一次
 """
@@ -251,7 +251,7 @@ class InferenceRunner:
         stage_features / stage_f0：HuBERT 特征 + F0 原始提取
         （F0 后处理 + 特征上采样在 postprocess_features）
         stage_synthesis：合成器推理 + 模型→工作采样率重采样 + formant + 长度对齐
-        stage_output：RMS 混合 + SOLA + 硬件输出
+        stage_output：RMS 混合 + SOLA + 气流声 + 硬件输出
 
         Args:
             indata: 输入音频（numpy array，shape=(frames, channels)）
@@ -264,6 +264,7 @@ class InferenceRunner:
         # 热读 runtime_params：GUI 线程可能正在写，但 CPython float 赋值原子，
         # 读到旧值或新值都安全（最多影响当前块 RMS 混合比例，不会崩溃）。
         p_rms_mix = self.runtime_params.rms_mix
+        p_airflow = self.runtime_params.airflow
 
         with torch.inference_mode():
             # ── stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样 ──
@@ -290,9 +291,9 @@ class InferenceRunner:
             # formant 重采样 + 长度对齐（因子取自 state.formant_factor 快照）
             infer = self._stage_formant(infer)
 
-            # ── stage_output：RMS + SOLA + 硬件输出 ──
+            # ── stage_output：RMS + SOLA + 气流声 + 硬件输出 ──
             ref = state.input_wav_work[state.extra_samples:]
-            block = self.effects.process_output(infer, ref, p_rms_mix)
+            block = self.effects.process_output(infer, ref, p_rms_mix, p_airflow)
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
             # 范围钳制放在消费点：配置文件可被外部改写，滑块量程不构成保证。

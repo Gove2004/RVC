@@ -73,6 +73,7 @@ class InferWindowHost(Protocol):
     block_time_slider: "DoubleSlider"
     extra_time_slider: "DoubleSlider"
     crossfade_slider: "DoubleSlider"
+    airflow_slider: "DoubleSlider"
     f0_threshold_slider: "DoubleSlider"
     f0_threshold_name: "QLabel"
     f0_combo: "QComboBox"

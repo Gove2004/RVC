@@ -42,6 +42,7 @@ BINDINGS = [
     ("voice.formant", "formant_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
+    ("airflow", "airflow_slider", FLOAT),
     # ── F0 参数（f0.*）──
     ("f0.method", "f0_combo", COMBO_F0),
     # ── 缓冲区参数（buffer.*）──

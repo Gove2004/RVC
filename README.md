@@ -152,7 +152,7 @@ rvc/core                         # 配置/常量/异常（最底层）
   ├─ F0Extractor → pitch/postprocess(音域映射+中值滤波) → coarse F0
   ├─ HuBERT → 语义特征
   └─ Synthesizer(F0+特征) → 合成音频
-→ dsp/sola(SOLA 拼接) → dsp/rms(RMS 音量混合) → AudioStream(输出) → 扬声器
+→ dsp/sola(SOLA 拼接) → dsp/rms(RMS 音量混合) → streaming/effects(麦克风气流声) → AudioStream(输出) → 扬声器
 ```
 
 ## 目录结构说明
@@ -166,7 +166,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化；torch 与 numpy 共用**一份**数学实现，后端差异经 `_Ops` 注入） |
 | `rvc/models/` | `synthesizer.py`（合成器基类 + v2 变体：带 F0 / 无 F0）、`synthesizer_encoder.py`/`synthesizer_decoder.py`/`synthesizer_flow.py`（子模块）、`hubert.py`（特征器，transformers 惰性导入）、`rmvpe/`（F0 模型子包） |
-| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（主输出写入 + 副输出块队列 `Out2Queue`）、`effects.py`（RMS 响度混合 / SOLA）、`passthrough.py`（原声直通流，不经模型）、`offline.py`（离线文件的读/pad 切块/写，纯步骤可单测） |
+| `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（主输出写入 + 副输出块队列 `Out2Queue`）、`effects.py`（RMS 响度混合 / SOLA / 麦克风气流声）、`passthrough.py`（原声直通流，不经模型）、`offline.py`（离线文件的读/pad 切块/写，纯步骤可单测） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
 | `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（三级缓存 + 分桶采样 + collate）、`mel_processing.py`、`atomic_save.py`（中间产物原子写，避免半截文件被当成有效缓存） |
 | `rvc/train/cli/` | `run.py`（主流程编排）、`envcheck.py`（环境体检：依赖/GPU/ffmpeg/权重/素材）、`wizard.py`（参数向导）、`defaults.py`（上次参数存档 → 下次默认值）、`steps.py`（四步执行）、`logger.py`（控制台+文件双写）、`prompts.py`（交互提问） |
