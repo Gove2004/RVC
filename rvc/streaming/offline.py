@@ -9,13 +9,9 @@
 生命周期三件事），文件 IO 与 pad/切块循环属于可独立测试的纯逻辑，
 放一起会让门面里混进 np.pad / 写 wav 这类与设备流无关的细节。
 """
-import logging
-
 import numpy as np
 
 from rvc.core.errors import CancelledError
-
-logger = logging.getLogger(__name__)
 
 
 def load_audio_at_sr(input_path: str, sr: int) -> np.ndarray:
@@ -48,17 +44,18 @@ def run_stream(wav: np.ndarray, runner, block: int, pad: int,
             [padded, np.zeros(block - len(padded) % block, dtype=np.float32)])
 
     total_blocks = len(padded) // block
-    out_blocks = []
+    # 预分配整段输出，逐块写入其视图：process_block 经 write_main_output 全量覆盖
+    # outdata（block 行，write-only），故 np.empty 的未初始化内存读前必被写满。
+    # 省去每块一次 np.zeros 分配与末尾 np.concatenate 的整体拷贝。
+    rendered = np.empty(total_blocks * block, dtype=np.float32)
     for i in range(total_blocks):
         if cancel_cb and cancel_cb():
             raise CancelledError("离线推理已取消")
         seg = padded[i * block: (i + 1) * block]
-        outdata = np.zeros((block, 1), dtype=np.float32)
+        outdata = rendered[i * block: (i + 1) * block, None]
         runner.process_block(seg, outdata, block)
-        out_blocks.append(outdata[:, 0])
         if progress_cb:
             progress_cb(i + 1, total_blocks)
-    rendered = np.concatenate(out_blocks)
     # 两端 pad 是为 SOLA/上下文留的边，裁掉后与原始文件时间轴对齐。
     return rendered[pad: pad + len(wav)]
 

@@ -113,8 +113,8 @@ def _tensor_signature(tensor: torch.Tensor) -> tuple:
     return (
         tuple(tensor.shape),
         tuple(tensor.stride()),
-        str(tensor.dtype),
-        str(tensor.device),
+        tensor.dtype,
+        tensor.device,
         bool(tensor.requires_grad),
     )
 

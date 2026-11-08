@@ -33,7 +33,7 @@ class TextEncoder(nn.Module):
         self.p_dropout = float(p_dropout)
         self.emb_phone = nn.Linear(in_channels, hidden_channels)
         self.lrelu = nn.LeakyReLU(0.1, inplace=True)
-        if f0 == True:
+        if f0:
             self.emb_pitch = nn.Embedding(256, hidden_channels)  # pitch 256
         self.encoder = attentions.Encoder(
             hidden_channels,
@@ -62,7 +62,7 @@ class TextEncoder(nn.Module):
         x_mask = torch.unsqueeze(vits_blocks.sequence_mask(lengths, x.size(2)), 1).to(
             x.dtype
         )
-        x = self.encoder(x * x_mask, x_mask)
+        x = self.encoder(x, x_mask)
         if skip_head is not None:
             head = int(skip_head) if isinstance(skip_head, torch.Tensor) else skip_head
             x = x[:, :, head:]

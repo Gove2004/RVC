@@ -147,14 +147,15 @@ class MultiHeadAttention(nn.Module):
         key = key.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
         value = value.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
 
-        scores = torch.matmul(query * self.inv_k_channels_sqrt, key.transpose(-2, -1))
+        query_scaled = query * self.inv_k_channels_sqrt
+        scores = torch.matmul(query_scaled, key.transpose(-2, -1))
         if self.window_size is not None:
             assert (
                 t_s == t_t
             ), "Relative attention is only available for self-attention."
             key_relative_embeddings = self._get_relative_embeddings(self.emb_rel_k, t_s)
             rel_logits = self._matmul_with_relative_keys(
-                query * self.inv_k_channels_sqrt, key_relative_embeddings
+                query_scaled, key_relative_embeddings
             )
             scores_local = self._relative_position_to_absolute_position(rel_logits)
             scores = scores + scores_local

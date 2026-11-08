@@ -3,7 +3,6 @@
 特征侧不做任何保护性 padding：末帧 padding 统一在 upsample_features 中做。
 """
 import torch
-import torch.nn.functional as F
 
 from rvc.runtime.graph import run_cuda_graph
 
@@ -89,7 +88,8 @@ def upsample_features(
     """
     # 末帧 padding：重复最后一帧
     feats = torch.cat((feats, feats[:, -1:, :]), dim=1)
-    feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+    # 最近邻 ×2 = 每帧连续重复两次，与 F.interpolate(nearest) 比特级一致，省两次 permute
+    feats = feats.repeat_interleave(2, dim=1)
 
     feats = feats.half() if is_half else feats.float()
     return feats
