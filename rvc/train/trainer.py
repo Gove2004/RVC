@@ -294,7 +294,7 @@ class Trainer:
                 y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1), self.mel_config["filter_length"], self.mel_config["n_mel_channels"], self.cfg.sr, self.mel_config["hop_length"], self.mel_config["win_length"], self.mel_config["mel_fmin"], self.mel_config["mel_fmax"])
                 wave_slice = vits_blocks.slice_segments(wave, ids_slice * self.mel_config["hop_length"], self.train_cfg["segment_size"])
                 y_d_hat_r, y_d_hat_g, _, _ = self.net_d(wave_slice, y_hat.detach())
-                loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
+                loss_disc = discriminator_loss(y_d_hat_r, y_d_hat_g)
 
             self.optim_d.zero_grad(set_to_none=True)
             self.scaler.scale(loss_disc).backward()
@@ -306,7 +306,7 @@ class Trainer:
                 loss_mel = torch.nn.functional.l1_loss(y_mel, y_hat_mel) * self.train_cfg["c_mel"]
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, y_mask) * self.train_cfg["c_kl"]
                 loss_fm = feature_loss(fmap_r, fmap_g)
-                loss_gen, _ = generator_loss(y_d_hat_g)
+                loss_gen = generator_loss(y_d_hat_g)
                 loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
 
             self.optim_g.zero_grad(set_to_none=True)

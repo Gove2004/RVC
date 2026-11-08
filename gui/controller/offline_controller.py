@@ -41,7 +41,6 @@ class OfflineConversion:
         self.host = host
         self.worker = None
         self._converting = False
-        self._cancelling = False
         self._preview_timer = None
 
     @property
@@ -118,13 +117,11 @@ class OfflineConversion:
 
         # 转换会覆写输出文件：先停监听（按钮置灰等 UI 三态由 enter_converting 统一收）
         self.stop_preview()
-        self._cancelling = False
         self.host.offline_enter_converting()
 
     def cancel_conversion(self) -> None:
         """请求取消当前离线转换（worker 在下一个块检查时中止）。"""
         if self.worker and self._converting:
-            self._cancelling = True
             self.worker.request_stop()
             self.host.offline_enter_cancelling()
 
@@ -262,7 +259,6 @@ class OfflineConversion:
         """
         self.worker = None
         self._converting = False
-        self._cancelling = False
 
     def _on_progress(self, current: int, total: int) -> None:
         self.host.offline_set_progress(current, total)

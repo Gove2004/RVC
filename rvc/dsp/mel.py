@@ -26,15 +26,15 @@ def hz_to_mel_htk(freq, xp=np):
 def _hz_to_mel(freq: np.ndarray | float, htk: bool = False) -> Any:
     """Hz → mel 刻度。"""
     if htk:
-        return 2595.0 * np.log10(1.0 + freq / 700.0)
-    return 1127.0 * np.log(1.0 + freq / 700.0)
+        return 2595.0 * np.log10(1.0 + freq / MEL_HTK_F0)
+    return MEL_HTK_SLOPE * np.log(1.0 + freq / MEL_HTK_F0)
 
 
 def _mel_to_hz(mel: np.ndarray | float, htk: bool = False) -> Any:
     """mel 刻度 → Hz。"""
     if htk:
-        return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
-    return 700.0 * (np.exp(mel / 1127.0) - 1.0)
+        return MEL_HTK_F0 * (10.0 ** (mel / 2595.0) - 1.0)
+    return MEL_HTK_F0 * (np.exp(mel / MEL_HTK_SLOPE) - 1.0)
 
 
 def _fft_frequencies(sr: float, n_fft: int) -> np.ndarray:
