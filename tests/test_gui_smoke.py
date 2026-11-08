@@ -11,9 +11,7 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from types import SimpleNamespace
 
-from rvc.core.config import (
-    NOISE_GATE_DEFAULT, NOISE_GATE_MAX, NOISE_GATE_MIN, BufferParams, InferenceParams,
-)
+from rvc.core.config import BufferParams, InferenceParams
 
 app = QApplication.instance() or QApplication([])
 
@@ -27,12 +25,10 @@ class _F0:
 class _P:
     f0 = _F0()
     buffer = BufferParams()
-    noise_gate_db = -60.0
 
 
 class _Win:
     runtime_params = _P()
-    controller = SimpleNamespace(noise_gate_range=(NOISE_GATE_MIN, NOISE_GATE_MAX))
 
 
 class TestTabsConstruct(unittest.TestCase):
@@ -136,7 +132,6 @@ class TestNoRealismSliderLeftover(unittest.TestCase):
 
         class _Win:
             runtime_params = _P()
-            controller = SimpleNamespace(noise_gate_range=(NOISE_GATE_MIN, NOISE_GATE_MAX))
 
         win = _Win()
         win._page = build_params_tab(win)
@@ -164,8 +159,8 @@ class TestNoRealismSliderLeftover(unittest.TestCase):
         self.assertFalse(hasattr(win, "realism_slider"))
 
 
-class TestDropdownsAndNoiseGate(unittest.TestCase):
-    """toggle→下拉框 + 噪声门：语义 userData、滑条量程/默认、切换槽副作用。
+class TestDropdowns(unittest.TestCase):
+    """toggle→下拉框：语义 userData、切换槽副作用。
 
     下拉框的 userData（rmvpe/fcpe、model/device）是 collect/apply 的命中键，
     改文案或漏挂 userData 会静默落空首项——这里把语义值钉死。
@@ -200,17 +195,6 @@ class TestDropdownsAndNoiseGate(unittest.TestCase):
         combo = win.sr_combo
         items = [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
         self.assertEqual(items, [("模型", "model"), ("设备", "device")])
-
-    def test_noise_gate_slider_default_and_range(self):
-        win = self._params_win()
-        slider = win.noise_gate_slider
-        self.assertAlmostEqual(slider.value(), NOISE_GATE_DEFAULT, places=6)
-        slider.setValue(NOISE_GATE_MIN)
-        self.assertAlmostEqual(slider.value(), NOISE_GATE_MIN, places=6)
-        slider.setValue(NOISE_GATE_MAX)
-        self.assertAlmostEqual(slider.value(), NOISE_GATE_MAX, places=6)
-        slider.setValue(NOISE_GATE_MAX + 50)   # 越界钳到上界
-        self.assertAlmostEqual(slider.value(), NOISE_GATE_MAX, places=6)
 
     def test_f0_switch_slot_refreshes_threshold(self):
         from gui.view.window import MainWindow

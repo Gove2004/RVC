@@ -21,12 +21,11 @@ import torch
 import torch.nn.functional as F
 from torchaudio.transforms import Resample as TatResample
 
-from rvc.core.config import NOISE_GATE_MIN, VOLUME_MAX, VOLUME_MIN
+from rvc.core.config import VOLUME_MAX, VOLUME_MIN
 from rvc.core.constants import (
     HUBERT_FRAME_SIZE,
     HUBERT_SAMPLE_RATE,
 )
-from rvc.dsp.rms import apply_noise_gate
 from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
 from rvc.streaming.buffers import buffer_geometry, formant_frame_range
 from rvc.streaming.effects import AudioProcessor
@@ -269,11 +268,6 @@ class InferenceRunner:
         with torch.inference_mode():
             # ── stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样 ──
             mono = self._stage_input(indata)
-            # 输入噪声门：低于阈值的帧静音后再进缓冲区/模型（参考原版响应阈值）。
-            # 阈值即门限全程生效；NOISE_GATE_MIN 近似关闭，短路省算力。
-            gate_db = self.runtime_params.noise_gate_db
-            if gate_db > NOISE_GATE_MIN:
-                mono = apply_noise_gate(mono, gate_db, state.samples_per_centis)
             self._stage_preprocess(mono)
 
             # ── stage_features / stage_f0：HuBERT 特征 + F0 原始提取 ──

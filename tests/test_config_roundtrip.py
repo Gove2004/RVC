@@ -55,7 +55,6 @@ def _non_default() -> InferenceParams:
     p.audio.device_index = 1
     p.rms_mix = 0.6
     p.volume = 1.7
-    p.noise_gate_db = -40.0
     p.model_path = "X:/model.pth"
     p.hubert = "chinese"
     return p

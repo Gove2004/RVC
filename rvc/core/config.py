@@ -5,7 +5,7 @@
 - f0: 基频提取相关（方法、阈值）
 - buffer: 缓冲区相关（block/crossfade/extra）
 - audio: 音频设备相关（采样率、设备）
-- 顶层: rms_mix、volume、noise_gate_db、model_path、hubert
+- 顶层: rms_mix、volume、model_path、hubert
 """
 from dataclasses import dataclass, field
 
@@ -38,13 +38,6 @@ VOLUME_MAX = 2.5
 # 全量枚举；运行中拖到别的档位会在音频回调线程现场补捕获一次（约 0.25s 顿一下）。
 FORMANT_MIN = -2.5
 FORMANT_MAX = 2.5
-
-# 输入噪声门阈值范围（dB，唯一事实源：GUI 滑条量程与热路径短路都取这里）。
-# 阈值即门限，全程生效：低于该 dB 的输入帧被静音；NOISE_GATE_MIN 近似关闭
-# （只滤真静音），0dB 几乎全滤。参考原版 RVC「响应阈值」噪声门。
-NOISE_GATE_MIN = -100.0
-NOISE_GATE_MAX = 0.0
-NOISE_GATE_DEFAULT = -60.0
 
 
 @dataclass
@@ -108,7 +101,6 @@ class InferenceParams:
     audio: AudioParams = field(default_factory=AudioParams)
     rms_mix: float = 0.0
     volume: float = 1.0  # 输出音量增益（0.0-2.5，1.0=原始音量，纯标量乘法）
-    noise_gate_db: float = NOISE_GATE_DEFAULT  # 输入噪声门阈值（dB，-100~0，越低越接近关闭）
     model_path: str = ""
     hubert: str = HUBERT_DEFAULT
 

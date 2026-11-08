@@ -1,4 +1,4 @@
-"""参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化 / 噪声门。"""
+"""参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化。"""
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QWidget, QGridLayout, QLabel, QComboBox
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 def build_params_tab(win: "InferWindowHost"):
-    """参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化 / 噪声门。"""
+    """参数 Tab — 音高算法 / 音高阈值 / 块时长 / 上下文长度 / 交叉淡化。"""
     params = win.runtime_params
     w = QWidget()
     g = QGridLayout(w)
@@ -46,7 +46,7 @@ def build_params_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 采样长度（block_time）──
-    win.block_time_slider, block_time_label = create_slider_row(0.05, 0.50, 0.01, params.buffer.block_time)
+    win.block_time_slider, block_time_label = create_slider_row(0.05, 0.25, 0.01, params.buffer.block_time)
     g.addWidget(QLabel("块时长"), r, 0)
     g.addWidget(win.block_time_slider, r, 1)
     g.addWidget(block_time_label, r, 2)
@@ -64,20 +64,6 @@ def build_params_tab(win: "InferWindowHost"):
     g.addWidget(QLabel("交叉淡化"), r, 0)
     g.addWidget(win.crossfade_slider, r, 1)
     g.addWidget(crossfade_label, r, 2)
-    r += 1
-
-    # ── 输入噪声门（阈值即门限：低于该 dB 的输入帧静音；-100 近似关闭）──
-    ng_min, ng_max = win.controller.noise_gate_range
-    win.noise_gate_slider, noise_gate_label = create_slider_row(
-        ng_min, ng_max, 5.0, params.noise_gate_db, fmt=".0f", unit=" dB",
-    )
-    win.noise_gate_slider.setToolTip(
-        "输入噪声门：麦克风块进模型前，按帧 RMS 把低于阈值的帧静音。\n"
-        "-100 dB 近似关闭（只滤真静音），0 dB 几乎全滤；默认 -60 dB。"
-    )
-    g.addWidget(QLabel("噪声门"), r, 0)
-    g.addWidget(win.noise_gate_slider, r, 1)
-    g.addWidget(noise_gate_label, r, 2)
     r += 1
 
     return w

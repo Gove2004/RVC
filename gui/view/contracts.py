@@ -76,7 +76,6 @@ class InferWindowHost(Protocol):
     f0_threshold_slider: "DoubleSlider"
     f0_threshold_name: "QLabel"
     f0_combo: "QComboBox"
-    noise_gate_slider: "DoubleSlider"
 
     # ── 设备控件（device_tab / BINDINGS）──
     hostapi_combo: "QComboBox"

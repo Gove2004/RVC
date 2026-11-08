@@ -42,7 +42,6 @@ BINDINGS = [
     ("voice.formant", "formant_slider", FLOAT),
     ("rms_mix", "rms_mix_slider", FLOAT),
     ("volume", "volume_slider", FLOAT),
-    ("noise_gate_db", "noise_gate_slider", FLOAT),
     # ── F0 参数（f0.*）──
     ("f0.method", "f0_combo", COMBO_F0),
     # ── 缓冲区参数（buffer.*）──
@@ -138,7 +137,7 @@ def params_from_dict(state: dict) -> InferenceParams:
     # device_index 强制 int（JSON 读出来可能是 float）
     params.audio.device_index = int(params.audio.device_index)
 
-    # 顶层字段（rms_mix/volume/noise_gate_db/model_path/hubert，单源 TOP_LEVEL_FIELDS）
+    # 顶层字段（rms_mix/volume/model_path/hubert，单源 TOP_LEVEL_FIELDS）
     for field_name in TOP_LEVEL_FIELDS:
         setattr(params, field_name, state.get(field_name, getattr(params, field_name)))
     # hubert 变体是白名单值：存档缺键 / 空串 / 手改错值都不能带进运行期，
