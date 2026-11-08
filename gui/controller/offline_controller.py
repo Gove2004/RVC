@@ -313,9 +313,10 @@ class OfflineWorker(QThread):
         self._cancel_requested = True
 
     def run(self):
-        import torch  # 惰性导入，避免 GUI 启动时加载 torch
-
         try:
+            # 惰性导入（避免 GUI 启动加载 torch）；置于 try 内，导入失败也经
+            # error 信号上报，而不是异常逸出 QThread.run 让离线 UI 卡死。
+            import torch
             self._do_run()
         except CancelledError:
             self.cancelled.emit()
