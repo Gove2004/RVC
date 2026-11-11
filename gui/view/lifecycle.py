@@ -146,13 +146,13 @@ class WindowLifecycle:
             # 动态 tooltip：显示延迟分解（内容未变不重写——定时器每 tick 都会
             # 走到这里，重写 tooltip 会触发一次无效的 Qt 属性变更/重绘）
             tooltip = (
-                f"算法延迟 = 2×采样长度 + 推理\n"
-                f"  输入块收集: {snap.driver_in_ms:.0f}ms\n"
+                f"端到端延迟 = 2×采样长度 + 推理 + 驱动补偿\n"
+                f"  输入侧: {snap.driver_in_ms:.0f}ms（块收集 + 补偿×0.4）\n"
                 f"  推理耗时: {snap.infer_ms:.0f}ms（GPU 端到端）\n"
-                f"  输出块缓冲: {snap.driver_out_ms:.0f}ms\n"
+                f"  输出侧: {snap.driver_out_ms:.0f}ms（块缓冲 + 补偿×0.6）\n"
                 f"  合计: {snap.measure_ms:.0f}ms\n"
-                f"注：WASAPI共享模式驱动层缓冲（系统混音器+VB-Cable）未计入，\n"
-                f"实际听感通常比显示值大 100-150ms。换 WASAPI独占/ASIO 可降低。"
+                f"注：驱动补偿是实测校准值，覆盖虚拟线/系统混音器这类 PortAudio 测不"
+                f"到的缓冲，换输出设备需重新标定。"
             )
             if tooltip != self._last_delay_tooltip:
                 self._last_delay_tooltip = tooltip

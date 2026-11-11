@@ -39,10 +39,11 @@ _WARMUP_ITERATIONS = 10
 
 # 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
 # 驱动缓冲」的真实深度（硬件时间戳偏小、stream.latency 偏大），只能靠校准值补。
-# 默认 0.0 = 只显示算法延迟（2×块时长 + 推理），不猜驱动层；
-# 要用实测校准过的值
-# 覆盖时经 VoiceEngine.driver_latency_compensation 写入。
-_DRIVER_LATENCY_COMPENSATION_MS = 0.0
+# 100.0 = 2026-11-09 用 tools/vb_loopback_latency.py 对拍实测的固定开销：往
+# CABLE Input 写一串噪声脉冲、从 CABLE Output 录回，相关峰扣掉写入时刻后，
+# 块时长外还有 ≈100ms 与块长无关的管道（虚拟线驱动 + 系统混音器）。
+# 换输出设备就不成立：走真实声卡时这一项要重新测（未测），或直接改回 0。
+_DRIVER_LATENCY_COMPENSATION_MS = 100.0
 
 
 class VoiceEngine:
@@ -64,8 +65,8 @@ class VoiceEngine:
         self.measure_ms = 0.0  # 端到端延迟（算法 + 驱动补偿）
         self.driver_in_ms = 0.0  # 输入延迟（块收集 + 驱动补偿）
         self.driver_out_ms = 0.0  # 输出延迟（块缓冲 + 驱动补偿）
-        # 驱动层延迟补偿（毫秒）。默认 0.0 → measure_ms 只反映算法延迟
-        # （2×块时长 + 推理）。取值依据见 _DRIVER_LATENCY_COMPENSATION_MS。
+        # 驱动层延迟补偿（毫秒）。默认取 _DRIVER_LATENCY_COMPENSATION_MS，
+        # measure_ms = 2×块时长 + 推理 + 该项。取值依据见该常量。
         self._driver_latency_compensation_ms = _DRIVER_LATENCY_COMPENSATION_MS
 
         # 错误状态由 InferenceRunner 管理（通过属性代理访问）
@@ -115,8 +116,8 @@ class VoiceEngine:
     def driver_latency_compensation(self) -> float:
         """驱动层延迟补偿（毫秒），默认见 _DRIVER_LATENCY_COMPENSATION_MS。
 
-        仅在拿到实测校准值后才应写入（WASAPI 共享 + 虚拟声卡组合下该值可达百毫秒
-        量级）；未校准时保持 0，宁可少报也不虚报。
+        该值覆盖 PortAudio 拿不到的设备侧缓冲（WASAPI 共享 + 虚拟声卡可达百毫秒）。
+        换输出设备后默认值不成立，需按新设备实测后再写入。
         """
         return self._driver_latency_compensation_ms
 
@@ -306,8 +307,9 @@ class VoiceEngine:
             #   驱动延迟 = WASAPI系统混音器 + 麦克风/声卡驱动缓冲，PortAudio 无法准确获取：
             #     - times 硬件时间戳偏小（不含系统混音器完整缓冲）
             #     - stream.latency 偏大（WASAPI共享模式下重复计算缓冲，可达500ms+）
-            #   故驱动延迟只用校准值补偿（默认 0 = 不补，见 _DRIVER_LATENCY_COMPENSATION_MS）。
-            #   0.4 / 0.6 是「输入侧 / 输出侧」的分配比例，仅在补偿值非 0 时有意义。
+            #   故驱动延迟只用校准值补偿（见 _DRIVER_LATENCY_COMPENSATION_MS，当前 100ms）。
+            #   0.4 / 0.6 是「输入侧 / 输出侧」的分配比例。实测的 100ms 全在输出侧
+            #   （写入→读出虚拟线），这个比例是沿用旧约定的估计，不是测出来的。
             block_ms = state.block_samples / state.work_sr * 1000.0 if state.work_sr else 0.0
             drv_ms = self._driver_latency_compensation_ms
             self.driver_in_ms = block_ms + drv_ms * 0.4

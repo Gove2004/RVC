@@ -46,7 +46,7 @@ def build_params_tab(win: "InferWindowHost"):
     r += 1
 
     # ── 采样长度（block_time）──
-    win.block_time_slider, block_time_label = create_slider_row(0.05, 0.25, 0.01, params.buffer.block_time)
+    win.block_time_slider, block_time_label = create_slider_row(0.01, 0.20, 0.01, params.buffer.block_time)
     g.addWidget(QLabel("块时长"), r, 0)
     g.addWidget(win.block_time_slider, r, 1)
     g.addWidget(block_time_label, r, 2)

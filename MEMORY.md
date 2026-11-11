@@ -122,7 +122,8 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
 ## 8. 已知设计取舍（别当 bug 修）
 
 - 无 GPU 直接报中文错误，**不做 CPU 回退**（刻意行为）
-- 实时链路延迟显示默认只算算法延迟，驱动补偿默认 0（宁可少报不虚报）
+- 延迟显示含「驱动层补偿」：PortAudio 拿不到虚拟声卡/系统混音器那段，只能按实测校准
+  （见 `engine._DRIVER_LATENCY_COMPENSATION_MS`），换输出设备该数不成立，别当固定常数
 - 缓存失效语义只有 LRU 容量淘汰，**无文件 mtime 校验**（同名 pth 被外部覆盖会返回旧权重，已接受）
 - F0 每块重提取，RMVPE 走整段、FCPE 只算尾部 0.6s 窗口
 - `crossfade_time=0.10` 是 dataclass 字段默认值，不具名化（SOLA 缓冲实际取
@@ -178,9 +179,10 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   清理**，`engine.py` 已记录不做周期性 empty_cache 的理由
 - **设备层已调**：WASAPI 共享模式设备缓冲远小于块长，"整块塞得下才写"在 Windows
   永远不成立，必须用待写队列（`pending` + `pending_pos`，上界 3 块超出丢最旧）
-- **VB-CABLE 报告延迟是理论缓冲环，不是真实往返**（脉冲互相关实测远小于报告值，且
-  几乎不随 blocksize 变化）。设备端没有可压缩空间，**不要做"回调与推理解耦"类改造**；
-  真实延迟底座是"每回调攒满一个块长"的业务设计，属 `block_time` 取舍
+- **VB-CABLE 真实往返 = 与块长无关的固定管道 + 约 1×块长**（`tools/vb_loopback_latency.py`
+  脉冲互相关实测；驱动面板报告的缓冲环深度是理论值，不可信，别拿它推延迟或配对规则）。
+  固定那段在代码里压缩不了，**不要做"回调与推理解耦"类改造**；真实延迟底座是
+  "每回调攒满一个块长"的业务设计，属 `block_time` 取舍
 
 **剖析方法（重建脚本时的口径）**
 - `torch.cuda.Event` 成对包住各阶段、主机端只在最后同步一次（D2H 钩子会把耗时抬高
