@@ -377,11 +377,11 @@ class InferenceRunner:
         # 重采样「新块 + 2 厘秒左侧上下文」，跳过前 HUBERT_FRAME_SIZE 个左缘样本。
         resampler_in = state.input_wav_work[-mono.shape[0] - 2 * state.samples_per_centis:]
         resampler_out = state.resampler_work_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
-        # 写回「修正帧 + 新块」：跳过左缘后，修正帧（上一块尾部）在本块拥有完整
-        # 左右支撑，重采样结果与整段重采样一致；只有最新块末端的因果前沿样本暂缺
-        # 右支撑，下一块即落入修正帧被修正。每个样本只被修正一次（误差→精确），
-        # 不会逐块累积漂移。历史除因果前沿外与整段重采样对齐，接缝无残留误差。
-        state.input_wav_16k[-resampler_out.shape[0]:] = resampler_out
+        # 只写当前块（最后 block_samples_16k 样本），不写修正帧（前 160 样本）。
+        # 修正帧会覆盖上一块最后 10ms，使 HuBERT 看到的历史每块都被"修正"，
+        # 连续累积后特征漂移（"凤凰"越读越飘成"废黄"）。听感裁定 8ba7fe9。
+        target_len = state.block_samples_16k
+        state.input_wav_16k[-target_len:] = resampler_out[-target_len:]
 
     # ── stage_synthesis：formant 重采样 + 长度对齐 ──
 

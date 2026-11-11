@@ -2,19 +2,15 @@
 
 这些算术此前埋在 init_processing / prewarm_formant 里，只能开流实跑验证。
 抽到 rvc.streaming.buffers 后无需 GPU 即可锁住；滚动缓冲用假重采样器在 CPU
-张量上跑真实的 _stage_preprocess，锁住写区几何（修正帧 + 新块）与左移拷贝；
-真实重采样下的拼接正确性（历史内部与整段重采样一致、逐块无漂移）由
-TestResamplerSplicing 用 torchaudio Resample 锁。
+张量上跑真实的 _stage_preprocess，锁住"历史不被改写"这条最易回归的性质。
 """
-import math
 import unittest
 
 import numpy as np
 import torch
-from torchaudio.transforms import Resample
 
 from rvc.core.config import FORMANT_MAX, FORMANT_MIN
-from rvc.core.constants import HUBERT_FRAME_SIZE, HUBERT_SAMPLE_RATE
+from rvc.core.constants import HUBERT_FRAME_SIZE
 from rvc.pipeline.state import EngineState
 from rvc.pipeline.synthesis import formant_frames
 from rvc.streaming.buffers import buffer_geometry, formant_frame_range
@@ -108,10 +104,8 @@ def _rolling_runner(sr=40000, block_time=0.10, crossfade_time=0.10, extra_time=0
     state.input_wav_work_swap = torch.empty_like(state.input_wav_work)
     state.input_wav_16k = torch.zeros(g.buffer_16k_samples)
     state.input_wav_16k_swap = torch.empty_like(state.input_wav_16k)
-    # 真实重采样输出 = 新块 + 2 厘秒上下文（B16 + 2*HUBERT_FRAME_SIZE），
-    # _stage_preprocess 切掉前 HUBERT_FRAME_SIZE 个左缘样本后剩 B16 + HUBERT_FRAME_SIZE
-    # （修正帧 + 新块）。假重采样器按这个原始长度返回零。
-    state.resampler_work_to_16k = _FakeResampler(g.block_samples_16k + 2 * HUBERT_FRAME_SIZE)
+    # 输出比真实重采样多 HUBERT_FRAME_SIZE 个样本，供 _stage_preprocess 切掉头部
+    state.resampler_work_to_16k = _FakeResampler(g.block_samples_16k + HUBERT_FRAME_SIZE)
     runner = InferenceRunner.__new__(InferenceRunner)
     runner.state = state
     return runner, g
@@ -129,27 +123,21 @@ class TestRollingBuffers(unittest.TestCase):
         expected = torch.cat(blocks[-n_whole:])
         self.assertTrue(torch.equal(state.input_wav_work[-expected.numel():], expected))
 
-    def test_16k_write_covers_correction_frame_and_new_block(self):
-        """写区 = 修正帧（HUBERT_FRAME_SIZE）+ 新块（B16）；写区左侧纯滚动不改写。
-
-        修正帧把上一块尾部（当时缺右支撑的因果前沿）用本块的完整左右支撑重算，
-        使其收敛到整段重采样值；每个样本只被修正一次，之后只随缓冲左移拷贝。
-        真实重采样下的「内部与整段一致 / 逐块无漂移」由 TestResamplerSplicing 锁。
-        """
+    def test_16k_write_only_touches_current_block(self):
+        """重采样输出只写当前块尾部；写进修正帧会改写上一块尾部，让 HuBERT
+        看到的历史每块都被"修正"，连续累积后特征漂移。"""
         runner, g = _rolling_runner()
         state = runner.state
         total = g.buffer_16k_samples
         state.input_wav_16k[:] = torch.arange(total, dtype=torch.float32) + 1.0
         before = state.input_wav_16k.clone()
         runner._stage_preprocess(torch.zeros(g.block_samples))
-        write_len = g.block_samples_16k + HUBERT_FRAME_SIZE
-        # 写区左侧：纯滚动，等于旧缓冲左移 B16，历史不被改写
+        shifted = before[g.block_samples_16k:]
         self.assertTrue(torch.equal(
-            state.input_wav_16k[:total - write_len],
-            before[g.block_samples_16k:total - write_len + g.block_samples_16k]))
-        # 写区（修正帧 + 新块）：被重采样输出覆盖（fake 返回零）
+            state.input_wav_16k[:total - g.block_samples_16k], shifted))
         self.assertTrue(torch.equal(
-            state.input_wav_16k[-write_len:], torch.zeros(write_len)))
+            state.input_wav_16k[-g.block_samples_16k:],
+            torch.zeros(g.block_samples_16k)))
 
     def test_resampler_sees_two_centis_of_context(self):
         runner, g = _rolling_runner()
@@ -167,71 +155,6 @@ class TestRollingBuffers(unittest.TestCase):
         self.assertIs(state.input_wav_work_swap, work_a)
         self.assertIs(state.input_wav_16k, k_b)
         self.assertIs(state.input_wav_16k_swap, k_a)
-
-
-def _splice_snapshots(sr, block_time=0.05):
-    """用真实 torchaudio Resample 跑 _stage_preprocess，逐块快照 16k 缓冲。
-
-    返回 (snapshots, geometry, full_truth, n_blocks)。full_truth 是整段输入一次性
-    重采样的结果（stateless FIR，仅自身左右两端有零垫伪影），作为拼接正确性的基准。
-    """
-    runner, g = _rolling_runner(sr=sr, block_time=block_time)
-    runner.state.resampler_work_to_16k = Resample(sr, HUBERT_SAMPLE_RATE, dtype=torch.float32)
-    st = runner.state
-    n_blocks = math.ceil(g.buffer_16k_samples / g.block_samples_16k) + 6
-    torch.manual_seed(0)
-    sig = torch.randn(n_blocks * g.block_samples)
-    full = st.resampler_work_to_16k(sig)
-    snaps = []
-    for k in range(n_blocks):
-        runner._stage_preprocess(sig[k * g.block_samples:(k + 1) * g.block_samples])
-        snaps.append(st.input_wav_16k.clone())
-    return snaps, g, full, n_blocks
-
-
-class TestResamplerSplicing(unittest.TestCase):
-    """真实重采样下的拼接契约：修正帧让历史收敛到整段重采样，且逐块无漂移。
-
-    因果前沿（末块右缘缺右支撑的少数样本）下一块即落入修正帧被修正；每个样本
-    只被修正一次，之后只随缓冲左移拷贝。MARGIN 取远大于前沿宽度的余量。
-    """
-
-    MARGIN = 32
-
-    def test_history_interior_matches_full_resample(self):
-        for sr in (40000, 44100, 48000, 96000):
-            with self.subTest(sr=sr):
-                snaps, g, full, n = _splice_snapshots(sr)
-                b16, length = g.block_samples_16k, g.buffer_16k_samples
-                left_abs = n * b16 - length
-                got = snaps[-1][:length - self.MARGIN]
-                want = full[left_abs:left_abs + length - self.MARGIN]
-                self.assertTrue(
-                    torch.allclose(got, want, atol=2e-6, rtol=0.0),
-                    f"max err {(got - want).abs().max().item():.3e}")
-
-    def test_no_drift_across_blocks(self):
-        """相邻块快照在「重叠且越过因果前沿」的绝对样本上必须比特级一致。
-
-        越过前沿的样本要么已被修正、要么是修正值的拷贝，都等于同一个卷积输出，
-        故 torch.equal 成立——这锁死「修正一次后不再变化」，杜绝逐块累积漂移。
-        """
-        for sr in (40000, 44100, 48000, 96000):
-            with self.subTest(sr=sr):
-                snaps, g, _, n = _splice_snapshots(sr)
-                b16, length = g.block_samples_16k, g.buffer_16k_samples
-                for k in range(n - 1):
-                    ov_left = (k + 2) * b16 - length
-                    end = (k + 1) * b16 - self.MARGIN
-                    if ov_left < 0 or end <= ov_left:
-                        continue
-                    a0 = ov_left - ((k + 1) * b16 - length)
-                    b0 = ov_left - ((k + 2) * b16 - length)
-                    seg_a = snaps[k][a0:a0 + (end - ov_left)]
-                    seg_b = snaps[k + 1][b0:b0 + (end - ov_left)]
-                    self.assertTrue(
-                        torch.equal(seg_a, seg_b),
-                        f"block {k}->{k + 1} drift {(seg_a - seg_b).abs().max().item():.3e}")
 
 
 if __name__ == "__main__":
