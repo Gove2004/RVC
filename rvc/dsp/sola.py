@@ -90,11 +90,17 @@ def apply_sola(
     # 安全 buffer：NaN 时用零替代，等价于跳过交叉淡化
     safe_buffer = torch.where(skip_crossfade, torch.zeros_like(sola_buffer), sola_buffer)
 
+    # 必须在原地交叉淡化**之前**取出干净 tail：head=infer[:buffer] 与
+    # tail=infer[block:block+buffer] 是同一张量的视图，block<buffer 时两者重叠
+    # （[block:buffer] 段），下方 infer[:buffer]*=fade_in 会改写 tail，使存入
+    # sola_buffer 的下一块参考被交叉淡化污染（稳态输出偏离真值，block 越小越重）。
+    # torch.where 分配新张量，先算即与 infer 解耦，无需额外 clone。
+    safe_tail = torch.where(tail_nan, torch.zeros_like(tail), tail)
+
     infer[:sola_buffer_samples] *= fade_in
     infer[:sola_buffer_samples] += safe_buffer * fade_out
 
     # 更新 buffer：NaN 时用零
-    safe_tail = torch.where(tail_nan, torch.zeros_like(tail), tail)
     sola_buffer[:] = safe_tail
 
     return infer[:block_samples]

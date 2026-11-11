@@ -76,6 +76,32 @@ class TestApplySola(unittest.TestCase):
         self.assertLess(diff.max(), 0.05,
                         f"SOLA 拼接产生跳变，max|diff|={diff.max():.4f}")
 
+    def test_block_smaller_than_buffer_reconstructs_exactly(self):
+        """block<buffer 时 head=infer[:buf] 与 tail=infer[block:block+buf] 视图重叠。
+
+        原地交叉淡化 infer[:buf]*=fade_in 会改写 [block:buf] 段（属 tail），若先淡化
+        再取 tail 存入 buffer，下一块参考被污染，稳态输出偏离真值（实测 block100/
+        buf400 偏差 0.34，信号幅 0.5）。连续周期信号 offset=0 的理想还原应逐样本
+        等于原信号——锁住「先取干净 tail 再淡化」。
+        """
+        block, buf, search = 100, 400, 100
+        eff = SolaEffect()
+        eff.setup(block_samples=block, sola_buffer_samples=buf,
+                  sola_search_samples=search, device="cpu")
+        n, period = 12, 200
+        total = n * block + buf + search
+        t = np.arange(total, dtype=np.float32)
+        x = 0.5 * np.sin(2 * np.pi * t / period)
+        outs = []
+        for k in range(n):
+            s = k * block
+            infer = torch.from_numpy(x[s:s + block + buf + search].copy())
+            outs.append(eff.process(infer))
+        out = torch.cat(outs).numpy()
+        ideal = x[:n * block]
+        # 跳过启动块（buffer 零淡入），稳态须逐样本还原
+        np.testing.assert_allclose(out[block:], ideal[block:], atol=1e-5)
+
     def test_nan_in_buffer_is_contained(self):
         """buffer 被 NaN 污染：本块输出仍有限、buffer 被新块有限 tail 覆盖。
 
