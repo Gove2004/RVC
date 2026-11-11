@@ -30,26 +30,28 @@ class TestRmsMix(unittest.TestCase):
         out = apply_rms_mix(ref, conv, rms_mix=0.5, samples_per_centis=160)
         self.assertEqual(out.shape[0], conv.shape[0])
 
-    def test_long_reference_aligns_to_tail(self):
+    def test_long_reference_aligns_to_front(self):
         """参考窗比转换块长时（crossfade>100ms，sola_buffer 被截到 100ms），
-        转换块对应输入窗的**最新** n 个样本，必须取参考尾部 [-n:]。
+        转换块对应输入窗 skip_head 起的**前** n 个样本（合成器输出帧窗
+        [skip_head, skip_head+return_length)），必须取参考前部 [:n]。
 
-        取 [:n] 会错位到最旧的一段：这里头部响、尾部安静，错位会让输出跟随
-        头部响度而非时间对齐的尾部。与「参考恰为尾部」的对照须逐样本一致。
+        参考尾部是更新的样本、不属于本转换块，取 [-n:] 会错位到最新一段：
+        这里前部安静、尾部响，错位会让输出跟随尾部响度而非时间对齐的前部。
+        与「参考恰为前部对齐段」的对照须逐样本一致。
         """
         spc = 160
-        head = make_signal(sr=16000, sec=0.2, amp=0.5)   # 响（最旧）
-        tail = make_signal(sr=16000, sec=0.2, amp=0.02)  # 安静（最新，与转换对齐）
+        aligned = make_signal(sr=16000, sec=0.2, amp=0.02)  # 安静，与转换块时间对齐（ref[:n]）
+        newer = make_signal(sr=16000, sec=0.2, amp=0.5)     # 响，更新但不属于本块（ref 多余尾部）
         conv = make_signal(sr=16000, sec=0.2, amp=0.3)
-        ref = torch.cat([head, tail])
+        ref = torch.cat([aligned, newer])
         out = apply_rms_mix(ref, conv, rms_mix=0.0, samples_per_centis=spc)
-        ctrl = apply_rms_mix(tail, conv, rms_mix=0.0, samples_per_centis=spc)
+        ctrl = apply_rms_mix(aligned, conv, rms_mix=0.0, samples_per_centis=spc)
         self.assertTrue(torch.allclose(out, ctrl, atol=1e-6),
-                        "长参考必须与「参考=尾部」逐样本一致（取 [-n:] 而非 [:n]）")
+                        "长参考必须与「参考=前部对齐段」逐样本一致（取 [:n] 而非 [-n:]）")
         out_rms = float(out.pow(2).mean().sqrt())
-        head_rms = float(head.pow(2).mean().sqrt())
-        tail_rms = float(tail.pow(2).mean().sqrt())
-        self.assertLess(out_rms, (head_rms + tail_rms) / 2, "输出应跟随安静的尾部参考")
+        aligned_rms = float(aligned.pow(2).mean().sqrt())
+        newer_rms = float(newer.pow(2).mean().sqrt())
+        self.assertLess(out_rms, (aligned_rms + newer_rms) / 2, "输出应跟随安静的对齐段参考")
 
 
 if __name__ == "__main__":

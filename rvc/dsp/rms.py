@@ -67,10 +67,13 @@ def apply_rms_mix(
     r_spc = ref_hz if ref_hz is not None else samples_per_centis
     n = converted.shape[0]
 
-    # 参考取与转换块时间对齐的**尾部** n 个样本：转换块对应输入窗最新的 n 个样本。
-    # 参考窗可能更长（crossfade>100ms 时 sola_buffer 被截到 100ms，而参考窗仍含
-    # 完整 crossfade），取 [:n] 会错位到最旧的一段；等长时 [-n:] 与 [:n] 相同。
-    ref = reference[-n:]
+    # 参考取与转换块时间对齐的**前部** n 个样本：合成器输出帧窗
+    # [skip_head, skip_head+return_length)（synthesizer.infer 的 z[dec_head:dec_head+len]，
+    # flow_head+dec_head=skip_head），对应输入窗 extra_samples 起的 n 个样本，即
+    # reference[:n]。参考窗可能更长（crossfade>100ms 时 sola_buffer 截到 100ms，
+    # 参考窗仍含完整 crossfade），多出的尾部是**更新**的样本、不属于本转换块，
+    # 取 [-n:] 会错位到最新一段；等长时 [:n] 与 [-n:] 相同。
+    ref = reference[:n]
     # frame_length 用转换侧的 4 厘秒样本（参考侧 r_spc 可能不同，但实时路径两侧相同）
     # 离线路径 ref_hz != hz 时，两侧帧长不同，不能合并——回退独立计算
     if r_spc == samples_per_centis:
