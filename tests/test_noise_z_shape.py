@@ -164,5 +164,42 @@ def rvc_hubert_dir() -> str:
     return hubert_path("base")
 
 
+class TestInitNoiseZBothBranches(unittest.TestCase):
+    """_init_noise_z 的 use_f0 / no_f0 两分支都必须产出 m_p 形状。
+
+    enc_p 无论 use_f0 都按 flow_head 裁剪，m_p 长度恒为 p_len - flow_head。
+    no_f0 曾取 p_len，形状不符使 _z_sample 静默退回 randn_like（固定噪声场失效）。
+    """
+
+    def _runner(self, use_f0):
+        import torch
+        from types import SimpleNamespace
+
+        from rvc.pipeline.state import EngineState
+        from rvc.streaming.runner import InferenceRunner
+
+        st = EngineState(device="cpu")
+        st.synthesizer = SimpleNamespace(inter_channels=192)
+        st.hubert_model = _FakeHubert(_CN_KERNEL, _CN_STRIDE)
+        st.input_wav_16k = torch.zeros(42560)
+        st.skip_head = 250
+        st.is_half = False
+        st.use_f0 = use_f0
+        runner = InferenceRunner.__new__(InferenceRunner)
+        runner.state = st
+        return runner, st
+
+    def test_noise_z_matches_m_p_for_both_branches(self):
+        from rvc.models.synthesizer import FLOW_CONTEXT_COMPENSATION_FRAMES
+
+        for use_f0 in (True, False):
+            with self.subTest(use_f0=use_f0):
+                runner, st = self._runner(use_f0)
+                runner._init_noise_z()
+                p_len = 2 * (hubert_frame_count(st.hubert_model, 42560) + 1)
+                expected = p_len - max(st.skip_head - FLOW_CONTEXT_COMPENSATION_FRAMES, 0)
+                self.assertEqual(tuple(st.noise_z.shape), (1, 192, expected))
+
+
 if __name__ == "__main__":
     unittest.main()

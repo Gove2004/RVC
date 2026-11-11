@@ -26,7 +26,7 @@ from rvc.core.constants import (
     HUBERT_FRAME_SIZE,
     HUBERT_SAMPLE_RATE,
 )
-from rvc.pipeline.synthesis import apply_formant_resample, formant_resample_ratio
+from rvc.pipeline.synthesis import apply_formant_resample, formant_gear_factor, formant_resample_ratio
 from rvc.streaming.buffers import buffer_geometry, formant_frame_range
 from rvc.streaming.effects import AudioProcessor
 from rvc.streaming.output import write_main_output
@@ -132,23 +132,22 @@ class InferenceRunner:
         )
 
     def _init_noise_z(self) -> None:
-        """预生成 z_p 固定噪声场，形状须与 m_p 精确一致（use_f0 路径要切 flow_head）。"""
+        """预生成 z_p 固定噪声场，形状须与 m_p 精确一致（两分支都切 flow_head）。"""
         state = self.state
         # 必须在任何 CUDA Graph 捕获**之前**预生成（捕获期间建张量会落进图的
         # 私有内存池，跨图复用直接报错）。每次 init_processing 重建（块参数可能变了）。
         # 长度按 HuBERT 卷积栈精确算出，不能用 skip_head + return_length 估：
-        # feats_up 的实际长度是 (hubert_frames + 1) * 2（+1 是上采样的末帧重复），
-        # 与 skip_head + return_length 恒差一帧。差一帧时 _z_sample 的形状校验
-        # 判为不匹配、静默退回 randn_like，固定噪声场等于没接。
+        # feats_up 的实际长度是 (hubert_frames + 1) * 2（+1 是上采样的末帧重复）。
+        # enc_p 无论 use_f0 都按 flow_head 裁剪（synthesizer.infer 两分支同传
+        # flow_head），故 m_p 长度恒为 p_len - flow_head；no_f0 若取 p_len 会形状
+        # 不符、_z_sample 静默退回 randn_like，固定噪声场等于没接。
         if state.synthesizer is not None and state.hubert_model is not None:
             from rvc.models.synthesizer import FLOW_CONTEXT_COMPENSATION_FRAMES
             from rvc.pipeline.features import hubert_frame_count
 
             p_len = 2 * (hubert_frame_count(state.hubert_model, state.input_wav_16k.numel()) + 1)
-            if state.use_f0:
-                length = p_len - max(state.skip_head - FLOW_CONTEXT_COMPENSATION_FRAMES, 0)
-            else:
-                length = p_len
+            flow_head = max(state.skip_head - FLOW_CONTEXT_COMPENSATION_FRAMES, 0)
+            length = p_len - flow_head
             dtype = torch.float16 if state.is_half else torch.float32
             state.noise_z = torch.randn(
                 1, state.synthesizer.inter_channels, length,
@@ -205,8 +204,8 @@ class InferenceRunner:
         try:
             with torch.inference_mode():
                 for frames_rl2 in formant_frame_range(state.return_length, formant_min, formant_max):
-                    # 该档位的代表因子：ceil(rl * (rl2/rl)) 恰为 rl2
-                    state.formant_factor = frames_rl2 / ratio
+                    # 代表因子取档位中点，避免 rl2/rl 浮点 ceil 进位到错档
+                    state.formant_factor = formant_gear_factor(frames_rl2, ratio)
                     self.process_block(indata, outdata, frames)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -375,14 +374,14 @@ class InferenceRunner:
         state.input_wav_work, state.input_wav_work_swap = state.input_wav_work_swap, state.input_wav_work
         state.input_wav_work[-mono.shape[0]:] = mono
 
-        # 只重采样新块（带额外 2 厘秒样本上下文抵消重采样延迟），输出跳过前 HUBERT_FRAME_SIZE 样本
+        # 重采样「新块 + 2 厘秒左侧上下文」，跳过前 HUBERT_FRAME_SIZE 个左缘样本。
         resampler_in = state.input_wav_work[-mono.shape[0] - 2 * state.samples_per_centis:]
         resampler_out = state.resampler_work_to_16k(resampler_in)[HUBERT_FRAME_SIZE:]
-        # 只写当前块（最后 block_samples_16k 样本），不写修正帧（前 160 样本）。
-        # 修正帧会覆盖上一块最后10ms，导致 HuBERT 看到的历史在每次推理中都被"修正"，
-        # 连续累积后特征漂移（如"凤凰"连续读越读越飘成"废黄"）。
-        target_len = state.block_samples_16k
-        state.input_wav_16k[-target_len:] = resampler_out[-target_len:]
+        # 写回「修正帧 + 新块」：跳过左缘后，修正帧（上一块尾部）在本块拥有完整
+        # 左右支撑，重采样结果与整段重采样一致；只有最新块末端的因果前沿样本暂缺
+        # 右支撑，下一块即落入修正帧被修正。每个样本只被修正一次（误差→精确），
+        # 不会逐块累积漂移。历史除因果前沿外与整段重采样对齐，接缝无残留误差。
+        state.input_wav_16k[-resampler_out.shape[0]:] = resampler_out
 
     # ── stage_synthesis：formant 重采样 + 长度对齐 ──
 

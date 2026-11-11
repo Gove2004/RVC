@@ -30,6 +30,27 @@ class TestRmsMix(unittest.TestCase):
         out = apply_rms_mix(ref, conv, rms_mix=0.5, samples_per_centis=160)
         self.assertEqual(out.shape[0], conv.shape[0])
 
+    def test_long_reference_aligns_to_tail(self):
+        """参考窗比转换块长时（crossfade>100ms，sola_buffer 被截到 100ms），
+        转换块对应输入窗的**最新** n 个样本，必须取参考尾部 [-n:]。
+
+        取 [:n] 会错位到最旧的一段：这里头部响、尾部安静，错位会让输出跟随
+        头部响度而非时间对齐的尾部。与「参考恰为尾部」的对照须逐样本一致。
+        """
+        spc = 160
+        head = make_signal(sr=16000, sec=0.2, amp=0.5)   # 响（最旧）
+        tail = make_signal(sr=16000, sec=0.2, amp=0.02)  # 安静（最新，与转换对齐）
+        conv = make_signal(sr=16000, sec=0.2, amp=0.3)
+        ref = torch.cat([head, tail])
+        out = apply_rms_mix(ref, conv, rms_mix=0.0, samples_per_centis=spc)
+        ctrl = apply_rms_mix(tail, conv, rms_mix=0.0, samples_per_centis=spc)
+        self.assertTrue(torch.allclose(out, ctrl, atol=1e-6),
+                        "长参考必须与「参考=尾部」逐样本一致（取 [-n:] 而非 [:n]）")
+        out_rms = float(out.pow(2).mean().sqrt())
+        head_rms = float(head.pow(2).mean().sqrt())
+        tail_rms = float(tail.pow(2).mean().sqrt())
+        self.assertLess(out_rms, (head_rms + tail_rms) / 2, "输出应跟随安静的尾部参考")
+
 
 if __name__ == "__main__":
     unittest.main()

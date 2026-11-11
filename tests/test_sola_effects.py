@@ -46,6 +46,16 @@ def _periodic_blocks(n_blocks: int):
 
 
 class TestApplySola(unittest.TestCase):
+    def test_zero_overlap_returns_block_without_crash(self):
+        """crossfade=0（空核）不能触发 F.conv1d kernel width=0 崩溃。"""
+        eff = SolaEffect()
+        eff.setup(block_samples=BLOCK, sola_buffer_samples=0,
+                  sola_search_samples=SEARCH, device="cpu")
+        x = torch.randn(BLOCK + SEARCH)
+        out = eff.process(x)
+        self.assertEqual(out.shape[0], BLOCK)
+        self.assertTrue(torch.equal(out, x[:BLOCK]))
+
     def test_output_is_fixed_length(self):
         eff = _make_sola_effect()
         _, blocks = _periodic_blocks(3)

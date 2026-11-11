@@ -62,6 +62,10 @@ def apply_sola(
     Returns:
         对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer。
     """
+    # 零重叠（crossfade=0）：无交叉淡化可做，直接取当前块。避免空核 F.conv1d 崩溃。
+    if sola_buffer_samples == 0:
+        return infer[:block_samples]
+
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
     energy = F.conv1d(ci**2, sola_norm_kernel)
