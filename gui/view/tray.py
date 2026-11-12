@@ -57,7 +57,7 @@ def _load_or_make_icon(path: Path | None, base_color: QColor) -> QIcon:
 
 
 class SystemTray:
-    """托盘图标（三色状态：绿=变声/蓝=直通/红=停止）+ 右键菜单（显示、退出）。
+    """托盘图标（三色状态：绿=变声/蓝=直通/红=停止）+ 右键菜单（退出、显示）。
 
     三态图标文件路径由调用方经 controller 下发（View 层不直接 import rvc 路径常量）。
     """
@@ -91,9 +91,9 @@ class SystemTray:
         act_quit = QAction("退出", menu)
         act_quit.triggered.connect(self.quit)
 
-        menu.addAction(act_show)
-        menu.addSeparator()
         menu.addAction(act_quit)
+        menu.addSeparator()
+        menu.addAction(act_show)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._on_activated)
         self.tray.show()
