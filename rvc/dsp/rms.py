@@ -67,23 +67,17 @@ def apply_rms_mix(
     r_spc = ref_hz if ref_hz is not None else samples_per_centis
     n = converted.shape[0]
 
-    # 参考取与转换块时间对齐的**前部** n 个样本：合成器输出帧窗
-    # [skip_head, skip_head+return_length)（synthesizer.infer 的 z[dec_head:dec_head+len]，
-    # flow_head+dec_head=skip_head），对应输入窗 extra_samples 起的 n 个样本，即
-    # reference[:n]。参考窗可能更长（crossfade>100ms 时 sola_buffer 截到 100ms，
-    # 参考窗仍含完整 crossfade），多出的尾部是**更新**的样本、不属于本转换块，
-    # 取 [-n:] 会错位到最新一段；等长时 [:n] 与 [-n:] 相同。
-    ref = reference[:n]
+    # 合并为 [2, N] 批处理：通道0=参考，通道1=转换
+    # 参考截断到转换长度，与原逻辑 reference[:converted.shape[0]] 一致
+    stacked = torch.stack([reference[:n], converted], dim=0)
     # frame_length 用转换侧的 4 厘秒样本（参考侧 r_spc 可能不同，但实时路径两侧相同）
     # 离线路径 ref_hz != hz 时，两侧帧长不同，不能合并——回退独立计算
     if r_spc == samples_per_centis:
-        # 合并为 [2, N] 批处理：通道0=参考，通道1=转换
-        stacked = torch.stack([ref, converted], dim=0)
         r = fast_rms(stacked, 4 * samples_per_centis, samples_per_centis)  # [2, M]
         r1 = r[0]
         r2 = r[1]
     else:
-        r1 = fast_rms(ref, 4 * r_spc, r_spc)
+        r1 = fast_rms(reference[:n], 4 * r_spc, r_spc)
         r2 = fast_rms(converted, 4 * samples_per_centis, samples_per_centis)
 
     # size=N+1 再 [:-1]：linear 插值在 align_corners=True 下首尾锚定到端点，

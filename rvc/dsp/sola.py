@@ -62,10 +62,6 @@ def apply_sola(
     Returns:
         对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer。
     """
-    # 零重叠（crossfade=0）：无交叉淡化可做，直接取当前块。避免空核 F.conv1d 崩溃。
-    if sola_buffer_samples == 0:
-        return infer[:block_samples]
-
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
     energy = F.conv1d(ci**2, sola_norm_kernel)
@@ -90,17 +86,11 @@ def apply_sola(
     # 安全 buffer：NaN 时用零替代，等价于跳过交叉淡化
     safe_buffer = torch.where(skip_crossfade, torch.zeros_like(sola_buffer), sola_buffer)
 
-    # 必须在原地交叉淡化**之前**取出干净 tail：head=infer[:buffer] 与
-    # tail=infer[block:block+buffer] 是同一张量的视图，block<buffer 时两者重叠
-    # （[block:buffer] 段），下方 infer[:buffer]*=fade_in 会改写 tail，使存入
-    # sola_buffer 的下一块参考被交叉淡化污染（稳态输出偏离真值，block 越小越重）。
-    # torch.where 分配新张量，先算即与 infer 解耦，无需额外 clone。
-    safe_tail = torch.where(tail_nan, torch.zeros_like(tail), tail)
-
     infer[:sola_buffer_samples] *= fade_in
     infer[:sola_buffer_samples] += safe_buffer * fade_out
 
     # 更新 buffer：NaN 时用零
+    safe_tail = torch.where(tail_nan, torch.zeros_like(tail), tail)
     sola_buffer[:] = safe_tail
 
     return infer[:block_samples]

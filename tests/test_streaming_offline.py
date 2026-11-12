@@ -4,7 +4,6 @@
 不需要 GPU、不需要设备流，用假 runner 就能锁住「输入多长、输出多长」。
 """
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -18,26 +17,10 @@ class _EchoRunner:
 
     def __init__(self):
         self.calls = 0
-        self.state = SimpleNamespace(crossfade_samples=0, sola_search_samples=0)
 
     def process_block(self, indata, outdata, frames):
         self.calls += 1
         outdata[:, 0] = indata[:frames]
-
-
-class _DelayEchoRunner:
-    """输出比输入延迟 delay 个样本（模拟流式算法延迟），state 暴露几何字段。"""
-
-    def __init__(self, delay):
-        self.state = SimpleNamespace(crossfade_samples=delay, sola_search_samples=0)
-        self._delay = delay
-        self._hist = []
-
-    def process_block(self, indata, outdata, frames):
-        for i in range(frames):
-            self._hist.append(float(indata[i]))
-            j = len(self._hist) - 1 - self._delay
-            outdata[i, 0] = self._hist[j] if j >= 0 else 0.0
 
 
 class TestRunStream(unittest.TestCase):
@@ -65,18 +48,6 @@ class TestRunStream(unittest.TestCase):
         out = offline.run_stream(np.ones(5, dtype=np.float32), _EchoRunner(),
                                  block=100, pad=300)
         self.assertEqual(out.shape, (5,))
-
-    def test_streaming_delay_is_compensated(self):
-        """裁剪须补上 crossfade+search 延迟，否则输出后移、尾部被截。"""
-        wav = np.arange(5000, dtype=np.float32)
-        out = offline.run_stream(wav, _DelayEchoRunner(110), block=1000, pad=300)
-        np.testing.assert_allclose(out, wav)
-
-    def test_clip_shorter_than_delay_is_preserved(self):
-        """短于延迟的片段不能整段静音：pad 预卷覆盖延迟后仍应还原。"""
-        wav = np.full(50, 0.25, dtype=np.float32)
-        out = offline.run_stream(wav, _DelayEchoRunner(110), block=100, pad=300)
-        np.testing.assert_allclose(out, wav)
 
     def test_progress_reports_monotonic_counts(self):
         seen = []

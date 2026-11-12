@@ -104,16 +104,6 @@ def formant_frames(formant_factor: float, return_length: int) -> tuple[int, floa
     return frames, frames / return_length
 
 
-def formant_gear_factor(frames: int, return_length: int) -> float:
-    """预捕获某整数帧档位的代表因子：取档位区间中点 (frames-0.5)/return_length。
-
-    不能用 frames/return_length——浮点乘回 return_length 可能略大于 frames，
-    ceil 进位到 frames+1，预捕获到错档（首块仍现场捕获）。中点乘回恒为
-    frames-0.5，ceil 稳定落在 frames。图签名只取决于帧数，与因子具体值无关。
-    """
-    return (frames - 0.5) / return_length
-
-
 def formant_resample_ratio(factor: float, sr: int) -> int:
     """formant 重采样的「上采样分母」：orig_freq，单位为 100Hz。
 

@@ -435,25 +435,6 @@ class TestFormantPrewarmCoverage(unittest.TestCase):
         self.assertGreater(len(needed), 1, "量程两端不该落在同一张图上")
 
 
-class TestFormantGearFactor(unittest.TestCase):
-    """预热代表因子必须稳定映射回目标档位（旧 frames/rl 浮点 ceil 会进位错档）。"""
-
-    def test_representative_factor_lands_on_intended_gear(self):
-        from rvc.core.config import FORMANT_MAX, FORMANT_MIN
-        from rvc.pipeline.synthesis import formant_frames, formant_gear_factor
-        from rvc.streaming.buffers import formant_frame_range
-
-        for rl in (16, 19, 21, 22, 23, 25, 30, 31):
-            for gear in formant_frame_range(rl, FORMANT_MIN, FORMANT_MAX):
-                with self.subTest(rl=rl, gear=gear):
-                    factor = formant_gear_factor(gear, rl)
-                    self.assertEqual(formant_frames(factor, rl)[0], gear)
-
-    def test_old_ratio_factor_could_overshoot(self):
-        # 文档化旧缺陷：21*(23/21) 浮点略大于 23，ceil 进位到 24
-        self.assertEqual(math.ceil(21 * (23 / 21)), 24)
-
-
 class TestInputPitchTelemetry(unittest.TestCase):
     """音高遥测必须是「读缓存」，不能由 GUI 触发 GPU 同步。
 

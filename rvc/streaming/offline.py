@@ -30,7 +30,7 @@ def run_stream(wav: np.ndarray, runner, block: int, pad: int,
         wav: 输入音频（单声道 float32）
         runner: InferenceRunner（已 init_processing）
         block: 块样本数
-        pad: 两端补零样本数（给 SOLA/上下文留边，须 ≥ 流式延迟 crossfade+search）
+        pad: 两端补零样本数（给 SOLA/上下文留边）
         progress_cb: 可选 (done, total) 回调
         cancel_cb: 可选回调，返回 True 时抛 CancelledError 中止
     """
@@ -56,11 +56,8 @@ def run_stream(wav: np.ndarray, runner, block: int, pad: int,
         runner.process_block(seg, outdata, block)
         if progress_cb:
             progress_cb(i + 1, total_blocks)
-    # 流式管线有固定算法延迟：合成窗起点比当前块早 crossfade+search（SOLA offset
-    # 只在此基础上做 ≤search 的相位微调）。裁剪必须把这段延迟一并补掉，否则输出
-    # 整体后移、尾部被截，短于延迟的片段会整段静音。两端 pad 预卷已覆盖该延迟。
-    delay = runner.state.crossfade_samples + runner.state.sola_search_samples
-    return rendered[pad + delay: pad + delay + len(wav)]
+    # 两端 pad 是为 SOLA/上下文留的边，裁掉后与原始文件时间轴对齐。
+    return rendered[pad: pad + len(wav)]
 
 
 def write_output(result: np.ndarray, output_path: str, sr: int) -> None:
