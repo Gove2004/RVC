@@ -4,6 +4,7 @@
 不需要 GPU、不需要设备流，用假 runner 就能锁住「输入多长、输出多长」。
 """
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -13,10 +14,14 @@ from rvc.streaming import offline
 
 
 class _EchoRunner:
-    """假 runner：process_block 把输入原样写进 outdata，并记录块数。"""
+    """假 runner：process_block 把输入原样写进 outdata，并记录块数。
+
+    state 延迟置零：回声直通无流式延迟，裁剪退化为 rendered[pad:pad+len]。
+    """
 
     def __init__(self):
         self.calls = 0
+        self.state = SimpleNamespace(crossfade_samples=0, sola_search_samples=0)
 
     def process_block(self, indata, outdata, frames):
         self.calls += 1
@@ -34,6 +39,22 @@ class TestRunStream(unittest.TestCase):
         wav = np.arange(10, dtype=np.float32)
         out = offline.run_stream(wav, _EchoRunner(), block=4, pad=3)
         np.testing.assert_allclose(out, wav)
+
+    def test_crop_compensates_streaming_delay(self):
+        """合成窗比当前块早 crossfade+search，裁剪须补掉这段延迟，否则输出后移。"""
+        crossfade, search = 40, 10
+        runner = _EchoRunner()
+        runner.state = SimpleNamespace(crossfade_samples=crossfade,
+                                       sola_search_samples=search)
+        wav = np.arange(2000, dtype=np.float32)
+        block, pad = 100, 300
+        out = offline.run_stream(wav, runner, block=block, pad=pad)
+        # 回声直通：rendered == padded（块对齐）；裁剪应取 [pad+delay : pad+delay+len]
+        padded = np.pad(wav, (pad, pad), mode="reflect")
+        delay = crossfade + search
+        expected = padded[pad + delay: pad + delay + len(wav)]
+        np.testing.assert_allclose(out, expected)
+        self.assertEqual(out.shape, wav.shape)
 
     def test_blocks_are_padded_to_whole_count(self):
         """pad 后不足整块要补零，否则尾部样本会被丢掉。"""
