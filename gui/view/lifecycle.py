@@ -39,14 +39,17 @@ class WindowLifecycle:
         self.apply_gui_state(state)
 
     def _save_gui_config(self) -> None:
-        """保存当前 GUI 状态到持久化配置。"""
-        from gui.configs import load_config, save_config
+        """保存当前 GUI 状态到持久化配置。
+
+        重建整份 dict 而非 load 后只替换 gui：save_state.json 里可能残留旧版本
+        写下的顶层块（如 models / train），已无人读取。整份回写会让这些死块永久
+        存续、看起来像权威配置，故保存时只写本次真正持有的 gui。
+        """
+        from gui.configs import save_config
 
         from gui.state.bindings import params_to_dict
 
-        config = load_config()
-        config["gui"] = params_to_dict(self.collect_gui_state())
-        save_config(config)
+        save_config({"gui": params_to_dict(self.collect_gui_state())})
 
     # ── 托盘退出与窗口关闭 ──
 

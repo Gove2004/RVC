@@ -148,6 +148,12 @@ def params_from_dict(state: dict) -> InferenceParams:
     return params
 
 
+def _clean_float(value):
+    """存档前收敛浮点噪声：滑条物理值是 int×step 的浮点乘积（如 12×0.1=
+    1.2000000000000002），直接落盘会让 JSON 出现长尾噪声。非 float 原样返回。"""
+    return round(value, 6) if isinstance(value, float) else value
+
+
 def params_to_dict(params: InferenceParams) -> dict:
     """把 InferenceParams 序列化为分组 dict（动态遍历，新字段自动包含）。
 
@@ -158,13 +164,13 @@ def params_to_dict(params: InferenceParams) -> dict:
     for group_name in GROUP_NAMES:
         group = getattr(params, group_name)
         result[group_name] = {
-            field_name: getattr(group, field_name)
+            field_name: _clean_float(getattr(group, field_name))
             for field_name in group.__dataclass_fields__
             if field_name not in DERIVED_FIELDS
         }
 
     for field_name in TOP_LEVEL_FIELDS:
-        result[field_name] = getattr(params, field_name)
+        result[field_name] = _clean_float(getattr(params, field_name))
     return result
 
 
