@@ -71,7 +71,7 @@ def _build_global_stylesheet() -> str:
         QSlider::groove:horizontal {{
             height: 4px;
             margin: 0 6px;
-            background: #3a3a3a;
+            background: {Colors.BORDER};
             border-radius: 2px;
         }}
         QSlider::handle:horizontal {{
@@ -146,7 +146,7 @@ def _build_global_stylesheet() -> str:
             min-height: 30px;
         }}
         QScrollBar::handle:vertical:hover {{
-            background: #4a4a4a;
+            background: {Colors.SCROLLBAR_HOVER};
         }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
             height: 0;
@@ -162,7 +162,7 @@ def _build_global_stylesheet() -> str:
             min-width: 30px;
         }}
         QScrollBar::handle:horizontal:hover {{
-            background: #4a4a4a;
+            background: {Colors.SCROLLBAR_HOVER};
         }}
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
             width: 0;

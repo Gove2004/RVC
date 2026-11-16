@@ -48,3 +48,6 @@ class Colors:
 
     # 控件边框
     CHECKBOX_BORDER = "#555555"     # 复选框/单选框边框
+
+    # 滚动条
+    SCROLLBAR_HOVER = "#4a4a4a"     # 滚动条滑块悬停
