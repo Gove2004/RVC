@@ -129,6 +129,66 @@ def read_wav_metadata(path: str | Path) -> dict:
         }
 
 
+def read_wav(path: str | Path) -> tuple[np.ndarray, int]:
+    """读取 WAV 文件样本，返回 (samples, samplerate)。
+
+    samples: float32，单声道为 (frames,)、多声道为 (frames, channels)，取值 [-1, 1]
+    （与 soundfile 的返回形状一致）。仅支持本模块写出的两种编码：FLOAT（32-bit
+    IEEE float）与 PCM_16——离线产物恒由 ``write_wav(..., subtype="FLOAT")`` 落盘，
+    无需解码任意格式（那是 audio_file.load_audio 的职责，且要 ffmpeg）。
+
+    异常契约：
+    - ValueError: 非 RIFF/WAVE、缺 fmt/data 块、或不支持的编码（非 FLOAT32/PCM16）
+    - OSError: 文件不存在/不可读，原样抛出
+    """
+    path = Path(path)
+    with open(path, "rb") as f:
+        riff, size, wave = struct.unpack("<4sI4s", f.read(12))
+        if riff != b"RIFF" or wave != b"WAVE":
+            raise ValueError(f"不是有效的 WAV 文件: {path}")
+
+        audio_format = channels = samplerate = bits_per_sample = None
+        data_bytes = None
+
+        while f.tell() < size + 8:
+            chunk_header = f.read(8)
+            if len(chunk_header) < 8:
+                break
+            chunk_id, chunk_size = struct.unpack("<4sI", chunk_header)
+            chunk_start = f.tell()
+            if chunk_id == b"fmt ":
+                (audio_format, channels, samplerate,
+                 byte_rate, block_align, bits_per_sample) = struct.unpack("<HHIIHH", f.read(16))
+                # fmt 块可能长于 16 字节（WAVE_FORMAT_EXTENSIBLE 等），按 chunk_size 跳到块尾
+                f.seek(chunk_start + chunk_size + (chunk_size & 1))
+            elif chunk_id == b"data":
+                data_bytes = f.read(chunk_size)
+                break
+            else:
+                f.seek(chunk_start + chunk_size + (chunk_size & 1))
+
+        if (audio_format is None or not channels or samplerate is None
+                or bits_per_sample is None or not data_bytes):
+            raise ValueError(f"无法解析 WAV 数据: {path}")
+
+        if audio_format == 3 and bits_per_sample == 32:
+            audio = np.frombuffer(data_bytes, dtype="<f4")
+        elif audio_format == 1 and bits_per_sample == 16:
+            audio = np.frombuffer(data_bytes, dtype="<i2").astype(np.float32) / 32768.0
+        else:
+            raise ValueError(
+                f"不支持的 WAV 编码: format={audio_format} bits={bits_per_sample}"
+                f"（仅支持 FLOAT32 / PCM16）: {path}"
+            )
+
+        # 截掉不完整的末帧（data 块尾部可能有对齐填充/残缺采样）
+        usable = (audio.size // channels) * channels
+        audio = audio[:usable].reshape(-1, channels)
+        if channels == 1:
+            audio = audio[:, 0]
+        return np.ascontiguousarray(audio, dtype=np.float32), samplerate
+
+
 def read_audio_metadata(path: str | Path, ffmpeg_path: str | None = None) -> dict:
     """读取任意音频格式的元信息。
 

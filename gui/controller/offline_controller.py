@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer, QThread, Signal
 from gui.controller.recycle import recycle_file
 from rvc.core.config import OfflineParams
 from rvc.core.errors import CancelledError
+from rvc.io.wav_file import read_wav
 
 if TYPE_CHECKING:
     from gui.controller.engine_controller import InferController
@@ -142,7 +143,6 @@ class OfflineConversion:
     def toggle_preview(self) -> None:
         """监听输出文件：播放 / 再点停止（按钮文案由宿主切换）。"""
         import sounddevice as sd
-        import soundfile as sf
 
         if self._preview_active():
             sd.stop()
@@ -164,7 +164,7 @@ class OfflineConversion:
             self.host.show_warning("输出文件不存在，请先完成一次转换")
             return
         try:
-            data, sr = sf.read(path, dtype="float32")
+            data, sr = read_wav(path)
         except Exception as exc:
             self.host.show_error(f"无法读取音频文件: {exc}")
             return

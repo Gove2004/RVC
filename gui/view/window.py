@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # 遥测（延迟/音高/错误计数）刷新周期，毫秒。
-# 数据真正的更新频率是块率（默认 250ms 块 → 4Hz）；这里取 50ms 只是为了让
+# 数据真正的更新频率是块率（block_time 越短刷新越快）；这里取 50ms 只是为了让
 # 「看到新值」的滞后小于人眼可辨阈值，代价是一次读缓存 + 可能一次 setText。
 # 之所以能这么密，是因为数值已由音频线程算成 Python float，GUI 侧不触发
 # 任何 GPU 同步。
