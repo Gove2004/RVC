@@ -29,11 +29,11 @@ class MelSpectrogram(torch.nn.Module):
         clamp: float = 1e-5,
     ) -> None:
         super().__init__()
-        n_fft = win_length if n_fft is None else n_fft
+        resolved_n_fft = win_length if n_fft is None else n_fft
         self.hann_window: dict[str, Tensor] = {}
         mel_basis_np = mel_filter_bank(
             sr=sampling_rate,
-            n_fft=n_fft,
+            n_fft=resolved_n_fft,
             n_mels=n_mel_channels,
             fmin=mel_fmin,
             fmax=mel_fmax,
@@ -41,7 +41,7 @@ class MelSpectrogram(torch.nn.Module):
         )
         mel_basis = torch.from_numpy(mel_basis_np).float()
         self.register_buffer("mel_basis", mel_basis)
-        self.n_fft = win_length if n_fft is None else n_fft
+        self.n_fft = resolved_n_fft
         self.hop_length = hop_length
         self.win_length = win_length
         self.sampling_rate = sampling_rate

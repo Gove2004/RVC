@@ -76,8 +76,9 @@ def load_checkpoint(path: str, model, optimizer=None, scaler=None):
     model.load_state_dict(model_state, strict=False)
     if skipped:
         logger.warning("checkpoint %s 有 %d 个权重未匹配被跳过: %s", path, len(skipped), ", ".join(skipped[:8]))
-    if optimizer is not None and checkpoint["optimizer"] is not None:
-        optimizer.load_state_dict(checkpoint["optimizer"])
+    saved_optimizer = checkpoint.get("optimizer")
+    if optimizer is not None and saved_optimizer is not None:
+        optimizer.load_state_dict(saved_optimizer)
     saved_scaler = checkpoint.get("scaler")
     if scaler is not None and saved_scaler is not None:
         scaler.load_state_dict(saved_scaler)

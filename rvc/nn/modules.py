@@ -46,7 +46,6 @@ class WN(torch.nn.Module):
         super(WN, self).__init__()
         assert kernel_size % 2 == 1
         self.hidden_channels = hidden_channels
-        self.kernel_size = (kernel_size,)
         self.dilation_rate = dilation_rate
         self.n_layers = n_layers
         self.gin_channels = gin_channels

@@ -96,14 +96,12 @@ class Encoder(nn.Module):
         self.n_encoders = n_encoders
         self.bn = nn.BatchNorm2d(in_channels, momentum=momentum)
         self.layers = nn.ModuleList()
-        self.latent_channels = []
         for i in range(self.n_encoders):
             self.layers.append(
                 ResEncoderBlock(
                     in_channels, out_channels, kernel_size, n_blocks, momentum=momentum
                 )
             )
-            self.latent_channels.append([out_channels, in_size])
             in_channels = out_channels
             out_channels *= 2
             in_size //= 2
