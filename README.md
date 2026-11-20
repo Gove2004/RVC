@@ -6,7 +6,7 @@
 
 - **实时变声** — 麦克风输入实时转换输出，延迟实时显示（端到端 ≈ 2×块时长 + 推理耗时 + 驱动层补偿；补偿为实测校准值，见 `engine._DRIVER_LATENCY_COMPENSATION_MS`，换输出设备需重新标定）
 - **F0 双后端** — FCPE（实时首选，mel 前端为仓库内无同步复刻）与 RMVPE 可切换
-- **快速启动** — 惰性导入架构，窗口秒开（~0.3s）；torch 后台预热，首次点「开始」不卡顿
+- **快速启动** — 惰性导入架构，窗口秒开；torch 后台预热，首次点「开始」不卡顿
 - **CUDA Graph 加速** — HuBERT / F0 网络 / 合成器全链路图捕获（FCPE 的 mel 前端刻意 eager，见 pipeline 注释），开流前静音预热完成
 - **系统托盘** — 关闭窗口最小化到托盘（变声不中断），托盘可开始/停止变声
 - **离线推理** — 音频文件流式转换（复用实时全链路，**显存**封顶不随音频变长；输出块累积在内存里，内存占用与音频时长成正比）
@@ -185,17 +185,17 @@ rank 0   rvc/core                       # 配置 / 常量 / 异常（最底层�
 - **训练数据集用 `NamedTuple` 而非 dataclass** — DataLoader 的 `pin_memory=True` 只对 namedtuple 逐元素重建并钉页（torch 内部按 `_fields` 识别）；dataclass 会被原样返回导致钉页**静默失效**，`non_blocking` 拷贝语义随之漂移。
 - **`load_model` 刻意不清 F0 提取器的 CUDA Graph** — F0 提取器与 pth 无关，其图跨重启复用是安全的；各场景兜底：换 F0 方法走 `switch_f0_method→release` 自清，换模型走淘汰侧回收，改阈值/块时长经签名 key 自动重捕获。
 - **CUDA Graph：张量走参数、标量走闭包** — 捕获/回放要求张量地址静态，标量（`skip_head` 等）若作为参数传入会用外部变量地址而非静态地址，导致声音沙哑/失真；`return_length2` 随 formant 变化、经闭包编译进图，故必须进 `graph_key`，否则错误命中旧图（输出长度错误、爆音）。
-- **性别因子（formant）运行中可调，代价挪到启动** — `return_length2` 决定合成器的输出形状，一个整数帧数就是一张图。量程内的档位只有 10 个左右（250ms 块 / 40kHz），启动时整段预捕获约 2.5s、显存 +79MB（RTX 5060 Laptop 实测），之后拖动滑条只是切换回放的图，音频回调不产生捕获。离线转换只用一个档位，不预捕获。
+- **性别因子（formant）运行中可调，代价挪到启动** — `return_length2` 决定合成器的输出形状，一个整数帧数就是一张图，每张图各持一份私有显存池。量程内的档位只有 10 个左右（250ms 块 / 40kHz），启动时整段预捕获（耗时与常驻显存随档位数与显卡变化，实测见项目记忆），之后拖动滑条只是切换回放的图，音频回调不产生捕获。离线转换只用一个档位，不预捕获。
 - **调 formant 不改音高** — 合成器按 `return_length2` 帧合成时会把谐波源 `interpolate` 到 `n*upp`，这次时长拉伸恰好抵掉重采样回 `return_length` 帧的升频；若再在 F0 上乘一次比例，音高会被抬一遍（实测 +2.5 档：396Hz → 460Hz）。所以 `pitchf` 原样进合成器，实测三档输出基频一致（396.04Hz）、频谱质心随档位移动（1173 → 1378 / 1031Hz）。
 - **GUI 侧不留长时主线程等待** — 模型工具（合并/检视）是入队 + 队列泵：正在跑就排队、调用立刻返回，由 `finished` 拉起下一项；只有退出路径允许 `wait()`（否则进程挂死）。
 - **F0 每块重提取，但两条路径的窗口不同** — RMVPE 走整段缓冲区，取前 p_len 帧；FCPE 只算尾部 0.6s 窗口（前段 F0 永远用不上），帧数不足 p_len 时**右对齐补零**到 p_len。对齐规则写在 `_sync_f0_parallel`：整段窗口取前 p_len 帧、尾窗补零到 p_len，两者都保证末帧落在下标 `p_len-1`。
 - **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。
-- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 对 transformers 也做惰性导入：惰性化后 `import rvc.pipeline.pipeline` 为 0.11s，而一次性拉起 transformers（→sklearn→torch._dynamo）要 21s，训练 CLI 与单测都直接受益。
+- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 对 transformers 也做惰性导入：若不惰性化，任何 `import rvc.pipeline.pipeline` 都会连带拉起 transformers（→ sklearn → torch._dynamo），训练 CLI 与单测都直接受益。具体耗时随环境变化，不在文档留数字。
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
 - **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，若改成实例归属，跨管线复用就没了。
 - **模型缓存的回收点在「淘汰」，不在「加载」** — 命中缓存时拿到的就是上次那个对象，它的图仍然有效；在那里 purge 等于每次切回旧模型都重捕获一遍。`LRUCache.set` 把被淘汰的值回报给调用方，由 `InferenceCache` 显式回收（模型清图、提取器 `release()`）。
 - **训练分桶采样不丢桶尾** — 语料量不是 `batch_size` 整数倍时，按 `range(0, len - len % bs, bs)` 切会把桶尾样本每轮静默跳过且无提示；正确做法是把各桶尾部合并成尾批，`__len__` 与批次数严格相等（`ceil(total/bs)`）。
-- **样本读盘三级缓存** — ffmpeg 解码 → `wav.npy`；STFT → `.spec.pt`；每轮重复读取 → 进程内按字节预算的样本 LRU（训练总预算默认 256MB，按 worker 数均分，`0` 关闭）。单样本省约 4ms，代价是显存之外的内存占用需显式预算。
+- **样本读盘三级缓存** — ffmpeg 解码 → `wav.npy`；STFT → `.spec.pt`；每轮重复读取 → 进程内按字节预算的样本 LRU（训练总预算默认 256MB，按 worker 数均分，`0` 关闭）。省下的是每轮的重复解码与 STFT，代价是显存之外的内存占用需显式预算。
 - **训练 DataLoader 内存策略** — 默认保持 2 个持久 worker、每 worker 只预取 1 个 batch；样本 LRU 的总预算默认 256MB，按 worker 数均分。Windows 或低内存环境可设置 `RVC_TRAIN_WORKERS=0` 关闭 worker，`RVC_TRAIN_CACHE_MB=0` 关闭样本内存缓存，`RVC_TRAIN_PREFETCH` 可调整预取数。
 - **八层单向依赖（`gui | rvc/train/cli → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
 - **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.10` 是 dataclass 字段默认值而非算法常数，故不具名化（SOLA 缓冲实际取 `min(crossfade_samples, 100ms)`）。
