@@ -4,7 +4,7 @@
 
 ## 特性
 
-- **实时变声** — 麦克风输入实时转换输出，延迟实时显示（端到端 = 2×块时长 + HuBERT 未来上下文 + 推理耗时 + 驱动层补偿；补偿为实测校准值，见 `engine._DRIVER_LATENCY_COMPENSATION_MS`，换输出设备需重新标定）
+- **实时变声** — 麦克风输入实时转换输出，延迟实时显示（端到端 ≈ 2×块时长 + 推理耗时 + 驱动层补偿；补偿为实测校准值，见 `engine._DRIVER_LATENCY_COMPENSATION_MS`，换输出设备需重新标定）
 - **F0 双后端** — FCPE（实时首选，mel 前端为仓库内无同步复刻）与 RMVPE 可切换
 - **快速启动** — 惰性导入架构，窗口秒开（~0.3s）；torch 后台预热，首次点「开始」不卡顿
 - **CUDA Graph 加速** — HuBERT / F0 网络 / 合成器全链路图捕获（FCPE 的 mel 前端刻意 eager，见 pipeline 注释），开流前静音预热完成
@@ -43,7 +43,7 @@ python -m venv .venv
 训练功能需要以下预训练权重（放在 `assets/` 对应目录）：
 
 - `assets/rmvpe/rmvpe.pt` — RMVPE F0 提取器
-- `assets/hubert/base/` 和 `assets/hubert/chinese/` — HuBERT 特征提取器
+- `assets/hubert/{base,chinese,ktum}/` — HuBERT 特征提取器（装哪个用哪个；训练体检要求至少一个变体完整，向导只列出完整的变体）
 - `assets/pretrained/f0G48k.pth` / `f0D48k.pth` — 预训练底模（可选，加速收敛）
 
 ## 使用
@@ -193,7 +193,7 @@ rvc/core                         # 配置/常量/异常（最底层）
 - **样本读盘三级缓存** — ffmpeg 解码 → `wav.npy`；STFT → `.spec.pt`；每轮重复读取 → 进程内按字节预算的样本 LRU（训练总预算默认 256MB，按 worker 数均分，`0` 关闭）。单样本省约 4ms，代价是显存之外的内存占用需显式预算。
 - **训练 DataLoader 内存策略** — 默认保持 2 个持久 worker、每 worker 只预取 1 个 batch；样本 LRU 的总预算默认 256MB，按 worker 数均分。Windows 或低内存环境可设置 `RVC_TRAIN_WORKERS=0` 关闭 worker，`RVC_TRAIN_CACHE_MB=0` 关闭样本内存缓存，`RVC_TRAIN_PREFETCH` 可调整预取数。
 - **八层单向依赖（`gui | rvc/train/cli → rvc/streaming|train → … → rvc/core`）** — `rvc/` 不依赖 GUI，可作为库独立使用；View 层经 Controller 取数、禁止 import rvc，保证引擎可脱离 GUI 测试与复用。
-- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.05` 是 dataclass 字段默认值而非算法常数，故不具名化（SOLA 缓冲实际取 `min(crossfade_samples, 50ms)`）。
+- **魔法数具名化但值一律不变**（`>128`/`>=64`/预热 10） — 提升可读性而不改数值行为；`crossfade_time=0.10` 是 dataclass 字段默认值而非算法常数，故不具名化（SOLA 缓冲实际取 `min(crossfade_samples, 100ms)`）。
 
 ## 训练
 

@@ -13,7 +13,7 @@
 - venv：`.venv/Scripts/python.exe`（Python 3.13.7，torch 2.11.0+cu128，
   transformers 5.9.0，PySide6 6.11.1，numpy/onnxruntime 见 requirements.txt）
 - 测试：`.venv/Scripts/python.exe -m unittest discover -s tests`
-  **stdlib unittest，不用 pytest，不写 conftest**。当前 241 例，全部无需 GPU 与模型；
+  **stdlib unittest，不用 pytest，不写 conftest**。当前 281 例，全部无需 GPU 与模型；
   耗时大头是真实 checkpoint 用例
   （`test_state_dict_keys`、`test_train_pipeline_contracts`），纯函数契约部分仍是秒级
 - torch 必须单独装：
@@ -348,6 +348,18 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
 - 工作区 ACL 曾缺 `WRITE_OWNER`，导致 DSH 沙箱无法 provision、**所有 pwsh 命令失败**而读
   工具正常。修复脚本见 `diagnose-windows-sandbox-acl` skill，备份在
   `E:\Projects\Python\dsh-acl-recovery\`
+- **工作区内「某个子目录写不进去」多半是完整性级别（integrity level）而不是 ACL**：
+  沙箱进程跑在 **Low** 完整性，能写同级或更低的对象，写更高的一律拒绝（错误只是笼统的
+  「访问被拒绝」，ACL 看上去完全正常）。DSH provision 只给**工作区根**打
+  `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`，新建子目录会继承，但**此前已存在的
+  子目录不会**——`temp/` 就这样被漏掉过，表现为该目录下建目录/写文件全失败，
+  而根目录与新建目录都正常。判据：`icacls <dir>` 看有没有 `Mandatory Label` 行；
+  修法 `icacls <dir> /setintegritylevel "(OI)(CI)LOW"`。
+  **该命令沙箱内必然失败**（改标记属 write-up），必须提权跑一次
+- **单测报 48 个 error 先看是不是环境的锅，别急着当代码回归**：`tempfile` 落到 DSH 每会话
+  的 `%TEMP%`（`...\Temp\dsh-*`）时，若该目录不可写，所有用到临时目录的用例一起炸，
+  真实被测代码一行没动。`tests/` 全部走 `tempfile`，所以「大面积 error + 集中在
+  atomic/config 类」几乎是这个签名。绕开验证：把 `TEMP`/`TMP` 指到工作区内再跑
 - 递归 grep 整个仓库会因 `.venv` 挂住，用 grep 工具并限定路径
 
 ## 13. 素材与用户配置
