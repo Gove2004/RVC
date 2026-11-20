@@ -3,9 +3,11 @@
 锁定的核心契约：
 - apply_sola 输出恒为 block_samples 定长（SOLA 对齐契约）
 - 平滑周期信号的连续块经 SOLA 拼接后无跳变（不产生咔哒/重影）
+- 交叉淡化长于块长（buf > block）时稳态仍逐样本还原输入
 - NaN 防护：buffer 污染后输出仍有限值，buffer 复位为零
 - RmsMixEffect：rms_mix=1 恒等旁路；rms_mix=0 跟随参考响度
-- MicAirflowEffect：强度 0 恒等旁路；输出不随分块长度漂移（ulp 级）；强度单调
+- MicAirflowEffect：强度 0 恒等旁路；输出不随分块长度漂移（ulp 级）；强度单调；
+  起弧以零斜率离开保持段（无拐点）
 - AudioProcessor 全链可在 CPU 上 setup/process 往返
 """
 import unittest
@@ -102,6 +104,39 @@ class TestApplySola(unittest.TestCase):
         self.assertTrue((eff.sola_buffer == 0).all())
 
 
+class TestApplySolaBufferLongerThanBlock(unittest.TestCase):
+    """buf > block 的良性证明：嵌套淡入被互补抵消，稳态逐样本还原输入。
+
+    buf 存的 tail 在落盘前已被原地淡入，但下一块混合时它的搭档是同一段
+    音频的另一次合成，fade_in + fade_out ≡ 1 会精确抵消；输出又只消费
+    buffer[:block]。若以后把 SOLA 换成归一化 OLA 或改 buffer 语义，这里
+    会立刻失败——届时必须同步约束 crossfade_time ≤ block_time。
+    """
+
+    def test_steady_state_restores_input(self):
+        block, buf, search = 1000, 2000, 100
+        n_blocks = 10
+        total = n_blocks * block + buf + search
+        t = np.arange(total, dtype=np.float32)
+        # 三段不可通约的正弦叠加：非周期，否则重复段同相会掩盖增益偏差
+        x = (0.5 * np.sin(2 * np.pi * t / 173)
+             + 0.3 * np.sin(2 * np.pi * t / 419)
+             + 0.2 * np.sin(2 * np.pi * t / 997)).astype(np.float32)
+        eff = SolaEffect()
+        eff.setup(block_samples=block, sola_buffer_samples=buf,
+                  sola_search_samples=search, device="cpu")
+        outs = []
+        for i in range(n_blocks):
+            seg = torch.from_numpy(x[i * block:i * block + block + buf + search].copy())
+            outs.append(eff.process(seg).numpy())
+        joined = np.concatenate(outs)
+        # 启动淡入时长 = crossfade（与 block 无关），跳过 buf 样本再看稳态
+        np.testing.assert_allclose(
+            joined[buf:], x[:joined.size][buf:], atol=1e-5, rtol=0,
+            err_msg="buf > block 时稳态拼接不再还原输入（应恒等，容差 1e-5）",
+        )
+
+
 class TestRmsMixEffect(unittest.TestCase):
     def test_mix_one_is_identity_bypass(self):
         eff = RmsMixEffect()
@@ -181,13 +216,123 @@ class TestMicAirflowEffect(unittest.TestCase):
             # 分块敏感的缺陷都会把漂移推到听得出来的量级。
             self.assertLess(drift, 1e-5, f"块长 {block} 与整段渲染漂移 {drift}")
 
+    def test_air_is_voice_correlated_and_dies_with_the_voice(self):
+        """说话中的气息必须跟着语音走，不是独立底噪。
+
+        只开关说话气息层前后相减（吸气/底噪两次都关掉），得到纯气息分量：
+        元音里要有气息；元音结束后 300ms 要明显衰减（旧版独立噪声床的尾音
+        嘶声正是被这条否决的）；满滑条也不得接近语音电平。
+        """
+        sr = self.SR
+        t = torch.arange(int(1.5 * sr), dtype=torch.float32) / sr
+        x = torch.cat([0.3 * torch.sin(2 * torch.pi * 220 * t),
+                       torch.zeros(int(0.5 * sr))])
+        saved = (MicAirflowEffect.BREATH_GAIN, MicAirflowEffect.FLOOR_GAIN,
+                 MicAirflowEffect.AIR_GAIN)
+        try:
+            MicAirflowEffect.BREATH_GAIN = MicAirflowEffect.FLOOR_GAIN = 0.0
+            full = self._effect().process(x, 1.0)
+            MicAirflowEffect.AIR_GAIN = 0.0
+            bare = self._effect().process(x, 1.0)
+        finally:
+            (MicAirflowEffect.BREATH_GAIN, MicAirflowEffect.FLOOR_GAIN,
+             MicAirflowEffect.AIR_GAIN) = saved
+        noise = (full - bare).pow(2)
+        speech_rms = float(x.pow(2).mean().sqrt())
+
+        def rms_db(a_s, b_s):
+            v = float(noise[int(a_s * sr):int(b_s * sr)].mean().sqrt())
+            return 20 * np.log10(max(v, 1e-9) / speech_rms), v
+
+        in_voice = rms_db(1.0, 1.5)[0]
+        after = rms_db(1.5 + 0.30, 1.5 + 0.45)[0]
+        self.assertGreater(in_voice, -40.0, f"说话中气息 {in_voice:.1f} dB，几乎听不到")
+        self.assertLess(in_voice, -8.0, f"说话中气息 {in_voice:.1f} dB，快追上语音了")
+        self.assertLess(after, in_voice - 8.0,
+                        f"元音结束后 300ms 气息只掉了 {in_voice - after:.1f} dB，"
+                        "像独立噪声床的尾音")
+
+    def test_breath_depth_grows_with_preceding_speech(self):
+        """气量：同样的 0.8s 停顿，前面句子越长，吸气越深（短句只换到浅吸）。"""
+        sr = self.SR
+
+        def speech(dur):
+            t = torch.arange(int(dur * sr), dtype=torch.float32) / sr
+            return 0.3 * torch.sin(2 * torch.pi * 220 * t)
+
+        gap = torch.full((int(0.8 * sr),), 1e-4, dtype=torch.float32)
+        x = torch.cat([speech(0.4), gap, speech(2.0), gap])
+        y = self._effect().process(x, 1.0)
+        add = (y - x).pow(2)
+
+        def gap_peak(start_s):
+            a, b = int(start_s * sr), int((start_s + 0.8) * sr)
+            return float(add[a:b].mean().sqrt())
+
+        short_peak = gap_peak(0.4)
+        long_peak = gap_peak(0.4 + 0.8 + 2.0)
+        self.assertGreater(long_peak, 1.5 * short_peak,
+                           f"长句后的吸气 {long_peak:.5f} 不比短句后 {short_peak:.5f} 深")
+
+    def test_breath_never_dominates_the_voice(self):
+        """停顿里的气声不得盖过人声（满滑条、长句后的深吸是最响的情形）。
+
+        上界取语音 RMS 的 1.8 倍（+5dB）：中段滑条远低于语音，只有「长句 +
+        满滑条 + 连续发力」三者同时成立才逼近这个上限——回归防线，不是设计目标。
+        """
+        sr = self.SR
+        t = torch.arange(int(3.0 * sr), dtype=torch.float32) / sr
+        speech = 0.3 * torch.sin(2 * torch.pi * 220 * t)
+        gap = torch.full((int(0.8 * sr),), 1e-4, dtype=torch.float32)
+        x = torch.cat([speech, gap])
+        y = self._effect().process(x, 1.0)
+        # 50ms 窗 RMS：宽带噪声的逐样本峰值没有听感意义
+        add = (y - x)[int(3.0 * sr):]
+        w = sr // 20
+        peak = float(add[:add.shape[0] // w * w].pow(2).reshape(-1, w).mean(1).max().sqrt())
+        speech_rms = float(speech.pow(2).mean().sqrt())
+        self.assertLess(peak, 1.8 * speech_rms,
+                        f"50ms 吸气峰值 {peak:.4f} 超过语音 {speech_rms:.4f} 的 1.8 倍，气声太响")
+
+    def test_arc_onset_leaves_zero_without_slope_corner(self):
+        """起弧必须以零斜率离开 0：保持段后的第一段斜率远小于弧内最大斜率。
+
+        旧写法在 0.15s 保持段结束时把上升速率从 0 硬切到 α，而一阶弧的斜率
+        最大值恰在起点，包络因此带拐点，听感是停顿后「呼」地冒出。这里锁形状
+        类别（首段缓慢、随后加速），不锁具体常数。
+        """
+        sr, eff = self.SR, self._effect()
+        voiced = 0.3 * torch.sin(
+            2 * torch.pi * 220 * torch.arange(int(0.6 * sr), dtype=torch.float32) / sr)
+        x = torch.cat([voiced, torch.zeros(int(1.0 * sr)), voiced])
+        step = int(0.01 * sr)
+        envs = []
+        for i in range(0, x.shape[0], step):
+            eff.process(x[i:i + step], 1.0)
+            envs.append(float(eff._env_tail))
+        gap = np.array(envs)[int(0.6 * sr) // step:]
+        start = int(np.argmax(gap > 0))
+        d = np.diff(gap)
+        self.assertLess(d[start], 0.2 * d.max(),
+                        f"起弧速率 {d[start]:.4f} 已接近弧内最大 {d.max():.4f}"
+                        "——包络以拐点离开 0")
+        self.assertLess(gap[start + 5] / gap.max(), 0.2,
+                        f"起弧 50ms 已到峰值 {gap[start + 5] / gap.max():.0%}，"
+                        "前半段上升太快")
+
     def test_strength_is_monotonic_and_output_finite(self):
+        """滑条越强，停顿里加的气声越多。
+
+        只看静音段：语音段 (out-x) 被静态饱和压峰的负贡献主导（近讲提升随强度
+        增加输入幅度，压缩损失按强度非线性增长），全频段能量并不反映气声强弱。
+        """
         x = _speech_with_pauses(40000, self.SR)
+        quiet = x.abs() < 1e-3
         deltas = []
         for strength in (0.3, 0.7, 1.0):
             out = self._effect().process(x, strength)
             self.assertTrue(torch.isfinite(out).all())
-            deltas.append(float((out - x).pow(2).mean().sqrt()))
+            deltas.append(float((out - x)[quiet].pow(2).mean().sqrt()))
         self.assertTrue(deltas[0] < deltas[1] < deltas[2], f"强度应单调递增：{deltas}")
 
     def test_inhale_arc_fades_before_speech_resumes(self):
@@ -197,8 +342,9 @@ class TestMicAirflowEffect(unittest.TestCase):
         再被 τ=0.05s 硬切，实测断句处比停顿峰值只低 0.6 dB（听感=位置错+突兀）。
         """
         sr, eff = self.SR, self._effect()
+        # 2.5s 句子：气量积分到 ~0.8，事件电平高于静音底噪，比例才测得到弧
         voiced = 0.3 * torch.sin(
-            2 * torch.pi * 220 * torch.arange(int(0.6 * sr), dtype=torch.float32) / sr)
+            2 * torch.pi * 220 * torch.arange(int(2.5 * sr), dtype=torch.float32) / sr)
         gap = torch.full((int(0.8 * sr),), 1e-4, dtype=torch.float32)
         x = torch.cat([voiced, gap, voiced])
         y = eff.process(x, 1.0)
@@ -207,7 +353,7 @@ class TestMicAirflowEffect(unittest.TestCase):
         def win_rms(a, b):
             return float(ins[int(a * sr):int(b * sr)].mean().sqrt())
 
-        gap_end = 0.6 + 0.8
+        gap_end = 2.5 + 0.8
         peak_gap = max(win_rms(s, s + 0.15) for s in (gap_end - 0.45, gap_end - 0.30, gap_end - 0.15))
         first_speech = win_rms(gap_end, gap_end + 0.15)
         self.assertGreater(peak_gap, 0.0, "停顿里必须有可测的气息能量")
