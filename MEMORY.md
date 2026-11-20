@@ -196,13 +196,20 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
 
 ## 11. 训练模块
 
-**存档与变体（两处独立存档改代码默认值覆盖不掉）**
-- `train_cli_defaults.json`（向导「上次答案」预填源）与 `save_state.json` 的 `train.hubert`
-  各存一份特征器变体；两个文件都在 gitignore 里。**换机器/改 `HUBERT_DEFAULT` 后必须手工
-  同步这两处**，否则向导回车就把旧变体带回来。变体合法性一律以
-  `rvc.core.config.HUBERT_VARIANTS` 为白名单（向导/体检/存档清洗三处共用）
-- `save_state.json` 顶层 `{gui, models, train}`，**只有 `gui` 块被代码读取**
-  （`gui/view/lifecycle.py`）；`models`/`train` 是旧架构遗留死状态
+**存档与变体（改代码默认值覆盖不掉存档）**
+- 特征器变体只剩 `train_cli_defaults.json`（向导「上次答案」预填源）**一处**存档，
+  该文件在 gitignore 里。**换机器/改 `HUBERT_DEFAULT` 后必须手工改它**，否则向导
+  回车就把旧变体带回来。变体合法性一律以 `rvc.core.config.HUBERT_VARIANTS` 为白名单
+  （向导/体检/存档清洗三处共用）
+- **存档里的变体与 `HUBERT_DEFAULT` 不一致是常态、不是坏档**：`_sanitize` 放行
+  `HUBERT_VARIANTS` 里的任何值，所以「上次用 chinese」会一直作为向导默认值留着。
+  只有真按该变体训过才该保留；否则回车就静默用错特征器（同为 768 维，
+  **不报错只是音色发闷/咬字怪**）。改 `HUBERT_DEFAULT` 时连它一起看
+- `save_state.json` 顶层**恒为 `{gui}`**：`lifecycle._save_gui_config` 保存时重建整份
+  dict、只写 `gui`，旧架构遗留的 `models`/`train` 死块会被主动丢弃（不整份回写，
+  免得死块永久存续、看起来像权威配置）。**别再去里面找 `train.hubert`**
+- 两个文件都在 `assets/configs/` 下且都在 gitignore 里；路径单源在
+  `rvc.runtime.paths.STATE_FILE` / `TRAIN_CLI_DEFAULTS_FILE`
 - 特征器变体接线闭合：`step_feature` 写 `3_feature768/.variant` 标记，特征目录变体不匹配
   时**整目录重提并 WARN**，不会静默混用旧特征
 - 续跑判据 = 文件存在即跳过 ⇒ **所有中间产物必须原子写**；`atomic_write` 对
@@ -263,7 +270,7 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   **截取**用（"不需要全部用上，分别截取就行"）。试听交付 = 走**生产离线链路** +
   用户存档参数渲染指定文件到桌面，不是 loss 数字
 - **端到端验证脚本没有存档**：验训练按本节口径重建最小链路（合成素材 → 预处理 → F0 →
-  特征 → filelist → 2 epoch → 导出 → 续训）。241 例单测覆盖不到"必崩缺陷"那一层
+  特征 → filelist → 2 epoch → 导出 → 续训）。281 例单测覆盖不到"必崩缺陷"那一层
 
 ### 11.1 训练是 GPU-bound，数据管道参数不是杠杆
 
