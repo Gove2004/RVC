@@ -201,10 +201,13 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   该文件在 gitignore 里。**换机器/改 `HUBERT_DEFAULT` 后必须手工改它**，否则向导
   回车就把旧变体带回来。变体合法性一律以 `rvc.core.config.HUBERT_VARIANTS` 为白名单
   （向导/体检/存档清洗三处共用）
-- **存档里的变体与 `HUBERT_DEFAULT` 不一致是常态、不是坏档**：`_sanitize` 放行
-  `HUBERT_VARIANTS` 里的任何值，所以「上次用 chinese」会一直作为向导默认值留着。
-  只有真按该变体训过才该保留；否则回车就静默用错特征器（同为 768 维，
-  **不报错只是音色发闷/咬字怪**）。改 `HUBERT_DEFAULT` 时连它一起看
+- **存档里的变体与 `HUBERT_DEFAULT` 不一致是正常状态、不是坏档**：存档记的是
+  「上次真的选了什么」，`_sanitize` 放行 `HUBERT_VARIANTS` 里的任何值。所以
+  `HUBERT_DEFAULT` 只描述**没有存档时**的内置默认，两者不必一致——当前存档就是
+  `chinese`（用户针对 Hucci 素材有意选的），**别把它当配置错误去"修"**。
+  真正要防的只有一种情况：换机器或改 `HUBERT_DEFAULT` 后，存档里的旧变体与
+  你这次想用的不一致，而向导回车会静默沿用它（同为 768 维，
+  **不报错只是音色发闷/咬字怪**）——那时手工改存档
 - `save_state.json` 顶层**恒为 `{gui}`**：`lifecycle._save_gui_config` 保存时重建整份
   dict、只写 `gui`，旧架构遗留的 `models`/`train` 死块会被主动丢弃（不整份回写，
   免得死块永久存续、看起来像权威配置）。**别再去里面找 `train.hubert`**
