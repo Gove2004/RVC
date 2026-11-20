@@ -121,28 +121,33 @@ app.py                    # 入口：--infer 启动推理 GUI；--train 启动�
 
 ### 依赖方向（八层单向，无环）
 
+`rank` 数字即 `tests/test_layering.py` 的 `RANKS` 取值，依赖只准指向**严格更小**的
+rank。同一 rank 内的包是**兄弟**（互不依赖，也不许互相依赖）：
+
 ```
-gui/                             # 最上层（推理 GUI）
-rvc/train/cli/                   # 最上层（训练命令行，与 gui 独立）
-  ↓
-rvc/streaming   rvc/train        # 引擎门面 / 训练管线
-  ↓
-rvc/pipeline                     # 推理管线
-  ↓
-rvc/models        rvc/io         # 网络模型 / 音频 IO
-  ↓
-rvc/nn                           # 通用网络组件
-  ↓
-rvc/dsp                          # 纯信号处理
-  ↓
-rvc/runtime                      # 设备/图/路径/缓存
-  ↓
-rvc/core                         # 配置/常量/异常（最底层）
+rank 6   gui/                     # 推理 GUI（gui 内部子包互引不受 RANKS 约束）
+         rvc/train/cli/           # 训练命令行向导（与 gui 相互独立）
+           │
+rank 5   rvc/streaming   rvc/train      # 引擎门面 / 训练管线
+           │
+rank 4   rvc/pipeline                   # 推理管线
+           │
+rank 3   rvc/models                     # 网络模型（HuBERT / 合成器 / RMVPE）
+           │
+rank 2   rvc/dsp   rvc/nn   rvc/io      # 纯信号处理 / 通用网络组件 / 音频 IO
+           │
+rank 1   rvc/runtime                    # 设备 / CUDA Graph / 路径 / 通用 LRU
+           │
+rank 0   rvc/core                       # 配置 / 常量 / 异常（最底层）
 ```
 
+- **`rank 2` 三个包是并列的兄弟**：`dsp`（纯信号处理）、`nn`（通用网络组件）、`io`
+  （音频 IO）互不依赖。`rvc/models` 同时依赖 `dsp` 与 `nn`——两者都在它下面，
+  不是上下级关系
+- `rvc/train/cli/` 虽与 `gui/` 同为最上层且互不依赖，但它**跨层直取**
+  `rvc.core` / `rvc.io` / `rvc.runtime` / `rvc.train`，并非只经 `rvc/train`
 - `rvc/core` 无内部依赖；`rvc/` 不依赖 `gui/`，可作为库独立使用
 - `gui/` 的 rvc 依赖集中在 Controller / State / Configs 三层（`VoiceEngine`、`rvc.pipeline.cache`、`rvc.io.devices`、`rvc.core.config`、`rvc.train.checkpoint` 等）；View 层只用 `TYPE_CHECKING` 引用 rvc 类型，运行时不直接 import，取数一律经 Controller（如 `snapshot()` 遥测快照）
-- `rvc/train/cli/` 只通过 `rvc/train` 与训练管线交互，不依赖 `gui/`
 - 依赖方向为设计约定：单向无环，新增代码必须遵守——由 `tests/test_layering.py` 的 AST 静态检查自动守卫（rvc 不 import gui、View 运行时不 import rvc、包级依赖必须向下且无环、新包必须先登记 `RANKS`）
 
 ### 关键数据流（实时推理）
