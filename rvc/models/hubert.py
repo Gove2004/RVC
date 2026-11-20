@@ -1,8 +1,8 @@
 """HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT。
 
 注意力实现走 transformers 的 sdpa（config._attn_implementation），本项目
-未安装 flash_attention_2，不要假设其存在。HuBERT 特征 8ms/帧（hop 160 @ 16k）
-是链路的硬成本：extra 上下文时长折算出的帧数直接决定推理耗时下限。
+未安装 flash_attention_2，不要假设其存在。HuBERT 特征 20ms/帧（50fps，
+hop 320 @ 16k）是链路的硬成本：extra 上下文时长折算出的帧数直接决定推理耗时下限。
 
 **transformers 是延迟导入的**：它会把 sklearn / torch._dynamo / auto_factory
 一起拉起来（实测 ~20s），而这只在「真的要加载特征器」时才需要。放在模块顶层
@@ -24,8 +24,8 @@ from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)
 
-# HuBERT 特征器按子目录管理：assets/hubert/base/（RVC 生态标准的 hubert_base）
-# 与 assets/hubert/chinese/（腾讯 TencentGameMate/chinese-hubert-base，WenetSpeech 中文）。
+# HuBERT 特征器按子目录管理：assets/hubert/<variant>/（base = RVC 生态标准的
+# hubert_base；chinese = 腾讯 chinese-hubert-base；ktum = KtUltraMorph 自训练版）。
 # 训练与推理必须用同一特征器；每张模型卡牌/每次训练可独立选择 variant。
 # 变体清单与缺省值的单源在 rvc.core.config（HUBERT_VARIANTS / HUBERT_DEFAULT = base）。
 # HUBERT_ROOT 统一来自 rvc.runtime.paths（assets/hubert）

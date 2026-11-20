@@ -15,6 +15,10 @@ def init_weights(m: nn.Module, mean: float = 0.0, std: float = 0.01) -> None:
     if classname.find("Conv") != -1:
         # weight_norm 参数化后 m.weight 是前向算出的非叶张量，写它会被丢弃；
         # 真正的参数是 parametrizations.weight.original0，必须写它初始化才落地。
+        # 注意 original0 是 weight_g（每个输出通道一行的范数），不是逐元素权重：
+        # 写 N(mean,std) 等于把每行范数设为 ~0.01，等效逐元素尺度约 std/√(fan*k)，
+        # 与「逐元素 N(mean,std)」并不等价。此处保持既有行为（tests/test_init_weights.py
+        # 钉住 original0 被改写），只做语义说明。
         parametrizations = getattr(m, "parametrizations", None)
         weight_param = getattr(parametrizations, "weight", None) if parametrizations is not None else None
         if weight_param is not None and hasattr(weight_param, "original0"):

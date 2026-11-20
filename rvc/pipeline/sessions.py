@@ -69,7 +69,7 @@ class ModelSessions:
         logger.info("加载 %s", os.path.basename(pth_path))
         reloaded = False
         try:
-            # HuBERT 的 key 含变体：base 与 chinese 是两套不同权重的特征器
+            # HuBERT 的 key 含变体：不同变体是不同权重的特征器
             hubert_key = (self.device, self.is_half, hubert_variant)
             hubert = self.inference_cache.get_hubert(hubert_key)
             if hubert is None:

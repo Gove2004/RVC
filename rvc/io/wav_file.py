@@ -31,7 +31,7 @@ def write_wav(path: str | Path, samples: np.ndarray, samplerate: int,
     异常契约：
     - ValueError: subtype 不在 {FLOAT, PCM_16}（调用方编程错误，立即失败）
     - PCM_16 写入时对越界样本做 clip（[-1,1] 之外静默钳制，不报错）——
-      与上游 soundfile 行为一致，属既定语义。
+      与 libsndfile 行为一致：先 ×32768 四舍五入，再钳到 int16 范围。
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,8 +48,10 @@ def write_wav(path: str | Path, samples: np.ndarray, samplerate: int,
     elif subtype == "PCM_16":
         audio_format = 1  # WAVE_FORMAT_PCM
         bits_per_sample = 16
-        clipped = np.clip(samples, -1.0, 1.0)
-        raw = np.ascontiguousarray(clipped * 32767, dtype=np.int16).tobytes()
+        # 与读侧 /32768 对称（libsndfile 口径）：先 ×32768 四舍五入再钳到 int16 范围。
+        # 用 ×32767 直接截断会让 -1.0 只能到 -32767，带 ≤1 LSB 的负偏。
+        scaled = np.rint(np.clip(samples, -1.0, 1.0) * 32768.0)
+        raw = np.clip(scaled, -32768, 32767).astype(np.int16).tobytes()
     else:
         raise ValueError(f"不支持的 subtype: {subtype}（仅支持 FLOAT / PCM_16）")
 
@@ -58,9 +60,6 @@ def write_wav(path: str | Path, samples: np.ndarray, samplerate: int,
     pcm_size = len(raw)
 
     # RIFF header (12 bytes)
-    riff_size = 36 + pcm_size
-    header = struct.pack("<4sI4s", b"RIFF", riff_size, b"WAVE")
-
     # fmt chunk (24 bytes)
     fmt_chunk = struct.pack(
         "<4sIHHIIHH",
@@ -68,11 +67,19 @@ def write_wav(path: str | Path, samples: np.ndarray, samplerate: int,
         byte_rate, block_align, bits_per_sample,
     )
 
+    # 非 PCM（IEEE float）按规范需要 fact 块：样本数 = 每声道帧数
+    fact_chunk = b""
+    if audio_format == 3:
+        fact_chunk = struct.pack("<4sII", b"fact", 4, frames)
+
+    riff_size = 4 + 24 + len(fact_chunk) + 8 + pcm_size
+    header = struct.pack("<4sI4s", b"RIFF", riff_size, b"WAVE")
+
     # data chunk (8 + data)
     pcm_chunk = struct.pack("<4sI", b"data", pcm_size) + raw
 
     with open(path, "wb") as f:
-        f.write(header + fmt_chunk + pcm_chunk)
+        f.write(header + fmt_chunk + fact_chunk + pcm_chunk)
 
 
 def read_wav_metadata(path: str | Path) -> dict:

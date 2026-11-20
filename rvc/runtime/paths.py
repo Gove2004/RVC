@@ -27,7 +27,7 @@ TRAIN_CONFIG_FILES = {
 }
 
 # ── 权重资产（大文件，git 忽略，目录骨架保留）──
-# HuBERT 特征器：assets/hubert/{base,chinese}/ 各含三件套（config.json + preprocessor_config.json + pytorch_model.bin）
+# HuBERT 特征器：assets/hubert/{base,chinese,ktum}/ 各含三件套（config.json + preprocessor_config.json + pytorch_model.bin）
 HUBERT_ROOT = ASSETS_ROOT / "hubert"
 # F0 提取
 RMVPE_PATH = ASSETS_ROOT / "rmvpe" / "rmvpe.pt"

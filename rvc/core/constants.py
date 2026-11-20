@@ -23,10 +23,9 @@ TRAIN_FRAME_MAX = 900
 # 训练/预处理扫描的音频扩展名单源：预处理指纹核对（preprocess.py）与向导素材
 # 扫描（train/cli）必须同一口径，新增格式只改这里。
 AUDIO_EXTS = frozenset({".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"})
-
-# libsndfile 可直接读取的原生格式（无需 ffmpeg 解码）：训练向导据此判断
-# 「素材含非原生格式但没有 ffmpeg」是否放行。AUDIO_EXTS 的子集。
-NATIVE_EXTS = frozenset({".wav", ".flac", ".ogg"})
+# 注意：项目已不依赖 libsndfile/soundfile —— 所有素材（含 wav）统一由 ffmpeg
+# 解码（rvc.io.audio_file.load_audio），训练体检因此无条件要求可用 ffmpeg，
+# 不存在「原生格式免 ffmpeg」的放行分支。
 
 # F0 置信度阈值（低于此值判为静音/UV）。
 # 训练与推理的取值有意不同，在此单源定义防双处漂移：
