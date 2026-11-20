@@ -258,15 +258,22 @@ def normalize_audio(wav: np.ndarray):
 
 def build_exp_manifest(input_dir: str | Path, sr: int, per: float):
     root = Path(input_dir).resolve()
-    files = sorted(
-        f"{str(p.relative_to(root)).replace('\\', '/')}|{p.stat().st_size}|{int(p.stat().st_mtime)}"
-        for p in root.rglob("*")
-        if p.is_file() and p.suffix.lower() in AUDIO_EXTS
-    )
-    digest = hashlib.sha1("\n".join(files).encode("utf-8")).hexdigest()
+    entries = []
+    for p in root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+            st = p.stat()
+            entries.append((str(p.relative_to(root)).replace("\\", "/"),
+                            st.st_size, st.st_mtime_ns))
+    # 两档指纹：
+    # - input_hash     秒级（兼容既有 manifest，老实验不会因换口径被迫重预处理）
+    # - input_hash_fine 纳秒级：同秒内替换同尺寸文件也能识别（新 manifest 才写）
+    coarse_lines = sorted(f"{rel}|{size}|{ns // 1_000_000_000}"
+                          for rel, size, ns in entries)
+    fine_lines = sorted(f"{rel}|{size}|{ns}" for rel, size, ns in entries)
     return {
         "input_dir": str(root),
-        "input_hash": digest,
+        "input_hash": hashlib.sha1("\n".join(coarse_lines).encode("utf-8")).hexdigest(),
+        "input_hash_fine": hashlib.sha1("\n".join(fine_lines).encode("utf-8")).hexdigest(),
         "sr": sr,
         "per": per,
     }
@@ -303,7 +310,15 @@ def manifest_diff_reason(exp_dir: str | Path, input_dir: str | Path, sr: int, pe
         return f"采样率不一致（{saved.get('sr')} vs {current.get('sr')}）"
     if saved.get("per") != current.get("per"):
         return f"切片时长不一致（{saved.get('per')} vs {current.get('per')}）"
-    if saved.get("input_hash") != current.get("input_hash"):
+    # 两边都带纳秒级指纹时用它（同秒内替换同尺寸文件也能识别）；旧 manifest
+    # 只有秒级字段，退回粗粒度比较——不用 fine 强行让老实验重新预处理。
+    saved_fine = saved.get("input_hash_fine")
+    current_fine = current.get("input_hash_fine")
+    if saved_fine and current_fine:
+        stale = saved_fine != current_fine
+    else:
+        stale = saved.get("input_hash") != current.get("input_hash")
+    if stale:
         return "素材文件有变化（新增/删除/大小或修改时间变动），旧特征已过期"
     return ""
 

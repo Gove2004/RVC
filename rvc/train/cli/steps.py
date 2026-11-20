@@ -114,7 +114,7 @@ def step_feature(log: TrainLogger, cfg: dict):
         make_extractor=lambda c: HuBERTExtractor(c["device"], c["fp16"], hubert=hubert, ffmpeg_exe=c["ffmpeg"]),
     )
     # 记录特征器变体：_features_ready 凭它识别「特征由哪个特征器提取」，
-    # 切换 base/chinese 后不会静默复用旧特征（两者同为 768 维，训练零报错但音色发闷）
+    # 切换特征器变体后不会静默复用旧特征（变体同为 768 维，训练零报错但音色发闷）
     variant_file = cfg["exp_dir"] / "3_feature768" / ".variant"
     if not STOP.requested:
         variant_file.write_text(hubert, encoding="utf-8")
@@ -127,7 +127,7 @@ def step_feature(log: TrainLogger, cfg: dict):
 def _variant_matches(exp_dir: Path, hubert: str) -> bool:
     """3_feature768/.variant 是否记录了指定特征器变体（缺失或不同 → False）。
 
-    切换 base/chinese 后不会静默复用旧特征（两者同为 768 维，训练零报错但音色发闷）。
+    切换特征器变体后不会静默复用旧特征（变体同为 768 维，训练零报错但音色发闷）。
     """
     variant_file = exp_dir / "3_feature768" / ".variant"
     return variant_file.exists() and variant_file.read_text(encoding="utf-8").strip() == hubert

@@ -21,11 +21,13 @@ from rvc.runtime.paths import (
 
 from rvc.train.cli import (
     AUDIO_EXTS,
-    NATIVE_EXTS,
     OPTIONAL_PACKAGES,
     REQUIRED_PACKAGES,
     EnvFatal,
 )
+
+# HuBERT 变体目录的三件套（缺任何一件该变体不可用）
+_HUBERT_FILES = ("config.json", "preprocessor_config.json", "pytorch_model.bin")
 from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import human_dur, human_size
 
@@ -148,7 +150,7 @@ def _probe_ffmpeg(log: TrainLogger) -> str | None:
     chosen, source = locate_ffmpeg()
     if not chosen:
         log.log("ffmpeg      : 未找到（系统 PATH / assets/ffmpeg 都没有）", "WARN")
-        log.log("  素材若含 mp3/m4a/aac 会直接失败；安装：winget install ffmpeg / apt install -y ffmpeg", "WARN")
+        log.log("  所有素材（含 wav）都经 ffmpeg 解码，开始训练前会中止；安装：winget install ffmpeg / apt install -y ffmpeg", "WARN")
         return None
     try:
         # CREATE_NO_WINDOW：GUI/无控制台启动时不弹黑色命令行窗口（Windows 上
@@ -172,23 +174,37 @@ def _probe_ffmpeg(log: TrainLogger) -> str | None:
 
 
 def _require_ffmpeg(log: TrainLogger, files: list[Path], ffmpeg_exe: str | None = None):
-    """素材里有非原生格式却没有**可用的** ffmpeg → 直接失败。
+    """素材解码全部经 ffmpeg（含 wav），没有**可用的** ffmpeg 直接失败。
+
+    项目已不依赖 libsndfile/soundfile：preprocess 对每个文件调
+    audio_file.load_audio，而它无条件走 ffmpeg。所以这里不按扩展名放行——
+    「原生格式」概念已不存在，放行只会在预处理中途才炸出错位很远的报错。
 
     判定用体检阶段 _probe_ffmpeg 的结论（它做过 -version 实跑验证），
     不在此处重新 locate：定位得到不等于能跑，损坏/权限不足的 ffmpeg 会在
     预处理中途才以 AudioLoadError 炸出来，报错与真实原因相距很远。
     """
-    foreign = [p for p in files if p.suffix.lower() not in NATIVE_EXTS]
-    if not foreign:
-        log.log(f"素材格式    : 全部为 wav/flac/ogg（libsndfile 可直接读取，{len(files)} 个）")
+    if not files:
         return
     if ffmpeg_exe:
-        log.log(f"素材格式    : 含 {len(foreign)} 个需 ffmpeg 解码的文件（如 {foreign[0].name}），已定位可用 ffmpeg")
+        log.log(f"素材格式    : {len(files)} 个文件将经 ffmpeg 解码（已定位可用 ffmpeg）")
         return
     raise EnvFatal(
-        f"素材里有 {len(foreign)} 个非 wav/flac/ogg 文件（如 {foreign[0].name}），但没有可用的 ffmpeg。\n"
+        f"目录里有 {len(files)} 个音频文件（如 {files[0].name}），但没有可用的 ffmpeg。\n"
+        "  所有格式（含 wav）都经 ffmpeg 解码。\n"
         "  Windows：winget install ffmpeg（或把 ffmpeg.exe 放进 assets/ffmpeg/）\n"
         "  Linux：apt install -y ffmpeg（或 conda install -c conda-forge ffmpeg）"
+    )
+
+
+def available_hubert_variants() -> tuple[str, ...]:
+    """assets/hubert 下三件套齐全的变体（训练向导只提供这些）。
+
+    体检不要求所有变体都在：装哪个用哪个，但一个完整的都没有时无法训练。
+    """
+    return tuple(
+        variant for variant in HUBERT_VARIANTS
+        if all((HUBERT_ROOT / variant / f).exists() for f in _HUBERT_FILES)
     )
 
 
@@ -202,14 +218,20 @@ def _probe_assets(log: TrainLogger) -> dict:
             fatal.append(f"训练配置缺失: assets/configs/{sr_k}ktrain_config.json（应随代码仓库一起上传）")
 
     hubert_root = HUBERT_ROOT
+    complete = available_hubert_variants()
     for variant in HUBERT_VARIANTS:
-        hubert_dir = hubert_root / variant
-        for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin"):
-            path = hubert_dir / f
-            if not path.exists():
-                fatal.append(f"HuBERT 权重缺失: assets/hubert/{variant}/{f}")
-            else:
-                log.log(f"  HuBERT {variant:<7} {f:<24} {human_size(path.stat().st_size)}")
+        missing = [f for f in _HUBERT_FILES if not (hubert_root / variant / f).exists()]
+        if missing:
+            warns.append(f"HuBERT 变体 {variant} 不完整（缺 {', '.join(missing)}）→ 训练向导不会提供该变体")
+            continue
+        for f in _HUBERT_FILES:
+            path = hubert_root / variant / f
+            log.log(f"  HuBERT {variant:<7} {f:<24} {human_size(path.stat().st_size)}")
+    if not complete:
+        fatal.append(
+            "assets/hubert/ 下没有任何完整变体（每个变体需 "
+            + " + ".join(_HUBERT_FILES) + "）"
+        )
 
     rmvpe = RMVPE_PATH
     if not rmvpe.exists():
@@ -234,7 +256,7 @@ def _probe_assets(log: TrainLogger) -> dict:
             log.log(msg, "ERROR")
         log.plain()
         log.log("以上权重都在 .gitignore 里，git clone 不会带下来，需要单独放置：", "ERROR")
-        log.log("  · assets/hubert/{" + ",".join(HUBERT_VARIANTS) + "}/（各含 config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
+        log.log("  · assets/hubert/{" + ",".join(HUBERT_VARIANTS) + "}/（装哪个用哪个；至少一个变体含 config.json + preprocessor_config.json + pytorch_model.bin）", "ERROR")
         log.log("  · assets/rmvpe/rmvpe.pt", "ERROR")
         log.log("  · assets/pretrained/f0G48k.pth + f0D48k.pth（可选，但强烈建议）", "ERROR")
         raise EnvFatal("模型权重缺失")

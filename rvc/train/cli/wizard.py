@@ -19,20 +19,21 @@ from rvc.train.cli import (
 )
 from rvc.train.cli.defaults import load_defaults, save_defaults
 from rvc.train.cli.envcheck import (
+    available_hubert_variants,
     probe_dataset,
     _probe_disk,
     _require_ffmpeg,
     _scan_audio,
     _suggest_batch,
 )
-from rvc.core.config import HUBERT_DEFAULT, HUBERT_VARIANTS
+from rvc.core.config import HUBERT_DEFAULT
 from rvc.runtime.paths import parse_sr
 from rvc.train.cli.logger import TrainLogger
 from rvc.train.cli.prompts import _as_float, _as_int, _as_sr, ask, ask_yes
 
-# 采样率可选项（同时作为 check 的白名单）；特征器清单单源在 rvc.core.config
+# 采样率可选项（同时作为 check 的白名单）；特征器清单单源在 rvc.core.config，
+# 具体提供哪些变体取决于 assets/hubert 下哪几个三件套齐全（见 run_wizard）。
 SR_OPTIONS = ("40k", "48k")
-HUBERT_OPTIONS = HUBERT_VARIANTS
 
 
 def _detect_ckpt_epoch(exp_dir: Path) -> int:
@@ -60,6 +61,13 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     """
     cfg = {"device": device, "fp16": fp16, "ffmpeg": ffmpeg_exe}
     defaults = load_defaults()
+    # 只提供权重齐全的变体：体检已保证至少一个完整（缺的变体选不进去也用不了）
+    hubert_options = available_hubert_variants() or (HUBERT_DEFAULT,)
+    if defaults["hubert"] in hubert_options:
+        hubert_default = defaults["hubert"]
+    else:
+        hubert_default = hubert_options[0]
+        log.log(f"上次的特征器 {defaults['hubert']} 权重不完整，本次默认改用 {hubert_default}", "WARN")
 
     log.section("第 3 步 / 训练参数（直接回车 = 使用默认值，默认值 = 上次的答案）")
 
@@ -125,11 +133,11 @@ def run_wizard(log: TrainLogger, device: str, fp16: bool, vram_gb: float, argv_d
     # 5) HuBERT 特征器（训练/推理必须一致，权重在 assets/hubert/{base,chinese,ktum}；
     #    不一致 → 音色发闷、咬字怪异）
     def _hubert_ok(value):
-        if value not in HUBERT_OPTIONS:
-            return False, "只能填 " + " / ".join(HUBERT_OPTIONS)
+        if value not in hubert_options:
+            return False, "只能填 " + " / ".join(hubert_options)
         return True, ""
 
-    hubert = ask("HuBERT 特征器", defaults["hubert"], check=_hubert_ok, options=HUBERT_OPTIONS,
+    hubert = ask("HuBERT 特征器", hubert_default, check=_hubert_ok, options=hubert_options,
                  note="base = 官方 v2 预训练用的原版 hubert_base（默认）；"
                       "chinese = 腾讯 chinese-hubert-base；"
                       "ktum = KtUltraMorph 自训练版（KTUM 系模型必须选它）")
