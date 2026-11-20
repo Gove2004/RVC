@@ -14,6 +14,7 @@ from PySide6.QtCore import QTimer, QThread, Signal
 
 from gui.controller.recycle import recycle_file
 from rvc.core.config import OfflineParams
+from rvc.core.constants import AUDIO_EXTS
 from rvc.core.errors import CancelledError
 from rvc.io.wav_file import read_wav
 
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
     from gui.view.contracts import OfflineViewHost
 
 logger = logging.getLogger(__name__)
+
+# 文件对话框过滤器：扩展名单源在 rvc.core.constants，引擎新增格式时自动跟上。
+# 放在 controller 层（view 层禁止运行时 import rvc，见 tests/test_layering.py）。
+AUDIO_FILTER = "音频 (" + " ".join(f"*{ext}" for ext in sorted(AUDIO_EXTS)) + ")"
 
 # 输出文件后缀：输出恒与输入同目录，只在文件名后追加该后缀（界面不可修改）
 OUTPUT_SUFFIX = "_converted.wav"

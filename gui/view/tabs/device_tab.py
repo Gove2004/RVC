@@ -41,7 +41,7 @@ def build_device_tab(win):
         "推理使用的 NVIDIA GPU（多卡机器）。\n"
         "切换后需重启程序生效：模型权重与 CUDA Graph 已按当前显卡驻留。"
     )
-    g.addWidget(_label("显卡驱动"), r, 0)
+    g.addWidget(_label("推理显卡"), r, 0)
     g.addWidget(win.gpu_combo, r, 1, 1, 2)
     r += 1
 

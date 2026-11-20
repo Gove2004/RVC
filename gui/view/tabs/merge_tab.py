@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QLineEdit,
-    QPushButton, QSlider,
+    QMessageBox, QPushButton, QSlider,
 )
 
 from gui.controller.tool_controller import run_tool_async
@@ -128,6 +128,15 @@ def _run_merge(win):
         _set_merge_status(win, "模型 B 不存在", Colors.ERROR)
         return
     out = win.model_tools.merge_output_path(name)
+    if Path(out).exists():
+        answer = QMessageBox.question(
+            win, "覆盖确认", f"同名模型已存在：\n{out}\n\n要覆盖它吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            _set_merge_status(win, "已取消，未覆盖现有模型", Colors.TEXT_SECONDARY)
+            return
     ratio = win.merge_slider.value() / 100.0
     win.btn_merge.setEnabled(False)
     win.btn_merge.setStyleSheet(ButtonStyles.secondary())

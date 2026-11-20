@@ -153,7 +153,7 @@ class SystemTray:
             300,
             lambda: self.tray.showMessage(
                 "RVC",
-                "已最小化到托盘，点击图标恢复窗口",
+                "已最小化到托盘，右键图标可选择显示窗口或退出",
                 QSystemTrayIcon.MessageIcon.Information,
                 2500,
             ),
