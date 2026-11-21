@@ -13,11 +13,10 @@
 """
 import json
 import logging
-import os
 from pathlib import Path
 
 from rvc.core.config import HUBERT_VARIANTS
-from rvc.io.atomic import load_json_or_default
+from rvc.io.atomic import atomic_write_text, load_json_or_default
 from rvc.runtime.paths import TRAIN_CLI_DEFAULTS_FILE
 from rvc.train.cli import DEFAULTS, default_output_root
 
@@ -102,9 +101,8 @@ def save_defaults(cfg: dict) -> None:
     path = TRAIN_CLI_DEFAULTS_FILE
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # 原子写：先写 .tmp 再 os.replace，写入中断不会损坏原存档
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, path)
+        # 原子写走 rvc.io.atomic（独占 tmp + Windows 占用退避重试）：
+        # 写入中断不会损坏原存档，也不在本文件重复实现一遍 replace 语义。
+        atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
     except Exception as e:
         logger.warning("保存训练存档失败：%s", e)

@@ -228,8 +228,19 @@ def _detach_cache(owner: Any) -> "_GraphCache | None":
 def _release_caches(caches: list["_GraphCache"]) -> None:
     """回收已摘下的图缓存：逐个取锁等待在途回放结束，再统一 GC + 同步 + 清缓存。
 
-    取锁是有意的安全点：replay 全程持锁，取到锁即保证没有回放仍在引用
-    即将销毁的 CUDAGraph/静态张量——这是旧图与新图内存地址不冲突的前提。
+    安全点由 **entry.lock** 提供（不是 cache.lock）：`_CapturedCall.replay`
+    全程持 entry.lock，所以对每个 entry 取一次锁即保证没有回放仍在引用即将
+    销毁的 CUDAGraph/静态张量——这是旧图与新图内存地址不冲突的前提。
+    这里必须**先 cache.lock 再逐个 entry.lock**，顺序与 `_GraphCache.run`
+    的淘汰路径一致。
+
+    **已知极小窗口（有意不改）**：`_GraphCache.run` 在 cache.lock 内取出 entry
+    引用后即释放锁，随后才在锁外调用 `entry.replay`。若 release 恰好插在这两条
+    语句之间，它会拿到 cache.lock、清空 entries（此时 run 手上那个 entry 已不在
+    表内，故不会再对它取锁），于是 release 可能在 replay 真正开始前返回。触发
+    条件是跨线程且命中几条字节码的调度间隙，而所有 purge 触发点（模型淘汰、
+    switch_f0_method、提取器 release）都在非回调线程；把 replay 也包进 cache.lock
+    能消除窗口，但会让热路径的临界区拉长到整个回放时长，代价高于该窗口。
     """
     for cache in caches:
         with cache.lock:

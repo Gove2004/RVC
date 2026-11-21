@@ -15,7 +15,7 @@ import logging
 
 import torch
 
-from rvc.core.config import HUBERT_DEFAULT, InferenceParams
+from rvc.core.config import HUBERT_DEFAULT
 from rvc.pipeline.state import EngineState
 from rvc.pipeline.context import InferenceContext
 from rvc.pipeline.cache import default_inference_cache
