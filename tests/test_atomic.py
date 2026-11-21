@@ -4,13 +4,27 @@
 下一轮静默复用；而 Windows 上 os.replace 撞到占用（杀毒/索引器）时的失败
 在 Linux 开发机上是不可复现的，只能靠这里用 mock 锁住行为。
 """
+import builtins
+import multiprocessing
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+
 from rvc.io import atomic
+
+# 并发写用例的数组长度（够大以拉长写窗口，又不拖慢单测）
+_CONCURRENT_SIZE = 200_000
+
+
+def _write_full_array(path: str, idx: int) -> None:
+    """多进程写者（必须是模块级：spawn 需要可 pickle）。"""
+    from rvc.train.atomic_save import save_npy_atomic
+
+    save_npy_atomic(path, np.full((_CONCURRENT_SIZE,), float(idx), dtype=np.float32))
 
 
 class TestAtomicWrite(unittest.TestCase):
@@ -82,6 +96,68 @@ class TestAtomicWrite(unittest.TestCase):
         target = self.dir / "a.json"
         atomic.atomic_write_text(target, '{"a": 1}')
         self.assertEqual(target.read_text(encoding="utf-8"), '{"a": 1}')
+
+    def test_tmp_name_is_unique_per_call(self):
+        """tmp 名必须每次唯一：多进程并发写同一目标时不得共用 tmp。
+
+        训练侧 DataLoader 的 worker 是独立进程，会并发首次填充同一批样本缓存
+        （dataset._cached_wav/_cached_spec 惰性写盘）。固定 tmp 名会让先完成者
+        把 tmp 移走、后到者在 os.replace 处抛 FileNotFoundError——而退避只重试
+        PermissionError，兜不住它，表现为「新实验第一个 epoch 偶发崩溃」。
+        """
+        target = self.dir / "a.bin"
+        names = []
+        real_open = builtins.open
+
+        def spy_open(file, *a, **kw):
+            names.append(str(file))
+            return real_open(file, *a, **kw)
+
+        with mock.patch("builtins.open", side_effect=spy_open):
+            atomic.atomic_write(target, lambda f: f.write(b"x"))
+            atomic.atomic_write(target, lambda f: f.write(b"y"))
+
+        self.assertEqual(len(names), 2)
+        self.assertNotEqual(names[0], names[1], "两次写的 tmp 名相同，并发写会互撞")
+        # 两次都不得残留
+        self.assertEqual(list(self.dir.glob("*.tmp")), [])
+
+    def test_failed_write_leaves_no_tmp(self):
+        """writer 抛错后必须清掉自己的 tmp，否则缓存目录会积累垃圾文件。"""
+        target = self.dir / "a.bin"
+
+        def boom(f):
+            f.write(b"partial")
+            raise RuntimeError("序列化中途失败")
+
+        with self.assertRaises(RuntimeError):
+            atomic.atomic_write(target, boom)
+        self.assertEqual(list(self.dir.glob("*.tmp")), [])
+
+    def test_concurrent_writers_do_not_collide(self):
+        """多进程写同一目标：每个写者独占 tmp，最终文件是某个写者的完整内容。
+
+        这是回归锁：固定 tmp 名下本用例约 20% 概率抛 FileNotFoundError。
+        用真实多进程复刻 DataLoader worker 的并发写入（写函数必须是模块级，
+        spawn 需要可 pickle）。
+        """
+        target = self.dir / "shared.npy"
+        ctx = multiprocessing.get_context("spawn")
+        for _ in range(6):
+            procs = [ctx.Process(target=_write_full_array, args=(str(target), i))
+                     for i in range(2)]
+            for p in procs:
+                p.start()
+            for p in procs:
+                p.join()
+            for p in procs:
+                self.assertEqual(p.exitcode, 0, "并发写同一目标时进程异常退出")
+
+        got = np.load(target)
+        self.assertEqual(len(got), _CONCURRENT_SIZE)
+        # 内容必须是某一个写者写下的完整数组，不能是两者交错
+        self.assertEqual(len(set(np.unique(got).tolist())), 1)
+        self.assertEqual(list(self.dir.glob("*.tmp")), [])
 
 
 class TestLoadJsonOrDefault(unittest.TestCase):

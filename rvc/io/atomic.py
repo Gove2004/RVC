@@ -1,13 +1,17 @@
-"""文件原子写入 — 先写 .tmp 再 os.replace，任何时刻磁盘上的文件都完整。
+"""文件原子写入 — 先写独占的 .tmp 再 os.replace，任何时刻磁盘上的文件都完整。
 
 中断不留截断文件：按「文件存在即有效」消费的产物（checkpoint/配置/存档）
 若被中途强杀（Ctrl+C 强退/断电）留下半个文件，会被静默复用并损坏。
 replace 是同文件系统原子操作，写完后目标要么是旧内容要么是新内容。
 
-并发前提：tmp 文件名是**固定**的（path + ".tmp"），本函数只保证「同一路径
-不被并发写」时的原子性——两个进程同时写同一目标会互相截断同一个 tmp。
-新增并发调用方时必须改成唯一 tmp 名。
+**并发安全（同一路径可被多进程同时写）**：tmp 名带 pid 与自增序号，每个写者
+独占自己的 tmp，因此互不截断。这是必需的而非可选——训练侧 DataLoader 的多个
+worker 是独立进程，会并发首次填充同一批样本缓存（dataset._cached_wav/_cached_spec
+惰性写盘、无预热 pass），固定 tmp 名会让先完成者把 tmp 移走、后到者在
+os.replace 处抛 FileNotFoundError（实测约 20% 触发率），且只重试 PermissionError
+的退避逻辑兜不住它，表现为「新实验第一个 epoch 偶发崩溃、重跑又好」。
 """
+import itertools
 import json
 import logging
 import os
@@ -15,6 +19,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# 同一进程内的写者用自增序号区分（线程并发写同一路径也不会撞 tmp 名）。
+_tmp_counter = itertools.count()
 
 # os.replace 的重试次数与退避基数（秒）。Windows 上目标文件被短暂占用时
 # replace 抛 PermissionError，退避总时长约 0.05+0.10+0.15+0.20 = 0.5s。
@@ -42,13 +49,34 @@ def _replace_with_retry(tmp: Path, path: Path) -> None:
             time.sleep(_REPLACE_BACKOFF * (attempt + 1))
 
 
+def _unique_tmp(path: Path) -> Path:
+    """本写者独占的临时路径（pid + 进程内自增序号）。
+
+    不能用固定的 `path + ".tmp"`：多进程写同一目标时会互相截断同一个 tmp，
+    先完成者的 os.replace 把 tmp 移走，后到者随即 FileNotFoundError。
+    """
+    return path.with_name(f"{path.name}.{os.getpid()}.{next(_tmp_counter)}.tmp")
+
+
 def atomic_write(path: str | Path, writer: Callable[[Any], None]) -> None:
-    """原子写。writer 接收已打开的二进制文件对象，负责序列化。"""
+    """原子写。writer 接收已打开的二进制文件对象，负责序列化。
+
+    失败（含 writer 抛错）时清理本写者自己的 tmp，不留垃圾；目标是共享的，
+    但 tmp 是独占的，所以清理不会影响其他写者。
+    """
     path = Path(path)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "wb") as f:
-        writer(f)
-    _replace_with_retry(tmp, path)
+    tmp = _unique_tmp(path)
+    try:
+        with open(tmp, "wb") as f:
+            writer(f)
+        _replace_with_retry(tmp, path)
+    except BaseException:
+        # 只在 tmp 仍存在时删（replace 成功后它已不存在；竞态下由 OSError 兜住）
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def atomic_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> None:

@@ -217,8 +217,8 @@ class TextAudioLoaderMultiNSFsid(Dataset):
             return torch.from_numpy(np.load(cache_path)).unsqueeze(0)
         wav, _sr = load_audio(filename, target_sr=self.sampling_rate, mono=True, ffmpeg_exe=self.ffmpeg_exe)
         self.spec_cache_dir.mkdir(parents=True, exist_ok=True)
-        # 原子写：中断不留半写缓存（tmp 名固定，依赖「同一路径不并发写」前提，
-        # 见 atomic_save._atomic_write 的并发说明）
+        # 原子写：中断不留半写缓存。DataLoader 的多个 worker 是独立进程，会并发
+        # 首次填充同一批缓存，故 atomic_write 必须用独占 tmp 名（见 rvc/io/atomic.py）
         save_npy_atomic(cache_path, wav.astype(np.float32))
         return torch.from_numpy(wav).unsqueeze(0)
 
