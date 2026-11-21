@@ -3,6 +3,11 @@
 从 InferenceRunner.init_processing / prewarm_formant 抽出：这两处的数值契约
 （10ms 对齐、SOLA 重叠上限、HuBERT 帧数换算、预捕获档位覆盖）此前只能靠开流
 实跑验证，抽出后无需 GPU 即可锁住。
+
+两条缓冲的长度口径**不同**，不要合并成一个和式：
+- `work_buffer_samples`（work_sr 域）：只服务输出侧（RMS 参考 + work_sr→16k
+  重采样），故 = crossfade + sola_search + block，**不含 extra**。
+- `buffer_16k_samples`（16k 域）：服务 HuBERT/F0，必须含 extra 上下文窗。
 """
 from __future__ import annotations
 
@@ -48,6 +53,12 @@ def buffer_geometry(work_sr: int, block_time: float, crossfade_time: float,
     sola_buffer_samples = min(crossfade_samples, 10 * zc)
     sola_search_samples = zc
     extra_samples = int(np.round(extra_time * work_sr / zc)) * zc
+    # 输出侧（RMS 参考 + work_sr→16k 重采样）只需要「当前块 + SOLA 缓冲 + SOLA 搜索」
+    # 这段尾巴：extra 上下文只对 16k 缓冲（HuBERT/F0 要看全窗）有意义，work 缓冲里
+    # 的 extra 段没有任何消费者。两者必须分开算——此前 work 复用了同一个和式，
+    # 导致每块白搬 extra_samples 个样本（现役配置 100000 样本 ≈ 408KB/块，占该块
+    # 全部搬运量的 68%），并把常驻缓冲放大 16 倍。
+    tail_samples = crossfade_samples + sola_search_samples + block_samples
     return BufferGeometry(
         samples_per_centis=zc,
         block_samples=block_samples,
@@ -60,9 +71,9 @@ def buffer_geometry(work_sr: int, block_time: float, crossfade_time: float,
         # 传给合成器的帧数 = 当前块 + SOLA 缓冲 + SOLA 搜索。尾窗只有
         # return_length 帧进合成器；输出侧按同样三项之和截齐。
         return_length=(block_samples + sola_buffer_samples + sola_search_samples) // zc,
-        work_buffer_samples=extra_samples + crossfade_samples + sola_search_samples + block_samples,
-        buffer_16k_samples=HUBERT_FRAME_SIZE
-        * (extra_samples + crossfade_samples + sola_search_samples + block_samples) // zc,
+        work_buffer_samples=tail_samples,
+        # 16k 缓冲仍需 extra：HuBERT 与 F0 的上下文窗由 extra_time 决定。
+        buffer_16k_samples=HUBERT_FRAME_SIZE * (extra_samples + tail_samples) // zc,
     )
 
 

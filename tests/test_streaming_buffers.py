@@ -49,14 +49,30 @@ class TestBufferGeometry(unittest.TestCase):
                 g = buffer_geometry(sr, 0.25, 0.10, 2.0)
                 self.assertEqual(g.block_samples_16k,
                                  HUBERT_FRAME_SIZE * g.block_samples // g.samples_per_centis)
+                # 16k 缓冲仍必须含 extra 上下文窗（HuBERT/F0 要看全窗）
                 self.assertEqual(g.buffer_16k_samples,
-                                 HUBERT_FRAME_SIZE * g.work_buffer_samples // g.samples_per_centis)
+                                 HUBERT_FRAME_SIZE
+                                 * (g.extra_samples + g.work_buffer_samples)
+                                 // g.samples_per_centis)
 
-    def test_work_buffer_holds_extra_crossfade_search_block(self):
+    def test_work_buffer_holds_only_output_tail(self):
+        """work 缓冲只服务输出侧（RMS 参考 + work→16k 重采样），不含 extra。
+
+        此前它与 16k 缓冲复用同一个含 extra 的和式，导致每块白搬 extra_samples
+        个样本（现役配置约 408KB/块，占该块全部搬运量的 68%）。extra 上下文只对
+        16k 缓冲有意义，故两者必须分开算。
+        """
         g = buffer_geometry(40000, 0.25, 0.10, 2.0)
         self.assertEqual(g.work_buffer_samples,
-                         g.extra_samples + g.crossfade_samples
-                         + g.sola_search_samples + g.block_samples)
+                         g.crossfade_samples + g.sola_search_samples + g.block_samples)
+        # extra 不得混进 work 缓冲
+        self.assertLess(g.work_buffer_samples, g.extra_samples)
+        # 但必须够 RMS 用：参考长度 = converted 长度 = block+sola_buf+sola_search
+        self.assertGreaterEqual(g.work_buffer_samples,
+                                g.block_samples + g.sola_buffer_samples + g.sola_search_samples)
+        # 且够重采样取尾部上下文
+        self.assertGreaterEqual(g.work_buffer_samples,
+                                g.block_samples + 2 * g.samples_per_centis)
 
 
 class TestFormantFrameRange(unittest.TestCase):

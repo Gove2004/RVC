@@ -292,7 +292,9 @@ class InferenceRunner:
             infer = self._stage_formant(infer)
 
             # ── stage_output：RMS + SOLA + 气流声 + 硬件输出 ──
-            ref = state.input_wav_work[state.extra_samples:]
+            # work 缓冲只存输出侧真正要用的尾巴（不含 extra 上下文，见 buffer_geometry），
+            # 故整段就是 RMS 参考，不需要按 extra_samples 偏移。
+            ref = state.input_wav_work
             block = self.effects.process_output(infer, ref, p_rms_mix, p_airflow)
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
