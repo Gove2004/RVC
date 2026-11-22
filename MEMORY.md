@@ -400,11 +400,20 @@ A/B/A/B 并检查 A 是否漂移）。判据用**纯 GPU 算子做对照**——
 
 ## 13. 素材与用户配置
 
-- **素材与探针脚本不在仓库里**：`tools/` 只剩 `pitch_map_demo.html`（2026-11-07 用户裁定），
-  实验/测量脚本与 ~9.4GB 未跟踪数据已删除且不可恢复。§14 提到的 `probe_pitch.py` 等
+- **素材与探针脚本不在仓库里**：`tools/` 被 git 跟踪的只有 `pitch_map_demo.html` 与
+  `vb_loopback_latency.py`（2026-11-07 用户裁定后于 2026-11-22 复核），
+  实验/测量脚本与未跟踪数据**大部分**已删除。§14 提到的 `probe_pitch.py` 等
   **现在不存在**，需要时按 §14 记录的判据重写。
-- 素材：`E:\Download\audio\{凤凰,111,aaa,ah_sweep_step1}.wav`；环境音 `E:\Download\环境音素材`；
-  KTUM 应用 `E:\Download\ktum\KtUltraMorph.exe`
+  注：`tools/kaggle/` 与 `tools/new/` 仍在本地（约 2.3GB，已被 gitignore），
+  其中 `tools/kaggle/weights/` 与 `artifacts_vctk/` 有 `assets/` 里**没有**的
+  已训练模型（songyue40k_ktum_vctk 系），删掉不可恢复（见 §6 的 .gitignore 说明）
+- 素材（2026-11-22 复核存在性）：`E:\Download\audio\{凤凰,111,aaa}.wav` 存在；
+  **`ah_sweep_step1.wav` 已不存在**（扫频素材，重做频响类测量时要另找）；
+  环境音 `E:\Download\环境音素材` 存在（24 文件）；
+  **KTUM 应用 `E:\Download\ktum\KtUltraMorph.exe` 已不存在**——它只用于训练 ktum
+  HuBERT，而权重已训练好并入库（`assets/hubert/ktum/`，180MB），
+  `available_hubert_variants()` 仍返回 `('base','chinese','ktum')`，功能不受影响；
+  重新训练该变体时才需要找回此应用
 - **存档参数不进文档**（2026-11-07 用户裁定）：`save_state.json` /
   `train_cli_defaults.json` 的具体值只存在于文件本身，文档记录**结构与规矩**
   （顶层 `{gui, models, train}`、只有 `gui` 块被读取等见 §11），不拄参数值。

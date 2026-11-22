@@ -56,6 +56,17 @@ assets/hubert/**
 # Temp files
 *.tmp
 
+# torch.compile / inductor 编译缓存：transformers 的延迟导入会拉起 torch._dynamo，
+# 一旦有算子被编译就在**工作目录**下生成 torchinductor_<用户名>/（名字含用户名，
+# 所以不能写死）。2026-11-20 14:36 的一次沙箱验证（TEMP 指向工作区 + 进程被强杀）
+# 曾同时留下这个空目录与 81 个 tmp* 空目录；空目录 git 看不见，但一旦有内容
+# 就会被 git status 看到并可能误提交。
+torchinductor_*/
+# tempfile 在 TEMP 被指向工作区时产生的 mkdtemp 目录（tmpXXXXXXXX）。
+# 正常退出会自清理，只有进程被强杀才残留——这类残留是空的，git 不跟踪，
+# 但会污染根目录列表，所以登记一条便于 `git clean` 一并处理。
+/tmp?????????/
+
 # OS
 Thumbs.db
 .DS_Store
