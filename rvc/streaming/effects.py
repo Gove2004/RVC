@@ -159,6 +159,18 @@ class MicAirflowEffect:
 
     _MAX_BLOCK_SEC = 1.0       # 内部子块上限（整段离线调用时切分；流式块远小于此）
     _NOISE_CHUNK = 16384       # 噪声池补给单位（CUDA randn 值序与调用块长相关）
+    # 跨块仿射递推的槽位数（dur/env/act/fuel/held/air 六条）。
+    # 批扫描缓冲与 tail 缓冲都按它一次性分配，热路径不再增长。
+    _SCAN_SLOTS = 6
+    # 槽位编号。**必须与 _process_block 里的批分组一一对应且同批连续**：
+    # _scan_group 用 tail[slot : slot+k] 连续切片取本批初值，写回时也按同一
+    # 顺序。槽位与批内顺序错位会让某条递推读到**别人**的 tail——曾把 air 排在
+    # 末位、批内却是第 3 条，导致 act 每块都读到同一份旧值、EMA 完全不累积
+    # （分块渲染漂移 0.138，整段仍正常，故只在流式链路暴露）。
+    # 分批：批1={dur,act,air} 批2={env,fuel} 批3={held}
+    _S_DUR, _S_ACT, _S_AIR = 0, 1, 2
+    _S_ENV, _S_FUEL = 3, 4
+    _S_HELD = 5
 
     # @48k 参考核大小（setup中按sr比例缩放）
     _REF_SR = 48000
@@ -208,15 +220,14 @@ class MicAirflowEffect:
         self._prev_noise = None       # 风噪输入（combo 2ch 共用）
         self._prev_gate = None        # 门控 EMA 的输入
         self._prev_audio_prox = None  # 近讲低通的输入
-        # GPU 标量状态（跨块衔接；只经张量算术更新，绝不 .item()）
-        self._dur_tail = None         # 静音持续时长块尾（样本）
-        self._act_tail = None         # 说话活跃度块尾
-        self._env_tail = None         # 吸气包络块尾
-        self._fuel_tail = None        # 气量块尾（说话量慢积分）
-        self._held_tail = None        # 静音期锁存的气量块尾
-        self._air_tail = None         # 说话气息慢包络块尾
+        # GPU 标量状态（跨块衔接；只经张量算术更新，绝不 .item()）。
+        # 六条递推的末状态统一放在一个预分配 (6,1) 缓冲里，按 _S_* 槽位索引——
+        # 分开存会在每次批扫描时 cat 组装 tail，正是要消除的那类每块分配。
+        self._scan_tail = None        # (6,1) dur/env/act/fuel/held/air 的块尾
+        self._dur_prev_buf = None     # (1,) 上一块 dur 末值的副本（见 _process_block）
         # 复用缓冲（热路径零分配）
         self._batch_in = None       # (2,1,ctx_n)：调制噪声/包络
+        self._scan_ab = None        # (6,2,n)：批扫描的 a/b 输入
         # 噪声流：每消费者独立（0=调制噪声, 1=风噪）
         self._rngs = [None, None]
         self._rng_device = None
@@ -286,16 +297,24 @@ class MicAirflowEffect:
         self._prev_noise = None
         self._prev_gate = None
         self._prev_audio_prox = None
-        self._dur_tail = None
-        self._act_tail = None
-        self._env_tail = None
-        self._fuel_tail = None
-        self._held_tail = None
-        self._air_tail = None
+        # 六条递推的块尾统一归零（None = 流起始，与旧语义一致）
+        self._scan_tail = None
+        self._dur_prev_buf = None
         self._rngs = [None, None]
         self._rng_device = None
         self._pools = [None, None]
         self._pool_pos = [0, 0]
+
+    @property
+    def _env_tail(self):
+        """吸气包络（env）递推的块尾值 —— 只读观测点。
+
+        六条递推的末状态已合并进 _scan_tail（见 _SCAN_SLOTS 的说明），本属性
+        只是它的 env 行视图，供测试与调试读取，不参与写入。
+        """
+        if self._scan_tail is None:
+            return None
+        return self._scan_tail[self._S_ENV, 0]
 
     def _noise(self, stream: int, n: int, device: torch.device) -> torch.Tensor:
         """取第 stream 条噪声流的下 n 个标准正态值（独立生成器+固定补给池）。
@@ -336,20 +355,71 @@ class MicAirflowEffect:
         返回完整序列 e[0..n-1]；tail 为上一块末状态 e[-1]（None=流起始）。
         递推本身精确（与逐样本循环在实数意义下一致），但结合序随序列长度变化，
         所以只在浮点舍入意义下与分块无关——漂移 ulp 量级，远小于可闻阈值。
+
+        **支持批处理**：a/b 为 (K, n) 时沿 dim=1 扫描，tail 形状 (K, 1)。
+        多条互不依赖的递推合并成一次调用能把 cat 次数按 K 倍摊薄——本函数是
+        热路径上唯一的 O(n log n)·cat 开销来源（单块 5~6 处调用共 156 次 cat，
+        占全部张量分配的 96%），批处理后 GPU 侧耗时降约 5 倍。
+        数值与逐条调用**逐位相同**（每条的递推式与结合序都未变）。
         """
-        n = a.shape[0]
+        batched = a.dim() == 2
+        n = a.shape[1] if batched else a.shape[0]
         A, B = a.clone(), b.clone()
         step = 1
         while step < n:
-            a_r, b_r = A[step:], B[step:]
-            a_l, b_l = A[:-step], B[:-step]
-            # 先算 B（要用的旧 A），再更新 A
-            B = torch.cat([B[:step], a_r * b_l + b_r])
-            A = torch.cat([A[:step], a_l * a_r])
+            if batched:
+                a_r, b_r = A[:, step:], B[:, step:]
+                a_l, b_l = A[:, :-step], B[:, :-step]
+                # 先算 B（要用的旧 A），再更新 A
+                B = torch.cat([B[:, :step], a_r * b_l + b_r], dim=1)
+                A = torch.cat([A[:, :step], a_l * a_r], dim=1)
+            else:
+                a_r, b_r = A[step:], B[step:]
+                a_l, b_l = A[:-step], B[:-step]
+                # 先算 B（要用的旧 A），再更新 A
+                B = torch.cat([B[:step], a_r * b_l + b_r])
+                A = torch.cat([A[:step], a_l * a_r])
             step <<= 1
         if tail is not None and tail.device == a.device:
             return A * tail + B
         return B
+
+    def _scan_group(self, k: int, a_parts, b_parts, tail_slot: int, n: int):
+        """把 k 条互不依赖的仿射递推合并成一次批处理扫描。
+
+        a_parts / b_parts：长度 k 的「如何构造第 i 条系数序列」的产物列表，
+        每项形状 (n,)。tail 从预分配的 self._scan_tail 取第 tail_slot 行。
+
+        复用两块缓冲：
+        - self._scan_ab  (k, 2, n)：拼 a/b 的批输入（避免 stack 每块分配）
+        - self._scan_tail (S, 1)   ：跨块标量尾（原地写，不 cat）
+
+        返回 (k, n) 结果；调用方按行取用。写回 tail 由调用方负责
+        （见 _scan_store_tail），以保持「哪一行对应哪条递推」的显式性。
+        """
+        device = a_parts[0].device
+        ab = self._scan_ab
+        if ab is None or ab.shape[0] < k or ab.shape[2] != n:
+            ab = torch.empty(max(k, self._SCAN_SLOTS), 2, n, device=device)
+            self._scan_ab = ab
+        for i in range(k):
+            ab[i, 0].copy_(a_parts[i])
+            ab[i, 1].copy_(b_parts[i])
+        tail = self._scan_tail
+        if tail is None:
+            tail = torch.zeros(self._SCAN_SLOTS, 1, device=device)
+            self._scan_tail = tail
+        return self._scan_affine(ab[:k, 0], ab[:k, 1], tail[tail_slot:tail_slot + k])
+
+    def _scan_store_tail(self, result: torch.Tensor, slots) -> None:
+        """把批扫描结果的末列写回预分配 tail 缓冲的指定行（原地，不分配）。
+
+        slots：本批各条递推在 self._scan_tail 中的行号。
+        用 detach 视图写入：tail 是跨块状态，不得带进 autograd 图。
+        """
+        tail = self._scan_tail
+        for row, slot in enumerate(slots):
+            tail[slot, 0] = result[row, -1].detach()
 
     def _kernels_on(self, device: torch.device):
         """核的 GPU 缓存（首次/换设备时迁移）。"""
@@ -422,11 +492,39 @@ class MicAirflowEffect:
         # ═══════════════════════════════════════════════════════════
         sil_ind = (envelope < self.SILENCE_FLOOR).float()
 
+        # ── 第 1 批扫描：{dur, act, air} —— 三条互不依赖，合并为一次调用 ──
+        # dur 只吃 sil_ind；act/air 只吃 envelope（均已就绪）。合并后 cat 次数
+        # 从 3×2×log2(n) 降到 1×2×log2(n)，数值逐位相同（见 _scan_affine）。
         # 3a. 静音持续时长（样本）：dur' = sil ? dur+1 : 0
         #     ⇒ 逐步系数 a=sil, b=sil（sil=0 时归零，sil=1 时线性累加）
-        dur_prev_tail = self._dur_tail
-        dur = self._scan_affine(sil_ind, sil_ind, dur_prev_tail)
-        self._dur_tail = dur[-1].detach()
+        #
+        # dur_prev_tail 必须在批扫描**之前**取走：它下面要用来算 resume
+        # （本块首样本的「静音→有声」跃变判定，需上一块的末值），而
+        # _scan_store_tail 会把本块新值原地写回同一个缓冲。若直接引用视图，
+        # 读到的是本块自己的末值，resume 整块错位（实测输出偏差 6e-3 且跨块累积）。
+        # 用预分配的 1 元素缓冲承接旧值，避免每块 clone 一次分配。
+        if self._scan_tail is None:
+            dur_prev_tail = None
+        else:
+            if self._dur_prev_buf is None:
+                self._dur_prev_buf = torch.zeros(1, device=device)
+            self._dur_prev_buf.copy_(self._scan_tail[self._S_DUR])
+            dur_prev_tail = self._dur_prev_buf
+        voiced_n = (envelope * (1.0 / self.FUEL_REF)).clamp(0.0, 1.0)
+        b_act = envelope * self._alpha_act
+        b_air = envelope * self._air_alpha
+        a_const_act = torch.full((n,), self._act_a, device=device)
+        a_const_air = torch.full((n,), self._air_a, device=device)
+        batch1 = self._scan_group(
+            3,
+            (sil_ind, a_const_act, a_const_air),
+            (sil_ind, b_act, b_air),
+            self._S_DUR, n,
+        )
+        dur = batch1[0]
+        act = batch1[1]
+        air_env = batch1[2]
+        self._scan_store_tail(batch1, (self._S_DUR, self._S_ACT, self._S_AIR))
 
         # 3b. 吸气包络：分段仿射系数（未满最短停顿持零 / 起升 / 到顶后回落 /
         #     有声快速切断）。起升速率 k 按 smoothstep 从 0 渐入：硬切换会让
@@ -441,8 +539,38 @@ class MicAirflowEffect:
                  + sil_ind * (1.0 - late) * (1.0 - k * self._alpha_rise)
                  + sil_ind * late * self._fall_a)
         b_env = k * self._alpha_rise
-        env_in = self._scan_affine(a_env, b_env, self._env_tail)
-        self._env_tail = env_in[-1].detach()
+        # 开口（静音→有声）的那一个样本结算上一次吸气：气量按比例打掉，
+        # 之后由说话量重新积累——短句只换到浅吸，连续换气逐次变浅。
+        if dur_prev_tail is None:
+            dur_prev = torch.cat([torch.zeros(1, device=device), dur[:-1]])
+        else:
+            dur_prev = torch.cat([dur_prev_tail.reshape(1), dur[:-1]])
+        resume = ((dur == 0) & (dur_prev > 0)).float()
+        a_fuel = (torch.full((n,), self._fuel_a, device=device)
+                  + resume * ((1.0 - self.FUEL_BREATH_USE) - self._fuel_a))
+
+        # ── 第 2 批扫描：{env, fuel} —— 都只依赖 dur，合并为一次调用 ──
+        batch2 = self._scan_group(
+            2,
+            (a_env, a_fuel),
+            (b_env, voiced_n * self._fuel_alpha),
+            self._S_ENV, n,
+        )
+        env_in = batch2[0]
+        fuel = batch2[1]
+        self._scan_store_tail(batch2, (self._S_ENV, self._S_FUEL))
+
+        # ── 第 3 批扫描：{held} —— 依赖 fuel，只能单独一批 ──
+        # 静音开始处锁存气量：整段停顿用同一个 depth，弧不被自身历史调制
+        batch3 = self._scan_group(
+            1,
+            (sil_ind,),
+            ((1.0 - sil_ind) * fuel,),
+            self._S_HELD, n,
+        )
+        held = batch3[0]
+        self._scan_store_tail(batch3, (self._S_HELD,))
+        depth = held.clamp(0.0, 1.0)
 
         # ═══════════════════════════════════════════════════════════
         # 4. 门控：sigmoid → 非线性 → EMA平滑（不做辅音增强——说话中
@@ -461,33 +589,11 @@ class MicAirflowEffect:
         envelope_gate = gate_smooth[gate_ctx.shape[0] - n:]
 
         # ═══════════════════════════════════════════════════════════
-        # 4b. 活跃度门控：τ=1s EMA of 包络——长静音后不再呼吸、
-        #     冷启动不凭空吸气（act_n 平滑归零，无状态跳变）
-        # 4c. 气量：说话量的慢积分（τ=FUEL_TAU），静音开始处锁存为本次
-        #     depth，开口时按 FUEL_BREATH_USE 结算消耗——短句只换到浅吸，
-        #     长句才有深吸，连续换气逐次变浅。三条都是仿射扫描，无分支。
+        # 4b. 活跃度门控 / 4c. 气量 / 4d. 气息包络：三条递推已在上面的
+        #     第 1、2 批扫描中一并算完（act / fuel / held / air_env），
+        #     此处只做归一化与门控组合。
         # ═══════════════════════════════════════════════════════════
-        a_act = torch.full((n,), self._act_a, device=device)
-        act = self._scan_affine(a_act, envelope * self._alpha_act, self._act_tail)
-        self._act_tail = act[-1].detach()
         act_n = (act / self.ACT_THRESHOLD).clamp(0.0, 1.0)
-
-        voiced_n = (envelope * (1.0 / self.FUEL_REF)).clamp(0.0, 1.0)
-        # 开口（静音→有声）的那一个样本结算上一次吸气：气量按比例打掉，
-        # 之后由说话量重新积累——短句只换到浅吸，连续换气逐次变浅。
-        if dur_prev_tail is None:
-            dur_prev = torch.cat([torch.zeros(1, device=device), dur[:-1]])
-        else:
-            dur_prev = torch.cat([dur_prev_tail.reshape(1), dur[:-1]])
-        resume = ((dur == 0) & (dur_prev > 0)).float()
-        a_fuel = (torch.full((n,), self._fuel_a, device=device)
-                  + resume * ((1.0 - self.FUEL_BREATH_USE) - self._fuel_a))
-        fuel = self._scan_affine(a_fuel, voiced_n * self._fuel_alpha, self._fuel_tail)
-        self._fuel_tail = fuel[-1].detach()
-        # 静音开始处锁存气量：整段停顿用同一个 depth，弧不被自身历史调制
-        held = self._scan_affine(sil_ind, (1.0 - sil_ind) * fuel, self._held_tail)
-        self._held_tail = held[-1].detach()
-        depth = held.clamp(0.0, 1.0)
 
         inhale = env_in * act_n * depth
 
@@ -515,10 +621,8 @@ class MicAirflowEffect:
         breath = rumble * intensity
 
         # 说话中的气息：同一 rumble 乘 τ=0.25s 慢包络——跟着整句的力度走，
-        # 不跟音节（噪声随音节调幅会被听成「一吐一吐」），句子停下后随包络消失
-        air_env = self._scan_affine(torch.full((n,), self._air_a, device=device),
-                                    envelope * self._air_alpha, self._air_tail)
-        self._air_tail = air_env[-1].detach()
+        # 不跟音节（噪声随音节调幅会被听成「一吐一吐」），句子停下后随包络消失。
+        # air_env 已在第 1 批扫描中算好（只依赖 envelope）。
         air_amt = (air_env * (1.0 / self.AIR_REF)).clamp(0.0, 1.0)
         air = breath_low * air_amt * wind_mod * self.AIR_GAIN * intensity
 
