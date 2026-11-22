@@ -169,6 +169,11 @@ class TrainConfig:
     learning_rate: float = 1e-4
     pretrain_g: str = ""
     pretrain_d: str = ""
+    # 只控制**训练的 AMP autocast 与 GradScaler**（见 trainer 的 autocast/scaler 两处）。
+    # 它**不**把模型权重转成 fp16：训练是「fp32 权重 + autocast」的 torch.amp 推荐用法。
+    # 名字里的 run 指「这次训练是否启用混合精度」，与推理侧的 is_half（真的会 .half()）
+    # 不是同一个语义——曾因照抄推理侧签名而误传成合成器的 is_half（被 **kwargs 吞掉、
+    # 静默无效），已移除。改名前请先确认没有别处按「精度」语义使用它。
     fp16_run: bool = True
     device: str = "cuda:0"
     keep_ckpts: int = 1

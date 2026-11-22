@@ -225,5 +225,75 @@ class TestDropdowns(unittest.TestCase):
         self.assertEqual(win.runtime_params.audio.sr_mode, "model")
 
 
+class TestRangeSliderClampInvariant(unittest.TestCase):
+    """RangeSlider.set_selected_range 必须始终满足 min <= low <= high <= max。
+
+    旧实现是「先各自钳制、后交换」，交换后的 low 是那个只被上界钳过、从未被
+    下界钳过的值，于是 low 能逃出量程下界（实测 (1200,500) -> low=500/high=1200，
+    (0,0) -> low=0 而控件下界是 10）。这条路径只有越界或倒置的配置会走到
+    （拖拽的 _update_low/_update_high 钳制是对的），但 set_selected_range 会
+    发射 rangeChanged，而 window 把它接到写 runtime_params 的回调上——于是
+    **加载配置这个动作本身**就把坏值写进运行期参数并随下次保存落盘，静默且
+    自我固化。此前 tests/ 对 RangeSlider 零覆盖。
+    """
+
+    LO, HI = 10.0, 1000.0
+
+    def _slider(self):
+        from gui.view.widgets.sliders import RangeSlider
+
+        return RangeSlider(self.LO, self.HI, 10.0, self.LO, self.HI)
+
+    def test_invariant_holds_for_out_of_range_and_inverted_pairs(self):
+        s = self._slider()
+        vals = [-50.0, 0.0, 5.0, 9.0, 10.0, 30.0, 100.0, 500.0,
+                800.0, 1000.0, 1200.0]
+        for a in vals:
+            for b in vals:
+                with self.subTest(pair=(a, b)):
+                    s.set_selected_range(a, b)
+                    low, high = s.low(), s.high()
+                    self.assertGreaterEqual(low, self.LO, f"({a},{b}) low 逃出下界")
+                    self.assertLessEqual(high, self.HI, f"({a},{b}) high 逃出上界")
+                    self.assertLessEqual(low, high, f"({a},{b}) low > high")
+
+    def test_inverted_pair_is_swapped_not_clamped_to_degenerate(self):
+        s = self._slider()
+        s.set_selected_range(500.0, 10.0)
+        self.assertEqual((s.low(), s.high()), (10.0, 500.0))
+
+    def test_valid_pair_is_untouched(self):
+        """正常值不得被钳制改动（修复不能引入新的偏移）。"""
+        s = self._slider()
+        s.set_selected_range(100.0, 800.0)
+        self.assertEqual((s.low(), s.high()), (100.0, 800.0))
+
+
+class TestPitchMapPairSanitised(unittest.TestCase):
+    """加载配置时倒置的音域区间要被收敛，否则 apply_pitch_map 静默失效。
+
+    apply_pitch_map 对 src_min >= src_max 或 dst_min >= dst_max 的区间
+    **原样返回**（映射整个失效），而存档是明文 JSON、可被手改。
+    """
+
+    def test_sorted_pair_swaps_inverted(self):
+        from gui.state.bindings import _sorted_pair
+
+        self.assertEqual(_sorted_pair(500, 10), (10.0, 500.0))
+        self.assertEqual(_sorted_pair(10, 500), (10.0, 500.0))
+
+    def test_sorted_pair_preserves_equal(self):
+        from gui.state.bindings import _sorted_pair
+
+        self.assertEqual(_sorted_pair(0, 0), (0.0, 0.0))
+
+    def test_sorted_pair_returns_floats(self):
+        from gui.state.bindings import _sorted_pair
+
+        lo, hi = _sorted_pair(10, 500)
+        self.assertIsInstance(lo, float)
+        self.assertIsInstance(hi, float)
+
+
 if __name__ == "__main__":
     unittest.main()

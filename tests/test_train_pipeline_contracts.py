@@ -402,5 +402,69 @@ class TestHubertCacheClearReleases(unittest.TestCase):
         purge.assert_not_called()
 
 
+class TestGeneratorUpsampleLengthsMatch(unittest.TestCase):
+    """upsample_rates 与 upsample_kernel_sizes 长度必须相等（构造期 fail-fast）。
+
+    两处 Generator 都用 zip(upsample_rates, upsample_kernel_sizes) 构层。Python
+    zip 按短序列静默截断：长度不等时不报错，而是少建一层上采样，同时让
+    num_upsamples / noise_convs / resblocks 三者互相错位，输出长度静默错误
+    （实测砍掉一个 kernel 后 32 帧只出 6400 样本而非 12800，无任何异常）。
+    模型由 config 列表装配，这类输入应在构造期就暴露。
+    """
+
+    COMMON = dict(
+        initial_channel=192, resblock="1",
+        resblock_kernel_sizes=[3, 7, 11],
+        resblock_dilation_sizes=[[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+        upsample_initial_channel=512,
+    )
+
+    def test_mismatched_lengths_raise(self):
+        from rvc.models.synthesizer_decoder import Generator
+
+        with self.assertRaises(AssertionError) as ctx:
+            Generator(upsample_rates=[10, 10, 2, 2],
+                      upsample_kernel_sizes=[16, 16, 4], **self.COMMON)
+        msg = str(ctx.exception)
+        self.assertIn("长度必须相等", msg)
+        self.assertIn("4", msg)   # 报错要点明两侧长度，否则排查还得回去数
+        self.assertIn("3", msg)
+
+    def test_matching_lengths_construct(self):
+        from rvc.models.synthesizer_decoder import Generator
+
+        g = Generator(upsample_rates=[10, 10, 2, 2],
+                      upsample_kernel_sizes=[16, 16, 4, 4], **self.COMMON)
+        self.assertEqual(g.num_upsamples, 4)
+
+    def test_real_train_configs_construct(self):
+        """出厂配置必须能构造（断言别误伤真实参数）。"""
+        from rvc.models.synthesizer_decoder import Generator
+        from rvc.train.checkpoint import load_train_json
+
+        for sr in (40000, 48000):
+            with self.subTest(sr=sr):
+                m = load_train_json(sr)["model"]
+                self.assertEqual(len(m["upsample_rates"]),
+                                 len(m["upsample_kernel_sizes"]),
+                                 f"sr={sr} 的出厂配置本身就不等长")
+                g = Generator(
+                    initial_channel=m["inter_channels"], resblock=m["resblock"],
+                    resblock_kernel_sizes=m["resblock_kernel_sizes"],
+                    resblock_dilation_sizes=m["resblock_dilation_sizes"],
+                    upsample_rates=m["upsample_rates"],
+                    upsample_initial_channel=m["upsample_initial_channel"],
+                    upsample_kernel_sizes=m["upsample_kernel_sizes"])
+                self.assertEqual(g.num_upsamples, len(m["upsample_rates"]))
+
+    def test_nsf_generator_also_checks(self):
+        from rvc.models.synthesizer_decoder import GeneratorNSF
+
+        with self.assertRaises(AssertionError):
+            GeneratorNSF(upsample_rates=[10, 10, 2, 2],
+                         upsample_kernel_sizes=[16, 16, 4],
+                         sr=40000, gin_channels=256, **self.COMMON)
+
+
 if __name__ == "__main__":
     unittest.main()

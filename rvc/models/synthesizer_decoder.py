@@ -27,6 +27,15 @@ class Generator(torch.nn.Module):
         super(Generator, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
+        # 长度必须相等：下面用 zip 构层，长度不等时 Python 按短序列静默截断，
+        # 少建的上采样层不报错，却让 num_upsamples / noise_convs / resblocks
+        # 三者错位，输出长度静默错误（实测砍掉一个 kernel 后 32 帧只出 6400
+        # 样本而非 12800，无任何异常）。模型由 config 列表装配，应构造期 fail-fast。
+        assert len(upsample_rates) == len(upsample_kernel_sizes), (
+            f"upsample_rates({len(upsample_rates)}) 与 "
+            f"upsample_kernel_sizes({len(upsample_kernel_sizes)}) 长度必须相等，"
+            f"否则 zip 会静默截断导致上采样层数错误"
+        )
         self.conv_pre = Conv1d(
             initial_channel, upsample_initial_channel, 7, 1, padding=3
         )
@@ -247,6 +256,12 @@ class GeneratorNSF(torch.nn.Module):
         super(GeneratorNSF, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
+        # 同 Generator：zip 静默截断会让上采样层数悄悄少一层（见该处注释）。
+        assert len(upsample_rates) == len(upsample_kernel_sizes), (
+            f"upsample_rates({len(upsample_rates)}) 与 "
+            f"upsample_kernel_sizes({len(upsample_kernel_sizes)}) 长度必须相等，"
+            f"否则 zip 会静默截断导致上采样层数错误"
+        )
 
         self.m_source = SourceModuleHnNSF(
             sampling_rate=sr, harmonic_num=0

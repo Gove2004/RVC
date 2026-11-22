@@ -15,6 +15,16 @@ def fast_rms(wav: torch.Tensor, frame_length: int, hop_length: int) -> torch.Ten
 
     通过在平方后进行平均池化实现，注意避免除以零（加clamping）。
 
+    **块内 reflect padding 是有意设计，不要「修」成跨块历史拼接**：
+    本函数对每次调用的输入独立做首尾镜像，所以同一段音频分块算与整段算
+    结果不同（实测帧级差异约 6e-2）。但两条真实路径都是分块调用——
+    实时走 runner.process_block，离线走 offline.run_stream 的同名逐块循环
+    （见 rvc/streaming/offline.py 顶部注释），块长同为 block_samples，
+    故**不存在「实时 ≠ 离线」**。实测块边界的一阶差分（max 0.0399）不高于
+    块内（max 0.0702），无可闻的边界跳变。
+    真正的边界是「分块 vs 整段一次调用」，而后者在生产中不存在。
+    若将来要让本函数支持整段调用，需同时给离线路径改成整段，别只改这里。
+
     Args:
         wav: 输入音频张量 [N] 或 [B, N]
         frame_length: RMS计算的帧长
@@ -22,6 +32,8 @@ def fast_rms(wav: torch.Tensor, frame_length: int, hop_length: int) -> torch.Ten
 
     Returns:
         RMS包络张量 [frame_count] 或 [B, frame_count]
+        注意 frame_count = (N + 2*(frame_length//2) - frame_length)//hop + 1，
+        比 N//hop 多 1 帧；调用方（apply_rms_mix）靠插值到目标长度消化这个差。
     """
     padding = frame_length // 2
     if wav.dim() == 1:

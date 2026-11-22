@@ -62,6 +62,18 @@ def apply_sola(
     Returns:
         对齐后的音频块，形状 [block_samples]，同时更新 sola_buffer。
     """
+    # 长度契约：tail 要取到 [block, block+buffer)，搜索起点最远 +search，
+    # 故最短长度 = block + buffer + search。不足时 tail 为空张量，
+    # 会在 `sola_buffer[:] = safe_tail` 抛晦涩的尺寸错，且是否崩取决于
+    # argmax 选中的 offset（概率性），难以复现——这里提前给出可读报错。
+    # 风格与 rvc/dsp/rms.py 的 fast_rms 长度校验一致。
+    need = block_samples + sola_buffer_samples + sola_search_samples
+    if infer.shape[0] < need:
+        raise ValueError(
+            f"apply_sola: 输入长度 {infer.shape[0]} 必须 >= {need}"
+            f"（block={block_samples} + buffer={sola_buffer_samples}"
+            f" + search={sola_search_samples}）"
+        )
     ci = infer[None, None, :sola_buffer_samples + sola_search_samples]
     cn = F.conv1d(ci, sola_buffer[None, None, :])
     energy = F.conv1d(ci**2, sola_norm_kernel)
@@ -76,7 +88,6 @@ def apply_sola(
 
     head = infer[:sola_buffer_samples]
     tail = infer[block_samples:block_samples + sola_buffer_samples]
-
     # NaN 防护：GPU 上用 where 分支，替代 tolist() + Python if（零同步）
     buf_nan = torch.isnan(sola_buffer).any()
     head_nan = torch.isnan(head).any()

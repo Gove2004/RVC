@@ -196,6 +196,16 @@ def _set(win: "InferWindowHost", widget, kind, value):
         raise ValueError(f"未知读写方式: {kind}")
 
 
+def _sorted_pair(a, b) -> tuple[float, float]:
+    """把区间端点转成 float 并升序返回（倒置的区间按交换处理，不丢弃）。
+
+    apply_pitch_map 对 src_min >= src_max 的区间静默失效，而存档可被手改，
+    故加载时先排序。与 RangeSlider.set_selected_range 的「先排序后钳制」同规则。
+    """
+    lo, hi = float(a), float(b)
+    return (hi, lo) if lo > hi else (lo, hi)
+
+
 def apply_params(win: "InferWindowHost", params: InferenceParams) -> None:
     """把 InferenceParams 写到所有控件（启动时加载配置调用）。
 
@@ -213,12 +223,20 @@ def apply_params(win: "InferWindowHost", params: InferenceParams) -> None:
     win.f0_threshold_name.setText(f0_threshold_label(params.f0.method))
 
     # 音域映射 RangeSlider
-    win.pitch_map_src_range.set_selected_range(
-        float(params.voice.pitch_map_src_min), float(params.voice.pitch_map_src_max)
+    #
+    # 先收敛再下发：RangeSlider.set_selected_range 会把值钳到控件量程，而
+    # apply_pitch_map 对「src_min >= src_max」或「dst_min >= dst_max」的区间是
+    # **静默原样返回**（postprocess.py 的有效性检查），映射整个失效却无任何提示。
+    # 存档是明文 JSON、可被手改，旧版本也可能写入倒置区间，所以这里兜一层。
+    # 收敛规则与控件一致（排序 + 钳到量程），保证「控件显示值 == 实际生效值」。
+    src_min, src_max = _sorted_pair(
+        params.voice.pitch_map_src_min, params.voice.pitch_map_src_max
     )
-    win.pitch_map_dst_range.set_selected_range(
-        float(params.voice.pitch_map_dst_min), float(params.voice.pitch_map_dst_max)
+    dst_min, dst_max = _sorted_pair(
+        params.voice.pitch_map_dst_min, params.voice.pitch_map_dst_max
     )
+    win.pitch_map_src_range.set_selected_range(src_min, src_max)
+    win.pitch_map_dst_range.set_selected_range(dst_min, dst_max)
 
 
 def collect_params(win: "InferWindowHost") -> InferenceParams:

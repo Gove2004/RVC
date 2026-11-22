@@ -102,11 +102,19 @@ class RangeSlider(QWidget):
 
         刻意**不叫** setRange：QAbstractSlider 家族里 setRange 是「改上下限」，
         这里改的是选中区间，同名会被误读成改量程。
+
+        顺序要紧：**先排序、后钳制**。旧写法是先各自钳制再交换，交换后的 low
+        是那个只被上界钳过、从未被下界钳过的值，于是 low 能逃出量程下界（实测
+        (1200, 500) -> low=500/high=1200，(0,0) -> low=0 而控件下界是 10）。
+        这条路径只有越界或倒置的配置会走到（拖拽的 _update_low/_update_high
+        钳制是对的），但它在加载配置时就会发射 rangeChanged，把坏值写进
+        runtime_params 并随下次保存落盘——静默且自我固化。
         """
-        self._low = max(self._min, float(low_val))
-        self._high = min(self._max, float(high_val))
-        if self._low > self._high:
-            self._low, self._high = self._high, self._low
+        lo, hi = float(low_val), float(high_val)
+        if lo > hi:
+            lo, hi = hi, lo
+        self._low = min(max(lo, self._min), self._max)
+        self._high = min(max(hi, self._min), self._max)
         self.update()
         self._update_tooltip()
         self.rangeChanged.emit(self._low, self._high)

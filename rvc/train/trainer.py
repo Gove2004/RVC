@@ -159,11 +159,16 @@ class Trainer:
         # BucketSampler 让输入尺寸集中在少数几种 shape 上，benchmark 选核收益稳定
         torch.backends.cudnn.benchmark = True
         spec_channels = self.mel_config["filter_length"] // 2 + 1
+        # 不传 is_half：合成器基类的 **kwargs 会**吸收**它（签名里没有这个参数），
+        # 传了也不生效——精度由外部 .half() 决定（见 synthesizer 基类 docstring）。
+        # 训练走的是 AMP autocast（见下方 autocast/GradScaler），权重保持 fp32，
+        # 这正是 torch.amp 的推荐用法；再叠加 .half() 会让 GradScaler 的损失倍率
+        # 语义变复杂且需重新标定，收益不明。
+        # 推理侧 loader.py 是「传 is_half + 构造后显式 .half()」的成对契约，别照抄。
         self.synthesizer = SynthesizerTrnMsNSFsid(
             spec_channels,
             self.segment_size,
             **self.model_cfg,
-            is_half=self.cfg.fp16_run,
             sr=self.cfg.sr,
         ).to(self.cfg.device)
         self.net_d = MultiPeriodDiscriminatorV2(self.use_spectral_norm).to(self.cfg.device)

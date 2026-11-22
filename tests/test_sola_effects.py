@@ -137,6 +137,56 @@ class TestApplySolaBufferLongerThanBlock(unittest.TestCase):
         )
 
 
+class TestApplySolaLengthContract(unittest.TestCase):
+    """apply_sola 的长度契约：输入必须 >= block + buffer + search。
+
+    不足时 tail 为空张量，`sola_buffer[:] = safe_tail` 会抛尺寸错，且**是否崩
+    取决于 argmax 选中的 offset**——是概率性的、难复现的崩溃（实测 L=need-1
+    时约 4/200 概率、L=need-3 时 19/20 成功）。故在入口显式校验，
+    与 rvc/dsp/rms.py 的 fast_rms 同风格。
+    """
+
+    def _args(self, block, buf, search):
+        return dict(
+            sola_buffer=torch.zeros(buf),
+            sola_norm_kernel=torch.ones(1, 1, buf),
+            fade_in=torch.ones(buf),
+            fade_out=torch.ones(buf),
+            block_samples=block,
+            sola_buffer_samples=buf,
+            sola_search_samples=search,
+        )
+
+    def test_short_input_raises_valueerror(self):
+        block, buf, search = 2000, 4000, 400
+        need = block + buf + search
+        for length in (0, 1, need - 1000, need - 1):
+            with self.subTest(length=length):
+                with self.assertRaises(ValueError) as ctx:
+                    apply_sola(torch.randn(length), **self._args(block, buf, search))
+                # 报错必须点明期望长度与三项组成，否则等于没报
+                msg = str(ctx.exception)
+                self.assertIn(str(need), msg)
+                self.assertIn(str(block), msg)
+                self.assertIn(str(buf), msg)
+                self.assertIn(str(search), msg)
+
+    def test_short_input_is_deterministic_not_flaky(self):
+        """同一非法长度必须**每次**都报错（修复前是概率性崩溃）。"""
+        block, buf, search = 2000, 4000, 400
+        need = block + buf + search
+        for _ in range(20):
+            with self.assertRaises(ValueError):
+                apply_sola(torch.randn(need - 1), **self._args(block, buf, search))
+
+    def test_exact_length_is_accepted(self):
+        """边界：恰好等于 need 必须正常返回 block 长输出。"""
+        block, buf, search = 2000, 4000, 400
+        out = apply_sola(torch.randn(block + buf + search),
+                         **self._args(block, buf, search))
+        self.assertEqual(tuple(out.shape), (block,))
+
+
 class TestRmsMixEffect(unittest.TestCase):
     def test_mix_one_is_identity_bypass(self):
         eff = RmsMixEffect()
