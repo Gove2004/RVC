@@ -454,5 +454,75 @@ class TestInputPitchTelemetry(unittest.TestCase):
         self.assertEqual(engine.input_pitch, 0.0)
 
 
+class TestMelScaleBranches(unittest.TestCase):
+    """mel 刻度：htk 两个分支在本实现里**数值等价**，且 htk=True 与 librosa 一致。
+
+    背景：mel_filter_bank 的 docstring 曾写「兼容 librosa.filters.mel」，而
+    htk=False 分支用 1127·ln(1+f/700)——那是 HTK 刻度，不是 librosa 默认的
+    Slaney 刻度（1kHz 以下线性）。看起来像「训练走了错分支」，实测两个分支
+    产出的滤波器**逐位相同**（2595/ln10 = 1127.0，两式数学等价），
+    所以训练/推理口径自洽，不存在静默漂移。
+
+    本类锁住三件事：
+    1. 两个分支等价（若有人把 htk=False 真改成 Slaney，这里会失败并提醒他
+       训练产物会变、需要重新训练）
+    2. htk=True 与 librosa 逐位一致（RMVPE 官方权重依赖这一支）
+    3. 推理与训练两个调用点产出的滤波器相同
+    """
+
+    def test_two_branches_are_numerically_equivalent(self):
+        from rvc.dsp.mel import mel_filter_bank
+
+        for sr, n_fft, n_mels, fmin, fmax in (
+            (40000, 2048, 125, 0.0, None),
+            (48000, 2048, 128, 0.0, None),
+            (16000, 1024, 128, 30.0, 8000.0),
+        ):
+            with self.subTest(sr=sr, n_mels=n_mels):
+                a = mel_filter_bank(sr=sr, n_fft=n_fft, n_mels=n_mels,
+                                    fmin=fmin, fmax=fmax, htk=True)
+                b = mel_filter_bank(sr=sr, n_fft=n_fft, n_mels=n_mels,
+                                    fmin=fmin, fmax=fmax, htk=False)
+                # 用 atol 而非 array_equal：2595·log10 与 1127·ln 数学等价，
+                # 但浮点实现不同，个别点会差最后一位（实测 6.7e-17，
+                # 65664 个元素里 1 个）。这是舍入而非逻辑差异。
+                np.testing.assert_allclose(
+                    a, b, atol=1e-12, rtol=0,
+                    err_msg="htk 两分支不再等价——若有意改成 Slaney 刻度，"
+                            "训练产物会变，必须重新训练并同步推理侧")
+
+    def test_htk_true_matches_librosa(self):
+        """htk=True 必须与 librosa 一致（RMVPE 官方权重按此训练）。"""
+        try:
+            import librosa
+        except ImportError:
+            self.skipTest("librosa 未安装")
+        from rvc.dsp.mel import mel_filter_bank
+
+        sr, n_fft, n_mels = 16000, 1024, 128
+        ours = mel_filter_bank(sr=sr, n_fft=n_fft, n_mels=n_mels,
+                               fmin=30.0, fmax=8000.0, htk=True)
+        lib = librosa.filters.mel(sr=sr, n_fft=n_fft, n_mels=n_mels,
+                                  fmin=30.0, fmax=8000.0, htk=True)
+        np.testing.assert_allclose(ours, lib, atol=1e-6,
+                                   err_msg="htk=True 与 librosa 不再一致")
+
+    def test_inference_and_training_filters_agree(self):
+        """推理侧（RMVPE, htk=True）与训练侧（默认）产出的滤波器必须相同。"""
+        from rvc.dsp.mel import mel_filter_bank
+
+        # 用同一组参数模拟两个调用点的取值差异
+        kw = dict(sr=16000, n_fft=1024, n_mels=128, fmin=30.0, fmax=8000.0)
+        inference = mel_filter_bank(**kw, htk=True)      # rmvpe/transforms.py
+        training = mel_filter_bank(**kw)                  # 训练侧历史默认值
+        np.testing.assert_allclose(inference, training, atol=1e-12, rtol=0)
+
+    def test_unsupported_norm_raises(self):
+        from rvc.dsp.mel import mel_filter_bank
+
+        with self.assertRaises(ValueError):
+            mel_filter_bank(sr=16000, n_fft=1024, n_mels=128, norm="none")
+
+
 if __name__ == "__main__":
     unittest.main()

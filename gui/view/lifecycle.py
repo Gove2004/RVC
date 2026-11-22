@@ -413,6 +413,13 @@ class WindowLifecycle:
         """停引擎（变声档 → 停止档）。取消加载与停直通走 _on_mode_stop。"""
         if self._loading:
             self._cancel_load()
+            # 无条件停一次引擎：_loading 为 True 的区间覆盖 _on_loaded 执行期，
+            # 而 _on_loaded 在 _mark_running() 之后引擎**已经在跑**（加载线程已
+            # 结束、但 _on_load_done 还没把 _loading 置 False）。此时用户点停止
+            # 若只取消加载就直接返回，会出现「UI 说停了、麦克风还在往虚拟声卡
+            # 送声」。stop() 本身是幂等 no-op（引擎没跑时无副作用），所以这里
+            # 无条件调用是安全的。
+            self.controller.stop()
             self._reset_runtime_ui()
             if self.tray is not None:
                 self.tray.update_status()

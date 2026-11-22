@@ -295,5 +295,56 @@ class TestPitchMapPairSanitised(unittest.TestCase):
         self.assertIsInstance(hi, float)
 
 
+class TestStopDuringLoadingAlsoStopsEngine(unittest.TestCase):
+    """_stop() 在 _loading 期间也必须停引擎。
+
+    _loading 为 True 的区间覆盖 _on_loaded 执行期：_on_loaded 调 _mark_running()
+    之后引擎**已经在跑**，而 _loading 要等 _on_load_done 才置 False。旧写法在
+    _loading 分支里只取消加载就 return，会出现「UI 显示已停止、麦克风仍在往
+    虚拟声卡送声」。stop() 是幂等 no-op，无条件调用是安全的。
+    """
+
+    def _lifecycle(self):
+        from gui.view.lifecycle import WindowLifecycle
+
+        lc = WindowLifecycle.__new__(WindowLifecycle)
+
+        class _Ctrl:
+            def __init__(self):
+                self.stop_calls = 0
+                self.is_running = True
+
+            def stop(self):
+                self.stop_calls += 1
+
+        lc.controller = _Ctrl()
+        lc._loading = True
+        lc.tray = None
+        lc._cancel_load = lambda: None
+        lc._reset_runtime_ui = lambda: None
+        return lc
+
+    def test_loading_branch_calls_controller_stop(self):
+        lc = self._lifecycle()
+        lc._stop()
+        self.assertEqual(lc.controller.stop_calls, 1,
+                         "_loading 期间点停止没停引擎——麦克风会继续送声")
+
+    def test_not_running_short_circuits(self):
+        """引擎没跑时不该白调 stop（保持原有短路语义）。"""
+        lc = self._lifecycle()
+        lc._loading = False
+        lc.controller.is_running = False
+        lc._stop()
+        self.assertEqual(lc.controller.stop_calls, 0)
+
+    def test_running_branch_calls_stop(self):
+        lc = self._lifecycle()
+        lc._loading = False
+        lc.controller.is_running = True
+        lc._stop()
+        self.assertEqual(lc.controller.stop_calls, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

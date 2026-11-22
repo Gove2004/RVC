@@ -83,6 +83,9 @@ class VoiceEngine:
         # load_model 互斥锁：后台预加载与点击变声（LoadThread）/离线转换并发
         # 调用时串行化，避免双载竞态。后到的调用方拿锁等待后命中同 pth 快路径。
         self._load_lock = threading.Lock()
+        # 离线转换互斥锁：process_file 会替换 self._runner，两个并发调用会互相
+        # 破坏 CUDA Graph 捕获。用非阻塞获取，冲突时立刻报错而非静默出错。
+        self._offline_lock = threading.Lock()
 
         # 不做周期性 empty_cache：稳态下分配模式固定、缓存池不再增长，回收没有
         # 收益，反而可能经分配器锁与音频回调竞争造成周期性抖动。setup/stop 各有
@@ -356,6 +359,25 @@ class VoiceEngine:
         """
         # 离线全程按模型原生采样率跑（work_sr == model_sr），不做设备率重采样：
         # 输出文件要和模型同域，多一次重采样只丢精度。
+        #
+        # 互斥：本方法会替换 self._runner 并原地改 runtime_params，两个并发调用
+        # 会互相踩（实测两线程同时进来，CUDA Graph 捕获被对方破坏，抛
+        # AcceleratorError，且**两路都没产出文件、只有一路报错**）。
+        # GUI 侧有三道守卫（_converting / is_running / is_engine_loading），当前
+        # 不可达；这里兜住的是「非 GUI 调用方 / 将来守卫被改」的情况——
+        # 拿到锁失败时给出可读报错，而不是让它变成难查的 CUDA 错误。
+        if not self._offline_lock.acquire(blocking=False):
+            raise RuntimeError(
+                "已有离线转换正在进行（process_file 不可重入）。"
+                "离线与实时共用同一 engine/runner，请等当前转换结束或取消后再试。"
+            )
+        try:
+            return self._process_file_locked(task, pad_sec, progress_cb, cancel_cb)
+        finally:
+            self._offline_lock.release()
+
+    def _process_file_locked(self, task, pad_sec, progress_cb, cancel_cb):
+        """process_file 的实际实现（持 _offline_lock 时调用）。"""
         model_sr = self.pipeline.model_sr
         wav = offline.load_audio_at_sr(task.input_path, model_sr)
 

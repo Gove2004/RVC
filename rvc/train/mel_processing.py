@@ -58,7 +58,11 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size):
 def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
     key = f"{sampling_rate}_{n_fft}_{num_mels}_{fmin}_{fmax}_{spec.dtype}_{spec.device}"
     if key not in mel_basis:
-        mel = mel_filter_bank(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels, fmin=fmin, fmax=fmax)
+        # 显式 htk=True：与推理侧 RMVPE 的取刻度方式统一（见 rvc/dsp/mel.py 的
+        # 兼容性说明）。两个取值在本实现里产出逐位相同的滤波器，写 True 是为了
+        # 让「用 HTK 刻度」这件事在调用点可见，而不是藏在默认值里。
+        mel = mel_filter_bank(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels,
+                              fmin=fmin, fmax=fmax, htk=True)
         mel_basis[key] = torch.from_numpy(mel).to(dtype=spec.dtype, device=spec.device)
     melspec = torch.matmul(mel_basis[key], spec)
     return spectral_normalize_torch(melspec)

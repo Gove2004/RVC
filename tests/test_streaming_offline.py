@@ -104,5 +104,63 @@ class TestRunStream(unittest.TestCase):
         self.assertEqual(writer.call_args.kwargs["subtype"], "FLOAT")
 
 
+class TestProcessFileNotReentrant(unittest.TestCase):
+    """process_file 必须不可重入：并发调用要立刻报可读错，而非静默产生 CUDA 错。
+
+    背景：process_file 会替换 engine._runner 并原地改 runtime_params，两个并发
+    调用会互相踩——实测两线程同时进来时 CUDA Graph 捕获被对方破坏，抛
+    AcceleratorError，且**两路都没产出文件、只有一路报错**，排查成本很高。
+
+    GUI 侧有三道守卫（_converting / is_running / is_engine_loading）当前不可达，
+    这里兜的是非 GUI 调用方与将来守卫被改的情况。
+    """
+
+    def _engine(self):
+        from rvc.streaming.engine import VoiceEngine
+
+        e = VoiceEngine.__new__(VoiceEngine)   # 绕过 __init__（要真 CUDA）
+        import threading
+        e._offline_lock = threading.Lock()
+        e.pipeline = SimpleNamespace(model_sr=40000)
+        return e
+
+    def test_second_call_raises_readable_error(self):
+        import threading
+        import time
+
+        e = self._engine()
+        released = threading.Event()
+
+        def holder():
+            with e._offline_lock:
+                released.wait(3.0)
+
+        t = threading.Thread(target=holder, daemon=True)
+        t.start()
+        time.sleep(0.15)          # 确保 holder 已持锁
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                e.process_file(SimpleNamespace(input_path="x.wav",
+                                               output_path="y.wav"))
+            msg = str(ctx.exception)
+            self.assertIn("不可重入", msg)
+            self.assertIn("离线转换正在进行", msg)
+        finally:
+            released.set()
+            t.join(3.0)
+
+    def test_lock_released_after_failure(self):
+        """异常路径也必须释放锁，否则引擎永久卡死。"""
+        e = self._engine()
+        # 用一个不存在的输入路径触发 load_audio_at_sr 抛错
+        with self.assertRaises(Exception):
+            e.process_file(SimpleNamespace(input_path="E:/__no_such__.wav",
+                                           output_path="E:/__no_such_out__.wav"))
+        # 锁应已释放
+        self.assertTrue(e._offline_lock.acquire(blocking=False),
+                        "process_file 抛错后没释放 _offline_lock")
+        e._offline_lock.release()
+
+
 if __name__ == "__main__":
     unittest.main()
