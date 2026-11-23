@@ -83,7 +83,24 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
 - 缓冲区几何：`zc = work_sr // 100`；`skip_head = extra_samples // zc`；
   `return_length = (block_samples + sola_buffer_samples + sola_search_samples) // zc`；
   消费区 = `feats[:, skip_head : skip_head + return_length]`
-- HuBERT 帧率 50fps，**帧跳 = 320 个 16k 样本 = 20ms**
+- **三条数值恒等关系**（2026-11-23 实测验证；改动缓冲几何时用它们做自检，
+  任何一条不成立就说明某个量的推导漏了项）。现役配置 sr=40000/block=0.05/
+  crossfade=0.10/extra=2.5 下 zc=400、block=2000、crossfade=4000、
+  sola_buffer=4000、search=400、extra=100000、skip_head=250、return_length=16：
+  - `return_length × zc == crossfade + block + search`（16×400 = 6400）
+    —— 合成器输出的样本数**恰好**等于 SOLA 需要的 `block+buffer+search`，
+    多一帧少一帧都会让 `apply_sola` 的长度断言失败
+  - `skip_head × zc == extra_samples`（250×400 = 100000）
+  - `skip_head + return_length == p_len`（250+16 = 266）—— 合成器取的是
+    16k 缓冲**最末尾** return_length 帧，与 F0/特征的尾部对齐一致
+  另：`sola_buffer = min(crossfade, 10*zc)`，crossfade>100ms 时被截到 10*zc，
+  所以 return_length 在 crossfade 变大后**不再增长**（0.1s 和 0.5s 都是 16）
+- **`(block + sola_buffer + search)` 恒为 zc 的整数倍**（实测 1680 组参数组合
+  全部整除，覆盖 sr 32k~96k × block 0.02~0.5s × crossfade 0.02~1.0s × extra
+  0.5~5s）。`return_length` 用 `//` 整除是安全的，**不会静默截断**；
+  改 `buffer_geometry` 时若新增了不按 zc 对齐的项，这条会破，务必重扫
+- HuBERT 帧率 50fps，**帧跳 = 320 个 16k 样本 = 20ms**；
+  合成器帧率 100fps，**每帧 = zc 样本**（@40000 即 400 样本 = 10ms）
 
 ## 5. 注释与文档写作规范
 
@@ -229,6 +246,33 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   构造 `RuntimeDeviceConfig` 开图——见 §12 的"图未启用"坑
 - **特征比对必须先建恒等自检（必须恰为 0）和帧间基准**，否则单看一个数无法判断对错
   （曾因 `A[i] vs B[i+5]` 符号反了写出"处处 1.3 相对变化"的荒谬值）
+
+**边界验证的判据与结论（2026-11-23，实时链路全量做了一遍，可复用）**
+- **判据要有"灵敏度"**：分块 vs 整段对比时，先测一次"故意错开 1 个样本"会差多少。
+  实测 SOLA/airflow 链路：正确对齐 max|Δ| = 2.98e-08（0.79 ulp，纯浮点舍入），
+  故意错 1 样本 = 8.08e-03 —— **相差 27 万倍**。有了这个对照，"2.98e-08"才敢下
+  "精确正确"的结论；否则只是一个无参照的数
+- **别把"异步未完成"读成"未初始化数据"**：`_start_f0_parallel` 是异步的，
+  在 `_sync_f0_parallel` 之前读 `ctx._f0_raw_untruncated`，读到的是**上一块的残留**
+  （表现为 `-1587512.125`，位模式 `0xC9C1C9C1` 的重复字节 = 复用缓冲）。
+  当时差点报成"未初始化显存泄漏"，实为探针在 side stream 完成前就读。
+  **读 side stream 产物前必须先 `wait_stream` + `synchronize`**
+- 已验证正确、**不要重复验证**的边界：
+  - SOLA 互相关方向（`F.conv1d` 是互相关，`out[j]=<ci[j:j+buf],buf>`，
+    `argmax` 即最相似起点；6 组已知偏移全部命中）
+  - SOLA 归一化 `dot/|seg|` ≡ `|buf|·cos(θ)`（`|buf|` 是常数，不改变 argmax）
+  - `fade_in + fade_out == 1` 精确成立（sin² 窗），稳态还原 5.96e-08
+  - `apply_sola` 的 `block+buffer+search` 是**紧的**（offset 取最大时恰好够，
+    差 1 就越界）——所以那个长度断言是必要的，不是防御性冗余
+  - 因果卷积的 `_X_ctx == k-1`（slow/combo/gate/prox 四处），分块 vs 整段逐位一致；
+    `k-1` 略有余量（核端点系数≈0，`k-2` 也给 0 差）但**不该减小**
+  - `upsample_features` 的 `repeat_interleave(2)` 与 `F.interpolate(nearest, ×2)`
+    **逐位一致**；末帧 padding 使 `p_len = 2×(feats_T+1)`
+  - 离线裁剪 `rendered[pad+delay : pad+delay+len(wav)]`（`delay = crossfade+search`）
+    时间对齐正确：残余滞后 -307~-426 样本，落在 SOLA `search` 范围内**且随 block 变化**
+    （固定偏移才是公式错；随参数变是 SOLA 相位微调）
+  - PCM16 写出的**第二个 `clip` 是必要的**：`np.int16(32768.0)` 会环绕成 `-32768`
+    （满幅正样本变相位反转）。往返误差恒 ≤ 量化步长 1/32768，FLOAT32 逐位无损
 
 ## 11. 训练模块
 
