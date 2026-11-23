@@ -262,9 +262,15 @@ class InferenceRunner:
         ctx = self.ctx
         t0 = time.perf_counter()
         # 热读 runtime_params：GUI 线程可能正在写，但 CPython float 赋值原子，
-        # 读到旧值或新值都安全（最多影响当前块 RMS 混合比例，不会崩溃）。
+        # 读到旧值或新值都安全（最多影响当前块的混合比例/增益，不会崩溃）。
+        #
+        # **三个标量必须在块首一次性快照**：它们都在块尾才被消费（volume 在
+        # 输出增益处），若各自就地读，用户拖滑块时同一块内会混用两个时刻的值
+        # （曾把 volume 留在块尾读，与 rms_mix/airflow 不同步）。快照还顺带
+        # 避免热路径上重复属性查找。
         p_rms_mix = self.runtime_params.rms_mix
         p_airflow = self.runtime_params.airflow
+        p_volume = self.runtime_params.volume
 
         with torch.inference_mode():
             # ── stage_input：硬件输入 + 缓冲区滚动 + work_sr→16k 重采样 ──
@@ -299,7 +305,8 @@ class InferenceRunner:
 
             # 输出音量增益（纯标量乘法，热路径上 in-place 避免分配）。
             # 范围钳制放在消费点：配置文件可被外部改写，滑块量程不构成保证。
-            vol = min(max(self.runtime_params.volume, VOLUME_MIN), VOLUME_MAX)
+            # 值取自块首快照（见 process_block 开头），与 rms_mix/airflow 同一时刻。
+            vol = min(max(p_volume, VOLUME_MIN), VOLUME_MAX)
             if vol != 1.0:
                 block.mul_(vol)
             # 硬钳位到 [-1, 1]：写设备前的最后一道保护，**必须无条件执行**。
