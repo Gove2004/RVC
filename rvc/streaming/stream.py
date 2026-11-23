@@ -50,8 +50,22 @@ class AudioStreams:
         self.channels = 1
 
     def query_device(self, dev_idx: int) -> dict:
-        """查询设备信息。"""
-        return sd.query_devices(dev_idx)
+        """查询设备信息，把 PortAudio 的底层报错翻译成可读的设备错误。
+
+        sd.query_devices 对越界/已拔出的索引抛 `PortAudioError`，消息是
+        「Error querying device N」——英文、无设备名、无处置建议，与
+        validate_and_log_devices 里那几条中文提示风格不一致。最典型的触发
+        场景是**设备热插拔后索引失效**（配置里存的是索引，拔掉 USB 声卡再
+        启动就命中），此时用户看到的应该是「设备可能已拔出」而不是
+        PortAudio 的原始文案。故在这里统一包成 AudioDeviceError。
+        """
+        try:
+            return sd.query_devices(dev_idx)
+        except Exception as exc:
+            raise AudioDeviceError(
+                f"音频设备不可用（索引 {dev_idx}）：{exc}。"
+                f"设备可能已拔出或索引已失效，请在设备设置中重新选择。"
+            ) from exc
 
     def validate_and_log_devices(self, in_dev: int, out_dev: int, out2_dev_idx: int | None = None) -> int:
         """校验输入/输出设备通道数，设置 channels，打印设备日志。
