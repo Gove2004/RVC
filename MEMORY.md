@@ -60,6 +60,23 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
 回调每秒 ~4–10 块，每块 20–40ms 预算。**禁止**：无界分配、强制 GPU 同步、阻塞等待、
 在主线程 `wait()` 线程。
 
+**跨线程契约（GUI 线程写 ↔ 回调线程读）**
+- 回调线程**只读 4 个 float 标量**：`runtime_params` 的 `airflow` / `rms_mix` /
+  `voice.formant` / `volume`（实测扫描确认，没有别的）。CPython 单次属性/`dict`
+  赋值是原子的，所以读到旧值或新值都安全——**这个"无锁"成立的前提是"只读单个标量"**。
+  实测 2 秒高频并发读写零撕裂。
+- **跨字段一致性不保证**：写两个字段（如 `pitch_map` 的 src_min/src_max）不是原子的，
+  读者可能拿到"新 min + 旧 max"的组合。当前回调线程不读 pitch_map（那是
+  `postprocess_f0` 从 ctx 快照取的），所以安全。**若将来要让回调线程读成组的参数，
+  必须先做块首快照或加锁**——`process_block` 开头对 3 个标量做的正是这件事
+- `postprocess.py` 的两个模块级缓存（`_pitch_map_midi_cache` / `_pitch_map_tensor_cache`）
+  是**无锁**的，论证成立：值是纯函数，并发 check-then-set 最坏各算一份、后者覆盖，
+  无正确性问题。实测 8 线程 × 200 次并发调用结果全一致。它们**没有淘汰机制**，
+  但键空间受滑条步进限制（pitch_map 四个滑条步进 10Hz、值域 10~1000），
+  实测 40000 次调用只产生 128 条 ≈ 88KB，**不构成实际风险**，别为此加 LRU
+- 新增"回调线程要读的运行时参数"时，**加进 `process_block` 开头的快照组**，
+  不要在消费点就地读（`volume` 曾留在块尾读，与另外两个不同刻）
+
 - CUDA Graph 捕获期间**禁止数据依赖形状操作**：布尔掩码索引、`.item()`、`if tensor`
   都会让捕获失败
 - 标量进图闭包必须进 `graph_key`；张量走参数（地址静态）
