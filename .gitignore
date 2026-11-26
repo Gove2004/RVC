@@ -42,16 +42,18 @@ assets/hubert/**
 /configs/
 
 # ── 工作区（未跟踪的临时数据与云端训练暂存）────────────────────────
-# 三者都**不参与构建、不被任何代码 import**，但里面有不可再生的东西，
+# 这些目录都**不参与构建、不被任何代码 import**，但里面有不可再生的东西，
 # 一律忽略而不是删除（本仓发生过 gitignore 大文件从磁盘消失的事故，见 MEMORY §6）：
 #   temp/         A/B 试听工具（serve.py + ratings.json）与转换产物、冒烟素材
 #   tools/new/    本地训练/预处理脚本（prep.py / train.py / kaggle_run.py）+ 特征缓存
 #   tools/kaggle/ 云端训练暂存：weights/ 下大权重与 assets/ 逐字节相同（重复），
 #                 但 artifacts_vctk/ 与 output_*/ 里有 assets/ 中**没有**的已训练模型
 #                 （songyue40k_ktum_vctk 系），删掉不可恢复
+#   tools/horizon/ context horizon 判决实验探针（probe.py + 参数存档，2026-11-22）
 /temp/
 /tools/new/
 /tools/kaggle/
+/tools/horizon/
 
 # Temp files
 *.tmp
