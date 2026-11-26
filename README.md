@@ -126,9 +126,8 @@ rank。同一 rank 内的包是**兄弟**（互不依赖，也不许互相依赖
 
 ```
 rank 6   gui/                     # 推理 GUI（gui 内部子包互引不受 RANKS 约束）
-         rvc/train/cli/           # 训练命令行向导（与 gui 相互独立）
            │
-rank 5   rvc/streaming   rvc/train      # 引擎门面 / 训练管线
+rank 5   rvc/streaming   rvc/train      # 引擎门面 / 训练管线（cli/ 并入 rvc.train）
            │
 rank 4   rvc/pipeline                   # 推理管线
            │
@@ -144,8 +143,8 @@ rank 0   rvc/core                       # 配置 / 常量 / 异常（最底层�
 - **`rank 2` 三个包是并列的兄弟**：`dsp`（纯信号处理）、`nn`（通用网络组件）、`io`
   （音频 IO）互不依赖。`rvc/models` 同时依赖 `dsp` 与 `nn`——两者都在它下面，
   不是上下级关系
-- `rvc/train/cli/` 虽与 `gui/` 同为最上层且互不依赖，但它**跨层直取**
-  `rvc.core` / `rvc.io` / `rvc.runtime` / `rvc.train`，并非只经 `rvc/train`
+- `rvc/train/cli/` 在守卫里按二级目录粒度并入 `rvc.train`（rank 5，`RANKS` 无独立条目）：
+  它直取 `rvc.core` / `rvc.io` / `rvc.runtime` 均为合法的向下依赖，与 `gui/` 互不依赖
 - `rvc/core` 无内部依赖；`rvc/` 不依赖 `gui/`，可作为库独立使用
 - `gui/` 的 rvc 依赖集中在 Controller / State / Configs 三层（`VoiceEngine`、`rvc.pipeline.cache`、`rvc.io.devices`、`rvc.core.config`、`rvc.train.checkpoint` 等）；View 层只用 `TYPE_CHECKING` 引用 rvc 类型，运行时不直接 import，取数一律经 Controller（如 `snapshot()` 遥测快照）
 - 依赖方向为设计约定：单向无环，新增代码必须遵守——由 `tests/test_layering.py` 的 AST 静态检查自动守卫（rvc 不 import gui、View 运行时不 import rvc、包级依赖必须向下且无环、新包必须先登记 `RANKS`）

@@ -13,7 +13,7 @@
 - venv：`.venv/Scripts/python.exe`（Python 3.13.7，torch 2.11.0+cu128，
   transformers 5.9.0，PySide6 6.11.1，numpy/onnxruntime 见 requirements.txt）
 - 测试：`.venv/Scripts/python.exe -m unittest discover -s tests`
-  **stdlib unittest，不用 pytest，不写 conftest**。当前 281 例，全部无需 GPU 与模型；
+  **stdlib unittest，不用 pytest，不写 conftest**。当前 315 例，全部无需 GPU 与模型；
   耗时大头是真实 checkpoint 用例
   （`test_state_dict_keys`、`test_train_pipeline_contracts`），纯函数契约部分仍是秒级
 - torch 必须单独装：
@@ -381,7 +381,7 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   **截取**用（"不需要全部用上，分别截取就行"）。试听交付 = 走**生产离线链路** +
   用户存档参数渲染指定文件到桌面，不是 loss 数字
 - **端到端验证脚本没有存档**：验训练按本节口径重建最小链路（合成素材 → 预处理 → F0 →
-  特征 → filelist → 2 epoch → 导出 → 续训）。281 例单测覆盖不到"必崩缺陷"那一层
+  特征 → filelist → 2 epoch → 导出 → 续训）。315 例单测覆盖不到"必崩缺陷"那一层
 
 ### 11.1 训练是 GPU-bound，数据管道参数不是杠杆
 

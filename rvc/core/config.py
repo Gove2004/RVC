@@ -35,7 +35,7 @@ VOLUME_MAX = 2.5
 
 # 性别因子（formant）量程，单位半音：GUI 滑条量程取这里（controller.formant_range）。
 # 实时启动只预捕获当前档位（省常驻显存，见 engine.prewarm_formant），不按本量程
-# 全量枚举；运行中拖到别的档位会在音频回调线程现场补捕获一次（约 0.25s 顿一下）。
+# 全量枚举；运行中拖到别的档位会在音频回调线程现场补捕获一次（约 1s 顿一下）。
 FORMANT_MIN = -2.5
 FORMANT_MAX = 2.5
 
