@@ -169,7 +169,7 @@ rank 0   rvc/core                       # 配置 / 常量 / 异常（最底层�
 | `rvc/io/` | `audio_file.py`（ffmpeg 解码加载，`ffmpeg_exe` 显式传参）、`wav_file.py`（WAV 读写/元信息）、`devices.py`（音频设备查询）、`atomic.py`（原子写 + 坏 JSON 备份回退，全仓单源） |
 | `rvc/pipeline/` | `pipeline.py`（推理管线主体）、`state.py`（引擎状态 dataclass）、`context.py`（上下文字段）、`features.py`（HuBERT 特征）、`synthesis.py`（合成器调用）、`sessions.py`（模型会话管理）、`cache.py`（模型缓存）、`loader.py`（模型加载） |
 | `rvc/pipeline/pitch/` | `extractor.py`（F0 提取器抽象层，RMVPE/FCPE）、`postprocess.py`（音域映射/中值滤波/归一化；torch 与 numpy 共用**一份**数学实现，后端差异经 `_Ops` 注入） |
-| `rvc/models/` | `synthesizer.py`（合成器基类 + v2 变体：带 F0 / 无 F0）、`synthesizer_encoder.py`/`synthesizer_decoder.py`/`synthesizer_flow.py`（子模块）、`hubert.py`（特征器，transformers 惰性导入）、`rmvpe/`（F0 模型子包） |
+| `rvc/models/` | `synthesizer.py`（合成器基类 + v2 变体：带 F0 / 无 F0）、`synthesizer_encoder.py`/`synthesizer_decoder.py`/`synthesizer_flow.py`（子模块）、`hubert.py`（特征器加载入口）、`hubert_replica.py`（纯 torch HuBERT 复刻，不依赖 transformers）、`rmvpe/`（F0 模型子包） |
 | `rvc/streaming/` | `engine.py`（`VoiceEngine` 门面，实时/离线共用）、`runner.py`（推理循环）、`stream.py`（音频流管理）、`output.py`（主输出写入 + 副输出块队列 `Out2Queue`）、`effects.py`（RMS 响度混合 / SOLA / 麦克风气流声）、`passthrough.py`（原声直通流，不经模型）、`offline.py`（离线文件的读/pad 切块/写，纯步骤可单测） |
 | `rvc/nn/` | `attentions.py`/`modules.py`/`discriminator.py`（原版拷贝）、`vits_blocks.py`（VITS 通用数值块，原 commons.py） |
 | `rvc/train/` | `trainer.py`（训练主循环，`export_dir` 显式参数）、`preprocess.py`（切片/重采样）、`extract_f0.py`/`extract_feature.py`（批量提取）、`checkpoint.py`（保存/加载/淘汰/合并/检视）、`losses.py`、`dataset.py`（三级缓存 + 分桶采样 + collate）、`mel_processing.py`、`atomic_save.py`（中间产物原子写，避免半截文件被当成有效缓存） |
@@ -189,7 +189,7 @@ rank 0   rvc/core                       # 配置 / 常量 / 异常（最底层�
 - **GUI 侧不留长时主线程等待** — 模型工具（合并/检视）是入队 + 队列泵：正在跑就排队、调用立刻返回，由 `finished` 拉起下一项；只有退出路径允许 `wait()`（否则进程挂死）。
 - **F0 每块重提取，但两条路径的窗口不同** — RMVPE 走整段缓冲区，取前 p_len 帧；FCPE 只算尾部 0.6s 窗口（前段 F0 永远用不上），帧数不足 p_len 时**右对齐补零**到 p_len。对齐规则写在 `_sync_f0_parallel`：整段窗口取前 p_len 帧、尾窗补零到 p_len，两者都保证末帧落在下标 `p_len-1`。
 - **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。
-- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。同一条理由下 `rvc/models/hubert.py` 对 transformers 也做惰性导入：若不惰性化，任何 `import rvc.pipeline.pipeline` 都会连带拉起 transformers（→ sklearn → torch._dynamo），训练 CLI 与单测都直接受益。具体耗时随环境变化，不在文档留数字。
+- **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。HuBERT 进一步改用纯 torch 复刻（`rvc/models/hubert_replica.py`），推理/训练路径都不再 import transformers——后者会连带拉起 sklearn 与 torch._dynamo，是启动耗时与私有内存的最大变数。复刻逐字对齐 transformers 的推理前向与模块命名，权重直装、三变体 × fp16/fp32 逐位等价（max|Δ|=0）。
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
 - **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，若改成实例归属，跨管线复用就没了。
 - **模型缓存的回收点在「淘汰」，不在「加载」** — 命中缓存时拿到的就是上次那个对象，它的图仍然有效；在那里 purge 等于每次切回旧模型都重捕获一遍。`LRUCache.set` 把被淘汰的值回报给调用方，由 `InferenceCache` 显式回收（模型清图、提取器 `release()`）。

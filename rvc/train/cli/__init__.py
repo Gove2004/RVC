@@ -12,11 +12,11 @@ from rvc.core.constants import AUDIO_EXTS, SLICE_PERIOD_DEFAULT
 from rvc.runtime.paths import PROJECT_ROOT
 
 # 环境检测用（纯元数据查询，不真正执行模块）
+# HuBERT 特征提取已改用纯 torch 复刻（rvc.models.hubert_replica），不再依赖 transformers。
 REQUIRED_PACKAGES = [
     ("torch", "torch", "PyTorch 深度学习框架（训练核心）"),
     ("numpy", "numpy", "数组计算"),
     ("scipy", "scipy", "滤波器 / 重采样"),
-    ("transformers", "transformers", "HuBERT 特征提取"),
 ]
 OPTIONAL_PACKAGES = [
     ("PySide6", "PySide6", "GUI（仅推理端需要）"),

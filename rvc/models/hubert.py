@@ -1,64 +1,29 @@
-"""HuBERT 模型加载 — 使用 HuggingFace transformers 加载转换后的 HuBERT。
+"""HuBERT 模型加载 — 纯 torch 复刻，推理/训练均不依赖 transformers。
 
-注意力实现走 transformers 的 sdpa（config._attn_implementation），本项目
-未安装 flash_attention_2，不要假设其存在。HuBERT 特征 20ms/帧（50fps，
-hop 320 @ 16k）是链路的硬成本：extra 上下文时长折算出的帧数直接决定推理耗时下限。
+复刻体在 rvc.models.hubert_replica（模块命名对齐 transformers，权重直装，
+三变体 fp16/fp32 实测 max|Δ|=0）。为什么复刻：`from transformers import HubertModel`
+会连带拉起 torch._dynamo + sklearn，导入耗时数秒（热）乃至 70s（冷启杀软首扫）并常驻
+约 160MB 私有内存，而 HuBERT 在本项目只作冻结特征器，用不到那套 machinery。
+详见 hubert_replica 模块文档。
 
-**transformers 是延迟导入的**：它会把 sklearn / torch._dynamo / auto_factory
-一起拉起来（实测 ~20s），而这只在「真的要加载特征器」时才需要。放在模块顶层
-会让任何 `import rvc.pipeline.pipeline`（CLI、测试、离线初始化、甚至只是读取
-配置的代码路径）都白付这笔钱。延迟到 load_hubert 首次调用，代价落在本来就要
-等模型加载的地方，其余路径零成本。
+本模块只保留加载入口与变体校验；设备/精度由调用方经 config 传入。
 """
 import logging
 import os
-import sys
-from typing import Any
 
 import torch
-from torch import nn
 
 from rvc.core.config import HUBERT_DEFAULT, HUBERT_VARIANTS
 from rvc.core.errors import FeatureExtractionError
+from rvc.models.hubert_replica import load_replica
 from rvc.runtime.paths import HUBERT_ROOT
 
 logger = logging.getLogger(__name__)
 
 # HuBERT 特征器按子目录管理：assets/hubert/<variant>/（base = RVC 生态标准的
 # hubert_base；chinese = 腾讯 chinese-hubert-base；ktum = KtUltraMorph 自训练版）。
-# 训练与推理必须用同一特征器；每张模型卡牌/每次训练可独立选择 variant。
-# 变体清单与缺省值的单源在 rvc.core.config（HUBERT_VARIANTS / HUBERT_DEFAULT = base）。
-# HUBERT_ROOT 统一来自 rvc.runtime.paths（assets/hubert）
+# 训练与推理必须用同一特征器；变体清单与缺省值单源在 rvc.core.config。
 __all__ = ["HUBERT_VARIANTS", "HUBERT_DEFAULT", "hubert_path", "load_hubert"]
-
-# 延迟构造出的「HubertModel + final_proj」子类（构造一次后复用，保证类型唯一）
-_hubert_model_class = None
-
-
-def _model_class():
-    """返回 HubertModelWithFinalProj 类（首次调用时才 import transformers）。"""
-    global _hubert_model_class
-    if _hubert_model_class is None:
-        # 关闭 transformers 加载权重时的 tqdm 进度条（与统一日志格式冲突）
-        from transformers import HubertModel
-        from transformers.utils.logging import disable_progress_bar
-
-        disable_progress_bar()
-
-        class HubertModelWithFinalProj(HubertModel):
-            """Transformers HuBERT 加 RVC 需要的 final_proj 层。
-
-            forward 直接可调用（transformers 约定，return_dict=True 默认返回
-            BaseModelOutput），特征提取层用 outputs.last_hidden_state 取值，
-            不需要包一层适配。final_proj 是 RVC 导出模型的固定结构。
-            """
-
-            def __init__(self, config: Any) -> None:
-                super().__init__(config)
-                self.final_proj = nn.Linear(config.hidden_size, config.classifier_proj_size)
-
-        _hubert_model_class = HubertModelWithFinalProj
-    return _hubert_model_class
 
 
 def hubert_path(variant: str = HUBERT_DEFAULT) -> str:
@@ -66,46 +31,25 @@ def hubert_path(variant: str = HUBERT_DEFAULT) -> str:
     return str(HUBERT_ROOT / variant)
 
 
-def load_hubert(config: Any, variant: str = HUBERT_DEFAULT) -> Any:
+def load_hubert(config, variant: str = HUBERT_DEFAULT):
     """加载 HuBERT 特征器（纯加载，不做缓存）。
 
-    缓存策略属于调用方（pipeline 组装层 / 训练侧各自的加载上下文），
-    模型层只负责把权重装到设备上。
+    缓存策略属于调用方（推理 InferenceCache / 训练侧 _hubert_cache），
+    模型层只负责把权重装到设备上。config 需带 device / is_half。
     """
     if variant not in HUBERT_VARIANTS:
         raise FeatureExtractionError(f"未知 HuBERT 变体: {variant!r}（可选 {HUBERT_VARIANTS}）")
     model_path = hubert_path(variant)
-    missing = [f for f in ("config.json", "preprocessor_config.json", "pytorch_model.bin")
+    # 复刻只需 config.json + pytorch_model.bin（preprocessor_config.json 是
+    # transformers 音频预处理用，复刻不经它，故不再校验）
+    missing = [f for f in ("config.json", "pytorch_model.bin")
                if not os.path.exists(os.path.join(model_path, f))]
     if missing:
         raise FeatureExtractionError(
             f"HuBERT 权重缺失: {model_path}/{missing[0]}（{variant} 特征器未就位，"
-            f"请确认 assets/hubert/{variant}/ 三件套完整）"
+            f"请确认 assets/hubert/{variant}/ 含 config.json 与 pytorch_model.bin）"
         )
 
     dtype = torch.float16 if config.is_half else torch.float32
     logger.info("  · HuBERT（%s, variant=%s）", dtype, variant)
-
-    # GUI 无控制台环境（pythonw / 打包 exe）下 sys.stdout / sys.stderr 为 None，
-    # transformers 打印 LOAD REPORT（base 的 final_proj 属于「未被 forward 使用的键」，
-    # chinese 缺 final_proj 会被记为 MISSING，两者都会触发）会调 isatty() 崩溃。
-    # 保存原始值，from_pretrained 期间临时替换为 devnull，完成后恢复并关闭。
-    _stdout, _stderr = sys.stdout, sys.stderr
-    try:
-        if sys.stdout is None:
-            sys.stdout = open(os.devnull, "w")
-        if sys.stderr is None:
-            sys.stderr = open(os.devnull, "w")
-        hubert_model = _model_class().from_pretrained(
-            model_path,
-            local_files_only=True,
-        ).to(device=config.device, dtype=dtype).eval()
-    finally:
-        if sys.stdout is not _stdout:
-            sys.stdout.close()
-            sys.stdout = _stdout
-        if sys.stderr is not _stderr:
-            sys.stderr.close()
-            sys.stderr = _stderr
-
-    return hubert_model
+    return load_replica(model_path, config.device, config.is_half)

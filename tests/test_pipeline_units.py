@@ -115,7 +115,7 @@ class _FakeGraphCache:
 
 
 def _patched_load():
-    """加载器替换为假实现的 patcher 列表（真加载需要权重与 transformers）。"""
+    """加载器替换为假实现的 patcher 列表（真加载需要权重）。"""
     return [
         mock.patch("rvc.pipeline.sessions.load_hubert"),
         mock.patch("rvc.pipeline.sessions.SynthesizerLoader"),
