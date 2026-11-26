@@ -14,7 +14,7 @@
   PySide6 6.11.1，numpy/onnxruntime 见 requirements.txt）。transformers 5.9.0 仍装在
   venv，但**推理/训练路径已不导入**——HuBERT 改用纯 torch 复刻 `rvc/models/hubert_replica.py`
 - 测试：`.venv/Scripts/python.exe -m unittest discover -s tests`
-  **stdlib unittest，不用 pytest，不写 conftest**。当前 319 例，全部无需 GPU 与模型；
+  **stdlib unittest，不用 pytest，不写 conftest**。当前 327 例，全部无需 GPU 与模型；
   耗时大头是真实 checkpoint 用例
   （`test_state_dict_keys`、`test_train_pipeline_contracts`），纯函数契约部分仍是秒级
 - torch 必须单独装：
@@ -28,6 +28,12 @@
   三变体 × fp16/fp32 与 transformers 逐位等价（max|Δ|=0），图捕获 replay 一致；
   由此消除 `from transformers import HubertModel` 的导入开销（实测约 160MB USS、
   数秒热启乃至 70s 冷启，连带 sklearn/torch._dynamo），`load_model` 热启 6.67s→2.69s
+- **后台预暖推理图**：预热线程在 `preload_last_model` 后调 `prewarm_runner`，用当前配置
+  anticipated 几何造临时 runner 捕获 HuBERT/F0/合成器图（不挂 `_runner`、不开流）。
+  首次点击「变声」时 `setup` 命中同几何签名（`_runner_sig`）即把 warmup 退化为 2 次 replay，
+  点击重活 `_make_runner` 实测 2.55s→0.11s。互斥：`_setup_lock` 串行 setup 与预暖，
+  预暖另持 `_offline_lock`（非阻塞，离线在跑则跳过）。几何不匹配只是图签名不命中、
+  setup 照常现场捕获，无回归。预暖参数由 view 层在主线程解析（`_collect_prewarm_args`）
 - **GUI 启动不拉 torch**：`import gui.view.window` 不 import torch（具体秒数不记录，
   环境变过就不要拿旧数字当真）。链路上别往 gui/controller
   的模块顶层加会 import torch 的东西（cache/graph/engine 一律惰性）
@@ -385,7 +391,7 @@ core=0，runtime=1，dsp/nn/io=2，models=3，pipeline=4，streaming/train=5，g
   **截取**用（"不需要全部用上，分别截取就行"）。试听交付 = 走**生产离线链路** +
   用户存档参数渲染指定文件到桌面，不是 loss 数字
 - **端到端验证脚本没有存档**：验训练按本节口径重建最小链路（合成素材 → 预处理 → F0 →
-  特征 → filelist → 2 epoch → 导出 → 续训）。319 例单测覆盖不到"必崩缺陷"那一层
+  特征 → filelist → 2 epoch → 导出 → 续训）。327 例单测覆盖不到"必崩缺陷"那一层
 
 ### 11.1 训练是 GPU-bound，数据管道参数不是杠杆
 

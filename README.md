@@ -6,7 +6,7 @@
 
 - **实时变声** — 麦克风输入实时转换输出，延迟实时显示（端到端 ≈ 2×块时长 + 推理耗时 + 驱动层补偿；补偿为实测校准值，见 `engine._DRIVER_LATENCY_COMPENSATION_MS`，换输出设备需重新标定）
 - **F0 双后端** — FCPE（实时首选，mel 前端为仓库内无同步复刻）与 RMVPE 可切换
-- **快速启动** — 惰性导入架构，窗口秒开；torch 后台预热，首次点「开始」不卡顿
+- **快速启动** — 惰性导入架构，窗口秒开；torch、上次模型与推理图都在后台预热/预暖，首次点「开始」省去现场捕获图的等待（点击重活实测 2.55s→0.11s）
 - **CUDA Graph 加速** — HuBERT / F0 网络 / 合成器全链路图捕获（FCPE 的 mel 前端刻意 eager，见 pipeline 注释），开流前静音预热完成
 - **系统托盘** — 关闭窗口最小化到托盘（变声不中断），托盘可开始/停止变声
 - **离线推理** — 音频文件流式转换（复用实时全链路，**显存**封顶不随音频变长；输出块累积在内存里，内存占用与音频时长成正比）
@@ -191,6 +191,7 @@ rank 0   rvc/core                       # 配置 / 常量 / 异常（最底层�
 - **F0 后处理：双后端一份实现** — 训练（numpy）与推理（torch）必须逐值一致，所以 `apply_pitch_map` / `normalize_f0_to_coarse` 只保留一份数学表达式，`clip/where/nan_to_num/取整` 经 `_Ops` 注入；等价性由单测锁定。
 - **惰性导入** — GUI 启动路径不 import torch，窗口秒开；torch 后台预热，首次点「开始」不卡顿。HuBERT 进一步改用纯 torch 复刻（`rvc/models/hubert_replica.py`），推理/训练路径都不再 import transformers——后者会连带拉起 sklearn 与 torch._dynamo，是启动耗时与私有内存的最大变数。复刻逐字对齐 transformers 的推理前向与模块命名，权重直装、三变体 × fp16/fp32 逐位等价（max|Δ|=0）。
 - **无 GPU 直接报中文错误、不做 CPU 回退** — 刻意行为：实时链路的数值路径按 CUDA 设计，CPU 回退既慢又会掩盖配置问题。
+- **后台预暖推理图** — 预热线程加载上次模型后，再用当前配置的 anticipated 几何造一个临时 runner 捕获 HuBERT/F0/合成器图（`VoiceEngine.prewarm_runner`，不挂 `_runner`、不开流）。图按几何签名缓存于共享模型上，首次点击 `setup` 命中同签名（`_runner_sig`）就把 warmup 退化为少量 replay，省去现场捕获的 ~1s 断音等待。`_setup_lock` 串行 setup 与预暖，预暖另持 `_offline_lock`（非阻塞，离线在跑则跳过）；几何不匹配只是签名不命中、照常现场捕获，无回归。预暖所需设备索引由 view 层在主线程解析后传入后台线程。
 - **`default_inference_cache` 保持全局单例** — 实时/离线共用一份图缓存是有意设计，若改成实例归属，跨管线复用就没了。
 - **模型缓存的回收点在「淘汰」，不在「加载」** — 命中缓存时拿到的就是上次那个对象，它的图仍然有效；在那里 purge 等于每次切回旧模型都重捕获一遍。`LRUCache.set` 把被淘汰的值回报给调用方，由 `InferenceCache` 显式回收（模型清图、提取器 `release()`）。
 - **训练分桶采样不丢桶尾** — 语料量不是 `batch_size` 整数倍时，按 `range(0, len - len % bs, bs)` 切会把桶尾样本每轮静默跳过且无提示；正确做法是把各桶尾部合并成尾批，`__len__` 与批次数严格相等（`ceil(total/bs)`）。

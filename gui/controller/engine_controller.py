@@ -145,6 +145,20 @@ class InferController:
         except Exception:
             logger.warning("后台预加载模型失败（点击变声时将正常加载）：%s", pth, exc_info=True)
 
+    def prewarm_engine(self, sr_mode: str, input_device_idx: int, output_device_idx: int,
+                       block_time: float, crossfade_time: float, extra_time: float) -> None:
+        """后台预暖推理图（引擎预热线程收尾时调用，设备索引由 view 层在主线程解析）。
+
+        提前捕获 HuBERT/F0/合成器图，首次点「变声」时 setup 命中同几何即纯 replay，
+        省去现场捕获的等待。纯优化：引擎未构造或失败都静默，点击路径会正常预热。
+        """
+        if self._engine is None:
+            return
+        self.engine.prewarm_runner(
+            sr_mode, input_device_idx, output_device_idx,
+            block_time, crossfade_time, extra_time,
+        )
+
     def snapshot(self) -> RuntimeTelemetry:
         """运行状态只读快照（View 订阅快照，不穿透引擎内部）。"""
         eng = self._engine

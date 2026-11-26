@@ -119,6 +119,10 @@ class WindowLifecycle:
         """后台线程预热 engine — 首次构造会加载 torch 并做 CUDA 探测。"""
         import threading
 
+        # 预暖参数必须在主线程解析（读下拉框/控件是 Qt 操作，后台线程碰不得）。
+        # 此刻设备下拉已在窗口构造期同步回填，解析结果反映持久化配置的选择。
+        prewarm_args = self._collect_prewarm_args()
+
         def _do():
             try:
                 self.controller.warmup()
@@ -129,6 +133,9 @@ class WindowLifecycle:
                 # 顺手预加载上次模型（同在后台线程）：点「变声」时跳过
                 # torch.load + 搬 GPU（~1-2s），只剩 warmup + 开流
                 self.controller.preload_last_model()
+                # 模型就绪后接着预暖推理图：首次点击「变声」省去现场捕获图的等待
+                if prewarm_args is not None:
+                    self.controller.prewarm_engine(*prewarm_args)
             except Exception as e:
                 logger.warning("引擎预热失败（点开始时将再次尝试）", exc_info=True)
                 # 无 GPU 等致命错误：经信号投递到主线程弹提示（后台线程不能
@@ -138,6 +145,22 @@ class WindowLifecycle:
                 )
 
         threading.Thread(target=_do, daemon=True, name="engine-warmup").start()
+
+    def _collect_prewarm_args(self):
+        """主线程解析后台预暖所需的设备索引与缓冲参数；失败返回 None（跳过预暖）。
+
+        与 _on_loaded 的 setup_engine 取同一套控件值，保证预暖几何与点击几何一致。
+        预暖是纯优化，设备未就绪/越界等任何异常都不该阻断预热流程。
+        """
+        try:
+            state = self.collect_gui_state()
+            in_idx = self.device_catalog.get_input_device_index(self.input_combo.currentIndex())
+            out_idx = self.device_catalog.get_output_device_index(self.output_combo.currentIndex())
+            return (state.audio.sr_mode, in_idx, out_idx,
+                    state.buffer.block_time, state.buffer.crossfade_time, state.buffer.extra_time)
+        except Exception:
+            logger.debug("预暖参数解析失败，跳过后台预暖", exc_info=True)
+            return None
 
     # ── 实时遥测刷新 ──
 

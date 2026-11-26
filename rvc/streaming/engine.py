@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 # 首几秒卡顿。
 _WARMUP_ITERATIONS = 10
 
+# 后台预暖已捕获图时的点击 warmup 次数。图已就绪，warmup 退化为纯 replay，
+# 只需少量迭代爬 GPU 时钟；省去首次点击现场捕获图的 ~1s 等待。
+_PREWARMED_WARMUP_ITERATIONS = 2
+
 # 驱动层延迟补偿（毫秒）。WASAPI 共享模式下 PortAudio 拿不到「系统混音器 + 声卡
 # 驱动缓冲」的真实深度（硬件时间戳偏小、stream.latency 偏大），只能靠校准值补。
 # 100.0 = 2026-11-09 用 tools/vb_loopback_latency.py 对拍实测的固定开销：往
@@ -86,6 +90,13 @@ class VoiceEngine:
         # 离线转换互斥锁：process_file 会替换 self._runner，两个并发调用会互相
         # 破坏 CUDA Graph 捕获。用非阻塞获取，冲突时立刻报错而非静默出错。
         self._offline_lock = threading.Lock()
+        # runner 构建互斥锁：串行化 setup（主线程）与后台预暖 prewarm_runner。
+        # 两者都经 _make_runner 写共享 pipeline.state 并捕获图，必须互斥；
+        # 预暖持锁期间点击 setup 会等它完成，随后命中已捕获的图走纯 replay。
+        self._setup_lock = threading.Lock()
+        # 后台预暖成功时的几何签名（见 _runner_sig）。setup 命中同签名时把
+        # warmup 退化为少量 replay（图已捕获，无需 10 次爬频），缩短点击出声。
+        self._prewarm_sig = None
 
         # 不做周期性 empty_cache：稳态下分配模式固定、缓存池不再增长，回收没有
         # 收益，反而可能经分配器锁与音频回调竞争造成周期性抖动。setup/stop 各有
@@ -184,38 +195,95 @@ class VoiceEngine:
             block_time / crossfade_time / extra_time: 时长参数（秒），与
                 InferenceParams.buffer 同名字段一一对应。
         """
-        if self._streams.main_stream is not None:
-            self.stop()
-        # 仅首次保存系统默认设备（重启引擎时 stop 已恢复为系统默认，保存值不变）
-        if self._saved_default_device is None:
-            self._saved_default_device = tuple(sd.default.device)
-        sd.default.device = [in_dev, out_dev]
-        self.device_sr = int(sd.query_devices(in_dev)["default_samplerate"])
-        self.model_sr = self.pipeline.model_sr
-        sr = self.model_sr if sr_mode == "model" else self.device_sr
+        # 全程持 _setup_lock：与后台预暖 prewarm_runner 互斥（两者都经
+        # _make_runner 写共享 pipeline.state 并捕获图）。预暖在跑时点击会等它
+        # 完成，随后命中已捕获的图；running=True 也在锁内置位，预暖复检即跳过。
+        with self._setup_lock:
+            if self._streams.main_stream is not None:
+                self.stop()
+            # 仅首次保存系统默认设备（重启引擎时 stop 已恢复为系统默认，保存值不变）
+            if self._saved_default_device is None:
+                self._saved_default_device = tuple(sd.default.device)
+            sd.default.device = [in_dev, out_dev]
+            self.device_sr = int(sd.query_devices(in_dev)["default_samplerate"])
+            self.model_sr = self.pipeline.model_sr
+            sr = self.model_sr if sr_mode == "model" else self.device_sr
 
-        # 设备校验与日志
-        self._streams.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
-        channels = self._streams.channels
+            # 设备校验与日志
+            self._streams.validate_and_log_devices(in_dev, out_dev, out2_dev_idx)
+            channels = self._streams.channels
 
-        # 推理运行器初始化（实时模式：预热后重置缓冲区）
-        self._runner = self._make_runner(
-            sr, channels, block_time, crossfade_time, extra_time, self.model_sr,
-            reset_buffers=True, prewarm_formant=True)
+            # 后台预暖已为同一几何捕获过图时，warmup 退化为少量 replay。
+            sig = self._runner_sig(sr, channels, block_time, crossfade_time, extra_time)
+            iters = (_PREWARMED_WARMUP_ITERATIONS if self._prewarm_sig == sig
+                     else _WARMUP_ITERATIONS)
 
-        # 启动主流（显式指定设备，不依赖 sd.default.device）
-        self._streams.start_main_stream(
-            self._cb, sr, channels, self._runner.state.block_samples,
-            in_dev=in_dev, out_dev=out_dev,
-        )
-        self.running = True
+            # 推理运行器初始化（实时模式：预热后重置缓冲区）
+            self._runner = self._make_runner(
+                sr, channels, block_time, crossfade_time, extra_time, self.model_sr,
+                reset_buffers=True, prewarm_formant=True, warmup_iters=iters)
 
-        # 启动副输出（如果指定）
-        if out2_dev_idx is not None:
-            self.setup_out2(out2_dev_idx)
+            # 启动主流（显式指定设备，不依赖 sd.default.device）
+            self._streams.start_main_stream(
+                self._cb, sr, channels, self._runner.state.block_samples,
+                in_dev=in_dev, out_dev=out_dev,
+            )
+            self.running = True
+
+            # 启动副输出（如果指定）
+            if out2_dev_idx is not None:
+                self.setup_out2(out2_dev_idx)
+
+    def _runner_sig(self, work_sr, channels, block_time, crossfade_time, extra_time):
+        """runner 几何签名：决定图缓存键的全部输入（含模型与特征器）。
+
+        后台预暖与点击 setup 用同一签名比对：一致说明预暖捕获的图可直接复用。
+        formant 不入签名——它只影响合成器图（prewarm_formant 单独按当前档位捕获），
+        HuBERT/F0 图与 formant 无关，预暖后即便切档 warmup 仍是 replay。
+        """
+        return (work_sr, channels, block_time, crossfade_time, extra_time,
+                self.pipeline.model_sr, self.pth_path, self.pipeline.hubert_variant)
+
+    def prewarm_runner(self, sr_mode, in_dev, out_dev, block_time, crossfade_time,
+                       extra_time):
+        """后台预暖：提前捕获图，让首次点击「变声」省去现场捕获的等待。
+
+        纯优化，失败静默（点击路径会正常预热）。用当前配置 anticipated 几何造一个
+        **临时** runner 跑 warmup + prewarm_formant，把图捕获到共享缓存的模型上；
+        不挂 self._runner、不开流、不置 running。点击 setup 命中同签名即纯 replay。
+
+        互斥：持 _offline_lock（非阻塞，离线在跑则跳过）+ _setup_lock（与 setup
+        串行）。几何与点击不一致时只是图签名不命中，setup 照常现场捕获，不会出错。
+        """
+        if self.pipeline is None or self.running:
+            return
+        if not self._offline_lock.acquire(blocking=False):
+            return
+        try:
+            with self._setup_lock:
+                if self.pipeline is None or self.running:
+                    return
+                model_sr = self.pipeline.model_sr
+                device_sr = int(sd.query_devices(in_dev)["default_samplerate"])
+                sr = model_sr if sr_mode == "model" else device_sr
+                in_max = int(sd.query_devices(in_dev)["max_input_channels"])
+                out_max = int(sd.query_devices(out_dev)["max_output_channels"])
+                channels = min(in_max, out_max, 2)
+                # 临时 runner：只捕获图，不挂载、不开流（与 setup 的 _make_runner 同一函数）
+                self._make_runner(
+                    sr, channels, block_time, crossfade_time, extra_time, model_sr,
+                    reset_buffers=True, prewarm_formant=True)
+                self._prewarm_sig = self._runner_sig(
+                    sr, channels, block_time, crossfade_time, extra_time)
+                logger.info("后台预暖完成，首次点击「变声」将直接就绪")
+        except Exception:
+            logger.warning("后台预暖失败（点击变声时正常预热）", exc_info=True)
+        finally:
+            self._offline_lock.release()
 
     def _make_runner(self, work_sr, channels, block_time, crossfade_time, extra_time,
-                     model_sr, *, reset_buffers=True, prewarm_formant=False):
+                     model_sr, *, reset_buffers=True, prewarm_formant=False,
+                     warmup_iters=_WARMUP_ITERATIONS):
         """构造并初始化 InferenceRunner（实时 setup 与离线 process_file 共用）。
 
         只负责「造一个可用的 runner」，不写 self——由调用方决定挂在哪里。
@@ -231,15 +299,16 @@ class VoiceEngine:
             prewarm_formant: 是否预捕获合成器图（只有实时需要：省首块的现场捕获
                 断音）。只捕获当前 formant 档位——每档各持一份私有显存池，全量程
                 预捕获常驻占用远高于单档；其余档位拖滑条时现场补捕获（一次性顿一下）
+            warmup_iters: 预热块数。图已预捕获时调用方传少量（纯 replay 爬频即可），
+                否则用默认 10 次（含首块现场捕获图）。
         """
         runner = InferenceRunner(self.pipeline, self.runtime_params)
         runner.init_processing(
             work_sr, block_time, crossfade_time, extra_time, channels, model_sr)
         runner.reset_error_state()
-        # 预热 10 次：职能 = GPU 升频 + cuDNN/L2 缓存热身（图捕获发生在首块
-        # 缺失处，与次数无关；图跨重启复用后预热已是纯 replay，见
-        # _WARMUP_ITERATIONS 注释）。换回慢机冷启动若首几秒卡顿，先查这里。
-        runner.warmup(_WARMUP_ITERATIONS)
+        # 预热职能 = GPU 升频 + cuDNN/L2 缓存热身（图捕获发生在首块缺失处，
+        # 与次数无关；图跨重启复用后预热已是纯 replay，见 _WARMUP_ITERATIONS 注释）。
+        runner.warmup(warmup_iters)
         if prewarm_formant:
             # 只预捕获当前档位：全量程每档各持一份私有显存池，常驻占用远高于单档位；其余档位拖滑条时现场补捕获。
             current = self.runtime_params.voice.formant
